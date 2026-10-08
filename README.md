@@ -236,6 +236,7 @@ theory/          theory notes and references
 
 ## License
 
-engiNIR © 2026 Johannes Poms.
-Please cite it as 
+Please cite engiNIR as:  
+Johannes Poms. (2026). TUstudents/engiNIR: A universal engineering tool for near-infrared spectra and hyperspectral imaging. Python package. Zenodo. https://doi.org/10.5281/zenodo.23235908  
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23235908.svg)](https://doi.org/10.5281/zenodo.23235908)  
 Licensed under CC BY 4.0.
