@@ -69,7 +69,7 @@ Requirements:
 - `uv` is the recommended environment manager
 
 ```bash
-git clone https://rcpe-gitlab/pat/enginir.git
+git clone https://github.com/TUstudents/engiNIR/enginir.git
 cd enginir
 
 # runtime dependencies
@@ -233,19 +233,6 @@ plan/            engineering plans and design notes
 theory/          theory notes and references
 ```
 
-## Status
-
-engiNIR is a strong baseline release for project-backed NIR/HSI work.
-The original library implementation plan and test-suite compression plan are
-complete. Current local verification is ruff clean, pyright clean, and
-`353` pytest tests passing. The Sphinx documentation builds cleanly with
-warnings treated as errors.
-
-The product is stable enough to build on, but the roadmap still prioritizes:
-
-- stronger model comparison and interpretation
-- richer prediction analysis and uncertainty workflows
-- broader chemometric workflow support
 
 ## License
 
