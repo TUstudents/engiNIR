@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.0.1 (2026-10-20)
+
+### Fixed
+
+- Cross-validation of model runs (`Project.fit` and the viewer's Model
+  workspace) is reproducible. With 7 or more ROIs, `GroupKFold` received the
+  random ROI ids as group labels, so which ROIs shared a fold, and with it
+  RMSECV, R², bias and the cross-validated predictions, changed whenever the
+  same analysis was repeated in a new project (the documented example
+  reported R² between 0.87 and 0.94). Folds now follow the order of the ROIs
+  in the sample set.
+- The fitted model and its predictions were never affected: the final model
+  is fitted on all pixels. Stored model runs are unchanged. Refitting an
+  analysis with 7 or more ROIs under `cv="auto"` or an integer `cv` can
+  report different, now reproducible, cross-validation metrics than under
+  1.0.0. Leave-one-ROI-out (`cv="logo"`, and `"auto"` with fewer than 7 ROIs)
+  is not affected.
+
 ## 1.0.0 (2026-10-20)
 
 First public release.
