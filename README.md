@@ -1,7 +1,8 @@
 # engiNIR
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23235907.svg)](https://doi.org/10.5281/zenodo.23235907)
-[![Documentation](https://readthedocs.org/projects/enginir/badge/?version=latest)](https://enginir.readthedocs.io/en/latest/)
+[![Documentation](https://app.readthedocs.org/projects/enginir/badge/?version=stable)](https://enginir.readthedocs.io/en/stable/)
+[![Python](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2FTUstudents%2FengiNIR%2Fmain%2Fpyproject.toml)](https://pypi.org/project/enginir/)
 
 engiNIR turns near-infrared spectra and hyperspectral images into validated
 calibration models and property predictions, with every step recorded. It is
