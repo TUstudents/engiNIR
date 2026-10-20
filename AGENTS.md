@@ -101,7 +101,10 @@ These are contract decisions; do not change them without a contract change.
   scikit-learn). `metrics_report` takes calibration and test vectors
   separately.
 - Narrow optional Qt/HDF5 values at boundaries instead of suppressing pyright.
-- Python 3.13, src layout (`src/enginir/`), ruff target `py313`.
+- Python 3.12 and newer, src layout (`src/enginir/`); ruff target `py312`
+  and pyright `pythonVersion = "3.12"` (so APIs newer than 3.12 are
+  reported). CI runs the gates on 3.12, 3.13 and 3.14; add each new
+  Python release to the matrix.
 
 ## Tests
 

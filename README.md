@@ -27,13 +27,14 @@ built for pharmaceutical process analytics.
 
 ## Usage
 
-engiNIR needs Python 3.13. Install it with [uv](https://docs.astral.sh/uv/):
+engiNIR needs Python 3.12 or newer. Add it to a
+[uv](https://docs.astral.sh/uv/) project:
 
 ```bash
-git clone https://github.com/TUstudents/engiNIR.git
-cd engiNIR
-uv sync
+uv add enginir
 ```
+
+To work on engiNIR itself, clone the repository and run `uv sync`.
 
 ### Viewer
 

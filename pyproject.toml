@@ -4,11 +4,11 @@ build-backend = "uv_build"
 
 [project]
 name = "enginir"
-version = "1.0.0rc4"
+version = "1.0.0"
 description = "engiNIR: chemometric tools and project-backed workflows for NIR spectra and hyperspectral imaging"
 readme = "README.md"
 authors = [{ name = "Johannes Poms" }]
-requires-python = ">=3.13,<3.14"
+requires-python = ">=3.12"
 license = "CC-BY-4.0"
 license-files = ["LICENSE"]
 dependencies = [
@@ -51,7 +51,7 @@ include = ["src/enginir/_resources/*.ico", "src/enginir/viewer/themes/*.xml"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py313"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F"]
@@ -67,6 +67,9 @@ exclude = [
     "plan",
     ".venv",
 ]
+# Check against the oldest supported Python, so newer standard-library APIs
+# are reported.
+pythonVersion = "3.12"
 venvPath = "."
 venv = ".venv"
 

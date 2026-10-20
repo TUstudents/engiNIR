@@ -4,8 +4,21 @@ Installation
 Requirements
 ------------
 
-- Python >= 3.13 and < 3.14
+- Python >= 3.12
 - `uv <https://docs.astral.sh/uv/>`_ (recommended)
+
+Install from PyPI
+-----------------
+
+.. code-block:: bash
+
+   uv add enginir
+
+With pip:
+
+.. code-block:: bash
+
+   pip install enginir
 
 Install from source
 -------------------
@@ -32,9 +45,12 @@ Running tests
 
 .. code-block:: bash
 
-   uv run ruff check src/enginir tests
-   uv run pyright src/enginir
    uv run pytest
+   uv run ruff check src/enginir tests docs/examples
+   uv run pyright src/enginir
+
+Set ``QT_QPA_PLATFORM=offscreen`` to run the viewer tests on a machine
+without a display.
 
 Building the docs
 -----------------

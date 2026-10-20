@@ -1,39 +1,8 @@
 # Changelog
 
-## 1.0.0rc4 (2026-10-20)
+## 1.0.0 (2026-10-20)
 
-Fourth release candidate for 1.0.0. The library is unchanged from 1.0.0rc3.
-
-### Documentation
-
-- Editorial changes to the EIFF format reference.
-
-## 1.0.0rc3 (2026-10-20, tagged, not published)
-
-Third release candidate for 1.0.0. The library is unchanged from 1.0.0rc2.
-
-### Packaging
-
-- Published GitHub releases are uploaded to PyPI by a workflow that checks
-  that the tag and the pre-release flag match the version and that CI passed
-  for the commit.
-- The documentation is on Read the Docs, linked from the README and the
-  package metadata.
-
-## 1.0.0rc2 (2026-10-20, tagged, not published)
-
-Second release candidate for 1.0.0. The library is unchanged from 1.0.0rc1.
-
-### Tests
-
-- The test suite isolates the viewer's configuration directory, so tests
-  never write to the user's `~/.config/enginir`. On 1.0.0rc1 the
-  recent-files tests ignored an `XDG_CONFIG_HOME` set by the environment and
-  failed on GitHub runners.
-
-## 1.0.0rc1 (2026-10-20, tagged, not published)
-
-Release candidate for 1.0.0, the first public release.
+First public release.
 
 ### Workflow
 
@@ -73,6 +42,15 @@ Release candidate for 1.0.0, the first public release.
   stored objects cannot be overwritten with different content.
 - Prediction streams through image files in bounded memory.
 
+### Packaging
+
+- Python 3.12 and newer; CI runs on 3.12, 3.13 and 3.14.
+- Install from PyPI with `uv add enginir` or `pip install enginir`.
+- Documentation on Read the Docs: <https://enginir.readthedocs.io>.
+- Each GitHub release is archived on Zenodo and uploaded to PyPI by a
+  workflow that checks that the tag matches the version and that CI passed
+  for the commit.
+
 ### Notes for users of pre-1.0 versions
 
 - Fitted estimators pickled with engiNIR before 1.0 cannot be loaded: their
@@ -83,3 +61,9 @@ Release candidate for 1.0.0, the first public release.
 - SNV divides by the sample standard deviation (n - 1), as defined by Barnes
   et al.; earlier versions used the population standard deviation, which
   scales SNV spectra by sqrt(n / (n - 1)) (0.2 % for 220 bands).
+
+## Release candidates
+
+1.0.0rc1 to 1.0.0rc3 were tagged but not published; 1.0.0rc4 was published
+as a pre-release. The library code is the same in all release candidates and
+in 1.0.0; they differ in tests, packaging and documentation only.
