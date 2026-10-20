@@ -1,6 +1,14 @@
 # Changelog
 
-## 1.0.0rc3 (2026-10-20)
+## 1.0.0rc4 (2026-10-20)
+
+Fourth release candidate for 1.0.0. The library is unchanged from 1.0.0rc3.
+
+### Documentation
+
+- Editorial changes to the EIFF format reference.
+
+## 1.0.0rc3 (2026-10-20, tagged, not published)
 
 Third release candidate for 1.0.0. The library is unchanged from 1.0.0rc2.
 
