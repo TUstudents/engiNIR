@@ -1,6 +1,18 @@
 # Changelog
 
-## 1.0.0rc2 (2026-10-20)
+## 1.0.0rc3 (2026-10-20)
+
+Third release candidate for 1.0.0. The library is unchanged from 1.0.0rc2.
+
+### Packaging
+
+- Published GitHub releases are uploaded to PyPI by a workflow that checks
+  that the tag and the pre-release flag match the version and that CI passed
+  for the commit.
+- The documentation is on Read the Docs, linked from the README and the
+  package metadata.
+
+## 1.0.0rc2 (2026-10-20, tagged, not published)
 
 Second release candidate for 1.0.0. The library is unchanged from 1.0.0rc1.
 
