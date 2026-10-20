@@ -1,242 +1,101 @@
 # engiNIR
 
-`engiNIR` is the universal engineering tool for near-infrared spectra and
-hyperspectral imaging.
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23235907.svg)](https://doi.org/10.5281/zenodo.23235907)
 
-The Python package name remains `enginir`. The desktop viewer command remains
-`enginir-viewer`.
+engiNIR turns near-infrared spectra and hyperspectral images into validated
+calibration models and property predictions, with every step recorded. It is
+built for pharmaceutical process analytics.
 
-The release version is defined in `pyproject.toml`.
+## Workflow
 
-## What engiNIR is for
+1. **Import** EVK EIFF, ENVI, HDF5, CSV/Excel, SPC, SPA and JCAMP-DX data.
+2. **Calibrate** raw counts with dark and white reference spectra.
+3. **Preprocess** with strict recipes: Savitzky-Golay, SNV, MSC, EMSC, detrend.
+4. **Model** with PLS or PCR, cross-validated by region of interest.
+5. **Review** diagnostics and figures of merit.
+6. **Predict** properties of new spectra and whole images.
 
-engiNIR is built for real chemometric work, not one-off notebook prototypes.
-It supports the full HSI workflow:
+## Guarantees
 
-1. load raw spectral or hyperspectral data
-2. attach dataset-local calibration
-3. inspect spectra and spatial context
-4. define ROIs and targets inside a project-backed workspace
-5. build reproducible sample sets
-6. fit and persist model runs
-7. apply saved models to new datasets
-8. inspect and persist prediction maps with provenance
+- Training and prediction run through the same calibration and preprocessing
+  pipeline.
+- Prediction is refused when new data does not match the model's instrument
+  format, number of bands, calibration or signal unit.
+- One project file links data, references, recipes, models and predictions;
+  saved results cannot be altered.
 
-The current product is strongest as a project-backed HSI workbench with a
-responsive PyQt viewer, explicit scientific workspace objects, and practical
-NIR preprocessing/modeling utilities.
+## Usage
 
-## Release highlights
-
-The current release tightens the stable baseline:
-
-- v3 HDF5 scientific workspaces with first-class datasets, calibrations, ROIs,
-  targets, assignments, recipes, signal-domain contracts, sample sets, model
-  runs, and prediction runs
-- project-first `Explore` / `Model` / `Predict` viewer workspaces
-- memory-aware and redraw-aware viewer behavior for larger HSI workflows
-- grouped ROI-level model fitting and project-backed prediction workflows, with
-  grouped `cv="auto"` defaulting to 7-fold `GroupKFold` when possible and
-  `LeaveOneGroupOut` for smaller group counts
-- Chemotools-style EMSC with validated reference, interference, and wavelength
-  weighting support
-- a Pyright-clean library and viewer codebase, with Qt/HDF5 optional values
-  validated at their boundaries instead of suppressed
-- polished desktop startup with a compact theme, welcome screen, and recent
-  project/dataset launcher
-- responsive welcome-screen dataset/project loading with progress feedback and
-  wait-cursor coverage for blocking open/attach paths
-- memory-budgeted prediction chunking with larger default EIFF frame batches
-  for fewer chunk loads during full-cube prediction
-
-## Core capabilities
-
-- **I/O**: CSV / Excel, SPA, SPC, JCAMP-DX, ENVI cubes, HDF5, and EVK EIFF
-- **Preprocessing**: SNV, MSC, EMSC, Savitzky-Golay, detrending, smoothing
-- **Models**: PLS, PCR, SVR, Random Forest, MLP, SIMCA, LDA
-- **Validation**: grouped cross-validation, Kennard-Stone, outlier metrics,
-  regression figures of merit
-- **Project workspace**: persisted datasets, calibrations, ROIs, targets,
-  assignments, sample sets, model runs, and prediction runs
-- **Viewer**: interactive HSI exploration, ROI capture, project-backed
-  modeling, and prediction map review
-
-## Installation
-
-Requirements:
-
-- Python `>=3.13,<3.14`
-- `uv` is the recommended environment manager
+engiNIR needs Python 3.13. Install it with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-git clone https://github.com/TUstudents/engiNIR/enginir.git
-cd enginir
-
-# runtime dependencies
+git clone https://github.com/TUstudents/engiNIR.git
+cd engiNIR
 uv sync
-
-# development tools
-uv sync --extra dev
-
-# documentation tools
-uv sync --extra docs
-
-# everything
-uv sync --extra dev --extra docs
 ```
 
-## Quickstart: spectra and models
+### Viewer
+
+The desktop viewer runs the whole workflow interactively: inspect images and
+spectra and draw regions (**Explore**), assign reference values, fit models and
+review diagnostics (**Model**), and map predictions over new scans
+(**Predict**). All results are saved to a project file.
+
+```bash
+uv run enginir-viewer                                  # welcome screen
+uv run enginir-viewer scan.eiff --dark dark.eiff --white white.eiff
+uv run enginir-viewer project.h5
+```
+
+### Library
+
+The library can be used in two ways.
+
+**Project mode** records every step in a project file, so each result is
+reproducible and traceable to its data. Recommended unless you know exactly
+which steps you need:
 
 ```python
-import numpy as np
-from sklearn.pipeline import Pipeline
+from enginir import PreprocessingRecipe, Project
 
-from enginir.io import load_spectra
+project = Project.create("tablets.h5")
+scan = project.add_dataset("scan.eiff", dark="dark.eiff", white="white.eiff")
+project.add_target("API content", unit="% w/w")
+scan.add_roi("tablet 1", frames=(0, 4), rows=(0, 9), values={"API content": 1.0})
+# ... more ROIs
+model = project.fit("API content", recipe=PreprocessingRecipe(snv=True), n_components=2)
+prediction = model.predict("new_scan.eiff")      # prediction.map: one value per pixel
+```
+
+**Function mode** uses the readers, preprocessing steps, models and
+validation functions directly on arrays, as scikit-learn estimators:
+
+```python
+from sklearn.pipeline import make_pipeline
 from enginir.models import PLSRegression
-from enginir.preprocessing import EMSC, SavitzkyGolay
-from enginir.validation import cross_validate, metrics_report
+from enginir.preprocessing import SNV
+from enginir.validation import cross_validate
 
-X, wavelengths, meta = load_spectra("data/demo_spectra.csv")
-target_band = np.argmin(np.abs(wavelengths - 1450.0))
-baseline_band = np.argmin(np.abs(wavelengths - 1300.0))
-y = X[:, target_band] - X[:, baseline_band]
-
-model = Pipeline([
-    ("emsc", EMSC(method="mean", order=2)),
-    ("sg", SavitzkyGolay(window_length=11, polyorder=2, deriv=1)),
-    ("pls", PLSRegression(n_components=4)),
-])
-results = cross_validate(model, X, y, cv=5)
-
-print(metrics_report(y, results["y_pred"]))
+model = make_pipeline(SNV(), PLSRegression(n_components=4))
+cv = cross_validate(model, X, y, cv="logo", groups=samples)   # cv["rmsecv"], cv["y_pred"]
 ```
 
-This example uses the bundled `data/demo_spectra.csv` file and derives a small
-demonstration target from two spectral bands so the snippet is runnable after
-installation. Real calibration work should replace `y` with measured reference
-values from the sample metadata or an external lab table.
-
-All estimators and transformers follow the scikit-learn API. Put stateful
-preprocessing such as MSC or EMSC inside `sklearn.pipeline.Pipeline` for
-cross-validation and held-out prediction.
-
-## Quickstart: viewer
-
-Launch the standalone viewer:
+### Documentation
 
 ```bash
-enginir-viewer
+uv sync --extra docs
+uv run python -m sphinx -b html docs docs/_build/html
 ```
 
-Open a dataset directly:
+## Citation
 
-```bash
-enginir-viewer data/sample.eiff
-enginir-viewer data/sample.eiff --dark dark.eiff --white white.eiff
-enginir-viewer data/sample.eiff --project project.h5
-```
+If you use engiNIR in your work, please cite:
 
-Open a project directly:
-
-```bash
-enginir-viewer project.h5
-enginir-viewer --project project.h5
-```
-
-Open from Python:
-
-```python
-from enginir.viewer import open_project, open_viewer, run
-
-viewer = open_viewer("data/sample.eiff")
-project_viewer = open_project("project.h5")
-attached_viewer = open_viewer("data/sample.eiff", project="project.h5")
-run()  # blocking outside Jupyter
-```
-
-The viewer is built around three workspaces:
-
-- **Explore** for spatial/spectral inspection and ROI capture
-- **Model** for targets, sample sets, diagnostics, and model fitting
-- **Predict** for saved-model inference and prediction-map review
-
-## Project-backed workflow
-
-Project files are the scientific workspace in engiNIR. They persist the real
-domain objects needed for repeatable HSI work.
-
-```python
-import numpy as np
-
-from enginir.io import create_project, load_project_store
-from enginir.project import DatasetRef, TargetDefinition
-from enginir.viewer import ProjectState
-
-create_project("project.h5")
-wavelengths = np.linspace(1000.0, 1700.0, 50, dtype=np.float32)
-
-project = ProjectState()
-project.open_project("project.h5")
-
-project.register_dataset(
-    DatasetRef(
-        dataset_id="dataset_1",
-        source_path="/data/sample.eiff",
-        source_format="eiff",
-        source_modality="nir_hsi",
-        cube_shape=(20, 15, 50),
-        n_bands=50,
-        wavelengths=wavelengths.astype("float32"),
-        loader_metadata={},
-        import_timestamp="2026-04-22T10:00:00+00:00",
-    )
-)
-project.define_target(
-    TargetDefinition(
-        target_id="target_moisture",
-        name="moisture",
-        unit="% w/w",
-        value_type="float",
-        missing_value_policy="allowed",
-        created_at="2026-04-22T10:01:00+00:00",
-    )
-)
-
-store = load_project_store("project.h5")
-print(store["datasets"].keys(), store["targets"].keys())
-```
-
-## Documentation
-
-Start here:
-
-- published docs landing page: [docs/index.rst](docs/index.rst)
-- viewer guide: [docs/user_guide/viewer.rst](docs/user_guide/viewer.rst)
-- workspace/domain model: [docs/workspace_domain_model.md](docs/workspace_domain_model.md)
-- HSI product roadmap: [docs/hsi_product_roadmap.md](docs/hsi_product_roadmap.md)
-- engineering status: [docs/engineering_status.md](docs/engineering_status.md)
-
-Build the docs locally:
-
-```bash
-uv run python -m sphinx -W -b html docs docs/_build/html
-```
-
-## Repository layout
-
-```text
-src/enginir/     Python package
-docs/            Sphinx documentation and reference material
-tests/           pytest suite
-notebooks/       notebooks and workflow examples
-plan/            engineering plans and design notes
-theory/          theory notes and references
-```
-
+> Johannes Poms. (2026). TUstudents/engiNIR: A universal engineering tool for
+> near-infrared spectra and hyperspectral imaging. Zenodo.
+> https://doi.org/10.5281/zenodo.23235907
 
 ## License
 
-Please cite engiNIR as:  
-Johannes Poms. (2026). TUstudents/engiNIR: A universal engineering tool for near-infrared spectra and hyperspectral imaging. Python package. Zenodo. https://doi.org/10.5281/zenodo.23235908  
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23235908.svg)](https://doi.org/10.5281/zenodo.23235908)  
-Licensed under CC BY 4.0.
+engiNIR © 2026 Johannes Poms and contributors, licensed under
+[CC BY 4.0](LICENSE).

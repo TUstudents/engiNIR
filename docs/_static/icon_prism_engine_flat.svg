@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="300" height="300">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#3A4F6E"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="300" height="300" fill="#F0F3F7" rx="24"/>
+
+  <!-- Input beam -->
+  <line x1="18" y1="150" x2="83" y2="150"
+        stroke="#3A4F6E" stroke-width="2.5"
+        stroke-dasharray="5,3"
+        marker-end="url(#arrow)"/>
+
+  <!-- "engi" label -->
+  <text x="18" y="140"
+        font-family="sans-serif"
+        font-weight="600" font-size="15" fill="#3A4F6E">engi</text>
+
+  <!-- Prism -->
+  <polygon points="85,150 188,72 188,228"
+           fill="#3A4F6E22"
+           stroke="#3A4F6E" stroke-width="2.5"
+           stroke-linejoin="round"/>
+
+  <!-- Output bars -->
+  <rect x="192" y="84"  width="60" height="12" rx="3" fill="#C0392B"/>
+  <rect x="192" y="106" width="78" height="12" rx="3" fill="#D45B1A"/>
+  <rect x="192" y="128" width="48" height="12" rx="3" fill="#E67E22"/>
+  <rect x="192" y="150" width="70" height="12" rx="3" fill="#E8980F"/>
+  <rect x="192" y="172" width="55" height="12" rx="3" fill="#F1C40F"/>
+
+  <!-- "NIR" label -->
+  <text x="192" y="210"
+        font-family="sans-serif"
+        font-weight="700" font-size="20" fill="#E67E22">NIR</text>
+
+  <!-- Wordmark -->
+  <text x="150" y="272"
+        font-family="sans-serif"
+        font-weight="600" font-size="13" fill="#3A4F6E99"
+        text-anchor="middle">engi NIR</text>
+</svg>

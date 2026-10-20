@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="300" height="300">
+  <!-- Background -->
+  <rect width="300" height="300" fill="#125A5A" rx="28"/>
+
+  <!-- Left column spectral sub-bars -->
+  <rect x="55" y="115" width="10" height="123" fill="white" rx="2"/>
+  <rect x="65" y="78"  width="10" height="160" fill="white" rx="2"/>
+  <rect x="75" y="58"  width="10" height="180" fill="white" rx="2"/>
+  <rect x="85" y="92"  width="10" height="146" fill="white" rx="2"/>
+
+  <!-- Right column spectral sub-bars (mirrored) -->
+  <rect x="205" y="92"  width="10" height="146" fill="white" rx="2"/>
+  <rect x="215" y="58"  width="10" height="180" fill="white" rx="2"/>
+  <rect x="225" y="78"  width="10" height="160" fill="white" rx="2"/>
+  <rect x="235" y="115" width="10" height="123" fill="white" rx="2"/>
+
+  <!-- Diagonal crossbar -->
+  <line x1="95" y1="58" x2="205" y2="238"
+        stroke="white" stroke-width="32" stroke-linecap="butt"/>
+
+  <!-- Amber regression line -->
+  <line x1="95" y1="58" x2="205" y2="238"
+        stroke="#FF8C00" stroke-width="2.5"/>
+
+  <!-- Wordmark -->
+  <text x="150" y="274"
+        font-family="sans-serif" font-weight="700" font-size="14"
+        fill="white" text-anchor="middle" letter-spacing="3">engiNIR</text>
+</svg>

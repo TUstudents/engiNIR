@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+pip-wheel-metadata/
+*.whl
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Type checking
+.mypy_cache/
+
+# Linting
+.ruff_cache/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# EVK hardware data
+.evk/
+
+# Data files (large binaries)
+*.hdr
+*.img
+*.h5
+*.hdf5
+*.eiff
+*.spa
+*.spc
+*.mat
+*.dx
+
+# Docs build
+docs/_build/
+docs/site/
+docs/_autosummary/
+
+# uv
+.uv/
+uv.lock
+
+# Codex local state
+.codex
+.codex/
+.claude/

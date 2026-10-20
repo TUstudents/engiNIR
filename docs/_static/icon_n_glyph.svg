@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="300" height="300">
+  <!--
+    engiNIR  —  N Glyph icon
+    Left/right verticals = spectral bar fingerprint (varying bar heights)
+    Diagonal crossbar    = PLS calibration / regression line (amber accent)
+  -->
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1A6B6B"/>
+      <stop offset="100%" style="stop-color:#0C3E3E"/>
+    </linearGradient>
+    <filter id="glow">
+      <feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#FF8C0066"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="300" height="300" fill="url(#bgGrad)" rx="28"/>
+
+  <!--
+    Left column — 4 spectral sub-bars (x 55–95, varying top, all bottom=238)
+    Heights mimic a NIR absorbance fingerprint
+  -->
+  <rect x="55" y="115" width="10" height="123" fill="white" opacity="0.65" rx="2"/>
+  <rect x="65" y="78"  width="10" height="160" fill="white" opacity="0.85" rx="2"/>
+  <rect x="75" y="58"  width="10" height="180" fill="white"               rx="2"/>
+  <rect x="85" y="92"  width="10" height="146" fill="white" opacity="0.78" rx="2"/>
+
+  <!--
+    Right column — mirror of left (x 205–245)
+  -->
+  <rect x="205" y="92"  width="10" height="146" fill="white" opacity="0.78" rx="2"/>
+  <rect x="215" y="58"  width="10" height="180" fill="white"               rx="2"/>
+  <rect x="225" y="78"  width="10" height="160" fill="white" opacity="0.85" rx="2"/>
+  <rect x="235" y="115" width="10" height="123" fill="white" opacity="0.65" rx="2"/>
+
+  <!--
+    Diagonal — thick white stroke from inner-top-right of left col
+    to inner-bottom-left of right col  (the N crossbar)
+  -->
+  <line x1="95" y1="58" x2="205" y2="238"
+        stroke="white" stroke-width="32" stroke-opacity="0.82"
+        stroke-linecap="butt"/>
+
+  <!--
+    Amber regression / calibration line — center of the diagonal
+    This is the PLS 1:1 line visual metaphor
+  -->
+  <line x1="95" y1="58" x2="205" y2="238"
+        stroke="#FF8C00" stroke-width="2.5" stroke-opacity="0.95"
+        filter="url(#glow)"/>
+
+  <!-- Wordmark -->
+  <text x="150" y="274"
+        font-family="sans-serif" font-weight="700" font-size="14"
+        fill="white" fill-opacity="0.75" text-anchor="middle" letter-spacing="3">
+    engiNIR
+  </text>
+</svg>

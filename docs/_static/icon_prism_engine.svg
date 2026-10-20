@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="300" height="300">
+  <defs>
+    <!-- Background gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FAFAFA"/>
+      <stop offset="100%" style="stop-color:#EEF1F5"/>
+    </linearGradient>
+    <!-- Input beam gradient -->
+    <linearGradient id="beamGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#3A4F6E;stop-opacity:0.3"/>
+      <stop offset="100%" style="stop-color:#3A4F6E;stop-opacity:1"/>
+    </linearGradient>
+    <!-- Arrowhead -->
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#3A4F6E"/>
+    </marker>
+    <!-- Bar drop shadow -->
+    <filter id="barShadow" x="-5%" y="-10%" width="115%" height="130%">
+      <feDropShadow dx="1" dy="1" stdDeviation="1.5" flood-color="#00000022"/>
+    </filter>
+    <!-- Prism glow -->
+    <filter id="prismGlow">
+      <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#3A4F6E33"/>
+    </filter>
+  </defs>
+
+  <!-- Background rounded rect -->
+  <rect width="300" height="300" fill="url(#bgGrad)" rx="24"/>
+
+  <!-- Input beam (dashed, fading in) -->
+  <line x1="18" y1="150" x2="83" y2="150"
+        stroke="url(#beamGrad)" stroke-width="2.5"
+        stroke-dasharray="5,3"
+        marker-end="url(#arrow)"/>
+
+  <!-- "engi" label above the beam -->
+  <text x="18" y="140"
+        font-family="'Rajdhani','Montserrat',sans-serif"
+        font-weight="600" font-size="15" fill="#3A4F6E" letter-spacing="1">engi</text>
+
+  <!-- Prism: apex left (85,150), base top (188,72), base bottom (188,228) -->
+  <polygon points="85,150 188,72 188,228"
+           fill="rgba(58,79,110,0.07)"
+           stroke="#3A4F6E" stroke-width="2.5"
+           stroke-linejoin="round"
+           filter="url(#prismGlow)"/>
+
+  <!-- Output bars — horizontal, stacked, fanning from x=192 -->
+  <!-- 5 bars, y-centers: 90, 112, 134, 156, 178 (within prism base span 72–228) -->
+  <!-- Widths vary to mimic PLS loadings; colors: deep red → amber -->
+
+  <!-- Bar 1 — deep red -->
+  <rect x="192" y="84" width="60" height="12" rx="3" fill="#C0392B" filter="url(#barShadow)"/>
+  <!-- Bar 2 — red-orange -->
+  <rect x="192" y="106" width="78" height="12" rx="3" fill="#D45B1A" filter="url(#barShadow)"/>
+  <!-- Bar 3 — orange -->
+  <rect x="192" y="128" width="48" height="12" rx="3" fill="#E67E22" filter="url(#barShadow)"/>
+  <!-- Bar 4 — amber-orange -->
+  <rect x="192" y="150" width="70" height="12" rx="3" fill="#E8980F" filter="url(#barShadow)"/>
+  <!-- Bar 5 — amber/gold -->
+  <rect x="192" y="172" width="55" height="12" rx="3" fill="#F1C40F" filter="url(#barShadow)"/>
+
+  <!-- "NIR" label below bars, right-aligned under them -->
+  <text x="192" y="210"
+        font-family="'Rajdhani','Montserrat',sans-serif"
+        font-weight="700" font-size="20" fill="#E67E22" letter-spacing="3">NIR</text>
+
+  <!-- Subtle "engiNIR" wordmark at bottom -->
+  <text x="150" y="272"
+        font-family="'Rajdhani','Montserrat',sans-serif"
+        font-weight="600" font-size="13" fill="#3A4F6E99"
+        text-anchor="middle" letter-spacing="2">engi NIR</text>
+</svg>

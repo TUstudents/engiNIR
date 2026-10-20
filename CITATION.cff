@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use engiNIR, please cite it as below."
+title: "engiNIR: A universal engineering tool for near-infrared spectra and hyperspectral imaging"
+authors:
+  - family-names: Poms
+    given-names: Johannes
+doi: 10.5281/zenodo.23235907
+repository-code: "https://github.com/TUstudents/engiNIR"
+license: CC-BY-4.0
+type: software
