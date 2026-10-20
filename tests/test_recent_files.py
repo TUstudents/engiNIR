@@ -9,6 +9,13 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _no_xdg_config_home(monkeypatch):
+    # The tests redirect HOME; an XDG_CONFIG_HOME set by the environment (as on
+    # CI runners) would take precedence and point at the real config directory.
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+
+
 @pytest.mark.parametrize(
     ("platform_name", "env_name", "env_value", "expected"),
     [
