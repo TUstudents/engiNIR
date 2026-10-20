@@ -1,6 +1,17 @@
 # Changelog
 
-## 1.0.0rc1 (unreleased)
+## 1.0.0rc2 (2026-10-20)
+
+Second release candidate for 1.0.0. The library is unchanged from 1.0.0rc1.
+
+### Tests
+
+- The test suite isolates the viewer's configuration directory, so tests
+  never write to the user's `~/.config/enginir`. On 1.0.0rc1 the
+  recent-files tests ignored an `XDG_CONFIG_HOME` set by the environment and
+  failed on GitHub runners.
+
+## 1.0.0rc1 (2026-10-20, tagged, not published)
 
 Release candidate for 1.0.0, the first public release.
 

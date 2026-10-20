@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "enginir"
-version = "1.0.0rc1"
+version = "1.0.0rc2"
 description = "engiNIR: chemometric tools and project-backed workflows for NIR spectra and hyperspectral imaging"
 readme = "README.md"
 authors = [{ name = "Johannes Poms" }]
