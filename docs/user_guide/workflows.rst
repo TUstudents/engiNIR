@@ -55,7 +55,7 @@ tablets:
 It prints the cross-validated model and the mean prediction of each tablet,
 which follows the true contents 1 to 9::
 
-   Model('PLS 2 LV, SNV', rmsecv=0.745, r2=0.919, bias=0.0743)
+   Model('PLS 2 LV, SNV', rmsecv=0.642, r2=0.94, bias=0.0944)
    [1.7 2.6 3.7 4.4 5.4 6.3 7.4 8.4]
 
 Reopen the project later with ``Project.open("tablets.h5")``; datasets are

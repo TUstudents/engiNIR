@@ -443,9 +443,8 @@ def test_fit_model_run_uses_roi_aggregated_primary_metrics(tmp_path, monkeypatch
     def _fake_cross_validate(estimator, X, y, cv, groups, scoring=None, return_train_score=False):
         del estimator, X, scoring, return_train_score
         assert cv == "auto"
-        np.testing.assert_array_equal(
-            groups, np.array(["roi_1", "roi_1", "roi_2", "roi_2"], dtype=object)
-        )
+        # One label per ROI: its position in the sample set's roi_ids.
+        np.testing.assert_array_equal(groups, [0, 0, 1, 1])
         np.testing.assert_array_equal(y, np.array([1.0, 1.0, 2.0, 2.0], dtype=np.float32))
         return {
             "y_true": y,
@@ -527,9 +526,8 @@ def test_fit_model_run_preprocesses_stateless_recipe_once_before_cv(tmp_path, mo
         assert isinstance(estimator, PLSRegression)
         assert estimator.n_components == 1
         assert X is transformed
-        np.testing.assert_array_equal(
-            groups, np.array(["roi_1", "roi_1", "roi_2", "roi_2"], dtype=object)
-        )
+        # One label per ROI: its position in the sample set's roi_ids.
+        np.testing.assert_array_equal(groups, [0, 0, 1, 1])
         return {
             "cv_scheme": {"type": "LeaveOneGroupOut", "n_splits": 2},
             "y_true": sample_set_data.y,

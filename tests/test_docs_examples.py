@@ -17,4 +17,7 @@ def test_project_workflow_example_predicts_the_regions(tmp_path, monkeypatch, ca
     tablet_means = namespace["prediction"].map.reshape(8, 5, 10).mean(axis=(1, 2))
     np.testing.assert_allclose(tablet_means, np.linspace(1, 9, 8), atol=1.0)
     assert namespace["model"].metrics["r2"] > 0.9
-    assert "PLS 2 LV, SNV" in capsys.readouterr().out
+    # The workflow guide shows the output; the fit is deterministic, so it must match.
+    guide = (EXAMPLES.parent / "user_guide" / "workflows.rst").read_text()
+    for line in capsys.readouterr().out.splitlines():
+        assert f"   {line}\n" in guide

@@ -150,7 +150,10 @@ in the same fold:
    results_logo = cross_validate(model, X, y, cv="logo", groups=groups)
 
 Explicit integer ``cv`` uses ``GroupKFold(n_splits=cv)`` and therefore requires
-at least that many unique groups. ``cv="loo"`` remains available for explicit
+at least that many unique groups. ``GroupKFold`` assigns groups to folds by size
+and, among groups of equal size, by the order of their labels, so use labels
+whose order is reproducible (for example sample numbers, not random ids); model
+runs label each ROI with its position in the sample set. ``cv="loo"`` remains available for explicit
 observation-level leave-one-out, but it ignores groups, logs that choice when
 groups are present, and is not the default.
 

@@ -145,6 +145,7 @@ Consequently, “readable by `load_project_store()`” is weaker than “valid a
 | Recipe has exact executable fields and deterministic order | `PreprocessingRecipe`; modeling pipeline | recipe and pipeline tests | **Covered** |
 | Sample-set semantics are pixel observations, ROI target/group/CV/reporting, per-pixel unweighted, ROI mean | `SampleSet`, modeling constants, `_validate_v3_sample_set`, grouped CV/aggregation | sample-set constant and aggregated-metric tests | **Covered** for service-created/fitted sets; stored membership completeness remains `G09`. |
 | No ROI leakage across CV folds | grouped `cross_validate` path | grouped model-run tests and validation suite | **Covered** |
+| Fold assignment follows the sample set's ROI order, not the random ids | `fit_model_run` labels each ROI with its position in `roi_ids` | `test_cross_validation_does_not_depend_on_the_random_roi_ids` | **Covered** |
 | Primary metrics are ROI-aggregated; pixel metrics secondary | `fit_model_run` metric construction | aggregated-primary-metrics test | **Covered** |
 | Stateful MSC/EMSC uses persisted training state, never prediction-data fit | fitted-state artifact extraction/restoration | reopened equivalence and missing-state tests | **Covered** |
 | Signal compatibility uses format/modality/bands/calibration/dtype, not wavelength-value equality | prediction compatibility functions | `test_signal_domain.py` and prediction tests | **Covered** |
@@ -229,6 +230,7 @@ the rule is removed.
 | Prediction runtime: memory budget | Two float32 working chunks were alive while predicting. | One working chunk; measured 2.00 -> 1.00 chunks. |
 | Interactive map handoff: preview reads | The preview of the canonical `y_pred`-only layout used h5py point selection (minutes for a full scan). | Block reads; `test_map_preview_subsamples_the_canonical_y_pred_layout`. |
 | Sample-set/model-run: MSC/EMSC fitted inside folds | No test caught MSC/EMSC being fitted on all pixels before cross-validation. | `test_fit_model_run_fits_msc_inside_every_cross_validation_fold`. |
+| Sample-set/model-run: reproducible validation | `GroupKFold` received the random ROI ids as labels, so which ROIs shared a fold, and the RMSECV and R² of a repeated analysis, changed with every new project (observed R² from 0.87 to 0.94 for the documented example). | ROI positions as labels; `test_cross_validation_does_not_depend_on_the_random_roi_ids`; the documented example output is checked verbatim. |
 | Model diagnostics: explicit placeholder states | Empty-state messages were written to widgets never added to a layout. | Messages drawn into the plots; `test_model_diagnostics_show_empty_states_in_the_plots`. |
 
 ## Recommended closure order

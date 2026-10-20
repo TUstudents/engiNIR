@@ -137,6 +137,46 @@ def test_refitting_reuses_sample_set_recipe_and_signal_domain(tmp_path):
             counts["model_runs"]) == (1, 1, 1, 2)
 
 
+def test_cross_validation_does_not_depend_on_the_random_roi_ids(tmp_path, monkeypatch):
+    """Repeating an analysis in a new project (new ids) reproduces its CV metrics.
+
+    With 8 ROIs, ``cv="auto"`` is a 7-fold GroupKFold, so two ROIs share a fold;
+    which two must follow the recorded ROI order, not the sort order of the ids.
+    """
+    content = np.linspace(1, 9, 8)
+    rng = np.random.default_rng(0)
+    peak = np.exp(-((np.arange(N_BANDS) - N_BANDS / 2) / 2) ** 2)
+    cube = (2500 - 100 * np.repeat(content, 2)[:, None, None] * peak
+            + rng.normal(0, 5, (16, HEIGHT, N_BANDS))).astype(np.uint16)
+    scan_path = str(tmp_path / "scan.h5")
+    save_hdf5(scan_path, cube, np.linspace(1000, 1600, N_BANDS))
+
+    def fit(folder, roi_rank):
+        project = Project.create(tmp_path / f"{folder}.h5")
+        scan = project.add_dataset(scan_path)
+        project.add_target("API", unit="%")
+        ranks = iter(roi_rank)
+        with monkeypatch.context() as patch:  # the id of each ROI, in creation order
+            patch.setattr("enginir._workflow.new_id", lambda: f"{next(ranks):02d}-{folder}")
+            for i, value in enumerate(content):
+                scan.add_roi(f"s{i}", frames=(2 * i, 2 * i + 1), rows=(0, HEIGHT - 1),
+                             values={"API": value})
+        model = project.fit("API", n_components=2)
+        names = {roi.roi_id: name for name, roi in project.rois.items()}
+        cv = dict(zip((names[i] for i in model.diagnostics["roi_ids"]),
+                      model.diagnostics["y_pred_roi"], strict=True))
+        return model, cv
+
+    # The ROI ids sort in creation order in the first project and rotated by one in
+    # the second, so sorting by id would put different ROIs into the shared fold.
+    first, first_cv = fit("a", range(8))
+    second, second_cv = fit("b", [1, 2, 3, 4, 5, 6, 7, 0])
+
+    assert first.ref.cv_spec["type"] == "GroupKFold"
+    assert second_cv == pytest.approx(first_cv)
+    assert second.metrics["rmsecv"] == pytest.approx(first.metrics["rmsecv"])
+
+
 def test_one_model_refuses_rois_recorded_in_different_signals(tmp_path):
     project, _ = _labelled_project(tmp_path)
     other = project.add_dataset(_scan(tmp_path / "dn.h5"), unit="DN")

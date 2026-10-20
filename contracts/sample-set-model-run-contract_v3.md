@@ -220,6 +220,15 @@ Required invariant:
 
 - no pixel from a held-out ROI may appear in the training fold for that validation split
 
+Required fold assignment:
+
+- folds depend only on the recorded sample set: the splitter labels each ROI
+  with its position in the sample set's `roi_ids`, never with the `roi_id`
+  value itself
+- `roi_id` values are random, and `GroupKFold` deals groups of equal size to
+  folds in label order; labelling by id would make the cross-validated
+  metrics of a repeated analysis (same data, new ids) differ
+
 ## 5. Reporting semantics
 
 Because observation unit and target level differ, reporting must be explicit.
