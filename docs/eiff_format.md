@@ -5,9 +5,6 @@ storing spectral image sequences from HELIOS hyperspectral NIR cameras. It
 derives from the IFF (Interchange File Format) concept but extends identifiers
 to 10 bytes and size fields to 64 bits.
 
-> This reference was validated against real EVK HELIOS EIFF files and
-> corrects several discrepancies from the original SDK documentation.
-
 ---
 
 ## 1. Fundamental Concepts
