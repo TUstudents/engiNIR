@@ -130,7 +130,11 @@ These are contract decisions; do not change them without a contract change.
   docs read it from the package metadata.
 - Release `X.Y.Z`: set the version in `pyproject.toml`, add the
   `CHANGELOG.md` entry, run all four gates, commit, tag `vX.Y.Z`, push the
-  tag, and publish a GitHub release from it (Zenodo archives it and mints the
-  version DOI). Release candidates are `X.Y.ZrcN`, tagged `vX.Y.ZrcN` and
-  published as GitHub pre-releases. Check with `git rev-list -n 1 vX.Y.Z` and
+  tag, wait for CI on the tag, and publish a GitHub release from it (Zenodo
+  archives it and mints the version DOI; `.github/workflows/publish.yml`
+  uploads it to PyPI with Trusted Publishing, after checking that the tag
+  matches the version, the pre-release flag matches the version and CI
+  passed for the commit). Release candidates are `X.Y.ZrcN`, tagged
+  `vX.Y.ZrcN` and published as GitHub pre-releases. A PyPI version can be
+  uploaded only once, even after deletion. Check with `git rev-list -n 1 vX.Y.Z` and
   `git ls-remote --tags origin vX.Y.Z`.

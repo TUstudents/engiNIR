@@ -1,0 +1,71 @@
+name: Publish
+
+# Uploads the package to PyPI when a GitHub release is published, with
+# PyPI Trusted Publishing (no token). Pre-releases publish release candidates.
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - name: Check tag, version and release type
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          uv run --no-project --with packaging python - <<'EOF'
+          import os, sys, tomllib
+          from packaging.version import Version
+          with open("pyproject.toml", "rb") as f:
+              version = tomllib.load(f)["project"]["version"]
+          tag = os.environ["TAG"]
+          if tag != f"v{version}":
+              sys.exit(f"tag {tag} does not match version {version}")
+          prerelease = os.environ["PRERELEASE"] == "true"
+          if Version(version).is_prerelease != prerelease:
+              sys.exit(f"version {version} and GitHub pre-release flag "
+                       f"{prerelease} disagree")
+          print(f"publishing {version}")
+          EOF
+      - name: Check that CI passed for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          passed=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml \
+            --commit "$GITHUB_SHA" --status success --json databaseId \
+            --jq length)
+          if [ "$passed" -eq 0 ]; then
+            echo "CI has not passed for $GITHUB_SHA"
+            exit 1
+          fi
+      - run: uv build
+      - run: uvx twine check --strict dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/enginir/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

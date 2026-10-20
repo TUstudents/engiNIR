@@ -1,6 +1,7 @@
 # engiNIR
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23235907.svg)](https://doi.org/10.5281/zenodo.23235907)
+[![Documentation](https://readthedocs.org/projects/enginir/badge/?version=latest)](https://enginir.readthedocs.io/en/latest/)
 
 engiNIR turns near-infrared spectra and hyperspectral images into validated
 calibration models and property predictions, with every step recorded. It is
@@ -81,6 +82,9 @@ cv = cross_validate(model, X, y, cv="logo", groups=samples)   # cv["rmsecv"], cv
 ```
 
 ### Documentation
+
+The documentation is at <https://enginir.readthedocs.io>. To build it
+locally:
 
 ```bash
 uv sync --extra docs

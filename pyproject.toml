@@ -39,6 +39,7 @@ dev = [
 docs = ["sphinx", "sphinx-rtd-theme", "myst-parser"]
 
 [project.urls]
+Documentation = "https://enginir.readthedocs.io"
 Repository = "https://github.com/TUstudents/engiNIR"
 DOI = "https://doi.org/10.5281/zenodo.23235907"
 
