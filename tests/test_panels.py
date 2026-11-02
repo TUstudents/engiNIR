@@ -51,30 +51,65 @@ def test_hidden_histogram_defers_refresh_until_visible(qapp, state, monkeypatch)
     state.set_frame(2)  # visible: the same artist is updated in place
     qapp.processEvents()
     assert panel._stairs is stairs
-    expected, _ = np.histogram(original(), bins=256)
+    expected, edges = np.histogram(original(), bins=256)
     np.testing.assert_array_equal(stairs.get_data().values, expected)
+    x0, x1 = panel._ax.get_xlim()
+    assert x0 < edges[0] and x1 > edges[-1], "every bin stays in view"
+    assert panel._ax.get_ylim()[1] > expected.max()
+
+    # A uniform frame puts every pixel into one bin, far above the earlier counts.
+    monkeypatch.setattr(state, "current_frame_image", lambda: np.full((8, 5), 1000.0, np.float32))
+    panel._on_update()
+    assert panel._ax.get_ylim()[1] > 40
 
 
-def test_sensor_panel_updates_image_in_place_on_frame_change(qapp, state):
+def test_sensor_panel_swaps_only_the_image_on_frame_change(qapp, state):
     from enginir.viewer._panels import SensorPanel
 
     panel = SensorPanel(state)
+    panel.resize(400, 300)
     panel.show()
     qapp.processEvents()
-
-    original_handle = panel._img_handle
-    assert original_handle is not None
+    image_item = panel._image
+    view_range = panel._view.viewRange()
 
     state.set_frame(2)
     qapp.processEvents()
+    # The same pyqtgraph image item gets the new frame; the view is not reset.
+    assert panel._image is image_item
+    np.testing.assert_array_equal(panel._image.image, state.current_frame_image())
+    assert panel._view.viewRange() == view_range
+    data = state.current_frame_image()
+    assert panel._levels == (float(data.min()), float(data.max()))
 
-    # A full rebuild would replace the AxesImage via a fresh imshow(); the
-    # in-place refresh must reuse the same handle and only push new data.
-    assert panel._img_handle is original_handle
-    np.testing.assert_array_equal(
-        np.asarray(panel._img_handle.get_array()),
-        np.asarray(state.current_frame_image()),
-    )
+
+def test_image_panels_pick_the_clicked_pixel_and_follow_the_cursor(qapp, state):
+    import types
+
+    from PyQt6.QtCore import QPointF
+
+    from enginir.viewer._panels import DC3Panel
+
+    panel = DC3Panel(state)
+    panel.resize(400, 300)
+    panel.show()
+    qapp.processEvents()
+    picks: list[tuple[str, int]] = []
+    panel.frame_pick.connect(lambda f: picks.append(("frame", f)))
+    panel.row_pick.connect(lambda r: picks.append(("row", r)))
+    # Click where pixel (row 6, frame 2) is drawn, a little off its centre.
+    scene_pos = panel._image.mapToScene(QPointF(2.5 + 0.3, 6.5 - 0.3))
+    panel._on_scene_click(types.SimpleNamespace(scenePos=lambda: scene_pos))
+    assert picks == [("frame", 2), ("row", 6)]
+
+    data = panel._data
+    state.set_frame(3)
+    state.set_row(1)
+    assert panel._data is data, "a cursor move does not rebuild the band image"
+    assert (panel._vline.value(), panel._hline.value()) == (3, 1)
+    state.set_band(4)
+    assert panel.plot_title.startswith("RAW  band 4 ")
+    np.testing.assert_array_equal(panel._data, state.raw_band_image(4))
 
 
 def test_model_diagnostics_show_empty_states_in_the_plots(qapp):

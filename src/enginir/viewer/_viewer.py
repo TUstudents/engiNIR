@@ -58,7 +58,7 @@ from ._state import (
     ViewerState,
 )
 from ._panels import (
-    _BasePanelWidget as _ExplorePanel,
+    _PanelBase as _ExplorePanel,
     HistogramPanel,
     DC3Panel,
     SensorPanel,

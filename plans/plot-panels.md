@@ -443,6 +443,50 @@ The docs pass covered the following:
   (now pointing to `PlotSpec`)
 - the `CHANGELOG.md` *Unreleased* entry
 
+### Follow-up: pyqtgraph for RAW and Sensor Frame (2026-11-02)
+
+**Profiling result.** The cost per frame step is spread evenly: each
+matplotlib panel costs about 19–27 ms, mostly ticks, text and a full canvas
+redraw. The image panels are not much heavier than the line plots. The RAW
+panel paid the full redraw even when only its crosshair moved.
+
+What changed:
+
+- `_PanelBase` holds the shared behaviour. `_BasePanelWidget` is the
+  matplotlib panel; the new `_ImagePanel` is the pyqtgraph one.
+- RAW and Sensor Frame are `_ImagePanel`s: inferno colormap, pixel centres
+  on integers, the crosshair as `InfiniteLine`s, clicks mapped through the
+  view box, mouse pan/zoom off as before. Their export redraws the shown view
+  with matplotlib.
+- A cursor move only moves the RAW crosshair.
+- The histogram sets its limits from the bins instead of `relim()`, which was
+  12 of its 20 ms.
+
+New opt-in benchmark `test_explore_frame_scrubbing_timings`: one frame step
+on a 400×320×224 cube with every Explore plot shown.
+
+| State | Median |
+|---|---|
+| All matplotlib | 73 ms |
+| RAW and Sensor in pyqtgraph | 46 ms |
+| With the histogram fix | 39 ms |
+
+The benchmark asserts a step below 73 ms.
+
+Tests: the pick test clicks where a pixel is drawn, through the image item's
+own coordinates. Pixel centring, picking, cursor-only updates, the sensor
+CSV orientation and the histogram limits each caught an injected fault. Two
+faults were not caught:
+
+- "Reset the view on every frame" does not change behaviour while mouse zoom
+  is off.
+- A missing y-limit was hidden by the earlier autoscale, until the test
+  used a uniform frame.
+
+Still in matplotlib: the Spatial and Spectral Profile panels, about 20 ms
+each per step, and the prediction map. The map follows with the T²/Q map
+work.
+
 ## Risks
 
 - **Qt overhead per canvas.** Agg numbers exclude Qt's buffer copy; phase 0/7

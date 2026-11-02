@@ -14,7 +14,7 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_theme.py` | Shared Qt stylesheet (Fusion + light palette) |
 | `_state.py` | `ViewerState` (UI) + `ProjectState` (Qt adapter over `enginir.Project`) |
 | `_canvas.py` | `FalseColourCanvas` (pyqtgraph image surface, crosshair, ROI draw/selection) |
-| `_panels.py` | Exploration dock widgets (Histogram, RAW, Sensor, Spatial, Spectrum) |
+| `_panels.py` | Exploration dock widgets: Histogram, Spatial and Spectrum (matplotlib); RAW and Sensor Frame (pyqtgraph `_ImagePanel`) |
 | `_viewer.py` | `HSIViewer(QMainWindow)` shell, menus, docks, status strip, workspace host |
 | `_welcome.py` | Launcher window with recent files list and startup routing |
 | `_recent.py` | MRU file list (`~/.config/enginir/recent.json`) |
@@ -275,7 +275,9 @@ Plots that update their artists in place (the Explore panels in
 implement `PlotSource` (`plot_table()`, `print_figure()`) and are shown in a
 `PlotFrame`:
 
-- `_panels.py` builds its print figure with `print_copy` (a pickled copy of
+- The RAW and Sensor Frame panels (`_ImagePanel`) draw with pyqtgraph and
+  build their print figure by redrawing the shown image with matplotlib.
+- The other `_panels.py` panels build their print figure with `print_copy` (a pickled copy of
   the screen figure, recoloured).
 - The canvas redraws its current view with matplotlib.
 - `PredictionMapWidget` is a source too. Its header controls (output, pan,

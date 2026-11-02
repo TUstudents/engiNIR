@@ -154,21 +154,23 @@ frame** after the full preprocessing pipeline has been applied.
 
 ### RAW panel (internal class `DC3Panel`, left dock, bottom)
 
-Displays a raw cross-section of the cube at the selected band:
+Drawn with pyqtgraph, like the Sensor Frame, so that frame and band scrubbing
+only swaps the image or moves the crosshair. Exports redraw the shown view
+with matplotlib. Displays a raw cross-section of the cube at the selected band:
 `cube[:, :, band].T` — spatial rows on the Y-axis, scan frames on the
 X-axis.  Yellow crosshairs mark the active `(frame, row)`.
 
 Note: RAW always shows raw DN (no preprocessing) to provide a stable
 spatial navigation reference.
 
-- Updates on: `frame_changed` (vline only), `row_changed` (hline only),
-  `band_changed` (full rebuild)
+- Updates on: `frame_changed` and `row_changed` (crosshair only),
+  `band_changed` (new band image)
 - **Click** → emits `frame_pick(int)`, `row_pick(int)`
 
 ### Sensor Frame panel (internal class `SensorPanel`, right dock, top)
 
 Displays the processed current frame: `current_frame_image()` — height ×
-n_bands.  Cyan crosshairs mark the active `(row, band)`.
+n_bands.  Yellow crosshairs mark the active `(row, band)`; drawn with pyqtgraph.
 
 - Updates on: `frame_changed`, `units_changed` (full rebuild)
 - **Click** → emits `row_pick(int)`, `band_pick(int)`

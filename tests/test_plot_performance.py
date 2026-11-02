@@ -31,6 +31,9 @@ _REPEATS = 15
 # limits hold on that machine; on others, compare against a run of the baseline.
 _BASELINE_FULL_MS = 187.0
 _BASELINE_ONE_MS = 121.0
+# Explore frame step with all plots in matplotlib (before RAW and Sensor Frame
+# moved to pyqtgraph), same machine.
+_BASELINE_SCRUB_MS = 73.0
 
 
 @pytest.fixture(scope="module")
@@ -100,3 +103,22 @@ def test_model_diagnostics_timings(qapp):
           f"\n  change one plot      {one_ms:7.1f} ms")
     assert one_ms < _BASELINE_ONE_MS, "changing one plot must not redraw the others"
     assert full_ms <= 1.1 * _BASELINE_FULL_MS
+
+
+def test_explore_frame_scrubbing_timings(qapp):
+    """One frame step with every Explore plot shown (the slider/click path)."""
+    from enginir.viewer._viewer import HSIViewer
+
+    cube = np.random.default_rng(0).integers(500, 3000, (400, 320, 224), dtype=np.uint16)
+    viewer = HSIViewer(cube, np.linspace(900.0, 1700.0, 224, dtype=np.float32))
+    viewer.resize(1500, 950)
+    viewer.show()
+    viewer._hist_dock.show()
+    viewer._dc3_dock.show()
+    for _ in range(5):
+        qapp.processEvents()
+    frames = iter(range(10, 10 + 3 * _REPEATS))
+    step_ms = _median_ms(lambda: viewer.state.set_frame(next(frames)), qapp)
+    viewer.close()
+    print(f"\nExplore frame step, 400x320x224 cube, all plots shown: {step_ms:7.1f} ms")
+    assert step_ms < _BASELINE_SCRUB_MS

@@ -27,6 +27,10 @@
 - The spectral-plot selector of the Model workspace is gone: coefficients
   and loadings have their own plots.
 - The scores plot is labelled as training scores.
+- The RAW and Sensor Frame panels draw with pyqtgraph, and the histogram
+  sets its limits from the bins. A frame step with every Explore plot shown
+  takes about 39 ms instead of 73 ms on the benchmark machine. Their PNG/SVG
+  exports are still drawn with matplotlib.
 - Changing one Model diagnostic redraws only that plot: 46 ms instead of
   121 ms on the benchmark machine. Building the diagnostics takes 230 ms
   instead of 380 ms.
