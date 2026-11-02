@@ -230,7 +230,7 @@ def test_shell_initializes_main_window_canvas_and_tabs(qapp, cube_and_wavelength
     qapp.processEvents()
     assert isinstance(viewer._model_workspace_splitter, QSplitter)
     assert viewer._model_workspace_splitter.orientation() == Qt.Orientation.Horizontal
-    assert viewer._model_workspace_splitter.widget(0) is viewer._model_graph_panel
+    assert viewer._model_workspace_splitter.widget(0) is viewer._model_diagnostics_widget
     assert viewer._model_workspace_splitter.widget(1) is viewer._model_text_panel
     assert viewer._model_text_panel.maximumWidth() == 360
 
@@ -451,6 +451,7 @@ def test_workspace_navigation_preserves_context_and_redraws_only_the_visible_wor
     project_path = str(tmp_path / "navigation.h5")
     _create_phase6_model_project(project_path)
     viewer = HSIViewer(cube, wavelengths)
+    viewer.show()  # plots draw only while visible
     project = viewer.project_state
     project.open_project(project_path)
     project.build_sample_set(target_id="target_moisture", preprocessing_recipe_id="recipe_none",
@@ -474,10 +475,16 @@ def test_workspace_navigation_preserves_context_and_redraws_only_the_visible_wor
     tabs.setCurrentWidget(viewer._modeling_view)
     qapp.processEvents()
     before = context()
-    diagnostics = viewer._model_diagnostics_widget
+    from enginir.viewer._plot_panel import PlotPanel
+
     renders: list[object] = []
-    original = diagnostics._render_spectral
-    monkeypatch.setattr(diagnostics, "_render_spectral", lambda: (renders.append(1), original()))
+    original = PlotPanel._render
+
+    def counting_render(panel):
+        renders.append(panel.spec.plot_id)
+        original(panel)
+
+    monkeypatch.setattr(PlotPanel, "_render", counting_render)
 
     for widget in (viewer._prediction_view, viewer._eda_view, viewer._modeling_view,
                    viewer._prediction_view):
@@ -494,6 +501,7 @@ def test_workspace_navigation_preserves_context_and_redraws_only_the_visible_wor
     qapp.processEvents()
     assert viewer._modeling_view.workspace_diagnostics_payload() is not None
     shown = len(renders)
+    assert shown > renders_while_hidden, "the shown Model diagnostics draw the new payload"
     viewer.schedule_workspace_content_refresh()
     qapp.processEvents()
     assert len(renders) == shown, "an unchanged diagnostics payload is a no-op redraw"

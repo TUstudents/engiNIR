@@ -29,6 +29,9 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_loading.py` | Shared wait-cursor/status/progress helpers for startup and open flows |
 | `_data_helpers.py` | Dataset-shape and spectral array helpers shared by viewer workflows |
 | `_ui_helpers.py` | Shared plot styling and figure-layout helpers |
+| `_plot_panel.py` | `PlotSpec`, `PlotTable`, `PlotPanel`: one plot with a header (title, maximize, PNG/SVG/CSV export) |
+| `_plot_grid.py` | `PlotGrid`, `PlotPage`, `PlotSlot`: paged plot grids with lazy pages and in-place maximize |
+| `_plot_registry.py` | Registry of all plots and of the plot pages of each workspace |
 
 ---
 
@@ -252,19 +255,49 @@ frame, signal unit, or preprocessing parameters.
 
 ---
 
-## Adding a new panel
+## Plot panels
 
-Follow the pattern in `_model_diagnostics.py`:
+Workspace plots follow the Plot Panel Policy of
+`contracts/viewer-workspace-ui-contract_v3.md`. The Model diagnostics are the
+first workspace built this way:
 
-1. Create `_my_panel.py` inheriting from `QWidget`
-2. Add a matplotlib `Figure` + `FigureCanvasQTAgg`
-3. Implement `update_data(payload, *, empty_reason="")` and `clear()`
-4. Use `panel_colors()`, `style_axes()`, and `maybe_tight_layout()` from
-   `_ui_helpers.py` rather than defining local theme constants
-5. Add logger: `from enginir._logging import get_logger; logger = get_logger(__name__)`
-6. Wire in `_viewer.py`: import, instantiate, add to layout, connect signals
-7. Add to `__all__` in your module
+- a `PlotSpec` per plot has `render(fig, payload, colors)` and
+  `table(payload) -> PlotTable`
+- a `PlotPanel` shows one spec under a header (title, maximize, PNG/SVG/CSV
+  export)
+- a `PlotGrid` lays out the panels on pages (`PlotPage`/`PlotSlot`)
 
-New viewer surfaces should follow the lightweight widget patterns used in
-`_model_diagnostics.py` and `_prediction.py` rather than introducing a new
-ABC layer.
+`ModelDiagnosticsWidget` wraps the grid of the `"Model"` workspace, with the
+`Fit` and `Spectral` pages. It hands the same diagnostics payload to every
+plot, and `ModelingView.workspace_diagnostics_provenance()` supplies the CSV
+provenance lines.
+
+Drawing rules:
+
+- `render` draws with the `colors` it is given: the screen theme on screen,
+  `print_colors()` for exports. It never sets an axes title, because the
+  header shows the title.
+- When the payload has no data for its plot, `render` draws an empty-state
+  message with `draw_placeholder`, and `table` returns an empty `PlotTable`.
+  That disables export.
+- `render` returns `RoiPoints` for clickable ROI points. The panel turns a
+  click into `roi_selected`.
+- A panel draws only while visible, and only for a new payload object. A
+  page is built the first time it is shown.
+
+## Adding a new plot
+
+1. Write `render` and `table` for the payload the workspace already builds,
+   and wrap them in a `PlotSpec` with a unique `plot_id` (`"<workspace>.<name>"`).
+2. Register it with `register_plot(...)` and add a `PlotSlot` to the
+   workspace's pages in the module that owns the workspace (for example
+   `_model_diagnostics.py`).
+3. Add a payload with data for the workspace to `_PAYLOADS` in
+   `tests/test_plot_registry.py`, if the workspace is new. That test then
+   checks the new plot:
+   - the empty state
+   - PNG, SVG and CSV export
+   - no title inside the plot
+   - every CSV value is drawn
+4. Use `style_axes(ax, colors)` and `draw_placeholder(ax, message, colors)`,
+   not local theme constants.

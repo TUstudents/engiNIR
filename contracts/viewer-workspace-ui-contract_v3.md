@@ -397,6 +397,8 @@ Required prediction-map interaction:
 - multi-output prediction artifacts must expose an explicit target/output
   selector before the map is rendered
 - pan and zoom must be available for the prediction map
+- the map is a plot panel (see Plot Panel Policy). Its CSV export is the
+  displayed output as a frame × row matrix.
 - clicking or hovering the map must expose frame, row, and predicted value
 - map interaction must not hydrate unrelated heavy artifacts
 - repeated map refreshes for unchanged payloads must be no-ops
@@ -475,6 +477,92 @@ Minimum acceptable v3 state:
 - if full result dashboards are not yet implemented, the workspace must still
   give visual priority to prediction-related summaries and statuses over
   Explore plots
+
+## Plot Panel Policy
+
+This section applies to every scientific plot in the viewer. That includes the
+Explore plots and the spatial image, the Model diagnostics, the prediction map,
+and every plot added later.
+
+### Panel
+
+Each plot is shown in its own plot panel with a header. The header contains:
+
+- the plot title (the title is not drawn a second time inside the plot)
+- a maximize/restore control
+- an export menu
+
+### Maximize
+
+- In a grid of panels, maximize makes the panel fill the workspace's primary
+  content region in place.
+- In an Explore dock, maximize enlarges the dock to the main-window area.
+- Restore uses the same control, a double-click on the header, or `Esc`. A
+  docked panel returns to its dock position.
+- Maximize and restore must not change:
+  - the active workspace
+  - the selected objects
+  - the data shown by other panels
+- Restoring must not redraw panels whose payload is unchanged.
+
+### Export
+
+Every plot panel offers these exports:
+
+- **PNG** at 300 dpi or more, and **SVG**:
+  - The export contains the same data and the current axis limits as the
+    panel.
+  - It is rendered in a print style (light background, dark text), whatever
+    the screen theme.
+- **CSV** of the plotted data, exactly as drawn: one row per point, bin or
+  band, and a frame × row matrix for images and maps.
+  - Column names carry units where the plot has units.
+  - ROI rows carry both the ROI name and its stable id.
+  - The file starts with `# key: value` provenance lines:
+    - always: the plot id, the enginir version, the export time (ISO 8601) and
+      the project id
+    - when they apply: the dataset id, the signal unit, and the sample-set,
+      recipe, model-run and prediction-run ids
+    - for model plots also: the component count and the CV scheme
+
+Required behavior:
+
+- export of an empty plot is disabled, with the reason visible
+- an export of more than 1,000,000 values asks for confirmation before writing
+- export failures are user-visible errors and are logged
+- export never writes into the project file and never changes project objects
+
+### Layout
+
+- In `Model` and `Predict`, the primary content region is a fixed grid of plot
+  panels. The grid may be organised in named pages, shown as sub-tabs inside
+  the workspace.
+- Panels snap into the slots their page defines. Free-floating plot windows
+  are not the layout model, and the top-level tabs remain the primary
+  navigation.
+- Users can maximize and export panels. They cannot change which plot occupies
+  which slot (see the model diagnostics contract, non-goals).
+- The active page and the maximized panel are UI state. They are stored in the
+  user settings, never in the project file, and `Reset layout` restores the
+  defaults.
+
+### Redraw
+
+- A page builds its panels the first time it is shown.
+- A panel redraws only while visible, and only when its payload changed.
+- Changing one plot (for example its mode or output selection) must not redraw
+  the other panels.
+
+### Extensibility
+
+A new plot is added as a plot-panel definition. It must provide:
+
+- its rendering
+- its empty state
+- PNG/SVG export
+- CSV export
+
+A test that iterates over all registered plots verifies this.
 
 ## Long-Running Service Contract
 
@@ -654,6 +742,8 @@ The UI satisfies this contract only if all of the following are true:
 - Explore, Model, and Predict controls are not collapsed into one
   undifferentiated phase-less control area
 - the active workspace has a clear primary content region
+- every scientific plot is a plot panel that can be maximized and restored and
+  exported as PNG, SVG and CSV, with the CSV provenance header
 
 ## Out Of Scope For v3
 

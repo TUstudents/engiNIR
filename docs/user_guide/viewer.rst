@@ -108,10 +108,19 @@ Model shows the selected model and its diagnostics:
 
 - summary cards for target, sample set, model, components, cross-validation,
   ROI and pixel counts, R², RMSECV and bias
-- predicted vs reference, residuals, the distribution of reference values,
-  the scores of the first two latent variables, and the regression
-  coefficients or loadings (selectable)
+- the **Fit** page: predicted vs reference (with R², RMSECV and bias),
+  residuals, the distribution of reference values, and the training scores of
+  the first two latent variables
+- the **Spectral** page: the regression coefficients and the loadings of the
+  first latent variable
 - click a point to select its ROI
+
+Each plot has a header with its title. The maximize button, or a double-click
+on the header, makes the plot fill the page; the same button, a double-click
+or ``Esc`` restores it. The ⋯ menu saves the plot as PNG or SVG (300 dpi,
+light background) or copies it to the clipboard. **Export CSV** writes the
+plotted values. The CSV starts with ``#`` lines that record the project,
+model run, sample set, recipe, components and cross-validation it came from.
 
 The controls assign reference values (**Assign target**), build the sample
 set of all ROIs with a value (**Build sample set**) and fit PLS or PCR

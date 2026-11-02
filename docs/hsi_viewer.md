@@ -263,10 +263,13 @@ Its primary center content is a diagnostics-first model page showing:
 
 - fit summary cards for active target, selected/default sample set, active
   model run, components, CV, ROI count, pixel count, `R²`, `RMSECV`, and bias
-- `Predicted vs Reference`, `Residuals`, and `Target Distribution`
-- `Scores (LV1 vs LV2)`
-- a spectral diagnostics plot controlled from the Model diagnostics side panel's
-  `Spectral plot` selector
+- the `Fit` page: `Predicted vs Reference` (with `R²`, `RMSECV` and bias),
+  `Residuals`, `Target Distribution` and `Training Scores (LV1 vs LV2)`
+- the `Spectral` page: `Regression Coefficients` and `Latent Loadings (LV1)`
+
+Every plot is a panel with a header. The header holds the title, a maximize
+control (also a header double-click; `Esc` restores) and an export menu with
+PNG, SVG, CSV and copy to the clipboard.
 
 When no fitted run is available yet, the readiness message remains visible
 above the empty diagnostics placeholders so the blocking condition is still
@@ -280,7 +283,6 @@ obvious.
 | **Assign target** | Assign the active target to one ROI |
 | **Build sample set** | Persist one v3 sample set from labeled ROIs using the active preprocessing recipe |
 | **Fit model** | Persist one `SignalDomainContract` and grouped v3 `ModelRun` |
-| **Spectral plot** | Switch the diagnostics spectral plot between regression coefficients and LV1 loadings in the Model diagnostics side panel |
 
 The Modeling section operates from project state. Sample sets are built from
 persisted ROIs plus `TargetAssignment`s, and model fitting uses ROI-grouped CV

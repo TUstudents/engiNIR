@@ -889,6 +889,34 @@ class ModelingView(QWidget):
             "readiness": self._readiness_status.text(),
         }
 
+    def workspace_diagnostics_provenance(self) -> dict[str, str]:
+        """Provenance lines for exported diagnostics (Plot Panel Policy)."""
+        provenance = {"project_id": str(self.project_state.project_meta.get("project_id", ""))}
+        model_run = self._resolved_workspace_model_run()
+        if model_run is None:
+            return provenance
+        sample_set = self._resolved_workspace_sample_set(model_run=model_run)
+        target = self._resolved_workspace_target(model_run=model_run, sample_set=sample_set)
+        provenance["model_run_id"] = model_run.model_run_id
+        provenance["model_type"] = model_run.model_type
+        provenance["sample_set_id"] = model_run.sample_set_id
+        if sample_set is not None:
+            provenance["dataset_ids"] = ", ".join(sample_set.dataset_ids)
+            provenance["recipe_id"] = sample_set.preprocessing_recipe_id
+        signal_domain = self.project_state.signal_domains.get(model_run.signal_domain_id)
+        provenance["signal_domain_id"] = model_run.signal_domain_id
+        if signal_domain is not None:
+            provenance["signal_unit"] = signal_domain.required_signal_unit
+        if target is not None:
+            provenance["target"] = target.name
+            provenance["target_unit"] = target.unit
+        n_components = model_run.hyperparameters.get("n_components")
+        if n_components is not None:
+            provenance["components"] = str(n_components)
+        provenance["cv"] = ", ".join(f"{key}={value}"
+                                     for key, value in model_run.cv_spec.items())
+        return provenance
+
     def workspace_diagnostics_payload(self) -> dict[str, Any] | None:
         """Return one stable diagnostics payload for the selected Model workspace run.
 
@@ -925,13 +953,20 @@ class ModelingView(QWidget):
             return None
 
         artifact = self._load_model_artifact(model_run)
+        roi_ids = cv_outputs.get("roi_ids")
+        roi_names = None if roi_ids is None else tuple(
+            self.project_state.rois[str(roi_id)].name
+            if str(roi_id) in self.project_state.rois else str(roi_id)
+            for roi_id in np.asarray(roi_ids, dtype=object).reshape(-1)
+        )
         token = (
             model_run.model_run_id,
             target_unit,
             id(cv_outputs),
             id(y_true_roi),
             id(y_pred_roi),
-            id(cv_outputs.get("roi_ids")),
+            id(roi_ids),
+            roi_names,  # a renamed ROI changes the exported names
             id(artifact),
         )
         if self._cached_workspace_diagnostics_token == token:
@@ -942,9 +977,9 @@ class ModelingView(QWidget):
             "y_true_roi": np.asarray(y_true_roi, dtype=np.float32),
             "y_pred_roi": np.asarray(y_pred_roi, dtype=np.float32),
         }
-        roi_ids = cv_outputs.get("roi_ids")
         if roi_ids is not None:
             payload["roi_ids"] = np.asarray(roi_ids, dtype=object).reshape(-1)
+            payload["roi_names"] = roi_names
         scores_roi = self._extract_roi_scores(model_run, artifact)
         if scores_roi is not None:
             payload["scores_roi"] = scores_roi

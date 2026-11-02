@@ -139,6 +139,30 @@ Workspace surfaces
 .. autoclass:: enginir.viewer._prediction.PredictionMapWidget
    :no-members:
 
+Plot panels
+-----------
+
+.. automodule:: enginir.viewer._plot_panel
+   :no-members:
+
+.. autoclass:: enginir.viewer._plot_panel.PlotSpec
+   :no-members:
+
+.. autoclass:: enginir.viewer._plot_panel.PlotTable
+   :no-members:
+
+.. autoclass:: enginir.viewer._plot_panel.PlotPanel
+   :no-members:
+
+.. automodule:: enginir.viewer._plot_grid
+   :no-members:
+
+.. autoclass:: enginir.viewer._plot_grid.PlotGrid
+   :no-members:
+
+.. automodule:: enginir.viewer._plot_registry
+   :no-members:
+
 HSIViewer
 ---------
 

@@ -26,12 +26,11 @@ from PyQt6.QtWidgets import (
     QStackedWidget,
     QToolButton,
     QTabWidget,
-    QComboBox,
     QMenu,
     QMenuBar,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QActionGroup, QFont, QIcon, QCloseEvent, QStandardItemModel
+from PyQt6.QtGui import QAction, QActionGroup, QFont, QIcon, QCloseEvent
 import importlib.resources
 
 from .._checks import log_and_raise
@@ -216,7 +215,6 @@ class HSIViewer(QMainWindow):
         self._workspace_refresh_pending = False
         self._bottom_dock_resize_pending = False
         self._controls_dock_height = _CONTROLS_DOCK_TARGET_HEIGHT
-        self._model_spectral_mode = "coefficients"
 
         if dark is not None:
             ref = dark.mean(axis=0) if dark.ndim == 3 else dark
@@ -358,13 +356,7 @@ class HSIViewer(QMainWindow):
         self._model_workspace_splitter = QSplitter(Qt.Orientation.Horizontal)
         self._model_workspace_splitter.setChildrenCollapsible(False)
 
-        self._model_graph_panel = QGroupBox("Diagnostic Graphs")
-        graph_layout = QVBoxLayout(self._model_graph_panel)
-        graph_layout.setContentsMargins(8, 8, 8, 8)
-        graph_layout.setSpacing(6)
         self._model_diagnostics_widget = ModelDiagnosticsWidget()
-        self._model_diagnostics_widget.set_spectral_mode(self._model_spectral_mode)
-        graph_layout.addWidget(self._model_diagnostics_widget, 1)
 
         self._model_text_panel = QWidget()
         self._model_text_panel.setObjectName("ModelDiagnosticsTextPanel")
@@ -408,26 +400,6 @@ class HSIViewer(QMainWindow):
         metrics_layout.addRow("RMSECV", self._model_metric_rmsecv_value)
         metrics_layout.addRow("Bias", self._model_metric_bias_value)
 
-        spectral_box = QGroupBox("Spectral Plot")
-        spectral_layout = QVBoxLayout(spectral_box)
-        spectral_layout.setContentsMargins(8, 8, 8, 8)
-        spectral_layout.setSpacing(4)
-        self._model_spectral_combo = QComboBox()
-        self._model_spectral_combo.addItem("Regression coefficients", "coefficients")
-        self._model_spectral_combo.addItem("Latent loadings (LV1)", "loadings")
-        self._model_spectral_combo.setToolTip(
-            "Choose what the bottom diagnostics spectral plot displays."
-        )
-        self._model_spectral_combo.setEnabled(False)
-        self._model_spectral_combo.currentIndexChanged.connect(
-            self._on_model_spectral_mode_changed
-        )
-        self._model_spectral_hint = QLabel("No coefficients or loadings are available yet.")
-        self._model_spectral_hint.setStyleSheet(secondary_text_style())
-        self._model_spectral_hint.setWordWrap(True)
-        spectral_layout.addWidget(self._model_spectral_combo)
-        spectral_layout.addWidget(self._model_spectral_hint)
-
         readiness_box = QGroupBox("Readiness")
         readiness_layout = QVBoxLayout(readiness_box)
         readiness_layout.setContentsMargins(8, 8, 8, 8)
@@ -441,11 +413,10 @@ class HSIViewer(QMainWindow):
         text_layout.addWidget(self._model_summary_service)
         text_layout.addWidget(summary_box)
         text_layout.addWidget(metrics_box)
-        text_layout.addWidget(spectral_box)
         text_layout.addWidget(readiness_box)
         text_layout.addStretch(1)
 
-        self._model_workspace_splitter.addWidget(self._model_graph_panel)
+        self._model_workspace_splitter.addWidget(self._model_diagnostics_widget)
         self._model_workspace_splitter.addWidget(self._model_text_panel)
         self._model_workspace_splitter.setStretchFactor(0, 5)
         self._model_workspace_splitter.setStretchFactor(1, 1)
@@ -901,66 +872,11 @@ class HSIViewer(QMainWindow):
         self._set_busy_status_widget(
             self._model_summary_service, text=service_text, busy=service_busy
         )
-        diagnostics_payload = self._modeling_view.workspace_diagnostics_payload()
-        self._sync_model_spectral_options(diagnostics_payload)
-        model_diagnostics_widget.set_spectral_mode(self._model_spectral_mode)
         model_diagnostics_widget.update_data(
-            diagnostics_payload,
+            self._modeling_view.workspace_diagnostics_payload(),
             empty_reason=model_summary["readiness"],
+            provenance=self._modeling_view.workspace_diagnostics_provenance(),
         )
-
-    def _sync_model_spectral_options(self, payload: dict[str, object] | None) -> None:
-        has_coefficients = bool(
-            payload is not None and np.asarray(payload.get("coefficients", [])).size
-        )
-        has_loadings = bool(payload is not None and np.asarray(payload.get("loadings", [])).size)
-        self._set_model_spectral_option_enabled("coefficients", has_coefficients)
-        self._set_model_spectral_option_enabled("loadings", has_loadings)
-        any_available = has_coefficients or has_loadings
-        self._model_spectral_combo.setEnabled(any_available)
-        if any_available:
-            if not self._is_current_model_spectral_mode_available():
-                self._model_spectral_mode = "coefficients" if has_coefficients else "loadings"
-                index = self._model_spectral_combo.findData(self._model_spectral_mode)
-                if index >= 0:
-                    self._model_spectral_combo.setCurrentIndex(index)
-            self._model_spectral_hint.setText(self._model_spectral_hint_text())
-        else:
-            self._model_spectral_hint.setText("No coefficients or loadings are available yet.")
-
-    def _set_model_spectral_option_enabled(self, value: str, enabled: bool) -> None:
-        index = self._model_spectral_combo.findData(value)
-        if index < 0:
-            return
-        model = self._model_spectral_combo.model()
-        if not isinstance(model, QStandardItemModel):
-            return
-        item = model.item(index)
-        if item is not None:
-            item.setEnabled(enabled)
-
-    def _is_current_model_spectral_mode_available(self) -> bool:
-        index = self._model_spectral_combo.currentIndex()
-        if index < 0:
-            return False
-        model = self._model_spectral_combo.model()
-        if not isinstance(model, QStandardItemModel):
-            return False
-        item = model.item(index)
-        return bool(item is not None and item.isEnabled())
-
-    def _on_model_spectral_mode_changed(self, _index: int) -> None:
-        self._model_spectral_mode = str(
-            self._model_spectral_combo.currentData() or "coefficients"
-        )
-        self._model_spectral_hint.setText(self._model_spectral_hint_text())
-        if self._model_diagnostics_widget is not None:
-            self._model_diagnostics_widget.set_spectral_mode(self._model_spectral_mode)
-
-    def _model_spectral_hint_text(self) -> str:
-        if self._model_spectral_mode == "loadings":
-            return "Loadings show the first latent variable's spectral structure."
-        return "Coefficients show how each band contributes to the model prediction."
 
     def _refresh_prediction_workspace_content(self) -> None:
         self._ensure_predict_content_page()

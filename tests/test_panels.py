@@ -85,13 +85,27 @@ def test_model_diagnostics_show_empty_states_in_the_plots(qapp):
         return [text.get_text() for text in ax.texts]
 
     widget = ModelDiagnosticsWidget()
+    widget.resize(900, 600)
+    widget.show()
     widget.clear(empty_reason="Build a sample set before fitting.")
-    assert "Build a sample set before fitting." in texts(widget._pred_ax)
-    for ax in (widget._resid_ax, widget._target_dist_ax, widget._scores_ax, widget._spectral_ax):
-        assert texts(ax), "every diagnostics plot shows an empty-state message"
+    for page in widget.grid.page_names:
+        widget.grid.set_current_page(page)
+        qapp.processEvents()
+    panels = {plot_id: widget.grid.panel(plot_id) for plot_id in (
+        "model.pred_vs_ref", "model.residuals", "model.target_distribution", "model.scores",
+        "model.coefficients", "model.loadings")}
+    for plot_id, panel in panels.items():
+        assert panel is not None
+        assert "Build a sample set before fitting." in texts(panel.figure.axes[0]), plot_id
 
+    widget.grid.set_current_page("Fit")
     payload = {"y_true_roi": [1.0, 2.0, 3.0], "y_pred_roi": [1.1, 1.9, 3.2],
                "roi_ids": ["a", "b", "c"], "scores_roi": None}
     widget.update_data(payload)
-    assert "Build a sample set before fitting." not in texts(widget._pred_ax)  # plot replaced it
-    assert "No latent scores diagnostics yet." in texts(widget._scores_ax)
+    qapp.processEvents()
+    pred = panels["model.pred_vs_ref"]
+    scores = panels["model.scores"]
+    assert pred is not None and scores is not None
+    assert "Build a sample set before fitting." not in texts(pred.figure.axes[0])
+    assert "No latent scores diagnostics yet." in texts(scores.figure.axes[0])
+    assert scores.export_reason(), "a placeholder cannot be exported"
