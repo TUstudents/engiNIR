@@ -46,6 +46,11 @@ button.
 - The `Spatial Image` header also has the `Reset View` control, which resets
   zoom and pan to the full image bounds.
 
+`File > Export Plots...` writes every plot of the current workspace that shows
+data as `<plot_id>.png` and `<plot_id>.csv` into one folder. The maximized
+plot of each workspace page is remembered in `plot_layout.json` in the config
+directory. `Reset Layout` clears it.
+
 Exports show the current view in the print colors. Each CSV holds the drawn
 values:
 

@@ -129,6 +129,11 @@ light background) or copies it to the clipboard. **Export CSV** writes the
 plotted values. The CSV starts with ``#`` lines that record the project,
 model run, sample set, recipe, components and cross-validation it came from.
 
+**File > Export Plots...** saves every plot of the current workspace (PNG and
+CSV, named by plot) into one folder. That includes Model pages you have not
+opened. A maximized plot stays maximized the next time the viewer opens, and
+**View > Reset Layout** restores the default layout.
+
 The controls assign reference values (**Assign target**), build the sample
 set of all ROIs with a value (**Build sample set**) and fit PLS or PCR
 (**Fit model**). Cross-validation keeps the pixels of one ROI together, and

@@ -175,7 +175,7 @@ HSIViewer
 ---------
 
 .. autoclass:: enginir.viewer._viewer.HSIViewer
-   :members: show, export_csv
+   :members: show, export_csv, export_workspace_plots, workspace_plot_frames, reset_layout
 
 Project browser and inspector
 -----------------------------

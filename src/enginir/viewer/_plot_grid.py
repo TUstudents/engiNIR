@@ -74,6 +74,9 @@ class PlotPageWidget(QWidget):
     any other :class:`PlotFrame`).
     """
 
+    #: The maximized plot id, or ``None`` after restore.
+    maximized_changed = pyqtSignal(object)
+
     def __init__(self, page: PlotPage, frames: Mapping[str, PlotFrame],
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -133,6 +136,7 @@ class PlotPageWidget(QWidget):
         panel.set_maximized(True)
         self.maximized = plot_id
         self._escape.setEnabled(True)
+        self.maximized_changed.emit(plot_id)
 
     def restore(self) -> None:
         if self.maximized is None:
@@ -145,12 +149,15 @@ class PlotPageWidget(QWidget):
         panel.set_maximized(False)
         self.maximized = None
         self._escape.setEnabled(False)
+        self.maximized_changed.emit(None)
 
 
 class PlotGrid(QWidget):
     """The plot pages of one workspace, as sub-tabs (one page: no tab bar)."""
 
     roi_selected = pyqtSignal(str)
+    #: A plot was maximized (its id) or restored (``None``).
+    maximized_changed = pyqtSignal(object)
 
     def __init__(self, pages: Sequence[PlotPage], specs: Mapping[str, PlotSpec],
                  parent: QWidget | None = None) -> None:
@@ -203,6 +210,21 @@ class PlotGrid(QWidget):
                 return panel
         return None
 
+    def all_panels(self) -> dict[str, PlotPanel]:
+        """Every panel of every page, building pages that were not shown yet.
+
+        The current page stays current; panels of hidden pages do not draw
+        until shown, but they export (an export draws its own figure).
+        """
+        current = self._tabs.currentIndex()
+        for index in range(len(self._pages)):
+            self._ensure_page(index)
+        blocked = self._tabs.blockSignals(True)
+        self._tabs.setCurrentIndex(current)
+        self._tabs.blockSignals(blocked)
+        return {plot_id: panel for page in self._built.values()
+                for plot_id, panel in page.panels.items() if isinstance(panel, PlotPanel)}
+
     def maximized_plot(self) -> str | None:
         page = self._built.get(self.current_page)
         return None if page is None else page.maximized
@@ -216,9 +238,17 @@ class PlotGrid(QWidget):
         self._built[page.name].maximize(plot_id)
 
     def restore(self) -> None:
-        page = self._built.get(self.current_page)
+        self.restore_page(self.current_page)
+
+    def restore_page(self, name: str) -> None:
+        """Restore the maximized plot of page ``name``, if it was built."""
+        page = self._built.get(name)
         if page is not None:
             page.restore()
+
+    @property
+    def plot_ids(self) -> tuple[str, ...]:
+        return tuple(plot_id for page in self._pages for plot_id in page.plot_ids)
 
     def update_data(
         self,
@@ -269,6 +299,7 @@ class PlotGrid(QWidget):
         for panel in widget.panels.values():
             if isinstance(panel, PlotPanel):
                 panel.roi_selected.connect(self.roi_selected.emit)
+        widget.maximized_changed.connect(self.maximized_changed.emit)
         self._built[page.name] = widget
         self._feed(widget)
         placeholder = self._tabs.widget(index)

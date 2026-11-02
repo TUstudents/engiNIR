@@ -45,8 +45,9 @@ from ._inspector import ProjectInspector
 from ._jobs import BusyStatusWidget
 from ._loading import ViewerBusyContext
 from ._model_diagnostics import ModelDiagnosticsWidget
+from . import _layout_settings as layout_settings
 from ._plot_grid import PlotPage, PlotPageWidget, PlotSlot
-from ._plot_panel import PlotFrame, PlotPanel
+from ._plot_panel import LARGE_EXPORT_VALUES, PlotFrame, PlotPanel
 from ._modeling import AssignTargetValueDialog, ModelingView, NewROIDialog, TargetSelectionDialog
 from ._prediction import PREDICTION_HISTOGRAM, PredictionMapWidget, PredictionView
 from ._state import (
@@ -341,6 +342,12 @@ class HSIViewer(QMainWindow):
         self._replace_workspace_content_page(old_page, self._model_content_page)
         if self._model_diagnostics_widget is not None:
             self._model_diagnostics_widget.roi_selected.connect(self._on_canvas_roi_selected)
+            grid = self._model_diagnostics_widget.grid
+            saved = layout_settings.load_maximized().get("Model")
+            if saved in grid.plot_ids:
+                grid.maximize(saved)
+            grid.maximized_changed.connect(
+                lambda plot_id: layout_settings.save_maximized("Model", plot_id))
 
     def _ensure_predict_content_page(self) -> None:
         if self._predict_map_widget is not None:
@@ -348,6 +355,11 @@ class HSIViewer(QMainWindow):
         old_page = self._predict_content_page
         self._predict_content_page = self._build_predict_content_page()
         self._replace_workspace_content_page(old_page, self._predict_content_page)
+        saved = layout_settings.load_maximized().get("Predict")
+        if saved in self._predict_graph_panel.panels:
+            self._predict_graph_panel.maximize(saved)
+        self._predict_graph_panel.maximized_changed.connect(
+            lambda plot_id: layout_settings.save_maximized("Predict", plot_id))
 
     def _build_model_content_page(self) -> QWidget:
         page = QWidget()
@@ -642,15 +654,19 @@ class HSIViewer(QMainWindow):
         maximize = self._explore_maximized != which
         self._restore_maximized_plots()
         if maximize:
-            self._explore_maximized = which
-            self._apply_explore_page_layout()
+            self._set_explore_maximized(which)
+
+    def _set_explore_maximized(self, which: str | None) -> None:
+        self._explore_maximized = which
+        self._apply_explore_page_layout()
+        layout_settings.save_maximized(
+            "Explore", None if which is None else f"explore.{which}")
 
     def _restore_maximized_plots(self) -> None:
         if self._maximized_dock is not None:
             self._restore_dock(self._maximized_dock)
         if self._explore_maximized is not None:
-            self._explore_maximized = None
-            self._apply_explore_page_layout()
+            self._set_explore_maximized(None)
 
     def _on_explore_escape(self) -> None:
         if self._canvas.is_drawing_roi:
@@ -851,6 +867,9 @@ class HSIViewer(QMainWindow):
         self._sensor_dock.visibilityChanged.connect(self._on_sensor_dock_visibility_changed)
         self._spatial_dock.visibilityChanged.connect(self._on_spatial_dock_visibility_changed)
 
+        saved = layout_settings.load_maximized().get("Explore", "")
+        if saved in ("explore.image", "explore.spectrum"):
+            self._explore_maximized = saved.removeprefix("explore.")
         self._sync_workspace_content_host()
 
     def _on_project_browser_selection_changed(self) -> None:
@@ -922,7 +941,8 @@ class HSIViewer(QMainWindow):
             self._sensor_dock.setVisible(self._explore_plot_visibility["sensor"])
             self._spatial_dock.setVisible(self._explore_plot_visibility["spatial"])
         else:
-            self._restore_maximized_plots()
+            if self._maximized_dock is not None:  # a floating dock would cover Model/Predict
+                self._restore_dock(self._maximized_dock)
             self._sensor_dock.hide()
             self._spatial_dock.hide()
         self._apply_explore_page_layout()
@@ -1156,6 +1176,9 @@ class HSIViewer(QMainWindow):
 
         act = _add_required_action(m, "Export CSV...")
         act.triggered.connect(self._eda_view.export_csv_btn_clicked)
+        act = _add_required_action(m, "Export Plots...")
+        act.setToolTip("Save every plot of the current workspace as PNG and CSV")
+        act.triggered.connect(self._action_export_plots)
 
         m.addSeparator()
 
@@ -1381,9 +1404,84 @@ class HSIViewer(QMainWindow):
                     "Hyperspectral NIR spectroscopy library and viewer.")
         box.exec()
 
+    def workspace_plot_frames(self) -> list[PlotFrame]:
+        """The plots of the current workspace, including Model pages not shown yet."""
+        current = self._workspace_tabs.currentWidget()
+        if current is self._modeling_view:
+            self._ensure_model_content_page()
+            widget = self._model_diagnostics_widget
+            return [] if widget is None else list(widget.grid.all_panels().values())
+        if current is self._prediction_view:
+            self._ensure_predict_content_page()
+            return list(self._predict_graph_panel.panels.values())
+        return [self._canvas_frame, self._spectrum_panel, *self._dock_frames.values()]
+
+    def export_workspace_plots(self, folder: str | os.PathLike[str]) -> tuple[list[str], list[str]]:
+        """Write PNG and CSV of every plot of the current workspace that shows data.
+
+        Files are named by plot id (``model.pred_vs_ref.png``, ...) and
+        overwrite files of the same name. Returns the written file names and
+        the ids of the plots skipped because they show no data.
+        """
+        target = os.fspath(folder)
+        if not os.path.isdir(target):
+            log_and_raise("Export folder does not exist: {}", target)
+        written: list[str] = []
+        skipped: list[str] = []
+        for frame in self.workspace_plot_frames():
+            if frame.export_reason():
+                skipped.append(frame.plot_id)
+                continue
+            for suffix, export in ((".png", frame.export_image), (".csv", frame.export_csv)):
+                path = os.path.join(target, f"{frame.plot_id}{suffix}")
+                export(path)
+                written.append(os.path.basename(path))
+        logger.info("Exported {} plot files to {}; skipped without data: {}", len(written),
+                    target, skipped)
+        return written, skipped
+
+    def _action_export_plots(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Export plots to folder")
+        if not folder:
+            return
+        frames = [frame for frame in self.workspace_plot_frames() if not frame.export_reason()]
+        if not frames:
+            QMessageBox.information(self, "Export Plots", "No plot of this workspace shows data.")
+            return
+        n_values = sum(table.n_values for frame in frames
+                       if (table := frame.table()) is not None)
+        existing = [f"{frame.plot_id}{suffix}" for frame in frames for suffix in (".png", ".csv")
+                    if os.path.exists(os.path.join(folder, f"{frame.plot_id}{suffix}"))]
+        questions = []
+        if existing:
+            questions.append(f"{len(existing)} file(s) in this folder will be replaced.")
+        if n_values > LARGE_EXPORT_VALUES:
+            questions.append(f"The CSV files hold {n_values:,} values.")
+        if questions:
+            answer = QMessageBox.question(self, "Export Plots",
+                                          " ".join(questions) + " Export anyway?")
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        try:
+            written, skipped = self.export_workspace_plots(folder)
+        except (OSError, ValueError) as exc:
+            logger.error("Export of the workspace plots failed: {}", exc)
+            QMessageBox.warning(self, "Export failed", str(exc))
+            return
+        message = f"Wrote {len(written)} files to {folder}."
+        if skipped:
+            message += f"\n\nSkipped (no data): {', '.join(skipped)}"
+        QMessageBox.information(self, "Export Plots", message)
+
     def reset_layout(self) -> None:
-        """Restore default dock layout (positions, splits, visibility)."""
+        """Restore default dock layout (positions, splits, visibility) and plot layout."""
         self._restore_maximized_plots()
+        if self._model_diagnostics_widget is not None:
+            for page in self._model_diagnostics_widget.grid.page_names:
+                self._model_diagnostics_widget.grid.restore_page(page)
+        if self._predict_map_widget is not None:
+            self._predict_graph_panel.restore()
+        layout_settings.clear()
         self._explore_plot_visibility = dict(self._default_explore_plot_visibility)
         self.restoreState(self._default_layout_state)
         self._sync_workspace_content_host()

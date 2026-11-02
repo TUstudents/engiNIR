@@ -32,6 +32,7 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_plot_panel.py` | `PlotSpec`, `PlotTable`, `PlotPanel`: one plot with a header (title, maximize, PNG/SVG/CSV export) |
 | `_plot_grid.py` | `PlotGrid`, `PlotPage`, `PlotSlot`: paged plot grids with lazy pages and in-place maximize |
 | `_plot_registry.py` | Registry of all plots and of the plot pages of each workspace |
+| `_layout_settings.py` | Maximized plot per workspace in the user settings (`plot_layout.json`) |
 
 ---
 
@@ -301,6 +302,17 @@ Drawing rules:
   click into `roi_selected`.
 - A panel draws only while visible, and only for a new payload object. A
   page is built the first time it is shown.
+
+Workspace export and layout state:
+
+- `HSIViewer.workspace_plot_frames()` lists the plots of the current
+  workspace. For Model it calls `PlotGrid.all_panels()`, which builds unopened
+  pages without switching to them.
+- `export_workspace_plots(folder)` writes `<plot_id>.png`/`.csv` for each
+  plot that shows data.
+- `_layout_settings.py` keeps the maximized plot of each workspace in
+  `plot_layout.json` in the config directory (Explore page, Model grid,
+  Predict page; not floating docks). `reset_layout()` clears it.
 
 ## Adding a new plot
 

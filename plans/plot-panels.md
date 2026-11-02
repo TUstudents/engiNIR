@@ -1,7 +1,7 @@
 # Plan: plot panels for the viewer
 
 Branch: `feature/plot-panels`
-Status: phases 0–5 done
+Status: phases 0–6 done
 Date: 2026-11-02
 
 ## Goal
@@ -380,6 +380,29 @@ Tests:
 - Store the active page and maximized panel in QSettings; *Reset layout*
   clears them.
 - If D1 is yes: add the per-slot plot selector here.
+
+**Done (2026-11-02).**
+
+- *File → Export Plots...* writes `<plot_id>.png` and `.csv` for every plot of
+  the current workspace that shows data. Unopened Model pages are built
+  without switching to them (`PlotGrid.all_panels`). Plots without data are
+  listed as skipped. Replacing files or a large total asks first.
+  Deviation: files are named by plot id only (the ids already carry the
+  workspace), not `<page>_<plot id>`.
+- `_layout_settings.py` keeps the maximized plot per workspace (Explore page,
+  Model grid, Predict page) in `plot_layout.json`. Floating docks and the
+  active page are not stored, because a new run opens `Fit`. The contract
+  states this.
+- Leaving Explore now restores only a floating dock. The Explore page
+  maximize stays, like the Model and Predict ones.
+- *Reset Layout* restores every maximized plot and clears the settings.
+- D1 stayed "no": there is no slot selector.
+- `tests/test_plot_layout.py` covers export (including unopened pages),
+  skipped plots, the replace question, restore in a new window, reset and a
+  damaged settings file. Seven injected faults were caught. A *Reset Layout*
+  that kept the settings was missed at first; the test now covers a page
+  that was never opened.
+- G19 is closed in the ledger.
 
 ### Phase 7: performance check and docs
 

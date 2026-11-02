@@ -528,6 +528,14 @@ Every plot panel offers these exports:
       recipe, model-run and prediction-run ids
     - for model plots also: the component count and the CV scheme
 
+`File > Export Plots...` writes PNG and CSV of every plot of the active
+workspace that shows data into one folder:
+
+- Files are named by plot id, and plots without data are listed as skipped.
+- Pages that were not opened yet are included.
+- Replacing files, or writing more than 1,000,000 values in total, needs
+  confirmation first.
+
 Required behavior:
 
 - export of an empty plot is disabled, with the reason visible
@@ -545,9 +553,11 @@ Required behavior:
   navigation.
 - Users can maximize and export panels. They cannot change which plot occupies
   which slot (see the model diagnostics contract, non-goals).
-- The active page and the maximized panel are UI state. They are stored in the
-  user settings, never in the project file, and `Reset layout` restores the
-  defaults.
+- The maximized panel of each workspace page is UI state. It is stored in
+  the user settings, never in the project file, and `Reset layout` restores
+  the defaults.
+- A maximized dock and the active page are not stored: a dock maximize is
+  transient, and a new model run opens the `Fit` page.
 
 ### Redraw
 
