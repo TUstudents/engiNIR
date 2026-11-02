@@ -27,6 +27,10 @@ enginir.viewer
 ├── _inspector.py    ProjectInspector — selection-driven metadata surface
 ├── _panels.py       HistogramPanel, RAW panel (`DC3Panel`), Sensor Frame panel (`SensorPanel`),
 │                    SpatialProfilePanel, SpectrumPanel
+├── _plot_panel.py   PlotFrame/PlotPanel — plot header (title, maximize, PNG/SVG/CSV export)
+├── _plot_grid.py    PlotGrid/PlotPageWidget — plot pages with slots and in-place maximize
+├── _plot_registry.py  registry of the plot specs and pages
+├── _layout_settings.py  maximized plots in the user settings
 └── _viewer.py       HSIViewer(QMainWindow) — shell, menus, docks, log, child windows
 ```
 
@@ -595,7 +599,12 @@ See the [Logging user guide](user_guide/logging) for the full reference.
 
 ## 11. Extending the viewer
 
-To add a custom viewer surface, compose a normal Qt widget, connect it to
+To add a plot to a workspace, write a `PlotSpec` (`render`, `table`), register
+it and give it a slot on the workspace's pages. It then gets the header,
+maximize and export, and `tests/test_plot_registry.py` checks it. The steps
+are in `docs/viewer_architecture.md` under *Adding a new plot*.
+
+For a surface that is not a plot, compose a normal Qt widget, connect it to
 `ViewerState` / `ProjectState` signals, and dock it from `HSIViewer`.
 `_BasePanelWidget` is a private helper for the built-in matplotlib panels, not
 the public extension contract.

@@ -251,7 +251,9 @@ frame, signal unit, or preprocessing parameters.
 - Explore dock panels defer rebuilds while hidden, but the default visible Explore panels still perform one initial build so guides and labels exist immediately after viewer construction.
 - `HistogramPanel` updates its existing bar artists in place instead of rebuilding the axes on every frame/unit change.
 - `ModelDiagnosticsWidget` and `PredictionMapWidget` skip redraws for unchanged payload objects.
-- Figure layout uses a size-aware `maybe_tight_layout(...)` helper, so `tight_layout()` is only recomputed when the canvas size changes.
+- Each plot panel has its own canvas. Changing one plot redraws only that plot. A page draws when it is first shown, and a panel draws only while visible.
+- Figure layout is recomputed for a new payload or a new canvas size (`maybe_tight_layout(...)` for in-place panels), not on every redraw.
+- `tests/test_plot_performance.py` (opt-in, `ENGINIR_PERF=1`) times the Model diagnostics against the single-figure baseline.
 - Welcome-screen startup loads dataset/project payloads in a worker thread and only constructs Qt widgets on the GUI thread after loading completes.
 
 ---

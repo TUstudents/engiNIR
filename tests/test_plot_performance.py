@@ -27,6 +27,10 @@ pytestmark = pytest.mark.skipif(
 
 _SIZE = (1400, 900)
 _REPEATS = 15
+# Phase 0 baseline (single-figure diagnostics, 2026-11-02, WSL2, 10 cores). The
+# limits hold on that machine; on others, compare against a run of the baseline.
+_BASELINE_FULL_MS = 187.0
+_BASELINE_ONE_MS = 121.0
 
 
 @pytest.fixture(scope="module")
@@ -94,4 +98,5 @@ def test_model_diagnostics_timings(qapp):
           f"\n  build + first draw   {build_ms:7.1f} ms"
           f"\n  redraw all plots     {full_ms:7.1f} ms"
           f"\n  change one plot      {one_ms:7.1f} ms")
-    assert all(np.isfinite([build_ms, full_ms, one_ms]))
+    assert one_ms < _BASELINE_ONE_MS, "changing one plot must not redraw the others"
+    assert full_ms <= 1.1 * _BASELINE_FULL_MS

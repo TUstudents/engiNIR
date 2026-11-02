@@ -1,7 +1,7 @@
 # Plan: plot panels for the viewer
 
 Branch: `feature/plot-panels`
-Status: phases 0–6 done
+Status: done (phases 0–7)
 Date: 2026-11-02
 
 ## Goal
@@ -414,6 +414,34 @@ Tests:
 - `docs/api/viewer.rst`: only if a public symbol changes (none planned).
 - `docs/contract_coverage.md`: mark the phase 1 rows covered.
 - `CHANGELOG.md`: *Unreleased* entry.
+
+**Done (2026-11-02).**
+
+The final benchmark has the same setup as phase 0, three runs:
+
+| Step | Phase 0 | Phase 7 |
+|---|---|---|
+| Build and first draw | 380 ms | 230–237 ms |
+| Redraw all plots | 187 ms | 165–167 ms |
+| Change one plot | 121 ms | 45–46 ms |
+
+Both targets are met. The benchmark now asserts them: a one-plot change
+below 121 ms, and a full redraw within 10 % of 187 ms. The limits hold on
+the baseline machine only.
+
+Explore frame scrubbing was compared against a worktree of `6c262e6`. The
+setup was a 400×320×224 cube with the Histogram and RAW docks open, taking
+the median of 60 frame steps:
+
+- before: 106–107 ms per step
+- after: 90 ms per step
+
+The docs pass covered the following:
+
+- `viewer_architecture.md`: responsiveness notes
+- `hsi_viewer.md`: module inventory and the *Extending the viewer* section
+  (now pointing to `PlotSpec`)
+- the `CHANGELOG.md` *Unreleased* entry
 
 ## Risks
 
