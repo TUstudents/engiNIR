@@ -77,6 +77,13 @@ cursor:
      - the spectrum at the selected row, with a draggable band
      - bottom
 
+Every plot has a header with its title, a maximize button and a ⋯ menu that
+saves the current view as PNG or SVG, exports the plotted values as CSV, or
+copies the image. The Spatial Image and the Spectral Profile maximize within
+Explore. A docked plot floats over the whole window instead. The same
+button, a double-click on the header or ``Esc`` restores it. The CSV records
+the project, the data file, the signal unit and the frame, row or band shown.
+
 The controls set what the panels show:
 
 - **Signal**: raw counts, reflectance or absorbance. Without dark and white
@@ -139,8 +146,16 @@ model's signal: another instrument format, number of bands, calibration mode
 or signal unit. Wavelength values are metadata and are not compared. Models
 with MSC or EMSC apply the preprocessing state stored at training.
 
-The workspace shows the prediction map, the model, dataset and calibration
-used, the compatibility summary, and how many reflectance values were clipped.
+The workspace shows the prediction map, the distribution of the predicted
+values, the model, dataset and calibration used, the compatibility summary,
+and how many reflectance values were clipped.
+
+The map header has the output selector (for models with several targets),
+**Pan**, **Zoom** and **Reset View**. Large maps are shown as a preview that
+keeps every n-th frame and row. The axes, the hover readout and the exported
+CSV still give the true frame and row, and the CSV records the step. Map and
+distribution export like every other plot (PNG, SVG, CSV, copy) and maximize
+within the page.
 Prediction streams through the scan in bounded memory and reports its phase
 (loading, calibrating, preprocessing, predicting, writing).
 

@@ -13,17 +13,19 @@ from __future__ import annotations
 
 import csv
 import io
+import pickle
 import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+from matplotlib.colors import to_hex
 from matplotlib.figure import Figure
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QAction, QGuiApplication, QImage, QMouseEvent, QShowEvent
@@ -76,6 +78,8 @@ class PlotTable:
 
     Either ``columns`` (one row per point, bin or band) or ``matrix`` (an image
     or map, one CSV row per ``row_label`` and one column per ``column_label``).
+    ``row_index`` and ``column_index`` label the matrix rows and columns
+    (default ``0, 1, ...``), e.g. the true frames of a subsampled map.
     ``metadata`` adds plot-specific provenance lines to the CSV header.
     """
 
@@ -83,6 +87,8 @@ class PlotTable:
     matrix: Any = None
     row_label: str = "row"
     column_label: str = "frame"
+    row_index: Any = None
+    column_index: Any = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -92,6 +98,12 @@ class PlotTable:
             if np.ndim(self.matrix) != 2:
                 log_and_raise("A plot table matrix must be 2-D, got {} dimensions",
                               np.ndim(self.matrix))
+            n_rows, n_columns = np.shape(self.matrix)
+            for name, index, n in (("row_index", self.row_index, n_rows),
+                                   ("column_index", self.column_index, n_columns)):
+                if index is not None and len(np.ravel(index)) != n:
+                    log_and_raise("Plot table {} has {} labels for {} matrix entries",
+                                  name, len(np.ravel(index)), n)
             return
         lengths = {column.header: len(np.ravel(column.values)) for column in self.columns}
         if len(set(lengths.values())) > 1:
@@ -119,9 +131,12 @@ class PlotTable:
             writer = csv.writer(handle)
             if self.matrix is not None:
                 matrix = np.asarray(self.matrix)
-                writer.writerow([f"{self.row_label}\\{self.column_label}",
-                                 *range(matrix.shape[1])])
-                for index, row in enumerate(matrix):
+                rows = (range(matrix.shape[0]) if self.row_index is None
+                        else np.ravel(self.row_index).tolist())
+                columns = (range(matrix.shape[1]) if self.column_index is None
+                           else np.ravel(self.column_index).tolist())
+                writer.writerow([f"{self.row_label}\\{self.column_label}", *columns])
+                for index, row in zip(rows, matrix, strict=True):
                     writer.writerow([index, *_format_values(row)])
                 return
             writer.writerow([column.header for column in self.columns])
@@ -186,24 +201,254 @@ class _PlotHeader(QWidget):
             a0.accept()
 
 
-class PlotPanel(QWidget):
-    """One plot with a header: title, maximize/restore and the export menu."""
+class PlotSource(Protocol):
+    """What a plot frame needs from the plot it shows."""
+
+    def plot_table(self) -> PlotTable | None:
+        """The plotted values, or ``None`` when nothing is plotted."""
+        ...
+
+    def print_figure(self) -> Figure:
+        """A new figure of the current view in :func:`print_colors`."""
+        ...
+
+
+class PlotFrame(QWidget):
+    """A plot under a header: title, maximize/restore and the export menu.
+
+    The header works for any plot that implements :class:`PlotSource`; a
+    :class:`PlotPanel` is the frame of a :class:`PlotSpec`. ``provenance``
+    callables supply the CSV provenance lines at export time.
+    """
 
     maximize_toggled = pyqtSignal()
+
+    def __init__(
+        self,
+        plot_id: str,
+        title: str,
+        body: QWidget,
+        source: PlotSource | None = None,
+        *,
+        provenance: Callable[[], Mapping[str, Any]] | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.plot_id = plot_id
+        self._source = source
+        self._provenance_provider = provenance
+        self._provenance: dict[str, Any] = {}
+        self._maximized = False
+
+        self._header = _PlotHeader(self)
+        self._header.double_clicked.connect(self.maximize_toggled.emit)
+        self._header_layout = QHBoxLayout(self._header)
+        self._header_layout.setContentsMargins(6, 0, 2, 0)
+        self._header_layout.setSpacing(2)
+        self._title = QLabel(title)
+        self._title.setStyleSheet("font-weight: 600;")
+        self._max_button = self._header_button("")
+        self._max_button.clicked.connect(self.maximize_toggled.emit)
+        self._menu = QMenu(self)
+        self._menu.setToolTipsVisible(True)
+        self._menu.aboutToShow.connect(self._update_export_actions)
+        self._png_action = self._add_action("Save PNG...", lambda: self._save_image(".png"))
+        self._svg_action = self._add_action("Save SVG...", lambda: self._save_image(".svg"))
+        self._csv_action = self._add_action("Export CSV...", self._save_csv)
+        self._copy_action = self._add_action("Copy image", self._copy_image)
+        menu_button = self._header_button("⋯")
+        menu_button.setToolTip("Export")
+        menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu_button.setMenu(self._menu)
+        self._header.setFixedHeight(_HEADER_BUTTON + 4)
+        self._header_layout.addWidget(self._title, 1)
+        self._header_layout.addWidget(self._max_button)
+        self._header_layout.addWidget(menu_button)
+        self.set_maximized(False)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self._header)
+        layout.addWidget(body, 1)
+        title_changed = getattr(source, "title_changed", None)
+        if title_changed is not None:  # e.g. the RAW panel's band, the map's unit
+            title_changed.connect(self.set_title)
+        self._update_export_actions()
+
+    # ------------------------------------------------------------------
+    # Header
+    # ------------------------------------------------------------------
+
+    @property
+    def title(self) -> str:
+        return self._title.text()
+
+    def set_title(self, title: str) -> None:
+        self._title.setText(title)
+
+    def take_header(self) -> QWidget:
+        """Remove the header from the frame, e.g. to use it as a dock title bar."""
+        layout = self.layout()
+        if layout is not None:
+            layout.removeWidget(self._header)
+        return self._header
+
+    def add_header_widget(self, widget: QWidget) -> None:
+        """Add a control to the header, left of the maximize button."""
+        self._header_layout.insertWidget(self._header_layout.indexOf(self._max_button), widget)
+
+    def add_close_button(self, close: Callable[[], None]) -> None:
+        """Add a close control (for a frame used as a dock title bar)."""
+        button = self._header_button("×")
+        button.setToolTip("Close")
+        button.clicked.connect(lambda _checked=False: close())
+        self._header_layout.addWidget(button)
+
+    def _header_button(self, text: str) -> QToolButton:
+        button = QToolButton()
+        button.setAutoRaise(True)
+        button.setText(text)
+        button.setFixedSize(_HEADER_BUTTON, _HEADER_BUTTON)
+        button.setStyleSheet("QToolButton { padding: 0px; margin: 0px; }"
+                             "QToolButton::menu-indicator { image: none; width: 0px; }")
+        return button
+
+    @property
+    def is_maximized(self) -> bool:
+        return self._maximized
+
+    def set_maximized(self, maximized: bool) -> None:
+        """Show the maximize or the restore control (the owner does the layout)."""
+        self._maximized = maximized
+        self._max_button.setText("⤡" if maximized else "⤢")
+        self._max_button.setToolTip("Restore (Esc)" if maximized else "Maximize")
+
+    # ------------------------------------------------------------------
+    # Export
+    # ------------------------------------------------------------------
+
+    def table(self) -> PlotTable | None:
+        """The plotted values, or ``None`` when the frame shows no data."""
+        return None if self._source is None else self._source.plot_table()
+
+    def print_figure(self) -> Figure:
+        """The current view as a new figure in the print style."""
+        if self._source is None:
+            log_and_raise("Plot '{}' has nothing to print", self.plot_id)
+        return self._source.print_figure()
+
+    def set_provenance(self, provenance: Mapping[str, Any]) -> None:
+        self._provenance = dict(provenance)
+
+    def export_reason(self) -> str:
+        """Why export is disabled, or ``""`` when it is possible."""
+        table = self.table()
+        return _NO_DATA if table is None or table.is_empty else ""
+
+    def export_image(self, path: str | Path, *, dpi: int = _IMAGE_DPI) -> None:
+        """Save the plot as PNG or SVG (by suffix) in the print style."""
+        path = Path(path)
+        if path.suffix.lower() not in _IMAGE_SUFFIXES:
+            log_and_raise("Plot images are saved as {}, not '{}'",
+                          " or ".join(_IMAGE_SUFFIXES), path.suffix)
+        self._require_data()
+        fig = self.print_figure()
+        fig.savefig(path, dpi=dpi, facecolor=fig.get_facecolor())
+        logger.info("Saved plot '{}' to {}", self.plot_id, path)
+
+    def export_csv(self, path: str | Path) -> None:
+        """Write the plotted values with the provenance header."""
+        table = self._require_data()
+        provided = {} if self._provenance_provider is None else self._provenance_provider()
+        provenance = {
+            "plot": self.plot_id,
+            "title": self.title,
+            "enginir_version": __version__,
+            "exported_at": datetime.now(UTC).isoformat(timespec="seconds"),
+            **provided,
+            **self._provenance,
+        }
+        table.write_csv(path, provenance)
+        logger.info("Exported data of plot '{}' to {}", self.plot_id, path)
+
+    def _require_data(self) -> PlotTable:
+        table = self.table()
+        if table is None or table.is_empty:
+            log_and_raise("Plot '{}' has no data to export", self.plot_id, depth=2)
+        return table
+
+    def _add_action(self, text: str, slot: Callable[[], None]) -> QAction:
+        action = QAction(text, self)
+        action.triggered.connect(lambda _checked=False: slot())
+        self._menu.addAction(action)
+        return action
+
+    def _update_export_actions(self) -> None:
+        reason = self.export_reason()
+        for action in (self._png_action, self._svg_action, self._csv_action,
+                       self._copy_action):
+            action.setEnabled(not reason)
+            action.setToolTip(reason)
+
+    def _save_image(self, suffix: str) -> None:
+        path = self._ask_path(suffix, "PNG image (*.png)" if suffix == ".png"
+                              else "SVG image (*.svg)")
+        if path is not None:
+            self._run_export(lambda: self.export_image(path))
+
+    def _save_csv(self) -> None:
+        table = self.table()
+        if table is not None and table.n_values > LARGE_EXPORT_VALUES:
+            answer = QMessageBox.question(
+                self, "Large export",
+                f"This export holds {table.n_values:,} values. Write it anyway?")
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        path = self._ask_path(".csv", "CSV (*.csv)")
+        if path is not None:
+            self._run_export(lambda: self.export_csv(path))
+
+    def _copy_image(self) -> None:
+        def copy() -> None:
+            buffer = io.BytesIO()
+            self._require_data()
+            self.print_figure().savefig(buffer, format="png", dpi=150)
+            clipboard = QGuiApplication.clipboard()
+            if clipboard is not None:
+                clipboard.setImage(QImage.fromData(buffer.getvalue(), "PNG"))
+        self._run_export(copy)
+
+    def _ask_path(self, suffix: str, file_filter: str) -> Path | None:
+        name, _ = QFileDialog.getSaveFileName(
+            self, f"Export {self.title}", f"{self.plot_id}{suffix}", file_filter)
+        if not name:
+            return None
+        path = Path(name)
+        return path if path.suffix.lower() == suffix else path.with_name(path.name + suffix)
+
+    def _run_export(self, export: Callable[[], None]) -> None:
+        try:
+            export()
+        except (OSError, ValueError) as exc:
+            logger.error("Export of plot '{}' failed: {}", self.plot_id, exc)
+            QMessageBox.warning(self, "Export failed", str(exc))
+
+
+class PlotPanel(PlotFrame):
+    """The frame of one :class:`PlotSpec`: draws its payload and exports it."""
+
     roi_selected = pyqtSignal(str)
 
     def __init__(self, spec: PlotSpec, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
         self.spec = spec
         self._payload: Any = None
         self._empty_reason = ""
-        self._provenance: dict[str, Any] = {}
         self._rendered: tuple[int, str] | None = None
         self._pending = True
         self._layout_size: tuple[int, int] | None = None
         self._roi_points: list[RoiPoints] = []
         self._table: PlotTable | None = None
-        self._maximized = False
 
         self._fig = Figure(figsize=(6, 4), facecolor=panel_colors()["bg"])
         self._canvas = FigureCanvasQTAgg(self._fig)
@@ -211,45 +456,7 @@ class PlotPanel(QWidget):
         self._canvas.setMinimumSize(120, 90)
         self._canvas.mpl_connect("button_press_event", self._on_canvas_click)
         self._canvas.mpl_connect("resize_event", self._on_canvas_resize)
-
-        header = _PlotHeader(self)
-        header.double_clicked.connect(self.maximize_toggled.emit)
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(6, 0, 2, 0)
-        header_layout.setSpacing(2)
-        self._title = QLabel(spec.title)
-        self._title.setStyleSheet("font-weight: 600;")
-        self._max_button = QToolButton()
-        self._max_button.setAutoRaise(True)
-        self._max_button.clicked.connect(self.maximize_toggled.emit)
-        self._menu = QMenu(self)
-        self._menu.setToolTipsVisible(True)
-        self._png_action = self._add_action("Save PNG...", lambda: self._save_image(".png"))
-        self._svg_action = self._add_action("Save SVG...", lambda: self._save_image(".svg"))
-        self._csv_action = self._add_action("Export CSV...", self._save_csv)
-        self._copy_action = self._add_action("Copy image", self._copy_image)
-        menu_button = QToolButton()
-        menu_button.setAutoRaise(True)
-        menu_button.setText("⋯")
-        menu_button.setToolTip("Export")
-        menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        menu_button.setMenu(self._menu)
-        for button in (self._max_button, menu_button):
-            button.setFixedSize(_HEADER_BUTTON, _HEADER_BUTTON)
-            button.setStyleSheet("QToolButton { padding: 0px; margin: 0px; }"
-                                 "QToolButton::menu-indicator { image: none; width: 0px; }")
-        header.setFixedHeight(_HEADER_BUTTON + 4)
-        header_layout.addWidget(self._title, 1)
-        header_layout.addWidget(self._max_button)
-        header_layout.addWidget(menu_button)
-        self.set_maximized(False)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        layout.addWidget(header)
-        layout.addWidget(self._canvas, 1)
-        self._update_export_actions()
+        super().__init__(spec.plot_id, spec.title, self._canvas, parent=parent)
 
     # ------------------------------------------------------------------
     # Data and drawing
@@ -276,7 +483,7 @@ class PlotPanel(QWidget):
         panel draws when it is shown.
         """
         if provenance is not None:
-            self._provenance = dict(provenance)
+            self.set_provenance(provenance)
         if self._rendered == (id(payload), empty_reason) and payload is self._payload:
             return
         self._payload = payload
@@ -335,67 +542,17 @@ class PlotPanel(QWidget):
         return self.spec.render(fig, self._payload, colors) or ()
 
     # ------------------------------------------------------------------
-    # Maximize
-    # ------------------------------------------------------------------
-
-    @property
-    def is_maximized(self) -> bool:
-        return self._maximized
-
-    def set_maximized(self, maximized: bool) -> None:
-        """Show the maximize or the restore control (the grid does the layout)."""
-        self._maximized = maximized
-        self._max_button.setText("⤡" if maximized else "⤢")
-        self._max_button.setToolTip("Restore (Esc)" if maximized else "Maximize")
-
-    # ------------------------------------------------------------------
     # Export
     # ------------------------------------------------------------------
 
     def table(self) -> PlotTable | None:
-        """The plotted values, or ``None`` when the panel shows no data."""
         if self._payload is None:
             return None
         if self._table is None:
             self._table = self.spec.table(self._payload)
         return self._table
 
-    def export_reason(self) -> str:
-        """Why export is disabled, or ``""`` when it is possible."""
-        table = self.table()
-        return _NO_DATA if table is None or table.is_empty else ""
-
-    def export_image(self, path: str | Path, *, dpi: int = _IMAGE_DPI) -> None:
-        """Save the plot as PNG or SVG (by suffix) in the print style."""
-        path = Path(path)
-        if path.suffix.lower() not in _IMAGE_SUFFIXES:
-            log_and_raise("Plot images are saved as {}, not '{}'",
-                          " or ".join(_IMAGE_SUFFIXES), path.suffix)
-        self._require_data()
-        fig = self._print_figure()
-        fig.savefig(path, dpi=dpi, facecolor=fig.get_facecolor())
-        logger.info("Saved plot '{}' to {}", self.spec.plot_id, path)
-
-    def export_csv(self, path: str | Path) -> None:
-        """Write the plotted values with the provenance header."""
-        table = self._require_data()
-        provenance = {
-            "plot": self.spec.plot_id,
-            "title": self.spec.title,
-            "enginir_version": __version__,
-            "exported_at": datetime.now(UTC).isoformat(timespec="seconds"),
-            **self._provenance,
-        }
-        table.write_csv(path, provenance)
-        logger.info("Exported data of plot '{}' to {}", self.spec.plot_id, path)
-
-    def _require_data(self) -> PlotTable:
-        table = self.table()
-        if table is None or table.is_empty:
-            log_and_raise("Plot '{}' has no data to export", self.spec.plot_id, depth=2)
-        return table
-
-    def _print_figure(self) -> Figure:
+    def print_figure(self) -> Figure:
         fig = Figure(figsize=tuple(self._fig.get_size_inches()), facecolor=print_colors()["bg"])
         FigureCanvasAgg(fig)
         self._draw(fig, print_colors())
@@ -406,62 +563,6 @@ class PlotPanel(QWidget):
                 printed.set_ylim(shown.get_ylim())
         _tight_layout(fig)
         return fig
-
-    def _add_action(self, text: str, slot: Callable[[], None]) -> QAction:
-        action = QAction(text, self)
-        action.triggered.connect(lambda _checked=False: slot())
-        self._menu.addAction(action)
-        return action
-
-    def _update_export_actions(self) -> None:
-        reason = self.export_reason()
-        for action in (self._png_action, self._svg_action, self._csv_action,
-                       self._copy_action):
-            action.setEnabled(not reason)
-            action.setToolTip(reason)
-
-    def _save_image(self, suffix: str) -> None:
-        path = self._ask_path(suffix, "PNG image (*.png)" if suffix == ".png"
-                              else "SVG image (*.svg)")
-        if path is not None:
-            self._run_export(lambda: self.export_image(path))
-
-    def _save_csv(self) -> None:
-        table = self.table()
-        if table is not None and table.n_values > LARGE_EXPORT_VALUES:
-            answer = QMessageBox.question(
-                self, "Large export",
-                f"This export holds {table.n_values:,} values. Write it anyway?")
-            if answer != QMessageBox.StandardButton.Yes:
-                return
-        path = self._ask_path(".csv", "CSV (*.csv)")
-        if path is not None:
-            self._run_export(lambda: self.export_csv(path))
-
-    def _copy_image(self) -> None:
-        def copy() -> None:
-            buffer = io.BytesIO()
-            self._require_data()
-            self._print_figure().savefig(buffer, format="png", dpi=150)
-            clipboard = QGuiApplication.clipboard()
-            if clipboard is not None:
-                clipboard.setImage(QImage.fromData(buffer.getvalue(), "PNG"))
-        self._run_export(copy)
-
-    def _ask_path(self, suffix: str, file_filter: str) -> Path | None:
-        name, _ = QFileDialog.getSaveFileName(
-            self, f"Export {self.spec.title}", f"{self.spec.plot_id}{suffix}", file_filter)
-        if not name:
-            return None
-        path = Path(name)
-        return path if path.suffix.lower() == suffix else path.with_name(path.name + suffix)
-
-    def _run_export(self, export: Callable[[], None]) -> None:
-        try:
-            export()
-        except (OSError, ValueError) as exc:
-            logger.error("Export of plot '{}' failed: {}", self.spec.plot_id, exc)
-            QMessageBox.warning(self, "Export failed", str(exc))
 
     # ------------------------------------------------------------------
     # ROI picking
@@ -481,6 +582,32 @@ class PlotPanel(QWidget):
             return
 
 
+def print_copy(fig: Figure) -> Figure:
+    """A copy of a screen figure in the print colors, for figures drawn in place.
+
+    Background, axes, labels and texts take :func:`print_colors`; artists drawn
+    in the screen accent color take the print accent. Data colors (images,
+    colormaps, crosshairs) are kept.
+    """
+    screen, printed = panel_colors(), print_colors()
+    copy = pickle.loads(pickle.dumps(fig))
+    FigureCanvasAgg(copy)
+    copy.set_facecolor(printed["bg"])
+    accent = to_hex(screen["accent"])
+    for ax in copy.axes:
+        style_axes(ax, printed)
+        for text in ax.texts:
+            text.set_color(printed["fg"])
+        for line in ax.lines:
+            if to_hex(line.get_color()) == accent:
+                line.set_color(printed["accent"])
+        for patch in ax.patches:
+            if to_hex(patch.get_facecolor()) == accent:
+                patch.set_facecolor(printed["accent"])
+    _tight_layout(copy)
+    return copy
+
+
 def _tight_layout(fig: Figure) -> None:
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="Tight layout not applied.*",
@@ -491,9 +618,12 @@ def _tight_layout(fig: Figure) -> None:
 __all__ = [
     "LARGE_EXPORT_VALUES",
     "PlotColumn",
+    "PlotFrame",
     "PlotPanel",
+    "PlotSource",
     "PlotSpec",
     "PlotTable",
     "RoiPoints",
     "draw_placeholder",
+    "print_copy",
 ]

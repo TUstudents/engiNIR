@@ -151,13 +151,21 @@ Plot panels
 .. autoclass:: enginir.viewer._plot_panel.PlotTable
    :no-members:
 
+.. autoclass:: enginir.viewer._plot_panel.PlotFrame
+   :no-members:
+
 .. autoclass:: enginir.viewer._plot_panel.PlotPanel
    :no-members:
+
+.. autofunction:: enginir.viewer._plot_panel.print_copy
 
 .. automodule:: enginir.viewer._plot_grid
    :no-members:
 
 .. autoclass:: enginir.viewer._plot_grid.PlotGrid
+   :no-members:
+
+.. autoclass:: enginir.viewer._plot_grid.PlotPageWidget
    :no-members:
 
 .. automodule:: enginir.viewer._plot_registry

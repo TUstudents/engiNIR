@@ -1,7 +1,7 @@
 # Plan: plot panels for the viewer
 
 Branch: `feature/plot-panels`
-Status: phases 0–3 done
+Status: phases 0–5 done
 Date: 2026-11-02
 
 ## Goal
@@ -292,6 +292,42 @@ An offscreen screenshot check led to four fixes:
   crosshair are unchanged.
 - Dock maximize as in decision 8.
 
+**Done (2026-11-02).**
+
+Design:
+
+- `PlotPanel` is split. `PlotFrame` holds the header and the export UI for any
+  `PlotSource` (`plot_table()`, `print_figure()`). `PlotPanel` is the frame of
+  a spec.
+- The five Explore panels keep their in-place updates. They became sources
+  that read their CSV from the drawn artists, and their print figure is a
+  pickled, recoloured copy of the screen figure (`print_copy`). Their in-plot
+  titles moved to the header; the RAW header follows the band.
+- The pyqtgraph canvas is a source too. Its CSV has one row per pixel (frame,
+  row, RGB). Its PNG/SVG redraws the current view (zoom, ROIs, crosshair)
+  with matplotlib, so no pyqtgraph exporter is needed.
+
+Maximize:
+
+- In the docks, the frame header is the dock title bar, with a close button.
+  Maximize floats the dock over the main window. Restore (button,
+  double-click, `Esc`), closing the dock, leaving Explore or *Reset layout*
+  re-docks it.
+- *Spatial Image* and *Spectral Profile* maximize within the Explore page.
+  `Esc` cancels an ROI drawing first.
+
+Screenshot fixes:
+
+- Explore panels re-run tight layout on resize, so a maximized dock does not
+  keep the small dock's margins.
+- The Sensor Frame `Band` label sat outside the axes at custom coordinates
+  and was clipped at large sizes. It now uses the standard placement.
+
+`tests/test_explore_plots.py` compares every Explore CSV with the viewer state
+(spectrum, profile, RAW band, sensor frame, histogram, RGB image) and covers
+the dock and page maximize. Seven injected faults were caught. Closing a
+maximized dock was not caught at first; the test was extended.
+
 ### Phase 5: migrate Predict
 
 - `PredictionMapWidget` becomes spec `predict.map` (matplotlib, D2). The
@@ -300,6 +336,41 @@ An offscreen screenshot check led to four fixes:
 - Output selector for multi-output maps stays in the header.
 - Add `predict.histogram` (distribution of predicted values). It is cheap and
   useful, and it is the first new panel through the frame.
+
+**Done (2026-11-02), D2 = matplotlib.**
+
+The map:
+
+- `PredictionMapWidget` is a `PlotSource` in a `PlotFrame`. The frame header
+  holds the output selector, **Pan**, **Zoom** and **Reset View**. A hidden
+  `NavigationToolbar2QT` drives them, and each new map becomes its home view.
+- The in-plot title moved to the header and follows the unit. `PlotFrame` now
+  follows any source's `title_changed`.
+- The *Prediction Map* group box is gone. The map and the new
+  `predict.histogram` spec (distribution of the shown values, following the
+  selected output) sit on a `PlotPageWidget`. That page widget is the
+  generalised page of `PlotGrid`, so frames that are not specs get the same
+  slots and maximize.
+
+**Finding fixed.** The map shows a preview subsampled to at most 512×512
+pixels, but its axes and hover readout showed preview indices. On a large
+scan, frame and row were wrong by the step.
+
+- `_preview_geometry` derives the step from the stored map shape with the
+  loader's own `_preview_step`, and checks it against the preview shape.
+- The axes (`extent`), the hover readout and the CSV now use true indices.
+- `PlotTable` matrices take `row_index`/`column_index`. The CSV records
+  `preview_step` and `full_map_shape`.
+- The UI contract states the rule.
+
+Tests:
+
+- New tests cover the subsampled map (axes, hover, CSV), the header controls
+  (output → histogram, pan/zoom state, reset view) and the preview step
+  against a stored HDF5 prediction.
+- Six injected faults were caught.
+- Mode detection first matched `"zoom"` inside `"pan/zoom"`. The pan/zoom test
+  found that, and the code now compares the toolbar mode enum.
 
 ### Phase 6: export all and layout state
 

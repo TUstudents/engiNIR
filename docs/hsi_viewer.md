@@ -35,8 +35,24 @@ Qt signals.  No panel holds its own copy of the data.  Preprocessing is
 computed inside `ViewerState.current_frame_image()` so every panel always
 displays the same processed signal.
 
-The central canvas has a `Spatial Image` header with a `Reset View`
-control that resets zoom and pan to the full image bounds.
+Every Explore plot is a plot frame (`_plot_panel.PlotFrame`). Its header
+carries the title, a maximize control and an export menu (PNG, SVG, CSV,
+copy). In the docks, the header is the dock's title bar and adds a close
+button.
+
+- **Spatial Image** and **Spectral Profile** maximize within the Explore page.
+- A **docked plot** maximizes by floating over the main window. Restoring it,
+  or closing it, puts it back in its dock.
+- The `Spatial Image` header also has the `Reset View` control, which resets
+  zoom and pan to the full image bounds.
+
+Exports show the current view in the print colors. Each CSV holds the drawn
+values:
+
+- histogram bins
+- the RAW band and the sensor frame as matrices
+- the profile and the spectrum as columns
+- the false-colour image as one row per pixel
 
 ### Panel layout
 
@@ -301,7 +317,15 @@ Its primary center content is a dedicated prediction summary page showing:
 - current service state
 - result cards for prediction id, model run, dataset, calibration, and target
 - a compact compatibility summary derived from the saved signal-domain contract
-- the persisted prediction map surface
+- the persisted prediction map, in a plot frame whose header holds the
+  output selector, `Pan`, `Zoom` and `Reset View`
+- `Prediction Distribution`, the histogram of the shown map values, which
+  follows the selected output
+
+A large map is shown as a preview that keeps every n-th frame and row
+(`map_step` in the payload, the step of
+`load_prediction_spatial_map_preview`). The axes, the hover readout and the
+CSV use the true frame and row indices.
 
 ### Prediction group
 

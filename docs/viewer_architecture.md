@@ -267,6 +267,23 @@ first workspace built this way:
   export)
 - a `PlotGrid` lays out the panels on pages (`PlotPage`/`PlotSlot`)
 
+Plots that update their artists in place (the Explore panels in
+`_panels.py` and the pyqtgraph `FalseColourCanvas`) are not specs. They
+implement `PlotSource` (`plot_table()`, `print_figure()`) and are shown in a
+`PlotFrame`:
+
+- `_panels.py` builds its print figure with `print_copy` (a pickled copy of
+  the screen figure, recoloured).
+- The canvas redraws its current view with matplotlib.
+- `PredictionMapWidget` is a source too. Its header controls (output, pan,
+  zoom, reset) are added to its frame. It emits `displayed_map_changed` to
+  feed the `predict.histogram` spec.
+- `PlotPageWidget` lays out frames that are not specs in slots, with the same
+  maximize as `PlotGrid`. The Predict page uses it for the map and the
+  histogram.
+- The dock frames give their header to the dock as its title bar.
+  `HSIViewer` handles maximize for the Explore page and for the docks.
+
 `ModelDiagnosticsWidget` wraps the grid of the `"Model"` workspace, with the
 `Fit` and `Spectral` pages. It hands the same diagnostics payload to every
 plot, and `ModelingView.workspace_diagnostics_provenance()` supplies the CSV

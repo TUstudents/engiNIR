@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import QGridLayout, QStackedLayout, QTabWidget, QVBoxLayout
 
 from .._checks import log_and_raise
 from .._logging import get_logger
-from ._plot_panel import PlotPanel, PlotSpec
+from ._plot_panel import PlotFrame, PlotPanel, PlotSpec
 
 logger = get_logger(__name__)
 
@@ -67,14 +67,21 @@ class PlotPage:
         return tuple(slot.plot_id for slot in self.slots)
 
 
-class _PageWidget(QWidget):
-    """One page: the slot grid, plus a layer that holds a maximized panel."""
+class PlotPageWidget(QWidget):
+    """One page: plot frames in their slots, plus a layer that holds a maximized frame.
 
-    def __init__(self, page: PlotPage, specs: Mapping[str, PlotSpec],
+    ``frames`` maps each slot's plot id to its frame (a :class:`PlotPanel` or
+    any other :class:`PlotFrame`).
+    """
+
+    def __init__(self, page: PlotPage, frames: Mapping[str, PlotFrame],
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        missing = [plot_id for plot_id in page.plot_ids if plot_id not in frames]
+        if missing:
+            log_and_raise("Plot page '{}' has no frames for {}", page.name, missing)
         self.page = page
-        self.panels: dict[str, PlotPanel] = {}
+        self.panels: dict[str, PlotFrame] = {}
         self.maximized: str | None = None
 
         self._grid_host = QWidget()
@@ -89,7 +96,7 @@ class _PageWidget(QWidget):
         self._stack.addWidget(self._max_host)
 
         for slot in page.slots:
-            panel = PlotPanel(specs[slot.plot_id])
+            panel = frames[slot.plot_id]
             panel.maximize_toggled.connect(
                 lambda plot_id=slot.plot_id: self.toggle_maximized(plot_id))
             self.panels[slot.plot_id] = panel
@@ -106,7 +113,7 @@ class _PageWidget(QWidget):
         self._escape.activated.connect(self.restore)
         self._escape.setEnabled(False)
 
-    def _place(self, slot: PlotSlot, panel: PlotPanel) -> None:
+    def _place(self, slot: PlotSlot, panel: PlotFrame) -> None:
         self._grid.addWidget(panel, slot.row, slot.column, slot.row_span, slot.column_span)
 
     def toggle_maximized(self, plot_id: str) -> None:
@@ -159,7 +166,7 @@ class PlotGrid(QWidget):
                 log_and_raise("Plot page '{}' names unknown plots: {}", page.name, unknown)
         self._pages = tuple(pages)
         self._specs = specs
-        self._built: dict[str, _PageWidget] = {}
+        self._built: dict[str, PlotPageWidget] = {}
         self._payloads: dict[str, Any] = {}
         self._empty_reason = ""
         self._provenance: dict[str, Any] = {}
@@ -191,8 +198,9 @@ class PlotGrid(QWidget):
     def panel(self, plot_id: str) -> PlotPanel | None:
         """The panel of ``plot_id``, or ``None`` while its page is not built."""
         for page in self._built.values():
-            if plot_id in page.panels:
-                return page.panels[plot_id]
+            panel = page.panels.get(plot_id)
+            if isinstance(panel, PlotPanel):
+                return panel
         return None
 
     def maximized_plot(self) -> str | None:
@@ -233,10 +241,13 @@ class PlotGrid(QWidget):
     def restyle_theme(self) -> None:
         for page in self._built.values():
             for panel in page.panels.values():
-                panel.restyle_theme()
+                if isinstance(panel, PlotPanel):
+                    panel.restyle_theme()
 
-    def _feed(self, page: _PageWidget) -> None:
+    def _feed(self, page: PlotPageWidget) -> None:
         for plot_id, panel in page.panels.items():
+            if not isinstance(panel, PlotPanel):
+                continue
             panel.update_data(self._payloads.get(plot_id), empty_reason=self._empty_reason,
                               provenance=self._provenance)
 
@@ -253,9 +264,11 @@ class PlotGrid(QWidget):
         page = self._pages[index]
         if page.name in self._built:
             return
-        widget = _PageWidget(page, self._specs)
+        widget = PlotPageWidget(page, {plot_id: PlotPanel(self._specs[plot_id])
+                                       for plot_id in page.plot_ids})
         for panel in widget.panels.values():
-            panel.roi_selected.connect(self.roi_selected.emit)
+            if isinstance(panel, PlotPanel):
+                panel.roi_selected.connect(self.roi_selected.emit)
         self._built[page.name] = widget
         self._feed(widget)
         placeholder = self._tabs.widget(index)
@@ -269,4 +282,4 @@ class PlotGrid(QWidget):
         logger.debug("Built plot page '{}' with {} panels", page.name, len(widget.panels))
 
 
-__all__ = ["PlotGrid", "PlotPage", "PlotSlot"]
+__all__ = ["PlotGrid", "PlotPage", "PlotPageWidget", "PlotSlot"]

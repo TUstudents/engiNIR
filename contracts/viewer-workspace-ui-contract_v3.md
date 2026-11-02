@@ -398,7 +398,10 @@ Required prediction-map interaction:
   selector before the map is rendered
 - pan and zoom must be available for the prediction map
 - the map is a plot panel (see Plot Panel Policy). Its CSV export is the
-  displayed output as a frame × row matrix.
+  displayed output as a matrix, with one CSV row per map row and one column
+  per frame.
+- a subsampled preview labels its axes, hover readout and CSV with the true
+  frame and row indices, and the CSV records the subsampling step
 - clicking or hovering the map must expose frame, row, and predicted value
 - map interaction must not hydrate unrelated heavy artifacts
 - repeated map refreshes for unchanged payloads must be no-ops

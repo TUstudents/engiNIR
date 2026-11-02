@@ -38,27 +38,36 @@ def _model_payload() -> dict:
     }
 
 
-#: A payload with data for every plot, per workspace.
-_PAYLOADS = {"Model": _model_payload}
+def _predict_payload() -> dict:
+    values = np.random.default_rng(3).normal(12.0, 1.5, (40, 25)).astype(np.float32)
+    values[0, 0] = np.nan  # pixels without a prediction are left out
+    return {"values": values, "target_unit": "%", "output": "moisture", "map_step": 2,
+            "provenance": {"output": "moisture"}}
+
+
+#: A payload with data for every plot, by the workspace prefix of its id.
+_PAYLOADS = {"model": _model_payload, "predict": _predict_payload}
 
 
 def _registry():
     import enginir.viewer._model_diagnostics  # noqa: F401 (registers the Model plots)
+    import enginir.viewer._prediction  # noqa: F401 (registers the Predict plots)
     from enginir.viewer._plot_registry import PLOT_SPECS, WORKSPACE_PAGES
 
     return PLOT_SPECS, WORKSPACE_PAGES
 
 
 def _registered_plots() -> list[tuple[str, str]]:
-    specs, pages = _registry()
-    return [(workspace, plot_id) for workspace, workspace_pages in pages.items()
-            for page in workspace_pages for plot_id in page.plot_ids]
-
-
-def test_every_registered_plot_is_on_a_page():
     specs, _pages = _registry()
-    assert specs, "the viewer registers its plots"
-    assert sorted(plot_id for _w, plot_id in _registered_plots()) == sorted(specs)
+    return [(plot_id.split(".")[0], plot_id) for plot_id in sorted(specs)]
+
+
+def test_every_registered_plot_has_a_test_payload_and_model_plots_are_on_pages():
+    specs, pages = _registry()
+    assert {"model.pred_vs_ref", "predict.histogram"} <= set(specs)
+    assert all(workspace in _PAYLOADS for workspace, _plot_id in _registered_plots())
+    model_plots = {plot_id for page in pages["Model"] for plot_id in page.plot_ids}
+    assert model_plots == {plot_id for plot_id in specs if plot_id.startswith("model.")}
 
 
 def _drawn_values(fig) -> np.ndarray:
