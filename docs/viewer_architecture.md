@@ -37,6 +37,7 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_plot_grid.py` | `PlotGrid`, `PlotPage`, `PlotSlot`: paged plot grids with lazy pages and in-place maximize |
 | `_plot_registry.py` | Registry of all plots and of the plot pages of each workspace |
 | `_layout_settings.py` | Maximized plot per workspace in the user settings (`plot_layout.json`) |
+| `_project_settings.py` | Last shown data file per `project_id` in the user settings (`project_ui.json`) |
 
 ---
 
@@ -108,6 +109,8 @@ Runtime collections include:
 
 **Key methods:**
 - `new_project(path)`, `open_project(path)` — create/load HDF5 project
+- `reload()` — re-read the project; every write (`_written`) schedules it in the other `ProjectState`s of the process on the same project file, so several windows stay in step
+- `locate_data_file(dataset_id, path)` — `Dataset.locate`: accept a moved file only if its pixels equal the stored ROI pixels, then update `source_path`
 - `register_dataset(...)`, `set_active_calibration(...)`, `add_roi(...)`, `define_target(...)`, `assign_target_to_roi(...)` — store through `Project` + emit
 - `build_sample_set(...)`, `fit_model_run(...)`, `predict_dataset(...)` — high-level workflows
 - `ensure_model_run_artifact_refs(...)`, `ensure_prediction_artifact_refs(...)` — lazy-load heavy persisted arrays only when a workflow actually needs them

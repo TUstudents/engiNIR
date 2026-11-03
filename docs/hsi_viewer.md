@@ -516,6 +516,17 @@ validation is per data file: an unregistered file is a new data file, and only
 a registered file that no longer matches its `DatasetRef` raises the warning
 gate (`_attachment.confirm_project_dataset_binding`).
 
+A data file whose `source_path` no longer exists is listed as "(not found)".
+Showing it offers **Locate file...** (`HSIViewer.locate_data_file` →
+`ProjectState.locate_data_file` → `Dataset.locate`). The chosen file must pass
+`enginir._workflow.check_data_file_location`: same format, shape, modality and
+wavelengths, and for every ROI the file's pixels at its `spatial_bounds`
+equal the stored raw pixels. Only then `project_store.relocate_dataset_ref`
+updates `source_path`. The last shown data file is kept per `project_id` in
+the user settings (`_project_settings.py`) and loaded when the Data file tab
+shows nothing. A write in one window makes the other windows of the process
+on the same project re-read it (`ProjectState.reload`).
+
 ```python
 # Inspect the canonical v3 project graph later
 from enginir.io import load_project_store

@@ -393,6 +393,24 @@ def save_prediction_run(
                  compression)
 
 
+def relocate_dataset_ref(path: PathLike, dataset_id: str, source_path: str) -> None:
+    """Point a stored dataset at the new location of its data file.
+
+    Only ``source_path`` changes: the path is a location, not identity
+    (``project-schema-contract_v3.md`` §5). The caller verifies the file first
+    (:func:`enginir._workflow.check_data_file_location`).
+    """
+    if not str(source_path).strip():
+        log_and_raise("source_path must be a non-empty string")
+    with _open_project(path, writable=True) as f:
+        group = f["datasets"].get(dataset_id)
+        if not isinstance(group, h5py.Group):
+            log_and_raise("Unknown dataset '{}' in {}", dataset_id, path, error=KeyError)
+        previous = group.attrs.get("source_path")
+        group.attrs["source_path"] = str(source_path)
+    logger.info("Dataset '{}' moved from {} to {} in {}", dataset_id, previous, source_path, path)
+
+
 def remove_target_assignment(path: PathLike, target_id: str, roi_id: str) -> None:
     """Delete the value of one target for one ROI; the ROI is then unlabeled for it.
 
@@ -1012,6 +1030,7 @@ __all__ = [
     "load_roi_spectra_batch",
     "load_roi_spectra_matrix",
     "open_prediction_run_artifact_writer",
+    "relocate_dataset_ref",
     "remove_roi_from_project",
     "remove_target_assignment",
     "load_roi_band_images",

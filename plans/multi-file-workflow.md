@@ -2,7 +2,7 @@
 
 Branch: `feature/multi-file-workflow`, based on `feature/plot-panels` (it uses
 the plot panels and plot pages). It merges after that branch.
-Status: phases 0–7 done
+Status: phases 0–8 done
 Date: 2026-11-02
 
 ## Goal
@@ -702,6 +702,41 @@ Tests:
   - reopen shows Project ROIs without any data file;
   - a moved file is accepted only if its pixels match;
   - a different file with the same shape is refused.
+
+**Done (2026-11-03).**
+
+Library:
+
+- `_workflow.check_data_file_location` compares format, shape, modality,
+  wavelengths and, for every ROI, the file's pixels at its bounds with the
+  stored raw pixels (cast like storage, so precalibrated float32 compares
+  too). It reads only the frames the ROIs cover and writes nothing.
+- `Dataset.locate(path)` refuses a file registered as another data file,
+  checks, then `project_store.relocate_dataset_ref` changes only
+  `source_path` (logged). `Project.reload()` re-reads the file.
+
+Viewer:
+
+- Showing a missing file asks with **Locate file...**
+  (`HSIViewer.locate_data_file`, also scriptable with a path). A refused file
+  gives the reason; nothing changes.
+- `_project_settings.py` keeps the last shown data file per `project_id`
+  (`project_ui.json`). It is loaded when the Data file tab shows nothing,
+  never if missing.
+- Every `ProjectState` write goes through `_written`, which schedules
+  `reload` (coalesced, next event-loop pass) in the other mirrors of the
+  same project file. A reload writes nothing, so windows do not ping-pong.
+
+Tests:
+
+- `tests/test_data_file_location.py`: 7 tests; `tests/test_reopen_relink.py`:
+  5 tests; the missing-file test now answers the question with Cancel.
+- Nine injected faults were caught (no last-file save, tab change ignored,
+  missing last file loaded, no pixel compare, first pixel only, write before
+  check, no wavelength check, no notify, reload without re-read).
+- One fault run hung once for 600 s on the two-window tests and did not
+  recur in four reruns; like the phase 7 segfault, the multi-window tests
+  show rare process-level flakiness.
 
 ### Phase 9: docs and performance
 

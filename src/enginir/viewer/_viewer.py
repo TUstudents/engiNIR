@@ -53,6 +53,7 @@ from ._jobs import BusyStatusWidget, start_background_job
 from ._loading import ViewerBusyContext
 from ._model_diagnostics import ModelDiagnosticsWidget
 from . import _layout_settings as layout_settings
+from ._project_settings import load_last_data_file, save_last_data_file
 from ._plot_grid import PlotPage, PlotPageWidget, PlotSlot
 from ._plot_panel import LARGE_EXPORT_VALUES, PlotFrame, PlotPanel
 from ._modeling import ModelingView, NewROIDialog, TargetSelectionDialog
@@ -931,6 +932,7 @@ class HSIViewer(QMainWindow):
         self.project_state.rois_changed.connect(self._update_project_rois_tab)
         self.project_state.project_loaded.connect(self._update_project_rois_tab)
         self.project_state.project_loaded.connect(self._choose_explore_tab)
+        self._explore_tabs.currentChanged.connect(self._show_last_data_file)
         self._update_project_rois_tab()
         self._choose_explore_tab()
         self._modeling_view.roi_table_requested.connect(self.show_roi_table)
@@ -969,6 +971,24 @@ class HSIViewer(QMainWindow):
         if self._project_rois is not None and self.project_state.rois \
                 and not self.has_attached_dataset():
             self._explore_tabs.setCurrentWidget(self._project_rois)
+        else:
+            self._show_last_data_file()
+
+    def _show_last_data_file(self, *_args: Any) -> None:
+        """Load the project's last shown data file when the Data file tab shows nothing.
+
+        The last file is user settings (by project id); a missing one is not
+        loaded, it stays marked "(not found)" in the list.
+        """
+        if self._explore_tabs.currentWidget() is not self._data_file_page \
+                or self.has_attached_dataset() or self._data_file_job is not None:
+            return
+        project_id = self.project_state.project_meta.get("project_id")
+        dataset_id = None if not project_id else load_last_data_file(str(project_id))
+        dataset = self.project_state.datasets.get(dataset_id or "")
+        if dataset_id is not None and dataset is not None \
+                and os.path.exists(dataset.source_path):
+            self.show_data_file(dataset_id)
 
     def show_roi_table(self) -> None:
         """Show the ROI table on the shown data file and the target selected in Model."""
@@ -1406,9 +1426,16 @@ class HSIViewer(QMainWindow):
             log_and_raise("Unknown dataset '{}'", dataset_id, error=KeyError)
         path = dataset.source_path
         if not os.path.exists(path):
-            QMessageBox.warning(self, "Data file not found",
-                                f"{path} does not exist. Its ROIs, values and models stay "
-                                "usable; the image cannot be shown.")
+            box = QMessageBox(QMessageBox.Icon.Warning, "Data file not found",
+                              f"{path} does not exist. Its ROIs, values and models stay "
+                              "usable; the image cannot be shown.\n\nIf the file was moved or "
+                              "renamed, locate it: it is accepted if its pixels equal the "
+                              "stored ROI pixels.", parent=self)
+            locate = box.addButton("Locate file...", QMessageBox.ButtonRole.AcceptRole)
+            box.addButton(QMessageBox.StandardButton.Cancel)
+            box.exec()
+            if box.clickedButton() is locate:
+                self.locate_data_file(dataset_id)
             return
         if self._data_file_job is not None:
             return
@@ -1424,6 +1451,35 @@ class HSIViewer(QMainWindow):
             on_success=lambda data: self._apply_data_file(dataset_id, data),
             on_error=self._data_file_failed,
             on_finished=finished)
+
+    def locate_data_file(self, dataset_id: str, path: str | None = None) -> bool:
+        """Point a moved data file at its new location, then show it.
+
+        Without ``path`` a file dialog asks for it. The file is accepted only
+        if it is the same data file (shape, wavelengths and the pixels of
+        every ROI); otherwise nothing changes.
+        """
+        dataset = self.project_state.datasets.get(dataset_id)
+        if dataset is None:
+            log_and_raise("Unknown dataset '{}'", dataset_id, error=KeyError)
+        if path is None:
+            name = os.path.basename(dataset.source_path)
+            path, _ = QFileDialog.getOpenFileName(
+                self, f"Locate {name}", os.path.dirname(dataset.source_path),
+                f"{name} (*{os.path.splitext(name)[1]});;All files (*)")
+            if not path:
+                return False
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            self.project_state.locate_data_file(dataset_id, path)
+        except (OSError, ValueError, KeyError) as exc:
+            logger.error("Data file not located at {}: {}", path, exc)
+            QMessageBox.warning(self, "Not this data file", str(exc))
+            return False
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.show_data_file(dataset_id)
+        return True
 
     def _data_file_failed(self, message: str) -> None:
         logger.error("Cannot load data file: {}", message)
@@ -1470,6 +1526,9 @@ class HSIViewer(QMainWindow):
         from ._recent import add as _recent_add
 
         _recent_add(dataset.source_path)
+        project_id = self.project_state.project_meta.get("project_id")
+        if project_id:
+            save_last_data_file(str(project_id), dataset_id)
         logger.info("Showing data file {} ({})", dataset.source_path, self.state.y_unit)
 
     def apply_shown_calibration(self) -> None:

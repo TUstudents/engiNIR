@@ -262,8 +262,8 @@ def test_a_missing_data_file_is_reported_and_nothing_changes(qapp, two_file_proj
 
     project_path, paths = two_file_project
     warnings: list[str] = []
-    monkeypatch.setattr(QMessageBox, "warning", staticmethod(
-        lambda _p, title, text, *a, **k: warnings.append(f"{title}: {text}")))
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: warnings.append(
+        f"{self.windowTitle()}: {self.text()}") or 0)  # then Cancel: nothing is located
     paths["tray_b"].unlink()
     window = open_project(project_path)
     try:

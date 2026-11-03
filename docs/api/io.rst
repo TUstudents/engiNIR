@@ -133,6 +133,8 @@ Saving objects
 
 .. autofunction:: enginir.io.project_store.load_roi_band_images
 
+.. autofunction:: enginir.io.project_store.relocate_dataset_ref
+
 Writing large predictions incrementally
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

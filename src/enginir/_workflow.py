@@ -47,7 +47,7 @@ from .project._ids import new_id, now_iso
 logger = get_logger(__name__)
 
 __all__ = ["DEFAULT_BLACK_LEVEL", "DEFAULT_WHITE_LEVEL", "Dataset", "GridCell", "Model",
-           "Prediction", "Project", "make_calibration", "make_roi", "read_frames", "read_header",
+           "Prediction", "Project", "check_data_file_location", "make_calibration", "make_roi", "read_frames", "read_header",
            "recipe_id_for", "resolve_calibration", "resolve_dataset",
            "resolve_prediction_calibration", "resolve_sample_set", "resolve_signal_domain",
            "roi_grid"]
@@ -485,6 +485,10 @@ class Project:
 
     # -- internals -------------------------------------------------------------
 
+    def reload(self) -> None:
+        """Read the project file again, e.g. after another window wrote to it."""
+        self._reload()
+
     def _reload(self, store_contents: dict[str, Any] | None = None) -> None:
         if store_contents is None:
             store_contents = store.load_project_store(self.path)
@@ -666,6 +670,32 @@ class Dataset:
             project.save_assignment(assignment)
         return roi
 
+    def locate(self, path: str | os.PathLike[str]) -> Dataset:
+        """Record that this data file now lives at ``path`` (it was moved or renamed).
+
+        The file must be this data file: same format, shape, modality and
+        wavelengths, and for every ROI its pixels at the ROI's bounds equal
+        the stored raw pixels (:func:`check_data_file_location`). Only
+        ``source_path`` changes; nothing is written if the check fails.
+
+        Returns
+        -------
+        Dataset
+            This dataset at its new location.
+        """
+        project, ws = self.project, self.project.workspace
+        abs_path = _native_path(path)
+        other = project._dataset_ref(abs_path)
+        if other is not None and other.dataset_id != self.ref.dataset_id:
+            log_and_raise("{} is already registered as another data file of the project",
+                          abs_path)
+        rois = [roi for roi in ws.rois.values() if roi.dataset_id == self.ref.dataset_id]
+        check_data_file_location(project.path, self.ref, rois, abs_path)
+        store.relocate_dataset_ref(project.path, self.ref.dataset_id, abs_path)
+        self.ref = replace(self.ref, source_path=abs_path)
+        ws.datasets[self.ref.dataset_id] = self.ref
+        return self
+
     def add_rois(self, cells: Sequence[GridCell]) -> list[TrainingROI]:
         """Store the cells of an ROI grid (see :func:`roi_grid`), all or none.
 
@@ -822,6 +852,56 @@ def read_frames(path: str, first: int, last: int) -> np.ndarray:
         X = load_spectra(path).X[first:last + 1]
     X = np.asarray(X)
     return X[:, np.newaxis, :] if X.ndim == 2 else X
+
+
+def check_data_file_location(
+    project_path: str | os.PathLike[str],
+    dataset: DatasetRef,
+    rois: Iterable[TrainingROI],
+    path: str | os.PathLike[str],
+) -> None:
+    """Check that the file at ``path`` is the data file of ``dataset``; raise ``ValueError`` if not.
+
+    The file must have the registered format, shape, modality (if the file
+    states one) and wavelength axis, and for every ROI of ``rois`` its pixels
+    at the ROI's ``spatial_bounds`` must equal the raw pixels stored in the
+    project. Reads only the frames the ROIs cover; writes nothing.
+    """
+    abs_path = _native_path(path)
+    if not os.path.isfile(abs_path):
+        log_and_raise("{} does not exist", abs_path)
+    header = read_header(abs_path)
+    checks = [("format", file_format(abs_path), dataset.source_format),
+              ("shape", tuple(int(n) for n in header.cube_shape), tuple(dataset.cube_shape))]
+    if header.meta.get("source_modality"):
+        checks.append(("modality", header.meta["source_modality"], dataset.source_modality))
+    for label, now, then in checks:
+        if now != then:
+            log_and_raise("{} is not this data file: it has {} {!r}, the data file has {!r}",
+                          abs_path, label, now, then)
+    wavelengths = np.asarray(header.wavelengths, dtype=np.float32)
+    if wavelengths.shape != np.shape(dataset.wavelengths) or not np.allclose(
+            wavelengths, np.asarray(dataset.wavelengths, dtype=np.float32), atol=1e-6, rtol=0.0):
+        log_and_raise("{} is not this data file: its wavelengths differ", abs_path)
+    rois = list(rois)
+    if not rois:
+        logger.warning("Data file {} has no ROIs; only its format, shape and wavelengths "
+                       "were compared", abs_path)
+        return
+    first = min(roi.spatial_bounds[0] for roi in rois)
+    last = max(roi.spatial_bounds[1] for roi in rois)
+    pixels = read_frames(abs_path, first, last)
+    n_bands = dataset.cube_shape[2]
+    for roi in rois:
+        f0, f1, r0, r1 = roi.spatial_bounds
+        found = store.as_roi_storage_array(
+            pixels[f0 - first:f1 - first + 1, r0:r1 + 1].reshape(-1, n_bands))
+        stored = store.load_roi_spectra(project_path, f"/rois/{roi.roi_id}/spectra")
+        if found.shape != stored.shape or not np.array_equal(found, stored):
+            log_and_raise("{} is not this data file: the pixels of ROI '{}' differ from the "
+                          "stored ones", abs_path, roi.name)
+    logger.info("{} matches data file '{}' ({} ROIs compared)", abs_path, dataset.dataset_id,
+                len(rois))
 
 
 @dataclass(frozen=True)

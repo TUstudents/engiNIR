@@ -57,6 +57,8 @@ in the viewer follow the same rules.
 
 .. autofunction:: enginir._workflow.recipe_id_for
 
+.. autofunction:: enginir._workflow.check_data_file_location
+
 .. autofunction:: enginir._workflow.read_header
 
 .. autofunction:: enginir._workflow.read_frames

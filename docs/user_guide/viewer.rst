@@ -252,6 +252,16 @@ The data file list in the Spatial Image header switches between the
 project's files, as does a double-click on a file in the browser. Each file
 is shown with its own calibration and its own ROIs. A file that was moved or
 deleted is listed as "(not found)"; its ROIs, values and models stay usable.
+Choosing it offers **Locate file...**: the file you pick is accepted only if
+it is the same data file, with the same shape and wavelengths and, for every
+ROI, the same pixels as stored in the project. Only the project's path to the
+file changes; a different file is refused and nothing changes.
+
+A project with ROIs opens on the **Project ROIs** tab without loading any
+data file. The **Data file** tab then loads the file you showed last for this
+project (remembered in your user settings, not in the project). Several
+windows on one project stay in step: a value typed in one appears in the
+others.
 Drawing ROIs keeps the calibration of the file. If you load other references
 first, the viewer asks before new ROIs use them, and the ROIs drawn before
 keep their own.
