@@ -25,13 +25,17 @@
   - **File > Add Data File...** adds a scan to the open project with its
     calibration: dark/white references from files, from frame ranges of the
     scan itself (`dark_frames`/`white_frames`), or the references of another
-    data file (`references_from`). The dialog shows the mean reference
-    spectra and the saturated share; the data file and calibration are
-    stored together. The data file list switches between the project's
+    data file (`references_from`), or detector levels typed in the dialog
+    (`black_level`/`white_level`). The dialog plots the file's mean spectrum
+    in counts with the mean references (and their saturated share), the
+    other file's references or the detector levels; the data file and
+    calibration are stored together. The data file list switches between the project's
     scans, and each shows only its own ROIs.
-  - **Add ROI grid** turns a tray into one ROI per cell (rows, columns,
-    inset, skipped cells, name pattern), stored all or none
-    (`roi_grid`, `Dataset.add_rois`).
+  - **Add ROI grid** lays out a tray of equal ROIs by number, ROI size,
+    origin and spacing in pixels, with empty positions and a selectable name
+    pattern, drawn live on the image (outside cells red) and stored all or
+    none (`roi_grid`, `Dataset.add_rois`). Every grid starts from **Options >
+    ROI Grid Defaults**; each ROI records its grid position and layout.
   - The **ROI table** holds the values of every ROI for every target: type
     with Enter to the next row, clear to remove (`set_value(..., None)`),
     paste a column (checked first). It works without the data files.
@@ -52,6 +56,14 @@
 
 - **Build sample set** is gone from the Model workspace; **Fit model**
   builds or reuses the sample set.
+- **Add Data File** no longer asks for a signal unit for raw counts: the
+  project keeps the counts with their references or levels, and DN,
+  reflectance or absorbance are chosen in Explore and in **Fit model**. Only
+  floating-point files ask what they hold.
+- Explore enables only the signals the shown data file can give
+  (`enginir.project.viewable_signal_units`): DN only for raw counts without
+  calibration, no DN for already calibrated files. The chosen signal is kept
+  when another data file is shown.
 - The spectral-plot selector of the Model workspace is gone: coefficients
   and loadings have their own plots.
 - The scores plot is labelled as training scores.
@@ -65,6 +77,14 @@
 
 ### Fixed
 
+- The ROI grid dialog refuses names already used in the project before **OK**
+  (for example scans called `stream_hsi` in several folders), instead of an
+  error box after it.
+- Profile, histogram and prediction plots fit their margins again when the
+  tick labels change, not only when they are resized. A window that started
+  without a data file clipped the absorbance axis labels (1.2 showed as 2).
+- The Explore signal buttons now follow the signal in use. Showing a data
+  file set its signal while the button stayed on **Raw DN**.
 - Replacing a stored target value (`Project.set_value`, and editing a value in
   the viewer) was refused as a "duplicate target assignment". A new value now
   replaces the stored one.

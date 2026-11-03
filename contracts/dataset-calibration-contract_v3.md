@@ -360,8 +360,28 @@ Required v3 rule:
 
 ## 2. Select calibration
 
-When the user chooses dark, white, and output signal unit, the system must create
-or update an explicit `CalibrationSpec` for that dataset.
+When the user chooses how a data file is calibrated (dark/white references,
+detector levels, or raw counts), the system must create or update an explicit
+`CalibrationSpec` for that dataset.
+
+Signal units of a calibration:
+
+- the project always stores the raw counts of every ROI with what converts
+  them: the ROI's reference snapshot, or the calibration's scalar
+  `black_level`/`white_level`. DN, reflectance and absorbance are views of
+  those counts, computed when needed, never a stored replacement
+- for `dark_white_reference`, `output_signal_unit` is the working signal: the
+  signal Explore starts with and the one `Project.fit` trains in when no other
+  is chosen. It is not asked when a data file is added; it is `Absorbance`.
+  Reflectance and absorbance can both be produced from the counts at any
+  time; the shown signal is chosen in Explore and in the fit dialog
+- for `raw_dn`, `output_signal_unit` is `DN`: without references or levels,
+  the counts give no other signal
+- for `precalibrated_import`, `output_signal_unit` states what the file holds
+  (`Reflectance` or `Absorbance`); this is the only case in which the UI asks
+  for it, and DN is unavailable because there are no counts
+- `viewable_signal_units` gives these signals per calibration; Explore offers
+  only them for the shown data file
 
 The active viewer state must reference that calibration spec.
 

@@ -10,43 +10,53 @@ from enginir._workflow import roi_grid
 from enginir.io import save_hdf5
 
 
-def test_cells_split_the_tray_evenly_and_leave_out_the_inset():
-    cells = roi_grid((0, 59), (0, 19), n_rows=2, n_columns=3, inset=0.1)
+def test_cells_follow_size_origin_and_spacing():
+    cells = roi_grid(n_rows=2, n_columns=3, size=(10, 6), origin=(4, 2), spacing=(5, 3))
     assert [(c.row, c.column) for c in cells] == [(0, 0), (0, 1), (0, 2),
                                                   (1, 0), (1, 1), (1, 2)]
-    # Each cell is 20 frames x 10 rows; 10 % inset leaves out 2 frames and 1 row per side.
-    assert cells[0].frames == (2, 17) and cells[0].rows == (1, 8)
-    assert cells[2].frames == (42, 57) and cells[5].rows == (11, 18)
+    # x steps by width + spacing = 15 frames, y by height + spacing = 9 rows.
+    assert [c.frames for c in cells[:3]] == [(4, 13), (19, 28), (34, 43)]
+    assert cells[0].rows == (2, 7) and cells[3].rows == (11, 16)
     assert [c.name for c in cells] == ["A01", "A02", "A03", "B01", "B02", "B03"]
+    assert cells[4].position == "B2"
+    assert cells[0].grid == "2 x 3, size 10 x 6, origin (4, 2), spacing (5, 3)"
 
 
-def test_uneven_sizes_spread_the_remainder_and_cells_never_overlap():
-    cells = roi_grid((5, 26), (0, 6), n_rows=1, n_columns=4)  # 22 frames into 4 columns
+def test_defaults_start_at_zero_and_touching_cells_never_overlap():
+    cells = roi_grid(n_rows=1, n_columns=3, size=(4, 2))
     spans = [c.frames for c in cells]
-    assert spans == [(5, 9), (10, 15), (16, 20), (21, 26)]
+    assert spans == [(0, 3), (4, 7), (8, 11)]
     assert all(a[1] < b[0] for a, b in zip(spans, spans[1:]))
 
 
 def test_skipped_cells_order_and_name_patterns():
-    cells = roi_grid((0, 39), (0, 39), n_rows=2, n_columns=2, skip=[(0, 1)], order="columns",
+    cells = roi_grid(n_rows=2, n_columns=2, size=(5, 5), skip=[(0, 1)], order="columns",
                      name_pattern="{file}-{n:03d}-{row}{column}", file="tray03")
     assert [(c.row, c.column) for c in cells] == [(0, 0), (1, 0), (1, 1)]
     assert [c.name for c in cells] == ["tray03-001-A1", "tray03-002-B1", "tray03-003-B2"]
-    many = roi_grid((0, 0), (0, 27), n_rows=28, n_columns=1)
+    many = roi_grid(n_rows=28, n_columns=1, size=(1, 1))
     assert [c.name[:2] for c in many[25:]] == ["Z0", "AA", "AB"]
 
 
 @pytest.mark.parametrize(("kwargs", "message"), [
-    ({"n_rows": 0, "n_columns": 2}, "at least one row"),
-    ({"n_rows": 2, "n_columns": 50}, "cannot be split into 50 cells"),
-    ({"n_rows": 2, "n_columns": 2, "inset": 0.5}, r"inset must be in \[0, 0.5\)"),
-    ({"n_rows": 2, "n_columns": 2, "order": "diagonal"}, "order must be"),
-    ({"n_rows": 2, "n_columns": 2, "name_pattern": "{file}"}, "repeated names"),
-    ({"n_rows": 2, "n_columns": 2, "name_pattern": "{well}"}, "is not valid"),
+    ({"n_rows": 0}, "at least one row"),
+    ({"size": (0, 5)}, "at least 1 x 1"),
+    ({"origin": (-1, 0)}, "must not be negative"),
+    ({"spacing": (0, -2)}, "would overlap"),
+    ({"order": "diagonal"}, "order must be"),
+    ({"name_pattern": "{file}"}, "repeated names"),
+    ({"name_pattern": "{well}"}, "is not valid"),
+    ({"image_size": (19, 40)}, "A2 .* lies outside the image of 19 frames"),
 ])
 def test_invalid_grids_are_refused(kwargs, message):
+    grid = {"n_rows": 2, "n_columns": 2, "size": (10, 10), **kwargs}
     with pytest.raises(ValueError, match=message):
-        roi_grid((0, 19), (0, 19), **kwargs)
+        roi_grid(**grid)
+
+
+def test_skipped_cells_outside_the_image_are_allowed():
+    cells = roi_grid(n_rows=1, n_columns=3, size=(10, 10), skip=[(0, 2)], image_size=(25, 10))
+    assert [c.position for c in cells] == ["A1", "A2"]
 
 
 @pytest.fixture()
@@ -60,7 +70,7 @@ def tray(tmp_path):
 
 def test_a_grid_stores_one_roi_per_cell_with_its_pixels(tray):
     project, dataset, cube = tray
-    cells = roi_grid((0, 39), (0, 11), n_rows=2, n_columns=4, inset=0.1,
+    cells = roi_grid(n_rows=2, n_columns=4, size=(8, 5), origin=(1, 1), spacing=(2, 1),
                      name_pattern="{file}-{row}{column:02d}", file="tray03")
     rois = dataset.add_rois(cells)
     assert [roi.name for roi in rois] == [cell.name for cell in cells]
@@ -74,13 +84,15 @@ def test_a_grid_stores_one_roi_per_cell_with_its_pixels(tray):
     spectra = load_roi_spectra(project.path, f"/rois/{roi.roi_id}/spectra")
     expected = cube[cell.frames[0]:cell.frames[1] + 1, cell.rows[0]:cell.rows[1] + 1]
     np.testing.assert_array_equal(spectra, expected.reshape(-1, cube.shape[2]))
+    assert roi.provenance["grid_position"] == "B3"
+    assert roi.provenance["grid"] == "2 x 4, size 8 x 5, origin (1, 1), spacing (2, 1)"
 
 
 def test_a_grid_with_a_taken_name_writes_nothing(tray):
     project, dataset, _cube = tray
     dataset.add_roi("A02", frames=(0, 1), rows=(0, 1))
     with pytest.raises(ValueError, match="'A02' already exists"):
-        dataset.add_rois(roi_grid((0, 39), (0, 11), n_rows=1, n_columns=3))
+        dataset.add_rois(roi_grid(n_rows=1, n_columns=3, size=(10, 10)))
     assert list(Project.open(project.path).rois) == ["A02"]
 
 
@@ -99,7 +111,7 @@ def test_a_failed_write_removes_the_rois_already_written(tray, monkeypatch):
 
     monkeypatch.setattr(project_store, "save_training_roi", fail_on_third)
     with pytest.raises(OSError, match="disk full"):
-        dataset.add_rois(roi_grid((0, 39), (0, 11), n_rows=1, n_columns=4))
+        dataset.add_rois(roi_grid(n_rows=1, n_columns=4, size=(10, 10)))
     assert len(calls) == 3
     assert Project.open(project.path).rois == {}
     assert project.workspace.rois == {}

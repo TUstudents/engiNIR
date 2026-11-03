@@ -9,6 +9,7 @@ current view (image, ROIs, crosshair) with matplotlib in the print colors.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
@@ -219,12 +220,16 @@ class FalseColourCanvas(QWidget):
                 label=label,
             )
 
-    def set_grid_preview(self, cells: list[Any], skipped: list[Any]) -> None:
-        """Show planned ROI grid cells (with their names) and skipped cells (grey)."""
+    def set_grid_preview(self, cells: Sequence[Any], skipped: Sequence[Any],
+                         outside: Sequence[Any] = ()) -> None:
+        """Show planned ROI grid cells (with their names), empty cells (grey, dashed) and
+        cells outside the image (red)."""
         self.clear_grid_preview()
         for cell, color, style in [*((c, (0, 220, 255), Qt.PenStyle.SolidLine) for c in cells),
                                    *((c, (140, 140, 140), Qt.PenStyle.DashLine)
-                                     for c in skipped)]:
+                                     for c in skipped),
+                                   *((c, (255, 70, 70), Qt.PenStyle.SolidLine)
+                                     for c in outside)]:
             (f0, f1), (r0, r1) = cell.frames, cell.rows
             rect = QGraphicsRectItem(f0, r0, f1 - f0 + 1, r1 - r0 + 1)
             pen = pg.mkPen(color=color, width=1.2, style=style)

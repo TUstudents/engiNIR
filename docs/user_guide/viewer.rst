@@ -86,9 +86,12 @@ the project, the data file, the signal unit and the frame, row or band shown.
 
 The controls set what the panels show:
 
-- **Signal**: raw counts, reflectance or absorbance. Without dark and white
-  references, the file's detector levels or the EVK defaults (black 128,
-  white 3500) are used.
+- **Signal**: raw counts (DN), reflectance or absorbance. The project keeps
+  the raw counts of every ROI with its references or detector levels, so any
+  of them can be computed at any time. Only the signals the shown data file
+  can give are enabled: a file added as raw counts gives DN only, an already
+  calibrated file has no DN. Your choice is kept when you show another data
+  file that can give it.
 - **Filtering**: Savitzky-Golay smoothing, first or second derivative, with
   window and polynomial order.
 - **Normalization**: SNV, MSC, EMSC and detrending, combinable.
@@ -104,18 +107,32 @@ To record training data:
 3. Click **Add ROI** and drag a rectangle on the Spatial Image.
 4. Name the ROI and, optionally, enter its reference value.
 
-For a tray of samples, **Add ROI grid** creates them in one go:
+For a tray of samples, **Add ROI grid** creates them in one go. The dialog
+opens at once with the defaults from **Options > ROI Grid Defaults** and
+lays out equal ROIs in pixels, with x along frames and y along rows:
 
-1. Drag one rectangle around the tray.
-2. Set the number of rows and columns, and the inset, the share of each cell
-   left out on every side to keep sample edges and gaps out.
-3. Click a cell to skip an empty position.
-4. Choose the name pattern (default ``{file}-{row}{column:02d}``, e.g.
-   ``tray03-B04``) and the order.
+- **Number**: columns (x) and rows (y).
+- **ROI size**: the width and height of every ROI. Choose it smaller than a
+  well to keep sample edges out.
+- **Origin**: the frame and row of the first ROI's top-left corner (A1).
+- **Spacing**: the gap between neighbouring ROIs; the dialog shows the
+  resulting pitch and the frames and rows the grid covers.
+- **Names**: a pattern from the list (``{file}-{row}{column:02d}`` gives
+  ``tray03-B04``; ``{n:03d}`` numbers them) or your own, and the order.
 
-The cells are shown on the image while the dialog is open. **OK** stores all
-ROIs, or none if one of them cannot be stored (for example because a name is
-already taken).
+The grid is drawn on the image while you type. Click a cell button to mark
+an empty position (**Select all** / **Select none** help with sparse trays);
+empty positions keep their names, so B04 stays B04. ROIs outside the image are
+drawn red and must be moved, shrunk or marked empty before **OK**. Names
+already used in the project are refused in the dialog too; scans with the same
+file name in different folders give the same ``{file}``, so choose a pattern
+that tells them apart. **OK** stores all ROIs, or none if one of them cannot be
+stored. Each ROI records its grid position and the grid
+layout.
+
+Changes in the dialog apply to that grid only: the next grid starts from the
+Options defaults again. Set them once for your tray holder in **Options >
+ROI Grid Defaults** (stored in your user settings).
 
 The ROI is stored at once with its raw spectra, its dark and white reference
 pixels and the calibration in use, and appears in the browser. The status bar
@@ -242,12 +259,21 @@ project in the same window and asks how it is calibrated:
   file itself, such as a white tile or shutter-closed frames at the start of
   the tray;
 - **Same references as another data file**, for one reference set per session;
-- **Detector levels** (the file's, or black 128 / white 3500);
-- **Raw counts**.
+- **Detector levels**, black and white, editable (default 128 and 3500);
+- **Raw counts**, without references or levels (only DN can be shown and
+  modelled).
 
-The dialog plots the mean dark and white spectra and reports the share of
-saturated values before you accept them. Files with floating-point values are
-taken as already calibrated.
+The dialog asks for no signal unit: DN, reflectance and absorbance are
+chosen in Explore and in **Fit model**. Only a file that already holds
+calibrated values (floating point) asks what it holds, reflectance or
+absorbance.
+
+The dialog plots the mean spectrum of the file in counts, from a few middle
+frames, together with what the chosen calibration uses: the mean dark and
+white spectra with their share of saturated values, the references of the
+other data file, or the black and white detector levels. You can see where
+the data lies between dark and white before you accept. Files with
+floating-point values are taken as already calibrated.
 
 The data file list in the Spatial Image header switches between the
 project's files, as does a double-click on a file in the browser. Each file
@@ -289,9 +315,10 @@ white references recorded once. From an empty project to a model:
    the dark and white reference files. Check the mean spectra and the share
    of saturated values, then **OK**: the data file and its calibration are
    stored together.
-3. **Draw the samples.** **Add ROI grid**, drag a rectangle around the tray,
-   set rows, columns and inset, click empty positions to skip them, and
-   **OK**. Every cell becomes an ROI named after the file and its position,
+3. **Draw the samples.** Set your tray holder once in **Options > ROI Grid
+   Defaults** (rows, columns, ROI size, spacing). **Add ROI grid** then
+   shows the grid on the tray; correct the origin if the tray sits elsewhere,
+   click empty positions, and **OK**. Every cell becomes an ROI named after the file and its position,
    e.g. ``tray01-B04``, with its raw pixels and reference pixels.
 4. **Add the next trays.** Repeat **Add Data File...** and choose **Same
    references as** the first tray for the rest of the session, then draw their

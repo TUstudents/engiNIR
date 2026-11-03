@@ -507,8 +507,10 @@ project (10 trays, 400 ROIs of 2,000 pixels) the first tile appears 0.7 s
 after the window and all 400 within about 4 s, with the event loop free
 between batches.
 
-**Add ROI grid** (`EDAView.on_roi_grid_selected`, `_roi_grid.RoiGridDialog`)
-splits a dragged tray rectangle into cells with `enginir._workflow.roi_grid`.
+**Add ROI grid** (`EDAView.open_roi_grid_dialog`, `_roi_grid.RoiGridDialog`)
+lays out equal ROIs by number, size, origin and spacing with
+`enginir._workflow.roi_grid`, starting from **Options > ROI Grid Defaults**
+(`_grid_settings.GridDefaults`, user settings) every time.
 It previews them on the canvas (`FalseColourCanvas.set_grid_preview`) and
 stores them through `ProjectState.add_rois` → `Project.save_rois`, all or none.
 

@@ -28,6 +28,7 @@ from ._signal_domain import (
     check_calibration_signal_domain_compatibility,
     check_signal_domain_compatibility,
     transform_spectra_to_signal_domain,
+    viewable_signal_units,
 )
 from ._validation import ProjectRelationshipError, validate_project_relationships
 from ._hydration import ProjectWorkspace, hydrate_project_store
@@ -51,4 +52,5 @@ __all__ = [
     "hydrate_project_store",
     "transform_spectra_to_signal_domain",
     "validate_project_relationships",
+    "viewable_signal_units",
 ]

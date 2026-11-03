@@ -30,7 +30,8 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_data_helpers.py` | Dataset-shape and spectral array helpers shared by viewer workflows |
 | `_project_rois.py` | `ProjectRoisView` (Explore's Project ROIs tab), `RoiMosaic` (stored ROI pixels as tiles, a `PlotSource`), specs `explore.roi_means`/`explore.roi_pixels` fed by `enginir.modeling.roi_spectrum_summaries`. Tiles arrive in background batches of 40 and are drawn incrementally with the stretch of the first batch, then re-stretched once together; target and value changes update the labels in place (coalesced), without a new layout |
 | `_roi_table.py` | `RoiTableModel`/`RoiTableWidget`: target values of all ROIs (one column per target), Enter-to-next-row editing, column paste, data file and missing-value filters |
-| `_roi_grid.py` | `RoiGridDialog`: a tray rectangle split into ROI cells (`roi_grid`), with skip buttons and a live preview on the canvas |
+| `_roi_grid.py` | `RoiGridDialog`: a grid of equal ROIs by number, size, origin and spacing (`roi_grid`), empty-position buttons, a live preview on the canvas (outside cells red); `GridDefaultsDialog` (Options > ROI Grid Defaults) and the shared `GridGeometryForm` |
+| `_grid_settings.py` | `GridDefaults` every new grid starts with, in the user settings (`roi_grid.json`) |
 | `_data_files.py` | `AddDataFileDialog` and `DataFileRequest`: the calibration of a data file added to a project (reference files, frame ranges, shared references, levels, raw) |
 | `_ui_helpers.py` | Shared plot styling and figure-layout helpers |
 | `_plot_panel.py` | `PlotSpec`, `PlotTable`, `PlotPanel`: one plot with a header (title, maximize, PNG/SVG/CSV export) |

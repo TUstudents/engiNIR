@@ -162,6 +162,8 @@ class Project:
         dark_frames: tuple[int, int] | None = None,
         white_frames: tuple[int, int] | None = None,
         references_from: str | os.PathLike[str] | None = None,
+        black_level: float | None = None,
+        white_level: float | None = None,
     ) -> Dataset:
         """Register a data file with its calibration.
 
@@ -190,6 +192,10 @@ class Project:
             uses too (one reference set for a session). Its arrays are copied
             into this file's own calibration. Not combined with the other
             reference arguments.
+        black_level, white_level:
+            Detector levels for raw counts calibrated without references,
+            instead of the file's metadata or the defaults. Not combined with
+            references; ``white_level`` must exceed ``black_level``.
 
         Returns
         -------
@@ -203,7 +209,8 @@ class Project:
         """
         dataset, calibration, new_dataset, new_calibration = self._resolve_dataset(
             path, dark=dark, white=white, unit=unit, dark_frames=dark_frames,
-            white_frames=white_frames, references_from=references_from)
+            white_frames=white_frames, references_from=references_from,
+            black_level=black_level, white_level=white_level)
         self._write_dataset(dataset, calibration, new_dataset, new_calibration)
         return Dataset(self, self.workspace.datasets[dataset.dataset_id])
 
@@ -499,9 +506,14 @@ class Project:
                      if _same_path(ref.source_path, abs_path)), None)
 
     def _resolve_dataset(self, path, *, dark, white, unit, dark_frames=None, white_frames=None,
-                         references_from=None):
+                         references_from=None, black_level=None, white_level=None):
         """Return ``(dataset, calibration, dataset_is_new, calibration_is_new)``, writing nothing."""
         ws = self.workspace
+        levels_given = black_level is not None or white_level is not None
+        if levels_given and any(value is not None for value in (
+                dark, white, dark_frames, white_frames, references_from)):
+            log_and_raise("Detector levels calibrate without references; do not combine "
+                          "black_level/white_level with dark/white references")
         abs_path = _native_path(path)
         data = read_header(abs_path)
         dataset, new_dataset = resolve_dataset(ws.datasets, path, data)
@@ -520,7 +532,12 @@ class Project:
         candidate = make_calibration(
             dataset, unit=unit, precalibrated=np.dtype(data.X.dtype).kind == "f",
             dark=dark_ref, white=white_ref, dark_source=dark_source, white_source=white_source,
-            black_level=data.meta.get("black_level"), white_level=data.meta.get("white_level"))
+            black_level=data.meta.get("black_level") if black_level is None else black_level,
+            white_level=data.meta.get("white_level") if white_level is None else white_level)
+        if candidate.black_level is not None and candidate.white_level is not None \
+                and not candidate.white_level > candidate.black_level:
+            log_and_raise("The white level ({:g}) must be above the black level ({:g})",
+                          candidate.white_level, candidate.black_level)
         calibration, new_calibration = resolve_calibration(dataset, ws.calibrations, candidate)
         return dataset, calibration, new_dataset, new_calibration
 
@@ -712,7 +729,8 @@ class Dataset:
         pixels = read_frames(self.path, first, last)
         built = [make_roi(self.ref, self.calibration, name=cell.name, frames=cell.frames,
                           rows=cell.rows, pixels=pixels[cell.frames[0] - first:
-                                                        cell.frames[1] - first + 1])
+                                                        cell.frames[1] - first + 1],
+                          grid_cell=cell)
                  for cell in cells]
         self.project.save_rois(built)
         return [roi for roi, _spectra, _refs in built]
@@ -913,33 +931,46 @@ class GridCell:
     frames: tuple[int, int]
     rows: tuple[int, int]
     name: str
+    #: How the grid was laid out, recorded in the ROI's provenance.
+    grid: str = ""
+
+    @property
+    def position(self) -> str:
+        """The cell's place in the tray, e.g. ``B4``."""
+        return f"{_row_letters(self.row)}{self.column + 1}"
 
 
 def roi_grid(
-    frames: tuple[int, int],
-    rows: tuple[int, int],
     *,
     n_rows: int,
     n_columns: int,
-    inset: float = 0.0,
+    size: tuple[int, int],
+    origin: tuple[int, int] = (0, 0),
+    spacing: tuple[int, int] = (0, 0),
     skip: Iterable[tuple[int, int]] = (),
     order: str = "rows",
     name_pattern: str = "{row}{column:02d}",
     file: str = "",
+    image_size: tuple[int, int] | None = None,
 ) -> list[GridCell]:
-    """Split the rectangle ``frames`` x ``rows`` into a grid of ROI cells (a tray).
+    """Lay out a grid of equal ROIs (a tray of samples) in pixels.
 
-    Columns run along frames (the image's x axis), rows along rows (y).
+    ``x`` runs along frames (the image's horizontal, scan axis) and ``y``
+    along rows (across the sensor). Columns step along ``x``, rows along
+    ``y``. Cell ``(r, c)`` covers frames ``origin_x + c * (width + spacing_x)``
+    onwards for ``width`` frames, and rows ``origin_y + r * (height +
+    spacing_y)`` onwards for ``height`` rows.
 
     Parameters
     ----------
-    frames, rows:
-        Inclusive ``(first, last)`` ranges of the whole tray.
     n_rows, n_columns:
         Grid size.
-    inset:
-        Share of each cell's width and height left out on every side,
-        ``0 <= inset < 0.5``, to keep sample edges and the gaps out.
+    size:
+        ``(width, height)`` of every ROI, in frames and rows.
+    origin:
+        ``(x, y)`` of the first ROI's top-left pixel (frame, row).
+    spacing:
+        ``(x, y)`` gap between neighbouring ROIs; ``0`` makes them touch.
     skip:
         ``(row, column)`` positions (0-based) without a sample.
     order:
@@ -951,21 +982,32 @@ def roi_grid(
         and ``{file}``.
     file:
         Value of ``{file}``, e.g. the data file's name without extension.
+    image_size:
+        ``(n_frames, height)`` of the image; every created cell must lie
+        inside it.
 
     Returns
     -------
     list of GridCell
     """
     n_rows, n_columns = int(n_rows), int(n_columns)
+    width, height = (int(v) for v in size)
+    x0, y0 = (int(v) for v in origin)
+    gap_x, gap_y = (int(v) for v in spacing)
     if n_rows < 1 or n_columns < 1:
         log_and_raise("An ROI grid needs at least one row and column, got {} x {}", n_rows,
                       n_columns)
-    if not 0.0 <= float(inset) < 0.5:
-        log_and_raise("inset must be in [0, 0.5), got {}", inset)
+    if width < 1 or height < 1:
+        log_and_raise("ROIs need a size of at least 1 x 1 pixel, got {} x {}", width, height)
+    if x0 < 0 or y0 < 0:
+        log_and_raise("The grid origin must not be negative, got ({}, {})", x0, y0)
+    if gap_x < 0 or gap_y < 0:
+        log_and_raise("The spacing must not be negative (ROIs would overlap), got ({}, {})",
+                      gap_x, gap_y)
     if order not in ("rows", "columns"):
         log_and_raise("order must be 'rows' or 'columns', got {!r}", order)
-    f_edges = _grid_edges(frames, n_columns, "frames")
-    r_edges = _grid_edges(rows, n_rows, "rows")
+    grid = (f"{n_rows} x {n_columns}, size {width} x {height}, origin ({x0}, {y0}), "
+            f"spacing ({gap_x}, {gap_y})")
     skipped = {(int(r), int(c)) for r, c in skip}
     positions = [(r, c) for r in range(n_rows) for c in range(n_columns)]
     if order == "columns":
@@ -974,38 +1016,24 @@ def roi_grid(
     for r, c in positions:
         if (r, c) in skipped:
             continue
-        cell_frames = _inset(f_edges[c], inset)
-        cell_rows = _inset(r_edges[r], inset)
+        f0, r0 = x0 + c * (width + gap_x), y0 + r * (height + gap_y)
         try:
             name = name_pattern.format(row=_row_letters(r), column=c + 1, n=len(cells) + 1,
                                        file=file)
         except (KeyError, IndexError, ValueError) as exc:
             log_and_raise("Name pattern {!r} is not valid: {}", name_pattern, exc, cause=exc)
-        cells.append(GridCell(row=r, column=c, frames=cell_frames, rows=cell_rows, name=name))
+        cell = GridCell(row=r, column=c, frames=(f0, f0 + width - 1),
+                        rows=(r0, r0 + height - 1), name=name, grid=grid)
+        if image_size is not None and (cell.frames[1] >= image_size[0]
+                                       or cell.rows[1] >= image_size[1]):
+            log_and_raise("ROI {} ({}) lies outside the image of {} frames x {} rows",
+                          cell.position, name, image_size[0], image_size[1])
+        cells.append(cell)
     names = [cell.name for cell in cells]
     if len(set(names)) != len(names):
         log_and_raise("Name pattern {!r} gives repeated names; use {{row}} and {{column}} or "
                       "{{n}}", name_pattern)
     return cells
-
-
-def _grid_edges(span: tuple[int, int], n: int, label: str) -> list[tuple[int, int]]:
-    first, last = int(span[0]), int(span[1])
-    if last < first:
-        log_and_raise("The grid {} range {}..{} is empty", label, first, last, depth=3)
-    size = last - first + 1
-    if size < n:
-        log_and_raise("{} {} cannot be split into {} cells", size, label, n, depth=3)
-    bounds = [first + (i * size) // n for i in range(n + 1)]
-    return [(bounds[i], bounds[i + 1] - 1) for i in range(n)]
-
-
-def _inset(cell: tuple[int, int], inset: float) -> tuple[int, int]:
-    first, last = cell
-    trim = int(round(inset * (last - first + 1)))
-    if last - first + 1 - 2 * trim < 1:
-        trim = (last - first) // 2  # keep at least the centre pixel
-    return first + trim, last - trim
 
 
 def _row_letters(index: int) -> str:
@@ -1191,6 +1219,7 @@ def make_roi(
     pixels: np.ndarray,
     preview_recipe: PreprocessingRecipe | None = None,
     created_at: str | None = None,
+    grid_cell: GridCell | None = None,
 ) -> tuple[TrainingROI, np.ndarray, tuple[np.ndarray, np.ndarray] | None]:
     """Build an ROI of ``dataset`` from its frames ``pixels`` ``(frames, height, n_bands)``.
 
@@ -1199,7 +1228,8 @@ def make_roi(
     ``(n_pixels, n_bands)`` in the file's dtype and, for calibrations with
     reference spectra, the matching dark and white reference pixels.
     ``preview_recipe`` records the preprocessing shown while the ROI was
-    drawn.
+    drawn; ``grid_cell`` records the grid position and layout of an ROI made
+    by :func:`roi_grid`.
     """
     n_frames, height, n_bands = dataset.cube_shape
     f0, f1 = _index_range(frames, n_frames, "frames")
@@ -1225,7 +1255,9 @@ def make_roi(
                     "calibration_id": calibration.calibration_id,
                     "signal_unit": calibration.output_signal_unit,
                     "preview_recipe_summary": _recipe_label(recipe) if preview_recipe else "none",
-                    "created_at": created_at, **(recipe.to_dict() if preview_recipe else {})},
+                    "created_at": created_at, **(recipe.to_dict() if preview_recipe else {}),
+                    **({"grid_position": grid_cell.position, "grid": grid_cell.grid}
+                       if grid_cell is not None else {})},
     )
     return roi, spectra, refs
 

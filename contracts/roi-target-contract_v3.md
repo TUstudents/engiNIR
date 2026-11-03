@@ -256,8 +256,19 @@ v3 rule:
 
 Many samples in one data file (a tray) may be created as a grid:
 
-- the user chooses one rectangle, the number of rows and columns, an inset
-  per cell, the cells to skip, and a name pattern
+- the grid is explicit geometry in image pixels: the number of rows and
+  columns, the ROI size (width along frames, height along rows), the origin
+  (frame and row of the first ROI's top-left pixel) and the spacing between
+  neighbouring ROIs; all ROIs of a grid have the same size and never overlap
+- the user also chooses the empty positions and a name pattern (selectable
+  presets or a custom pattern) and the order
+- every created ROI lies inside the image; positions marked empty may lie
+  outside it
+- a new grid starts from the user's defaults (Options > ROI Grid Defaults,
+  kept in the user settings, origin 0, 0 unless changed); changes in the grid
+  dialog apply to that grid only
+- each ROI's provenance records its grid position (e.g. `B4`) and the grid
+  geometry
 - every cell becomes one `TrainingROI` with its own raw spectra, reference
   snapshot and provenance, exactly as a single ROI
 - the grid is validated completely before anything is written, and written

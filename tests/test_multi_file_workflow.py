@@ -145,7 +145,7 @@ def test_open_data_adds_the_file_with_frame_references_in_the_same_window(
     path_c, cube_c = tray_c
     dialogs = _dialog_answers(monkeypatch, lambda d: (
         d.set_choice("references"), d.dark_source().use_frames(0, 1),
-        d.white_source().use_frames(14, 15), d.set_unit("Reflectance")))
+        d.white_source().use_frames(14, 15)))
     window = open_viewer(paths["tray_a"], project=project_path)
     try:
         window._open_data_path(str(path_c))  # File > Open Data in a window showing tray_a
@@ -159,7 +159,8 @@ def test_open_data_adds_the_file_with_frame_references_in_the_same_window(
         assert calibration.white_ref_source == f"{path_c.resolve()} frames 14-15"
         np.testing.assert_allclose(calibration.white_ref_data, cube_c[14:].mean(axis=0))
         np.testing.assert_array_equal(window.state.white_ref, calibration.white_ref_data)
-        assert window.state.y_unit == "Reflectance"
+        assert window.state.y_unit == "Absorbance"  # the working signal, no choice made yet
+        assert calibration.output_signal_unit == "Absorbance"
         assert _drawn_roi_names(window) == []  # tray_c has no ROIs yet
         assert "White: mean 3500 counts, 0.00 % saturated" in dialogs[0].check_text()
         combo = window._data_file_combo
@@ -168,6 +169,68 @@ def test_open_data_adds_the_file_with_frame_references_in_the_same_window(
         assert window._saved_label.text() == "✓ Data file 'tray_c.h5' added to project"
     finally:
         window.close()
+
+
+def test_explore_signals_follow_the_shown_file_and_keep_the_choice(qapp, tmp_path, tray_c):
+    """Raw counts are always stored; the shown file decides which signals it can give."""
+    from enginir import Project
+    from enginir.io import save_hdf5
+    from enginir.viewer import open_viewer
+
+    path_c, cube = tray_c
+    raw = tmp_path / "raw.h5"
+    save_hdf5(str(raw), cube, np.linspace(1000.0, 1700.0, 12))
+    project = Project.create(tmp_path / "s.h5")
+    calibrated = project.add_dataset(path_c, dark_frames=(0, 1), white_frames=(14, 15))
+    project.add_dataset(raw, unit="DN")
+    window = open_viewer(path_c, project=project.path)
+    try:
+        eda = window._eda_view
+        buttons = eda._signal_buttons()
+        assert window.state.y_unit == "Absorbance" and buttons["Absorbance"].isChecked()
+        assert all(button.isEnabled() for button in buttons.values())
+
+        buttons["Reflectance"].click()  # the user's choice
+        assert window.state.y_unit == "Reflectance"
+        window.show_data_file(window._registered_dataset_id(str(raw)))
+        window.wait_for_data_file()
+        assert window.state.y_unit == "DN" and buttons["DN"].isChecked()
+        assert not buttons["Reflectance"].isEnabled() and "without references" in \
+            buttons["Reflectance"].toolTip()
+
+        window.show_data_file(calibrated.ref.dataset_id)  # back: the choice returns
+        window.wait_for_data_file()
+        assert window.state.y_unit == "Reflectance" and buttons["Reflectance"].isChecked()
+        assert buttons["Reflectance"].isEnabled()
+
+        floats = tmp_path / "calibrated.h5"  # already absorbance: no raw counts to show
+        save_hdf5(str(floats), np.full((4, 8, 12), 0.3), np.linspace(1000.0, 1700.0, 12))
+        window.project_state.add_data_file(str(floats), unit="Absorbance")
+        window.show_data_file(window._registered_dataset_id(str(floats)))
+        window.wait_for_data_file()
+        assert not buttons["DN"].isEnabled() and window.state.y_unit == "Reflectance"
+    finally:
+        window.close()
+
+
+def test_the_dialog_asks_the_unit_only_for_calibrated_files(qapp, tmp_path, tray_c):
+    from enginir._workflow import read_header
+    from enginir.io import save_hdf5
+    from enginir.viewer._data_files import AddDataFileDialog
+
+    path_c, _cube = tray_c
+    counts = AddDataFileDialog(str(path_c), read_header(str(path_c)), {}, {})
+    assert not counts._unit.isVisibleTo(counts)
+    for choice, unit in (("references", "Absorbance"), ("levels", "Absorbance"),
+                         ("raw", "DN")):
+        counts.set_choice(choice)
+        assert counts.build_request().unit == unit
+    floats = tmp_path / "f.h5"
+    save_hdf5(str(floats), np.full((4, 8, 12), 0.5), np.linspace(1000.0, 1700.0, 12))
+    dialog = AddDataFileDialog(str(floats), read_header(str(floats)), {}, {})
+    assert dialog._unit.isVisibleTo(dialog)
+    dialog.set_unit("Reflectance")
+    assert dialog.build_request().unit == "Reflectance"
 
 
 def test_rois_on_an_added_file_keep_its_calibration(qapp, two_file_project, tray_c,
@@ -301,6 +364,70 @@ def test_the_dialog_blocks_ok_until_the_references_are_valid(qapp, tray_c):
     assert share == pytest.approx(6 / saturated.size * 100)
 
 
+def test_the_dialog_plot_shows_the_data_and_what_each_choice_uses(qapp, tmp_path, tray_c):
+    """Every choice plots the file's counts; levels and shared references are drawn too."""
+    from enginir import Project
+    from enginir._workflow import read_header
+    from enginir.viewer._data_files import AddDataFileDialog
+
+    path_c, cube = tray_c
+    project = Project.create(tmp_path / "c.h5")
+    shared = project.add_dataset(path_c, dark_frames=(0, 1), white_frames=(14, 15))
+    ws = project.workspace
+    other = tmp_path / "tray_d.h5"
+    from enginir.io import save_hdf5
+
+    save_hdf5(str(other), cube, np.linspace(1000.0, 1700.0, 12))
+    dialog = AddDataFileDialog(str(other), read_header(str(other)), ws.datasets,
+                               {d: ws.calibrations[c] for d, c in ws.active_calibration_ids.items()})
+
+    def drawn() -> dict[str, np.ndarray]:
+        dialog.check_references()
+        (ax,) = dialog._figure.axes
+        assert ax.get_ylabel() == "Counts"
+        return {line.get_label(): np.asarray(line.get_ydata()) for line in ax.get_lines()}
+
+    middle = cube[6:11].reshape(-1, 12).mean(axis=0)  # frames 6..10 of 16
+    for choice in ("references", "shared", "levels", "raw"):
+        dialog.set_choice(choice)
+        lines = drawn()
+        np.testing.assert_allclose(lines["Data (mean)"], middle)
+    dialog.set_choice("shared")
+    np.testing.assert_allclose(drawn()["White"],
+                               shared.calibration.white_ref_data.mean(axis=0), rtol=1e-6)
+    dialog.set_choice("levels")
+    levels = drawn()
+    assert levels["Black level 128"][0] == 128 and levels["White level 3500"][0] == 3500
+    dialog.set_choice("raw")
+    assert set(drawn()) == {"Data (mean)"}
+
+
+def test_the_dialog_levels_are_editable_and_checked(qapp, tray_c):
+    from PyQt6.QtWidgets import QDialogButtonBox
+
+    from enginir._workflow import read_header
+    from enginir.viewer._data_files import AddDataFileDialog
+
+    path_c, _cube = tray_c
+    dialog = AddDataFileDialog(str(path_c), read_header(str(path_c)), {}, {})
+    dialog.set_choice("levels")
+    assert dialog.build_request().add_dataset_kwargs()["black_level"] == 128.0  # the default
+    dialog.set_levels(90.0, 3600.0)
+    assert dialog.check_references()
+    (ax,) = dialog._figure.axes
+    assert {line.get_label() for line in ax.get_lines()} >= {"Black level 90",
+                                                            "White level 3600"}
+    request = dialog.build_request()
+    assert (request.black_level, request.white_level) == (90.0, 3600.0)
+    dialog.set_levels(3600.0, 3600.0)
+    assert not dialog.check_references()
+    ok = dialog._buttons.button(QDialogButtonBox.StandardButton.Ok)
+    assert ok is not None and not ok.isEnabled()
+    assert "must be above" in dialog.check_text()
+    dialog.set_choice("references")  # references take no levels
+    assert dialog.build_request().black_level is None
+
+
 def test_a_registered_file_opens_with_its_stored_calibration(qapp, tmp_path, tray_c):
     from enginir import Project
     from enginir.viewer import open_viewer
@@ -332,76 +459,196 @@ def _grid_answers(monkeypatch, configure, seen_preview=None):
     monkeypatch.setattr(RoiGridDialog, "exec", exec_)
 
 
-def test_a_drawn_tray_becomes_one_roi_per_cell(qapp, two_file_project, monkeypatch):
+def test_a_grid_starts_from_the_options_defaults_every_time(qapp, two_file_project,
+                                                             monkeypatch):
     from enginir.viewer import open_viewer
+    from enginir.viewer._grid_settings import GridDefaults, save_grid_defaults
 
     project_path, paths = two_file_project
+    defaults = GridDefaults(n_rows=2, n_columns=2, width=4, height=4, origin_x=8,
+                            origin_y=0, spacing_x=0, spacing_y=0)
+    save_grid_defaults(defaults)
+    opened: list[GridDefaults] = []
     previews: list[int] = []
-    _grid_answers(monkeypatch, lambda d: (d.set_grid(2, 2, inset_percent=0),
-                                          d.toggle_cell(0, 1)), previews)
+
+    def first(dialog):
+        opened.append(dialog.form.values())
+        # The grid is on the image as soon as the dialog opens: 4 cells with labels.
+        assert dialog.parent()._canvas.grid_preview_count == 8
+        dialog.toggle_cell(0, 1)  # an empty position
+
+    _grid_answers(monkeypatch, first, previews)
     window = open_viewer(paths["tray_b"], project=project_path)
     try:
         eda = window._eda_view
-        eda._btn_roi_grid.setChecked(True)  # Add ROI grid, then drag over the tray
-        eda._on_canvas_roi_draw_finished(8, 15, 0, 7)
+        eda._btn_roi_grid.click()  # opens the dialog at once; no dragging
         state = window.project_state
         names = sorted(r.name for r in state.rois.values() if r.name.startswith("tray_b-"))
         assert names == ["tray_b-A01", "tray_b-B01", "tray_b-B02"]
         roi = next(r for r in state.rois.values() if r.name == "tray_b-B02")
         assert roi.spatial_bounds == (12, 15, 4, 7)
+        assert roi.provenance["grid_position"] == "B2"
         from enginir.io.project_store import load_roi_spectra
 
         stored = load_roi_spectra(str(project_path), f"/rois/{roi.roi_id}/spectra")
         np.testing.assert_array_equal(
             stored, window.state.cube[12:16, 4:8].reshape(-1, window.state.n_bands))
         assert window._saved_label.text() == "✓ 3 ROIs saved to project"
-        assert _drawn_roi_names(window) == ["B1", "tray_b-A01", "tray_b-B01", "tray_b-B02"]
-        # 3 cells with labels and 1 skipped cell were previewed, then removed.
+        # 3 cells with labels and 1 empty cell were previewed, then removed.
         assert previews == [7] and window._canvas.grid_preview_count == 0
-        assert not eda._btn_roi_grid.isChecked()
+
+        def second(dialog):  # starts from the defaults, not from the first grid's changes
+            opened.append(dialog.form.values())
+            dialog.set_grid(width=2, name_pattern="{file}-X{n}")
+
+        _grid_answers(monkeypatch, second)
+        eda._btn_roi_grid.click()
+        _grid_answers(monkeypatch, lambda d: opened.append(d.form.values()) or
+                      d.set_grid(n_rows=1, n_columns=1, name_pattern="{file}-Y"))
+        eda._btn_roi_grid.click()
+        assert opened == [defaults, defaults, defaults]
     finally:
         window.close()
 
 
-def test_a_grid_with_a_taken_name_is_refused_and_writes_nothing(qapp, two_file_project,
-                                                                monkeypatch):
-    from PyQt6.QtWidgets import QMessageBox
-
-    from enginir.viewer import open_viewer
-
-    project_path, paths = two_file_project
-    warnings: list[str] = []
-    monkeypatch.setattr(QMessageBox, "warning", staticmethod(
-        lambda _p, title, text, *a, **k: warnings.append(f"{title}: {text}")))
-    _grid_answers(monkeypatch, lambda d: d.set_grid(1, 2, pattern="A{column}"))
-    window = open_viewer(paths["tray_a"], project=project_path)
-    try:
-        before = set(window.project_state.rois)
-        window._eda_view.on_roi_grid_selected(0, 15, 0, 7)  # names A1 (taken) and A2 (taken)
-        assert warnings and "already exists" in warnings[0]
-        assert set(window.project_state.rois) == before
-    finally:
-        window.close()
-
-
-def test_the_grid_dialog_reports_counts_and_refuses_invalid_patterns(qapp):
+def test_a_grid_with_a_taken_name_is_refused_in_the_dialog(qapp, tmp_path, monkeypatch):
+    """Scans with the same file name in different folders give the same {file}; the dialog
+    refuses the clash before OK, so no error box follows."""
     from PyQt6.QtWidgets import QDialogButtonBox
 
+    from enginir import Project
+    from enginir.io import save_hdf5
+    from enginir.viewer import open_viewer
+    from enginir.viewer._grid_settings import GridDefaults, save_grid_defaults
+
+    paths = []
+    for folder in ("run1", "run2"):
+        (tmp_path / folder).mkdir()
+        paths.append(tmp_path / folder / "stream_hsi.h5")
+        save_hdf5(str(paths[-1]), np.full((16, 8, 6), 1000, np.uint16),
+                  np.linspace(1000.0, 1500.0, 6))
+    project = Project.create(tmp_path / "p.h5")
+    first = project.add_dataset(paths[0])
+    first.add_roi("stream_hsi-A01", frames=(0, 3), rows=(0, 3))
+    project.add_dataset(paths[1])
+    save_grid_defaults(GridDefaults(n_rows=1, n_columns=2, width=4, height=4, spacing_x=0))
+    seen: list[tuple[str, bool]] = []
+
+    def answer(dialog):
+        ok = dialog._buttons_box.button(QDialogButtonBox.StandardButton.Ok)
+        seen.append((dialog.status_text, ok.isEnabled()))
+        dialog.set_grid(name_pattern="run2-{row}{column:02d}")  # a pattern that is free
+        seen.append((dialog.status_text, ok.isEnabled()))
+
+    _grid_answers(monkeypatch, answer)
+    window = open_viewer(paths[1], project=project.path)
+    try:
+        before = set(window.project_state.rois)
+        window._eda_view._btn_roi_grid.click()
+        assert seen[0] == ("1 name(s) are already used in the project, e.g. 'stream_hsi-A01'. "
+                           "Choose another name pattern (several data files may have the "
+                           "same file name).", False)
+        assert seen[1] == ("2 ROIs will be created", True)
+        names = {r.name for r in window.project_state.rois.values()} - {
+            window.project_state.rois[r].name for r in before}
+        assert names == {"run2-A01", "run2-A02"}
+    finally:
+        window.close()
+
+
+def test_the_grid_dialog_reports_counts_outside_cells_and_invalid_patterns(qapp):
+    from PyQt6.QtWidgets import QDialogButtonBox
+
+    from enginir.viewer._grid_settings import GridDefaults
     from enginir.viewer._roi_grid import RoiGridDialog
 
-    dialog = RoiGridDialog((0, 39), (0, 19), file="tray03")
-    previews: list[tuple[int, int]] = []
-    dialog.preview_changed.connect(lambda cells, skipped: previews.append(
-        (len(cells), len(skipped))))
-    dialog.set_grid(2, 4)
+    dialog = RoiGridDialog((40, 20), file="tray03", defaults=GridDefaults(
+        n_rows=2, n_columns=4, width=10, height=10, spacing_x=0, spacing_y=0))
+    previews: list[tuple[int, int, int]] = []
+    dialog.preview_changed.connect(lambda cells, skipped, outside: previews.append(
+        (len(cells), len(skipped), len(outside))))
     assert dialog.status_text == "8 ROIs will be created"
     dialog.toggle_cell(1, 3)
-    assert dialog.status_text == "7 ROIs will be created, 1 position(s) skipped"
-    assert previews[-1] == (7, 1)
+    assert dialog.status_text == "7 ROIs will be created, 1 position(s) empty"
+    assert previews[-1] == (7, 1, 0)
     assert [cell.name for cell in dialog.cells][:2] == ["tray03-A01", "tray03-A02"]
     ok = dialog._buttons_box.button(QDialogButtonBox.StandardButton.Ok)
-    dialog.set_grid(2, 4, pattern="{file}")
-    assert ok is not None and not ok.isEnabled() and "repeated names" in dialog.status_text
-    dialog.set_grid(2, 4, pattern="T{n:02d}", order="columns")
+    assert ok is not None and ok.isEnabled()
+
+    dialog.set_grid(origin_x=5)  # the last column now ends at frame 44 of 40
+    assert not ok.isEnabled() and dialog.cells == []
+    assert "1 ROI(s) lie outside the image" in dialog.status_text
+    assert previews[-1] == (6, 1, 1)
+    dialog.toggle_cell(0, 3)  # marking it empty brings the grid back inside
+    assert ok.isEnabled() and len(dialog.cells) == 6
+
+    dialog._select_all(False)
+    assert not ok.isEnabled() and dialog.cells == []
+    dialog._select_all(True)  # A4 and B4 are outside again
+    assert not ok.isEnabled() and previews[-1] == (6, 0, 2)
+    dialog.set_grid(origin_x=0, name_pattern="{file}")
+    assert not ok.isEnabled() and "repeated names" in dialog.status_text
+    dialog.set_grid(name_pattern="T{n:02d}", order="columns")
     assert ok.isEnabled() and [c.name for c in dialog.cells][:3] == ["T01", "T02", "T03"]
     assert [(c.row, c.column) for c in dialog.cells][:2] == [(0, 0), (1, 0)]
+
+
+def test_options_grid_defaults_are_stored_in_the_user_settings(qapp, monkeypatch):
+    from enginir.viewer._grid_settings import GridDefaults, load_grid_defaults
+    from enginir.viewer._roi_grid import GridDefaultsDialog
+    from enginir.viewer._viewer import HSIViewer
+
+    assert load_grid_defaults() == GridDefaults()  # built-in values without settings
+
+    def exec_(self):
+        self.form.set_values(GridDefaults(n_rows=8, n_columns=12, width=30, height=30,
+                                          origin_x=12, origin_y=5, spacing_x=6, spacing_y=6,
+                                          name_pattern="{n:03d}", order="columns"))
+        self._accept()
+        return self.result()
+
+    monkeypatch.setattr(GridDefaultsDialog, "exec", exec_)
+    window = HSIViewer(np.zeros((4, 4, 4), np.uint16), np.arange(4.0), {})
+    try:
+        assert window.edit_grid_defaults()
+    finally:
+        window.close()
+    stored = load_grid_defaults()
+    assert (stored.n_rows, stored.n_columns, stored.origin_x, stored.name_pattern,
+            stored.order) == (8, 12, 12, "{n:03d}", "columns")
+
+
+def test_profile_axes_fit_their_labels_after_a_file_is_shown(qapp, tmp_path):
+    """A project window starts with empty plots; a file shown later must not clip tick labels."""
+    from enginir import Project
+    from enginir.io import save_hdf5
+    from enginir.viewer import open_project
+
+    rng = np.random.default_rng(4)
+    cube = rng.integers(300, 900, (12, 40, 30)).astype(np.uint16)  # absorbance about 0.6-1.1
+    path = tmp_path / "scan.h5"
+    save_hdf5(str(path), cube, np.linspace(1000.0, 1700.0, 30))
+    project = Project.create(tmp_path / "p.h5")
+    project.add_dataset(path, black_level=0.0, white_level=10000.0)
+    window = open_project(project.path)
+    try:
+        window.resize(1400, 900)
+        window.show()
+        qapp.processEvents()  # the plots draw their empty state first
+        window._explore_tabs.setCurrentWidget(window._data_file_page)
+        window.show_data_file(next(iter(window.project_state.datasets)))
+        window.wait_for_data_file()
+        assert window.state.y_unit == "Absorbance"
+        for _ in range(5):
+            qapp.processEvents()
+        for panel in (window._spectrum, window._spatial):
+            figure = panel.figure
+            figure.canvas.draw()
+            renderer = figure.canvas.get_renderer()
+            (ax,) = figure.axes
+            labels = [label for label in ax.get_yticklabels() if label.get_text()]
+            assert labels
+            assert min(label.get_window_extent(renderer).x0 for label in labels) >= 0, \
+                type(panel).__name__
+    finally:
+        window.close()

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import pathlib
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any, Protocol
 
 import numpy as np
@@ -38,6 +38,7 @@ from ._data_helpers import wavelength_axes_match
 from ..io import file_format
 from ._loading import ViewerBusyContext
 from ._modeling import NewROIDialog
+from ._grid_settings import load_grid_defaults
 from ._roi_grid import RoiGridDialog
 from ._state import DEFAULT_SOURCE_MODALITY, ProjectState, ViewerState
 from ._theme import secondary_text_style
@@ -56,7 +57,8 @@ class _CanvasLike(Protocol):
     def enter_roi_draw_mode(self) -> None: ...
     def cancel_roi_draw_mode(self) -> None: ...
     def select_roi(self, roi_id: str | None) -> None: ...
-    def set_grid_preview(self, cells: list[Any], skipped: list[Any]) -> None: ...
+    def set_grid_preview(self, cells: Sequence[Any], skipped: Sequence[Any],
+                         outside: Sequence[Any] = ...) -> None: ...
     def clear_grid_preview(self) -> None: ...
 
 
@@ -155,6 +157,9 @@ class EDAView(QWidget):
         layout.addWidget(self._signal_info)
 
         self._signal_bg.buttonClicked.connect(self._on_signal_changed)
+        #: The signal the user picked in this window, kept when the shown file changes.
+        self.chosen_signal: str | None = None
+        self.state.units_changed.connect(self._sync_signal_buttons)
         return box
 
     def _filtering_group(self) -> QGroupBox:
@@ -281,11 +286,10 @@ class EDAView(QWidget):
 
         self._btn_roi_grid = QToolButton()
         self._btn_roi_grid.setText("Add ROI grid")
-        self._btn_roi_grid.setToolTip("Drag around a tray to create one ROI per sample cell")
-        self._btn_roi_grid.setCheckable(True)
-        self._btn_roi_grid.toggled.connect(self._on_add_roi_grid_toggled)
+        self._btn_roi_grid.setToolTip("Lay out a tray of equal ROIs by number, size, origin "
+                                      "and spacing (defaults in Options > ROI Grid Defaults)")
+        self._btn_roi_grid.clicked.connect(self.open_roi_grid_dialog)
         layout.addWidget(self._btn_roi_grid)
-        self._draw_purpose = "roi"
 
         self._btn_roi_delete = QToolButton()
         self._btn_roi_delete.setText("Delete ROI")
@@ -309,26 +313,38 @@ class EDAView(QWidget):
         layout.addWidget(self._roi_hint_label)
         return box
 
-    def _on_signal_changed(self, button) -> None:
-        unit_map = {
-            self._rb_dn: "DN",
-            self._rb_ref: "Reflectance",
-            self._rb_abs: "Absorbance",
-        }
-        unit = unit_map.get(button, "DN")
+    def _signal_buttons(self) -> dict[str, QRadioButton]:
+        return {"DN": self._rb_dn, "Reflectance": self._rb_ref, "Absorbance": self._rb_abs}
 
-        if unit in {"Reflectance", "Absorbance"}:
-            if self.state.calibrated:
-                msg = ""
-            elif self.state.dark_ref is not None and self.state.white_ref is not None:
-                msg = ""
-            else:
-                bl, wl = int(self.state.black_level), int(self.state.white_level)
-                msg = f"default: black={bl}  white={wl}"
-        else:
-            msg = ""
-        self._signal_info.setText(msg)
+    def _on_signal_changed(self, button) -> None:
+        unit = next((u for u, rb in self._signal_buttons().items() if rb is button), "DN")
+        self.chosen_signal = unit
         self.state.set_y_unit(unit)
+
+    def _sync_signal_buttons(self) -> None:
+        """Check the button of the signal in use, which may also be set by the shown data file."""
+        state = self.state
+        button = self._signal_buttons().get(state.y_unit)
+        if button is not None and not button.isChecked():
+            button.setChecked(True)
+        if state.y_unit == "DN" or state.calibrated:
+            msg = ""
+        elif state.dark_ref is not None and state.white_ref is not None:
+            msg = "from the dark/white references"
+        else:
+            msg = f"levels: black={state.black_level:g}  white={state.white_level:g}"
+        self._signal_info.setText(msg)
+
+    def set_signal_choices(self, units: tuple[str, ...]) -> None:
+        """Enable only the signals the shown data file can give (see ``viewable_signal_units``)."""
+        reasons = {"DN": "Already calibrated data hold no raw counts.",
+                   "Reflectance": "This data file is calibrated as raw counts, without "
+                                  "references or detector levels.",
+                   "Absorbance": "This data file is calibrated as raw counts, without "
+                                 "references or detector levels."}
+        for unit, button in self._signal_buttons().items():
+            button.setEnabled(unit in units)
+            button.setToolTip("" if unit in units else reasons[unit])
 
     def _on_filter_changed(self, button) -> None:
         mode_map = {
@@ -526,21 +542,8 @@ class EDAView(QWidget):
                 return dataset.dataset_id
         return None
 
-    def _on_add_roi_grid_toggled(self, enabled: bool) -> None:
-        if enabled:
-            self._set_add_roi_checked(False)
-            self._draw_purpose = "grid"
-            self._canvas.enter_roi_draw_mode()
-            self._roi_hint_label.setText("Drag around the tray on Spatial Image. Esc cancels.")
-            return
-        self._draw_purpose = "roi"
-        self._canvas.cancel_roi_draw_mode()
-        self.refresh_attachment_state()
-
     def _on_add_roi_toggled(self, enabled: bool) -> None:
         if enabled:
-            self._set_add_roi_grid_checked(False)
-            self._draw_purpose = "roi"
             self._canvas.enter_roi_draw_mode()
             self._roi_hint_label.setText("Drag on Spatial Image to define an ROI. Esc cancels.")
             return
@@ -552,44 +555,40 @@ class EDAView(QWidget):
         self._btn_roi_training.setChecked(checked)
         self._btn_roi_training.blockSignals(False)
 
-    def _set_add_roi_grid_checked(self, checked: bool) -> None:
-        self._btn_roi_grid.blockSignals(True)
-        self._btn_roi_grid.setChecked(checked)
-        self._btn_roi_grid.blockSignals(False)
-
     def _on_canvas_roi_draw_finished(self, f0: int, f1: int, r0: int, r1: int) -> None:
-        purpose, self._draw_purpose = self._draw_purpose, "roi"
         self._set_add_roi_checked(False)
-        self._set_add_roi_grid_checked(False)
         self.refresh_attachment_state()
-        if purpose == "grid":
-            self.on_roi_grid_selected(f0, f1, r0, r1)
-        else:
-            self.on_training_roi_selected(f0, f1, r0, r1)
+        self.on_training_roi_selected(f0, f1, r0, r1)
 
     def _on_canvas_roi_draw_canceled(self) -> None:
-        self._draw_purpose = "roi"
         self._set_add_roi_checked(False)
-        self._set_add_roi_grid_checked(False)
         self.refresh_attachment_state()
 
-    def on_roi_grid_selected(self, f0: int, f1: int, r0: int, r1: int) -> None:
-        """Create one ROI per cell of the tray rectangle, all or none (ROI/target contract)."""
+    def open_roi_grid_dialog(self) -> None:
+        """Lay out an ROI grid on the shown image and store its ROIs, all or none.
+
+        The dialog starts from Options > ROI Grid Defaults every time; its
+        changes apply to this grid only (ROI/target contract).
+        """
         if self.project_state.project_path is None or not self._dataset_attached_provider():
             QMessageBox.warning(self, "No project or data file",
                                 "Open a project and show one of its data files to add ROIs.")
             return
-        left, right, top, bottom = self.state._normalized_roi_bounds(f0, f1, r0, r1)
         cube_path = self._cube_path_provider() or ""
-        dialog = RoiGridDialog((left, right), (top, bottom),
-                               file=pathlib.Path(cube_path).stem, parent=self)
+        n_frames, height = (int(n) for n in self.state.cube.shape[:2])
+        dialog = RoiGridDialog((n_frames, height), file=pathlib.Path(cube_path).stem,
+                               defaults=load_grid_defaults(),
+                               taken_names={roi.name for roi in self.project_state.rois.values()},
+                               parent=self.window())
         dialog.preview_changed.connect(self._canvas.set_grid_preview)
-        dialog.preview_changed.emit(list(dialog.cells), [])
+        dialog.redraw_preview()  # the image shows the grid before any change
         try:
             accepted = dialog.exec() == QDialog.DialogCode.Accepted
+            cells = list(dialog.cells)
         finally:
             self._canvas.clear_grid_preview()
-        if not accepted or not dialog.cells:
+            dialog.deleteLater()
+        if not accepted or not cells:
             return
         try:
             context = self._ensure_current_dataset_context()
@@ -604,12 +603,12 @@ class EDAView(QWidget):
             built = [make_roi(dataset, calibration, name=cell.name, frames=cell.frames,
                               rows=cell.rows,
                               pixels=self.state.cube[cell.frames[0]:cell.frames[1] + 1],
-                              preview_recipe=self.state.recipe)
-                     for cell in dialog.cells]
+                              preview_recipe=self.state.recipe, grid_cell=cell)
+                     for cell in cells]
             self.project_state.add_rois(built)
         except (OSError, ValueError, KeyError) as exc:
             logger.error("ROI grid not stored: {}", exc)
-            QMessageBox.warning(self, "ROI grid not stored", str(exc))
+            QMessageBox.warning(self.window(), "ROI grid not stored", str(exc))
             return
         self._canvas.select_roi(built[0][0].roi_id)
 

@@ -94,3 +94,30 @@ def test_a_new_calibration_applies_to_later_rois_only(tmp_path, files):
     assert late.calibration_id == tray.calibration.calibration_id
     assert early.calibration_id != late.calibration_id
     assert project.workspace.calibrations[early.calibration_id].black_level is not None
+
+
+def test_detector_levels_can_be_given_and_are_checked(tmp_path, files):
+    paths, tray = files
+    project = Project.create(tmp_path / "p.h5")
+    calibration = project.add_dataset(paths["tray"], black_level=100.0,
+                                      white_level=3000.0).calibration
+    assert (calibration.mode, calibration.black_level, calibration.white_level) \
+        == ("dark_white_reference", 100.0, 3000.0)
+    roi = project.dataset(paths["tray"]).add_roi("R", frames=(5, 6), rows=(0, 1))
+    from enginir.modeling import roi_spectrum_summaries  # the fit's conversion
+
+    ws = project.workspace
+    summaries, _ = roi_spectrum_summaries(project.path, [roi], datasets=ws.datasets,
+                                          calibrations=ws.calibrations, signal_unit="Reflectance")
+    expected = (tray[5:7, 0:2].reshape(-1, N_BANDS) - 100.0) / (3000.0 - 100.0)
+    np.testing.assert_allclose(summaries[roi.roi_id].mean,
+                               np.clip(expected, 1e-6, 1.0).mean(axis=0), rtol=1e-5)
+
+    before = Project.open(project.path).workspace
+    with pytest.raises(ValueError, match="must be above the black level"):
+        project.add_dataset(paths["tray2"], black_level=3000.0, white_level=3000.0)
+    with pytest.raises(ValueError, match="do not combine"):
+        project.add_dataset(paths["tray2"], dark_frames=(0, 2), white_frames=(17, 19),
+                            black_level=100.0)
+    after = Project.open(project.path).workspace
+    assert after.datasets.keys() == before.datasets.keys()

@@ -37,7 +37,7 @@ import importlib.resources
 
 from .._checks import log_and_raise
 from .._workflow import read_header
-from ..project import CalibrationSpec
+from ..project import CalibrationSpec, viewable_signal_units
 from .._logging import add_log_sink, get_logger, log_file_path, remove_log_sink
 from ..io import load_spectra
 
@@ -1253,6 +1253,14 @@ class HSIViewer(QMainWindow):
             return payload
         return None
 
+    def edit_grid_defaults(self) -> bool:
+        """Options > ROI Grid Defaults: the geometry every new ROI grid starts with."""
+        from ._grid_settings import load_grid_defaults
+        from ._roi_grid import GridDefaultsDialog
+
+        return GridDefaultsDialog(load_grid_defaults(), parent=self).exec() \
+            == QDialog.DialogCode.Accepted
+
     def _selected_roi_id(self) -> str | None:
         payload = self._selected_project_browser_payload()
         if payload is None or payload.get("kind") != "roi":
@@ -1268,9 +1276,13 @@ class HSIViewer(QMainWindow):
         mb = _require_qt_object(self.menuBar(), "main menu bar")
         self._menu_file = _add_required_menu(mb, "File")
         self._menu_view = _add_required_menu(mb, "View")
+        self._menu_options = _add_required_menu(mb, "Options")
         self._menu_help = _add_required_menu(mb, "Help")
         self._populate_file_menu()
         self._populate_view_menu()
+        grid_defaults = QAction("ROI Grid Defaults...", self)
+        grid_defaults.triggered.connect(self.edit_grid_defaults)
+        self._menu_options.addAction(grid_defaults)
         self._populate_help_menu()
         self._default_layout_state = self.saveState()
         self._status_label = QLabel()
@@ -1532,14 +1544,24 @@ class HSIViewer(QMainWindow):
         logger.info("Showing data file {} ({})", dataset.source_path, self.state.y_unit)
 
     def apply_shown_calibration(self) -> None:
-        """Convert the shown data file with its stored calibration (references, levels, unit)."""
+        """Convert the shown data file with its stored calibration (references or levels).
+
+        The Explore signal stays the one the user chose when this file can
+        give it; otherwise (or before any choice) it is the calibration's
+        working signal. Only the signals the file can give are enabled.
+        """
         dataset_id = self._eda_view.shown_dataset_id()
         if dataset_id is None:
+            self._eda_view.set_signal_choices(viewable_signal_units(None))
             return
         calibration = self.project_state.active_calibration(dataset_id)
         levels, unit = _calibration_view(calibration, self.state.meta)
+        allowed = viewable_signal_units(calibration)
+        if self._eda_view.chosen_signal in allowed:
+            unit = str(self._eda_view.chosen_signal)
         self.state.set_calibration(**levels)
         self.state.set_y_unit(unit)
+        self._eda_view.set_signal_choices(allowed)
 
     def _registered_dataset_id(self, path: str) -> str | None:
         target = os.path.normcase(os.path.abspath(path))

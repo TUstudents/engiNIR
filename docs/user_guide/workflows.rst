@@ -61,7 +61,9 @@ and ``dataset.add_rois``, all stored or none:
 
    from enginir._workflow import roi_grid
 
-   cells = roi_grid((10, 409), (20, 219), n_rows=4, n_columns=8, inset=0.15,
+   # 4 x 8 wells: ROIs of 40 x 36 pixels, 10 pixels apart, the first at frame 15, row 20
+   cells = roi_grid(n_rows=4, n_columns=8, size=(40, 36), origin=(15, 20),
+                    spacing=(10, 10), skip=[(3, 7)],
                     name_pattern="{file}-{row}{column:02d}", file="tray1")
    tray1.add_rois(cells)
 

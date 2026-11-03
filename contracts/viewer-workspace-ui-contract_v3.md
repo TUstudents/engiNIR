@@ -282,7 +282,8 @@ Required controls:
 - signal unit selection
 - filtering/preprocessing preview controls
 - axis controls
-- ROI creation, single and as a grid
+- ROI creation, single and as a grid (the grid dialog opens with the Options
+  defaults and shows the cells on the image, outside cells in red)
 - ROI table (target values)
 - ROI export
 
@@ -296,6 +297,12 @@ Required behavior:
 - mosaic tiles and ROI spectra load off the UI thread; the first tiles appear
   before all ROIs are read
 - the mosaic and the ROI spectra are plot panels (Plot Panel Policy)
+- the signal selection (DN, Reflectance, Absorbance) shows the signal in use
+  and enables only the signals the shown data file's calibration can give
+  (`dataset-calibration-contract_v3.md`, Signal units of a calibration); a
+  disabled signal says why. A signal the user chose is kept when another data
+  file is shown, as long as that file can give it; otherwise the file's
+  working signal is shown
 
 Required browser emphasis:
 

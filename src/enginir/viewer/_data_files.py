@@ -8,8 +8,10 @@
 - the detector levels of the file (or the EVK defaults);
 - raw counts.
 
-It shows the mean spectrum and the saturated share of each reference before
-it is accepted. The answer is a :class:`DataFileRequest`, whose
+Its plot shows the mean spectrum of the file (a few middle frames) in counts,
+with what the chosen calibration uses: the mean reference spectra (with their
+saturated share), the references of the other data file, or the detector
+levels. The answer is a :class:`DataFileRequest`, whose
 :meth:`~DataFileRequest.add_dataset_kwargs` go straight to
 :meth:`enginir.Project.add_dataset`, the same rule scripts use.
 """
@@ -30,6 +32,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QGridLayout,
@@ -56,6 +59,8 @@ logger = get_logger(__name__)
 _FILE_FILTER = "Hyperspectral files (*.eiff *.hdr *.h5 *.spc *.spa *.jdx *.csv);;All files (*)"
 #: Calibration choices of the dialog.
 REFERENCES, SHARED, LEVELS, RAW = "references", "shared", "levels", "raw"
+#: Working signal stored with calibrated counts; Explore and Fit model choose the shown one.
+WORKING_SIGNAL = "Absorbance"
 
 
 @dataclass(frozen=True)
@@ -69,12 +74,15 @@ class DataFileRequest:
     dark_frames: tuple[int, int] | None = None
     white_frames: tuple[int, int] | None = None
     references_from: str | None = None
+    black_level: float | None = None
+    white_level: float | None = None
 
     def add_dataset_kwargs(self) -> dict[str, Any]:
         """Keyword arguments for :meth:`enginir.Project.add_dataset` (besides the path)."""
         return {"unit": self.unit, "dark": self.dark, "white": self.white,
                 "dark_frames": self.dark_frames, "white_frames": self.white_frames,
-                "references_from": self.references_from}
+                "references_from": self.references_from, "black_level": self.black_level,
+                "white_level": self.white_level}
 
 
 def saturation_level(meta: Mapping[str, Any], dtype: np.dtype) -> float | None:
@@ -171,6 +179,9 @@ class AddDataFileDialog(QDialog):
         self._precalibrated = np.dtype(header.X.dtype).kind == "f"
         self._saturation = saturation_level(header.meta, np.dtype(header.X.dtype))
         self.request: DataFileRequest | None = None
+        self._data_mean: np.ndarray | None = None  # read on the first check
+        #: Mean dark and white spectra of each data file that has references, by path.
+        self._shared_means: dict[str, tuple[np.ndarray, np.ndarray]] = {}
         # Created first: choosing the default option below already schedules a check.
         self._check_timer = QTimer(self)
         self._check_timer.setSingleShot(True)
@@ -214,14 +225,26 @@ class AddDataFileDialog(QDialog):
             self._shared = QComboBox()
             for dataset_id, dataset in datasets.items():
                 active = active_calibrations.get(dataset_id)
-                if active is not None and active.dark_ref_data is not None:
+                if active is not None and active.dark_ref_data is not None \
+                        and active.white_ref_data is not None:
                     self._shared.addItem(os.path.basename(dataset.source_path),
                                          dataset.source_path)
+                    self._shared_means[dataset.source_path] = (
+                        np.asarray(active.dark_ref_data, dtype=np.float64).mean(axis=0),
+                        np.asarray(active.white_ref_data, dtype=np.float64).mean(axis=0))
             self._shared.currentIndexChanged.connect(self._schedule_check)
-            black = header.meta.get("black_level", DEFAULT_BLACK_LEVEL)
-            white = header.meta.get("white_level", DEFAULT_WHITE_LEVEL)
-            self._choice[LEVELS].setText(f"Detector levels, no references "
-                                         f"(black {black:g}, white {white:g})")
+            limit = float(np.iinfo(header.X.dtype).max) if np.issubdtype(
+                header.X.dtype, np.integer) else 1e9
+            self._black = QDoubleSpinBox()
+            self._white_level = QDoubleSpinBox()
+            for spin, value in ((self._black, header.meta.get("black_level", DEFAULT_BLACK_LEVEL)),
+                                (self._white_level,
+                                 header.meta.get("white_level", DEFAULT_WHITE_LEVEL))):
+                spin.setRange(0.0, limit)
+                spin.setDecimals(1)
+                spin.setValue(float(value))
+                spin.valueChanged.connect(self._schedule_check)
+            self._choice[LEVELS].setText("Detector levels, no references")
             calibration_layout.addWidget(self._choice[REFERENCES])
             calibration_layout.addWidget(references)
             calibration_layout.addWidget(self._choice[SHARED])
@@ -230,16 +253,32 @@ class AddDataFileDialog(QDialog):
             shared_row.addWidget(self._shared, 1)
             calibration_layout.addLayout(shared_row)
             calibration_layout.addWidget(self._choice[LEVELS])
+            levels_row = QHBoxLayout()
+            levels_row.setContentsMargins(24, 0, 0, 0)
+            levels_row.addWidget(QLabel("Black:"))
+            levels_row.addWidget(self._black)
+            levels_row.addWidget(QLabel("White:"))
+            levels_row.addWidget(self._white_level)
+            levels_row.addStretch(1)
+            calibration_layout.addLayout(levels_row)
             calibration_layout.addWidget(self._choice[RAW])
-            self._unit.addItems(["Absorbance", "Reflectance"])
             if self._shared.count() == 0:
                 self._choice[SHARED].setEnabled(False)
                 self._shared.setEnabled(False)
             self._choice[REFERENCES].setChecked(True)
         layout.addWidget(calibration)
-        unit_row = QFormLayout()
-        unit_row.addRow("Signal unit:", self._unit)
-        layout.addLayout(unit_row)
+        if self._precalibrated:
+            # The only case where the unit is a fact about the file rather than a view of it.
+            unit_row = QFormLayout()
+            unit_row.addRow("The file holds:", self._unit)
+            layout.addLayout(unit_row)
+        else:
+            note = QLabel("The project keeps the raw counts with these references or levels; "
+                          "DN, reflectance and absorbance are chosen in Explore and in Fit "
+                          "model.")
+            note.setWordWrap(True)
+            note.setStyleSheet(secondary_text_style())
+            layout.addWidget(note)
 
         self._check = QLabel("")
         self._check.setWordWrap(True)
@@ -277,6 +316,11 @@ class AddDataFileDialog(QDialog):
     def set_shared(self, path: str) -> None:
         self._shared.setCurrentIndex(self._shared.findData(path))
 
+    def set_levels(self, black: float, white: float) -> None:
+        """Set the detector levels used without references."""
+        self._black.setValue(black)
+        self._white_level.setValue(white)
+
     def set_unit(self, unit: str) -> None:
         self._unit.setCurrentText(unit)
 
@@ -287,7 +331,8 @@ class AddDataFileDialog(QDialog):
         choice = self.choice()
         self._references.setEnabled(choice == REFERENCES)
         self._shared.setEnabled(choice == SHARED and self._shared.count() > 0)
-        self._unit.setEnabled(choice != RAW)
+        self._black.setEnabled(choice == LEVELS)
+        self._white_level.setEnabled(choice == LEVELS)
         self._schedule_check()
 
     def _schedule_check(self, *_args) -> None:
@@ -307,15 +352,37 @@ class AddDataFileDialog(QDialog):
         X = np.asarray(load_spectra(file).X)
         return X[:, np.newaxis, :] if X.ndim == 2 else X
 
+    def data_mean(self) -> np.ndarray | None:
+        """Mean spectrum of up to five middle frames of the file, as recorded."""
+        if self._data_mean is None:
+            n_frames = int(self._header.cube_shape[0])
+            first = max(0, n_frames // 2 - 2)
+            try:
+                frames = read_frames(self._path, first, min(n_frames - 1, first + 4))
+            except (OSError, ValueError, KeyError) as exc:
+                logger.warning("No data preview for {}: {}", self._path, exc)
+                return None
+            self._data_mean = frames.reshape(-1, frames.shape[-1]).mean(axis=0)
+        return self._data_mean
+
     def check_references(self) -> bool:
-        """Show the references' mean spectra and saturated shares; ``False`` if one is invalid."""
+        """Plot the file and what the chosen calibration uses; ``False`` if a reference is invalid.
+
+        The file's mean spectrum is always shown in counts (or in its own
+        values when precalibrated), with the mean dark and white references,
+        the other data file's references, or the detector levels.
+        """
         colors = panel_colors()
         self._figure.clear()
         ax = self._figure.add_subplot(111)
         style_axes(ax, colors)
+        wavelengths = np.asarray(self._header.wavelengths)
         lines: list[str] = []
         ok = True
         choice = self.choice()
+        data = self.data_mean()
+        if data is not None:
+            ax.plot(wavelengths, data, color=colors["fg"], linewidth=1.0, label="Data (mean)")
         if choice == REFERENCES:
             for source, color in ((self._dark, "#7f7f7f"), (self._white, colors["accent"])):
                 try:
@@ -325,22 +392,36 @@ class AddDataFileDialog(QDialog):
                     ok = False
                     continue
                 mean, saturated = reference_summary(raw, self._saturation)
-                ax.plot(np.asarray(self._header.wavelengths), mean, color=color,
-                        label=source.label)
+                ax.plot(wavelengths, mean, color=color, label=source.label)
                 lines.append(f"{source.label}: mean {float(mean.mean()):.4g} counts, "
                              f"{saturated:.2f} % saturated")
-            ax.set_xlabel("Wavelength (nm)", color=colors["fg"], fontsize=8)
-            ax.set_ylabel("Counts", color=colors["fg"], fontsize=8)
         elif choice == SHARED:
             if self._shared.count() == 0:
                 lines.append("No data file of the project has reference spectra.")
                 ok = False
             else:
                 lines.append(f"References copied from {self._shared.currentText()}.")
+                means = self._shared_means.get(str(self._shared.currentData()))
+                if means is not None:
+                    ax.plot(wavelengths, means[0], color="#7f7f7f", label="Dark")
+                    ax.plot(wavelengths, means[1], color=colors["accent"], label="White")
         elif choice == LEVELS and not self._precalibrated:
-            lines.append("Reflectance from the detector levels; no reference spectra.")
+            black, white = self._black.value(), self._white_level.value()
+            ax.axhline(black, color="#7f7f7f", linestyle="--", label=f"Black level {black:g}")
+            ax.axhline(white, color=colors["accent"], linestyle="--",
+                       label=f"White level {white:g}")
+            if white > black:
+                lines.append("Reflectance from the detector levels; no reference spectra.")
+            else:
+                lines.append("The white level must be above the black level.")
+                ok = False
         elif choice == RAW:
             lines.append("Raw counts; ROIs keep no reference spectra.")
+        ax.set_xlabel("Wavelength (nm)", color=colors["fg"], fontsize=8)
+        ax.set_ylabel("Values" if self._precalibrated else "Counts", color=colors["fg"],
+                      fontsize=8)
+        if ax.get_lines():
+            ax.legend(fontsize=7, loc="best", frameon=False, labelcolor=colors["fg"])
         self._figure.tight_layout()
         self._canvas.draw_idle()
         self._check.setText("\n".join(lines))
@@ -359,7 +440,9 @@ class AddDataFileDialog(QDialog):
         choice = self.choice()
         if choice == RAW:
             return DataFileRequest(self._path, unit="DN")
-        unit = self._unit.currentText()
+        # Counts are calibrated to reflectance; absorbance is the working default (as in
+        # Project.add_dataset). Floating-point files hold the unit chosen for them.
+        unit = self._unit.currentText() if self._precalibrated else WORKING_SIGNAL
         if choice == SHARED:
             return DataFileRequest(self._path, unit=unit,
                                    references_from=str(self._shared.currentData()))
@@ -368,6 +451,9 @@ class AddDataFileDialog(QDialog):
             white_file, white_frames = self._white.source()
             return DataFileRequest(self._path, unit=unit, dark=dark_file, white=white_file,
                                    dark_frames=dark_frames, white_frames=white_frames)
+        if not self._precalibrated:
+            return DataFileRequest(self._path, unit=unit, black_level=self._black.value(),
+                                   white_level=self._white_level.value())
         return DataFileRequest(self._path, unit=unit)
 
     def _accept(self) -> None:
