@@ -117,13 +117,11 @@ def test_a_failed_write_removes_the_rois_already_written(tray, monkeypatch):
     assert project.workspace.rois == {}
 
 
-def test_a_batch_with_repeated_names_writes_nothing(tray):
-    from enginir._workflow import make_roi, read_frames
+def test_a_grid_whose_cells_repeat_a_name_writes_nothing(tray):
+    from enginir._workflow import GridCell
 
     project, dataset, _cube = tray
-    pixels = read_frames(dataset.path, 0, 1)
-    built = [make_roi(dataset.ref, dataset.calibration, name="T1", frames=(0, 1), rows=rows,
-                      pixels=pixels) for rows in ((0, 1), (2, 3))]
-    with pytest.raises(ValueError, match="repeat within the batch"):
-        project.save_rois(built)
-    assert Project.open(project.path).rois == {}
+    cells = [GridCell(0, 0, (0, 1), (0, 1), "T1"), GridCell(0, 1, (2, 3), (0, 1), "T1")]
+    with pytest.raises(ValueError, match="ROI names repeat within the grid"):
+        dataset.add_rois(cells)
+    assert Project.open(project.path).workspace.rois == {}

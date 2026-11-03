@@ -1,6 +1,6 @@
 # Plan: ids only in the viewer, names as labels
 
-Status: phases 0–1 done; phases 2–5 proposed (2026-11-03)
+Status: phases 0–2 done (2026-11-03)
 
 ## Goal
 
@@ -134,6 +134,26 @@ multi-window tests remain the suspect if it returns.
 - Tests: repeated names stored through the typed layer; lookups of a
   repeated name fail with the ids; id/object forms; the facade still
   refuses its own duplicates.
+
+**Done (2026-11-03).**
+
+- Lookups: `Project.roi(name)` or `roi(roi_id=)`, likewise `target(target_id=)`,
+  `model(model_run_id=)` and `dataset(path)` or `dataset(dataset_id=)`. Exactly
+  one must be given (`TypeError` otherwise); an unknown id is a `KeyError`; a
+  string is always a name.
+- `set_value` and `fit` take the objects too, checked to belong to the
+  project (an ROI of another project is refused). The ids are passed through
+  lookups (`project.roi(roi_id=...)`) rather than more keywords on every
+  call, which keeps one way per call.
+- `project.rois`, `targets`, `models` and `Dataset.rois` raise a `KeyError`
+  listing the repeated names and ids instead of keeping one silently.
+- `Project.save_rois` checks that ROI ids are new and distinct, not names.
+  The name refusal moved to `Dataset.add_rois`, next to `Dataset.add_roi`,
+  `add_target` and `fit(name=)`.
+- Tests in `test_workflow.py` and `test_roi_grid.py`; six injected faults
+  caught (name views keeping one, id taken as a name, names checked in the
+  typed layer, grid facade without the name check, a foreign object accepted,
+  an ambiguous name picking one).
 
 ### Phase 3: data file labels
 

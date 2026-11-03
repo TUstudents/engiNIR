@@ -64,9 +64,13 @@ _FRAME_FORMATS = ("eiff", "hdf5")
 class Project:
     """A project file and the workflow on it.
 
-    Create one with :meth:`create` or :meth:`open`. ROIs, targets and models
-    are addressed by name, datasets by file path; every object also keeps a
-    stable id, which links the objects in the file.
+    Create one with :meth:`create` or :meth:`open`. Every object has a
+    stable id, its only identity and what links the objects in the file.
+    Names are labels and may repeat. For convenience, ROIs, targets and
+    models can be addressed by name and datasets by file path; reproducible
+    scripts pass the objects themselves or look them up by id
+    (``project.roi(roi_id=...)``), because a renamed or reused name refers
+    to another object.
 
     Examples
     --------
@@ -111,44 +115,74 @@ class Project:
 
     @property
     def rois(self) -> dict[str, TrainingROI]:
-        """ROIs by name."""
-        return {roi.name: roi for roi in self.workspace.rois.values()}
+        """ROIs by name; an error if names repeat (``workspace.rois`` is by id)."""
+        return _by_name(self.workspace.rois.values(), "ROI", "roi_id")
 
     @property
     def targets(self) -> dict[str, TargetDefinition]:
-        """Targets by name."""
-        return {target.name: target for target in self.workspace.targets.values()}
+        """Targets by name; an error if names repeat (``workspace.targets`` is by id)."""
+        return _by_name(self.workspace.targets.values(), "target", "target_id")
 
     @property
     def models(self) -> dict[str, Model]:
-        """Models by name."""
-        return {self._model_name(run): Model(self, run) for run in self.workspace.model_runs.values()}
+        """Models by name; an error if names repeat (``workspace.model_runs`` is by id)."""
+        runs = _by_name(self.workspace.model_runs.values(), "model", "model_run_id",
+                        key=self._model_name)
+        return {name: Model(self, run) for name, run in runs.items()}
 
     @property
     def predictions(self) -> dict[str, Prediction]:
         """Predictions by id."""
         return {run_id: Prediction(self, run) for run_id, run in self.workspace.predictions.items()}
 
-    def roi(self, name: str) -> TrainingROI:
-        """Return the ROI called ``name``."""
-        return _one_named(self.workspace.rois.values(), name, "ROI")
+    def roi(self, name: str | None = None, *, roi_id: str | None = None) -> TrainingROI:
+        """Return the ROI called ``name``, or the ROI with ``roi_id``.
 
-    def target(self, name: str) -> TargetDefinition:
-        """Return the target called ``name``."""
-        return _one_named(self.workspace.targets.values(), name, "target")
+        A name several ROIs share is an error listing their ids; the id is
+        the reproducible reference.
+        """
+        if _by_id_or_name(name, roi_id, "ROI"):
+            return _with_id(self.workspace.rois, roi_id, "ROI")
+        return _one_named(self.workspace.rois.values(), str(name), "ROI")
 
-    def model(self, name: str) -> Model:
-        """Return the model called ``name``."""
+    def target(self, name: str | None = None, *,
+               target_id: str | None = None) -> TargetDefinition:
+        """Return the target called ``name``, or the target with ``target_id``."""
+        if _by_id_or_name(name, target_id, "target"):
+            return _with_id(self.workspace.targets, target_id, "target")
+        return _one_named(self.workspace.targets.values(), str(name), "target")
+
+    def model(self, name: str | None = None, *, model_run_id: str | None = None) -> Model:
+        """Return the model called ``name``, or the model with ``model_run_id``."""
+        if _by_id_or_name(name, model_run_id, "model"):
+            return Model(self, _with_id(self.workspace.model_runs, model_run_id, "model"))
         runs = [run for run in self.workspace.model_runs.values()
                 if self._model_name(run) == name]
-        return Model(self, _only(runs, name, "model", id_field="model_run_id"))
+        return Model(self, _only(runs, str(name), "model", id_field="model_run_id"))
 
-    def dataset(self, path: str | os.PathLike[str]) -> Dataset:
-        """Return the dataset registered for the file ``path``."""
-        ref = self._dataset_ref(os.path.abspath(os.fspath(path)))
+    def dataset(self, path: str | os.PathLike[str] | None = None, *,
+                dataset_id: str | None = None) -> Dataset:
+        """Return the dataset registered for the file ``path``, or the one with ``dataset_id``."""
+        if (path is None) == (dataset_id is None):
+            log_and_raise("Give the dataset's path or its dataset_id, not both or neither",
+                          error=TypeError)
+        if dataset_id is not None:
+            return Dataset(self, _with_id(self.workspace.datasets, dataset_id, "dataset"))
+        ref = self._dataset_ref(os.path.abspath(os.fspath(str(path))))
         if ref is None:
             log_and_raise("No dataset is registered for {}", path, error=KeyError)
         return Dataset(self, ref)
+
+    def _roi_of(self, roi: str | TrainingROI) -> TrainingROI:
+        """``roi`` itself when it is an ROI of this project, else the ROI with that name."""
+        if isinstance(roi, TrainingROI):
+            return _with_id(self.workspace.rois, roi.roi_id, "ROI")
+        return self.roi(roi)
+
+    def _target_of(self, target: str | TargetDefinition) -> TargetDefinition:
+        if isinstance(target, TargetDefinition):
+            return _with_id(self.workspace.targets, target.target_id, "target")
+        return self.target(target)
 
     # -- writing ---------------------------------------------------------------
 
@@ -225,9 +259,14 @@ class Project:
         self.save_target(target)
         return target
 
-    def set_value(self, roi: str, target: str, value: float | None) -> None:
-        """Set (or replace) the reference value of ``target`` for ``roi``; ``None`` removes it."""
-        roi_ref, target_ref = self.roi(roi), self.target(target)
+    def set_value(self, roi: str | TrainingROI, target: str | TargetDefinition,
+                  value: float | None) -> None:
+        """Set (or replace) the reference value of ``target`` for ``roi``; ``None`` removes it.
+
+        ``roi`` and ``target`` are names or the objects themselves
+        (reproducible: e.g. ``project.roi(roi_id=...)``).
+        """
+        roi_ref, target_ref = self._roi_of(roi), self._target_of(target)
         if value is None:
             self.remove_assignment(roi_ref.roi_id, target_ref.target_id)
             return
@@ -237,7 +276,7 @@ class Project:
 
     def fit(
         self,
-        target: str,
+        target: str | TargetDefinition,
         *,
         recipe: PreprocessingRecipe | Mapping[str, Any] | None = None,
         model: str = "PLS",
@@ -250,7 +289,7 @@ class Project:
         Parameters
         ----------
         target:
-            Target name.
+            Target name, or the :class:`~enginir.project.TargetDefinition`.
         recipe:
             Preprocessing (default: none).
         model:
@@ -268,7 +307,7 @@ class Project:
         Model
         """
         ws = self.workspace
-        target_ref = self.target(target)
+        target_ref = self._target_of(target)
         recipe_obj = _as_recipe(recipe)
         recipe_id, recipe_dict = _recipe_id(recipe_obj), recipe_obj.to_dict()
         if name is not None:
@@ -364,18 +403,17 @@ class Project:
                   assignments: Sequence[TargetAssignment] = ()) -> None:
         """Store several ROIs (with spectra and reference snapshots) completely or not at all.
 
-        Every ROI and assignment is validated, and names are checked to be
-        unique in the project and among themselves, before anything is
-        written. If a write fails, the ROIs already written are removed again
-        (ROI/target contract, ROI grid).
+        Every ROI and assignment is validated before anything is written; ROI
+        ids must be new and differ from each other. Names are labels and are
+        not checked (headless-workflow contract, Names and ids). If a write
+        fails, the ROIs already written are removed again (ROI/target
+        contract, ROI grid).
         """
         ws = self.workspace
-        names = [roi.name for roi, _spectra, _refs in rois]
-        for name in names:
-            self._require_new_name(ws.rois.values(), name, "ROI")
-        duplicates = sorted({name for name in names if names.count(name) > 1})
-        if duplicates:
-            log_and_raise("ROI names repeat within the batch: {}", duplicates)
+        ids = [roi.roi_id for roi, _spectra, _refs in rois]
+        repeated = sorted({roi_id for roi_id in ids if ids.count(roi_id) > 1 or roi_id in ws.rois})
+        if repeated:
+            log_and_raise("ROI ids already exist or repeat within the batch: {}", repeated)
         self._validate(rois={roi.roi_id: roi for roi, _spectra, _refs in rois},
                        target_assignments=list(assignments))
         written: list[str] = []
@@ -643,9 +681,9 @@ class Dataset:
 
     @property
     def rois(self) -> dict[str, TrainingROI]:
-        """The ROIs of this dataset by name."""
-        return {roi.name: roi for roi in self.project.workspace.rois.values()
-                if roi.dataset_id == self.ref.dataset_id}
+        """The ROIs of this dataset by name; an error if names repeat."""
+        return _by_name([roi for roi in self.project.workspace.rois.values()
+                         if roi.dataset_id == self.ref.dataset_id], "ROI", "roi_id")
 
     def add_roi(self, name: str, *, frames: tuple[int, int], rows: tuple[int, int],
                 values: Mapping[str, float] | None = None) -> TrainingROI:
@@ -654,7 +692,9 @@ class Dataset:
         Parameters
         ----------
         name:
-            ROI name, unique in the project.
+            ROI name. This function refuses a name the project already has,
+            so a script can find the ROI by it again; ROIs stored otherwise
+            (e.g. by the viewer) may repeat names.
         frames, rows:
             Inclusive ``(first, last)`` index ranges.
         values:
@@ -716,6 +756,8 @@ class Dataset:
     def add_rois(self, cells: Sequence[GridCell]) -> list[TrainingROI]:
         """Store the cells of an ROI grid (see :func:`roi_grid`), all or none.
 
+        Like :meth:`add_roi`, refuses names the project already has.
+
         Returns
         -------
         list of TrainingROI
@@ -723,6 +765,12 @@ class Dataset:
         """
         if not cells:
             log_and_raise("An ROI grid needs at least one cell")
+        names = [cell.name for cell in cells]
+        for name in names:
+            self.project._require_new_name(self.project.workspace.rois.values(), name, "ROI")
+        if len(set(names)) != len(names):
+            log_and_raise("ROI names repeat within the grid: {}",
+                          sorted({name for name in names if names.count(name) > 1}))
         n_frames = self.ref.cube_shape[0]
         first = min(_index_range(cell.frames, n_frames, "frames")[0] for cell in cells)
         last = max(_index_range(cell.frames, n_frames, "frames")[1] for cell in cells)
@@ -1343,6 +1391,37 @@ def _same_signal_domain(a: SignalDomainContract, b: SignalDomainContract) -> boo
 def _existing(objects, candidate, same):
     """Return the stored object with the content of ``candidate``, or ``candidate``."""
     return next((obj for obj in objects if same(obj, candidate)), candidate)
+
+
+def _by_id_or_name(name: object, object_id: str | None, kind: str) -> bool:
+    """Whether a lookup is by id; exactly one of name and id must be given."""
+    if (name is None) == (object_id is None):
+        log_and_raise("Give the {}'s name or its id, not both or neither", kind,
+                      error=TypeError, depth=3)
+    return object_id is not None
+
+
+def _with_id(objects: Mapping[str, Any], object_id: str | None, kind: str):
+    if object_id not in objects:
+        log_and_raise("No {} with id '{}'", kind, object_id, error=KeyError, depth=3)
+    return objects[str(object_id)]
+
+
+def _by_name(objects, kind: str, id_field: str, key=lambda obj: obj.name) -> dict[str, Any]:
+    """Objects by name; refuses repeated names instead of silently keeping one of them."""
+    named: dict[str, Any] = {}
+    repeated: dict[str, list[str]] = {}
+    for obj in objects:
+        name = key(obj)
+        if name in named:
+            repeated.setdefault(name, [getattr(named[name], id_field)]).append(
+                getattr(obj, id_field))
+        named[name] = obj
+    if repeated:
+        log_and_raise("{} names repeat ({}); use the objects by id instead (project.workspace)",
+                      kind, "; ".join(f"'{name}': {ids}" for name, ids in repeated.items()),
+                      error=KeyError, depth=3)
+    return named
 
 
 def _one_named(objects, name: str, kind: str):
