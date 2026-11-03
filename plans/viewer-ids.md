@@ -1,6 +1,6 @@
 # Plan: ids only in the viewer, names as labels
 
-Status: phases 0–4 done (2026-11-03)
+Status: phases 0–5 done (2026-11-03)
 
 ## Goal
 
@@ -225,6 +225,14 @@ multi-window tests remain the suspect if it returns.
 - `workflows.rst` example with ids; API reference for the new keywords and
   `data_file_labels`; `viewer_architecture.md` identity rule; CHANGELOG
   (Changed: names may repeat; Added: id/object forms, data file labels).
+
+**Done (2026-11-03).** User guide (viewer: grid names may repeat, the export
+columns, data file labels, names as labels; workflows: a *Names and ids*
+section with id lookups and objects; I/O: CSV text columns),
+`hsi_viewer.md`, `viewer_architecture.md` (*Identity*), and CHANGELOG
+(Added: id lookups, data file labels, CSV text columns; Changed: names as
+labels, the ROI export; Fixed: the grid no longer fails on repeated file
+names, replacing the earlier "refuses names" entry).
 
 ### Phase 6 (separate, N2): refit a stored sample set
 

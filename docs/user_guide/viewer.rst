@@ -123,11 +123,11 @@ lays out equal ROIs in pixels, with x along frames and y along rows:
 The grid is drawn on the image while you type. Click a cell button to mark
 an empty position (**Select all** / **Select none** help with sparse trays);
 empty positions keep their names, so B04 stays B04. ROIs outside the image are
-drawn red and must be moved, shrunk or marked empty before **OK**. Names
-already used in the project are refused in the dialog too; scans with the same
-file name in different folders give the same ``{file}``, so choose a pattern
-that tells them apart. **OK** stores all ROIs, or none if one of them cannot be
-stored. Each ROI records its grid position and the grid
+drawn red and must be moved, shrunk or marked empty before **OK**. Names may
+repeat ROIs of other data files, for example when every scan is called
+``stream_hsi.h5``: ROIs are told apart by their id and data file, and the
+dialog only says how many names repeat. **OK** stores all ROIs, or none if
+one of them cannot be stored. Each ROI records its grid position and the grid
 layout.
 
 Changes in the dialog apply to that grid only: the next grid starts from the
@@ -139,7 +139,8 @@ The ROI is stored at once with its raw spectra, its dark and white reference
 pixels and the calibration in use, and appears in the browser. The status bar
 confirms each write, for example "✓ ROI 'tablet 3' saved to project".
 **Delete ROI** removes the selected ROI; **Export CSV** writes the ROI spectra
-to a CSV file.
+to a CSV file, one row per pixel with the ROI's id (``sample_id``), name and
+data file.
 
 A project can collect ROIs from several data files. The image shows only the
 ROIs drawn on the data file it displays; the browser lists all ROIs of the
@@ -294,6 +295,17 @@ others.
 Drawing ROIs keeps the calibration of the file. If you load other references
 first, the viewer asks before new ROIs use them, and the ROIs drawn before
 keep their own.
+
+Data files are shown by their file name. When several share a file name
+(scans saved as ``stream_hsi.h5`` in different folders), each is shown with
+the folder that tells them apart, e.g. ``stream_hsi.h5 (API 10% - nozzle…)``,
+in the data file list, the ROI table, the Project ROIs tab, the fit dialog
+and the browser; the full path is the tooltip.
+
+Every object in a project has a stable id, its identity. Names of ROIs,
+targets and models are labels: you can rename them and they may repeat. The
+viewer refers to everything by id, so repeated names never mix up ROIs, values
+or models; where names may repeat it also shows the data file or the id.
 
 There is no save step: every ROI, value, sample set, model and prediction is
 written when it is made. ROIs and targets are identified by stable ids; names

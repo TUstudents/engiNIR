@@ -273,7 +273,11 @@ The ROI creation flow is centred on `Spatial Image`:
 Target values are typed afterwards in the ROI table (`_roi_table.RoiTableWidget`),
 or in the ROI dialog for the selected target.
 
-This means ROI labels are display-only and do not need to be unique.
+This means ROI labels are display-only and do not need to be unique: the
+viewer refers to ROIs, targets, models and data files by id only
+(`viewer-workspace-ui-contract_v3.md`, Identity in the viewer). Data files are
+shown with `enginir._workflow.data_file_labels`: the file name, plus the
+folder that tells repeated file names apart.
 Viewer-generated `target_id`, `sample_set_id`, and `model_run_id` values also
 use canonical UUID strings unless a caller provides explicit ids.
 

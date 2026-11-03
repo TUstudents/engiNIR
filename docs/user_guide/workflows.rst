@@ -103,6 +103,29 @@ The layers below :class:`~enginir.Project` (:mod:`enginir.project`,
 advanced use. The project file layout is in :doc:`/hdf5_format`, the objects
 and their rules in :doc:`/workspace_domain_model`.
 
+Names and ids
+-------------
+
+Names are labels: they can change, and a project made in the viewer may
+repeat them (ROIs from scans that share a file name). Addressing by name is a
+convenience; a name that several objects share is an error listing their ids,
+never a guess. Every object has a stable id, and scripts that must give the
+same result later use the objects or their ids:
+
+.. code-block:: python
+
+   roi = project.roi(roi_id="6f2c…")              # or project.roi("tray03-B04")
+   api = project.target(target_id="91ab…")
+   project.set_value(roi, api, 4.2)               # objects instead of names
+   model = project.fit(api, n_components=3)
+   same = project.model(model_run_id=model.ref.model_run_id)
+
+``project.rois``, ``project.targets`` and ``project.models`` are keyed by
+name and refuse repeated names; ``project.workspace`` holds every collection
+keyed by id. Functions that create objects by name (``add_roi``,
+``add_rois``, ``add_target``, ``fit(name=...)``) refuse a name that exists, so
+a script finds what it made.
+
 Function mode
 -------------
 

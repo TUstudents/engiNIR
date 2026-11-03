@@ -118,6 +118,18 @@ Runtime collections include:
 
 ---
 
+## Identity
+
+The viewer refers to every project object by id: browser payloads, the ROI
+table rows, the Project ROIs tiles, canvas ROI items, Model plot selections
+and every write carry ids. It reaches the library's `Project` only through
+`ProjectState` and the typed, id-based methods (`save_*`, `remove_*`,
+`reload`); the name-based functions and name-keyed views (`Project.roi`,
+`.target`, `.model`, `set_value`, `fit`, `project.rois`, …) are for scripts,
+and `tests/test_headless_api.py::test_the_viewer_never_addresses_objects_by_name`
+fails if the viewer calls them. Names are display text and may repeat; data
+files are shown by `ProjectState.data_file_label(dataset_id)`.
+
 ## Signal wiring
 
 Wired in `_viewer.py:_wire_signals()`:
