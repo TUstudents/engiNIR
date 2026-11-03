@@ -51,6 +51,10 @@ in the viewer follow the same rules.
 
 .. autofunction:: enginir._workflow.make_roi
 
+.. autofunction:: enginir._workflow.read_header
+
+.. autofunction:: enginir._workflow.read_frames
+
 Calibration defaults
 --------------------
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TypeVar
+from typing import Any, TypeVar
 import os
 import time
 from functools import partial
@@ -10,6 +10,8 @@ from functools import partial
 import numpy as np
 from PyQt6.QtWidgets import (
     QApplication,
+    QComboBox,
+    QDialog,
     QMainWindow,
     QWidget,
     QDockWidget,
@@ -34,6 +36,8 @@ from PyQt6.QtGui import QAction, QActionGroup, QFont, QIcon, QCloseEvent, QKeySe
 import importlib.resources
 
 from .._checks import log_and_raise
+from .._workflow import read_header
+from ..project import CalibrationSpec
 from .._logging import add_log_sink, get_logger, log_file_path, remove_log_sink
 from ..io import load_spectra
 
@@ -42,7 +46,8 @@ from ._attachment import confirm_project_dataset_binding
 from ._browser import ProjectBrowser
 from ..io import file_format
 from ._inspector import ProjectInspector
-from ._jobs import BusyStatusWidget
+from ._data_files import AddDataFileDialog
+from ._jobs import BusyStatusWidget, start_background_job
 from ._loading import ViewerBusyContext
 from ._model_diagnostics import ModelDiagnosticsWidget
 from . import _layout_settings as layout_settings
@@ -75,6 +80,25 @@ _CONTROLS_DOCK_TARGET_HEIGHT = 230
 _SPECTRUM_PANEL_HEIGHT = 220
 _UNLIMITED_HEIGHT = 16777215  # QWIDGETSIZE_MAX
 _SAVED_MESSAGE_MS = 8000
+_ADD_DATA_FILE = "__add_data_file__"
+
+
+def _calibration_view(calibration: CalibrationSpec | None,
+                      meta: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    """``ViewerState.load_dataset`` keywords and the signal unit for a data file's calibration."""
+    levels: dict[str, Any] = {
+        "black_level": float(meta.get("black_level", DEFAULT_BLACK_LEVEL)),
+        "white_level": float(meta.get("white_level", DEFAULT_WHITE_LEVEL)),
+    }
+    if calibration is None:
+        return levels, "DN"
+    if calibration.dark_ref_data is not None and calibration.white_ref_data is not None:
+        levels["dark_ref"] = np.asarray(calibration.dark_ref_data, dtype=np.float32)
+        levels["white_ref"] = np.asarray(calibration.white_ref_data, dtype=np.float32)
+    elif calibration.black_level is not None and calibration.white_level is not None:
+        levels["black_level"] = float(calibration.black_level)
+        levels["white_level"] = float(calibration.white_level)
+    return levels, calibration.output_signal_unit
 
 
 def _require_qt_object(value: _QtObject | None, context: str) -> _QtObject:
@@ -270,6 +294,12 @@ class HSIViewer(QMainWindow):
 
         self._canvas_frame = PlotFrame("explore.image", "Spatial Image", self._canvas,
                                        self._canvas, provenance=self._explore_provenance)
+        self._data_file_job: Any = None
+        self._data_file_combo = QComboBox()
+        self._data_file_combo.setToolTip("Data file of the project shown in the image")
+        self._data_file_combo.setMinimumWidth(180)
+        self._data_file_combo.activated.connect(self._on_data_file_chosen)
+        self._canvas_frame.add_header_widget(self._data_file_combo)
         self._btn_reset_image_view = QToolButton()
         self._btn_reset_image_view.setText("Reset View")
         self._btn_reset_image_view.setAutoRaise(True)
@@ -868,6 +898,10 @@ class HSIViewer(QMainWindow):
         self._sensor_dock.visibilityChanged.connect(self._on_sensor_dock_visibility_changed)
         self._spatial_dock.visibilityChanged.connect(self._on_spatial_dock_visibility_changed)
 
+        self.project_state.project_loaded.connect(self._refresh_data_file_choices)
+        self.project_state.datasets_changed.connect(self._refresh_data_file_choices)
+        self._project_browser.itemDoubleClicked.connect(self._on_browser_item_activated)
+        self._refresh_data_file_choices()
         saved = layout_settings.load_maximized().get("Explore", "")
         if saved in ("explore.image", "explore.spectrum"):
             self._explore_maximized = saved.removeprefix("explore.")
@@ -1172,6 +1206,10 @@ class HSIViewer(QMainWindow):
         act.setShortcut("Ctrl+O")
         act.triggered.connect(self._open_data)
 
+        act = _add_required_action(m, "Add Data File...")
+        act.setToolTip("Add a data file with its calibration to the open project")
+        act.triggered.connect(lambda: self.add_data_file())
+
         self._menu_open_recent = _add_required_menu(m, "Open Recent")
         self._menu_open_recent.aboutToShow.connect(self._populate_open_recent)
 
@@ -1214,8 +1252,9 @@ class HSIViewer(QMainWindow):
             self._open_data_path(path)
 
     def _open_data_path(self, path: str) -> None:
-        if self.project_state.project_path is not None and not self.has_attached_dataset():
-            self._attach_dataset_path(path)
+        if self.project_state.project_path is not None:
+            # A project window adds the file to its project (attachment contract).
+            self.add_data_file(path)
             return
         from enginir.viewer import open_viewer
 
@@ -1232,70 +1271,172 @@ class HSIViewer(QMainWindow):
             busy.end()
         self._track_child_viewer(child)
 
-    def _attach_dataset_path(
-        self,
-        path: str,
-        *,
-        dark: str | None = None,
-        white: str | None = None,
-    ) -> None:
-        busy = self._viewer_busy_context(f"Attaching dataset: {path}")
-        busy.begin()
+    # ------------------------------------------------------------------
+    # Data files of the project (attachment contract, Data Files Of A Project)
+    # ------------------------------------------------------------------
+
+    def add_data_file(self, path: str | None = None) -> str | None:
+        """Add a data file to the project with its calibration, then show it.
+
+        A file that is already registered is shown directly. Returns the
+        dataset id, or ``None`` when nothing was added.
+        """
+        if self.project_state.project_path is None:
+            QMessageBox.warning(self, "No project open",
+                                "Create or open a project before adding data files.")
+            return None
+        if path is None:
+            path, _ = QFileDialog.getOpenFileName(
+                self, "Add data file", "",
+                "Hyperspectral files (*.eiff *.hdr *.h5 *.hdf5 *.csv *.spa);;All files (*.*)")
+            if not path:
+                return None
+        registered = self._registered_dataset_id(path)
+        if registered is not None:
+            self.show_data_file(registered)
+            return registered
         try:
-            X, wavelengths, meta = load_spectra(str(path))
-            if X.ndim == 2:
-                X = X[:, np.newaxis, :]
-            normalized_path = os.path.abspath(str(path))
-
-            if self.project_state.project_path is not None:
-                if not confirm_project_dataset_binding(
-                    self,
-                    project_path=self.project_state.project_path,
-                    project_state=self.project_state,
-                    dataset_path=normalized_path,
-                    source_format=file_format(normalized_path),
-                    source_modality=str(meta.get("source_modality") or DEFAULT_SOURCE_MODALITY),
-                    cube_shape=(int(X.shape[0]), int(X.shape[1]), int(X.shape[2])),
-                    wavelengths=np.asarray(wavelengths, dtype=np.float64),
-                ):
-                    return
-
-            dark_ref = None
-            if dark is not None:
-                dark_X, _, _ = load_spectra(str(dark))
-                dark_ref = dark_X.mean(axis=0) if dark_X.ndim == 3 else dark_X
-
-            white_ref = None
-            if white is not None:
-                white_X, _, _ = load_spectra(str(white))
-                white_ref = white_X.mean(axis=0) if white_X.ndim == 3 else white_X
-
-            black_level = float(meta.get("black_level", DEFAULT_BLACK_LEVEL))
-            white_level = float(meta.get("white_level", DEFAULT_WHITE_LEVEL))
-            self.state.load_dataset(
-                X,
-                wavelengths,
-                meta,
-                    black_level=black_level,
-                white_level=white_level,
-                dark_ref=None if dark_ref is None else np.asarray(dark_ref, dtype=np.float32),
-                white_ref=None if white_ref is None else np.asarray(white_ref, dtype=np.float32),
-            )
-            self._cube_path = normalized_path
-            self._refresh_canvas_image()
-            self._eda_view.refresh_roi_overlays()
-            self._eda_view.refresh_attachment_state()
-            self._eda_view.update_project_status()
-            self._update_status_strip()
-            from ._recent import add as _recent_add
-
-            _recent_add(str(path))
-        except (OSError, ValueError) as exc:
-            busy.end()
-            logger.error("Failed to attach dataset {}: {}", path, exc)
+            header = read_header(os.path.abspath(path))
+        except (OSError, ValueError, KeyError) as exc:
+            logger.error("Cannot read data file {}: {}", path, exc)
             QMessageBox.critical(self, "Cannot open file", str(exc))
-        finally:
+            return None
+        state = self.project_state
+        dialog = AddDataFileDialog(
+            path, header, state.datasets,
+            {dataset_id: calibration for dataset_id in state.datasets
+             if (calibration := state.active_calibration(dataset_id)) is not None},
+            parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted or dialog.request is None:
+            return None
+        request = dialog.request
+        try:
+            dataset_id = state.add_data_file(request.path, **request.add_dataset_kwargs())
+        except (OSError, ValueError, KeyError) as exc:
+            logger.error("Cannot add data file {}: {}", path, exc)
+            QMessageBox.critical(self, "Cannot add data file", str(exc))
+            return None
+        self.show_data_file(dataset_id)
+        return dataset_id
+
+    def show_data_file(self, dataset_id: str) -> None:
+        """Load a registered data file in the background and show it with its calibration."""
+        dataset = self.project_state.datasets.get(dataset_id)
+        if dataset is None:
+            log_and_raise("Unknown dataset '{}'", dataset_id, error=KeyError)
+        path = dataset.source_path
+        if not os.path.exists(path):
+            QMessageBox.warning(self, "Data file not found",
+                                f"{path} does not exist. Its ROIs, values and models stay "
+                                "usable; the image cannot be shown.")
+            return
+        if self._data_file_job is not None:
+            return
+        busy = self._viewer_busy_context(f"Loading data file: {os.path.basename(path)}")
+        busy.begin()
+
+        def finished() -> None:
             busy.end()
+            self._data_file_job = None
+
+        self._data_file_job = start_background_job(
+            owner=self, fn=lambda: load_spectra(path),
+            on_success=lambda data: self._apply_data_file(dataset_id, data),
+            on_error=self._data_file_failed,
+            on_finished=finished)
+
+    def _data_file_failed(self, message: str) -> None:
+        logger.error("Cannot load data file: {}", message)
+        QMessageBox.critical(self, "Cannot open file", message)
+
+    def wait_for_data_file(self, timeout_s: float = 30.0) -> None:
+        """Process events until a data file load has finished (for scripts and tests)."""
+        deadline = time.monotonic() + timeout_s
+        app = QApplication.instance()
+        while self._data_file_job is not None and time.monotonic() < deadline:
+            if app is not None:
+                app.processEvents()
+            time.sleep(0.005)
+
+    def _apply_data_file(self, dataset_id: str, data: Any) -> None:
+        dataset = self.project_state.datasets[dataset_id]
+        X = np.asarray(data.X)
+        if X.ndim == 2:
+            X = X[:, np.newaxis, :]
+        if not confirm_project_dataset_binding(
+            self,
+            project_path=str(self.project_state.project_path),
+            project_state=self.project_state,
+            dataset_path=dataset.source_path,
+            source_format=file_format(dataset.source_path),
+            source_modality=str(data.meta.get("source_modality") or DEFAULT_SOURCE_MODALITY),
+            cube_shape=(int(X.shape[0]), int(X.shape[1]), int(X.shape[2])),
+            wavelengths=np.asarray(data.wavelengths, dtype=np.float64),
+        ):
+            return
+        self.state.load_dataset(X, data.wavelengths, data.meta)
+        self._cube_path = os.path.abspath(dataset.source_path)
+        self.apply_shown_calibration()
+        self._refresh_canvas_image()
+        self._eda_view.refresh_roi_overlays()
+        self._eda_view.refresh_attachment_state()
+        self._eda_view.update_project_status()
+        self._update_status_strip()
+        self._refresh_data_file_choices()
+        from ._recent import add as _recent_add
+
+        _recent_add(dataset.source_path)
+        logger.info("Showing data file {} ({})", dataset.source_path, self.state.y_unit)
+
+    def apply_shown_calibration(self) -> None:
+        """Convert the shown data file with its stored calibration (references, levels, unit)."""
+        dataset_id = self._eda_view.shown_dataset_id()
+        if dataset_id is None:
+            return
+        calibration = self.project_state.active_calibration(dataset_id)
+        levels, unit = _calibration_view(calibration, self.state.meta)
+        self.state.set_calibration(**levels)
+        self.state.set_y_unit(unit)
+
+    def _registered_dataset_id(self, path: str) -> str | None:
+        target = os.path.normcase(os.path.abspath(path))
+        return next((dataset_id for dataset_id, dataset in self.project_state.datasets.items()
+                     if os.path.normcase(os.path.abspath(dataset.source_path)) == target), None)
+
+    def _refresh_data_file_choices(self, *_args) -> None:
+        combo = self._data_file_combo
+        combo.blockSignals(True)
+        combo.clear()
+        shown = self._eda_view.shown_dataset_id()
+        datasets = sorted(self.project_state.datasets.items(),
+                          key=lambda item: os.path.basename(item[1].source_path).lower())
+        for dataset_id, dataset in datasets:
+            name = os.path.basename(dataset.source_path)
+            if not os.path.exists(dataset.source_path):
+                name += " (not found)"
+            combo.addItem(name, dataset_id)
+        if shown is None:
+            label = ("Data file: none" if not self._cube_path
+                     else f"{os.path.basename(self._cube_path)} (not in project)")
+            combo.insertItem(0, label, None)
+        combo.insertSeparator(combo.count())
+        combo.addItem("Add data file...", _ADD_DATA_FILE)
+        combo.setCurrentIndex(max(0, combo.findData(shown)) if shown is not None else 0)
+        combo.setEnabled(self.project_state.project_path is not None)
+        combo.blockSignals(False)
+
+    def _on_data_file_chosen(self, index: int) -> None:
+        choice = self._data_file_combo.itemData(index)
+        if choice == _ADD_DATA_FILE:
+            self._refresh_data_file_choices()  # back to the shown file until one is added
+            self.add_data_file()
+        elif isinstance(choice, str) and choice != self._eda_view.shown_dataset_id():
+            self.show_data_file(choice)
+
+    def _on_browser_item_activated(self, item: Any, _column: int = 0) -> None:
+        payload = item.data(0, Qt.ItemDataRole.UserRole)
+        if isinstance(payload, dict) and payload.get("kind") == "dataset":
+            self.show_data_file(str(payload.get("id")))
 
     def _refresh_canvas_image(self) -> None:
         """Rebuild the central false-color preview from the current viewer state."""

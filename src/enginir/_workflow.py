@@ -47,8 +47,8 @@ from .project._ids import new_id, now_iso
 logger = get_logger(__name__)
 
 __all__ = ["DEFAULT_BLACK_LEVEL", "DEFAULT_WHITE_LEVEL", "Dataset", "Model", "Prediction",
-           "Project", "make_calibration", "make_roi", "resolve_calibration", "resolve_dataset",
-           "resolve_prediction_calibration"]
+           "Project", "make_calibration", "make_roi", "read_frames", "read_header",
+           "resolve_calibration", "resolve_dataset", "resolve_prediction_calibration"]
 
 #: Dark and white detector levels of EVK cameras, used when a dataset is
 #: calibrated to reflectance or absorbance without reference spectra.
@@ -157,6 +157,9 @@ class Project:
         dark: str | os.PathLike[str] | np.ndarray | None = None,
         white: str | os.PathLike[str] | np.ndarray | None = None,
         unit: str = "Absorbance",
+        dark_frames: tuple[int, int] | None = None,
+        white_frames: tuple[int, int] | None = None,
+        references_from: str | os.PathLike[str] | None = None,
     ) -> Dataset:
         """Register a data file with its calibration.
 
@@ -175,13 +178,30 @@ class Project:
             Signal to work with: ``"Absorbance"``, ``"Reflectance"`` or
             ``"DN"`` (raw counts). Floating-point files are taken as already
             calibrated in this unit.
+        dark_frames, white_frames:
+            Inclusive ``(first, last)`` frames of this file to average into
+            the dark or white reference instead of ``dark``/``white``, e.g. a
+            white tile or shutter-closed frames scanned in the same image.
+            Each can be combined with a reference file for the other one.
+        references_from:
+            A registered data file whose dark and white references this file
+            uses too (one reference set for a session). Its arrays are copied
+            into this file's own calibration. Not combined with the other
+            reference arguments.
 
         Returns
         -------
         Dataset
+
+        Notes
+        -----
+        The dataset and its calibration are validated completely before
+        either is written. Re-registering a file with another calibration
+        makes that the active one; ROIs drawn before keep theirs.
         """
         dataset, calibration, new_dataset, new_calibration = self._resolve_dataset(
-            path, dark=dark, white=white, unit=unit)
+            path, dark=dark, white=white, unit=unit, dark_frames=dark_frames,
+            white_frames=white_frames, references_from=references_from)
         self._write_dataset(dataset, calibration, new_dataset, new_calibration)
         return Dataset(self, self.workspace.datasets[dataset.dataset_id])
 
@@ -421,19 +441,58 @@ class Project:
         return next((ref for ref in self.workspace.datasets.values()
                      if _same_path(ref.source_path, abs_path)), None)
 
-    def _resolve_dataset(self, path, *, dark, white, unit):
+    def _resolve_dataset(self, path, *, dark, white, unit, dark_frames=None, white_frames=None,
+                         references_from=None):
         """Return ``(dataset, calibration, dataset_is_new, calibration_is_new)``, writing nothing."""
         ws = self.workspace
-        data = _read_header(_native_path(path))
+        abs_path = _native_path(path)
+        data = read_header(abs_path)
         dataset, new_dataset = resolve_dataset(ws.datasets, path, data)
+        sensor = dataset.cube_shape[1:]
+        if references_from is not None:
+            if any(value is not None for value in (dark, white, dark_frames, white_frames)):
+                log_and_raise("references_from takes both references from another data file; "
+                              "do not combine it with dark, white or reference frames")
+            references = self._references_of(references_from, sensor)
+        else:
+            references = tuple(
+                self._one_reference(abs_path, file, frames, sensor, dataset.cube_shape[0], label)
+                for file, frames, label in ((dark, dark_frames, "dark"),
+                                            (white, white_frames, "white")))
+        (dark_ref, dark_source), (white_ref, white_source) = references
         candidate = make_calibration(
             dataset, unit=unit, precalibrated=np.dtype(data.X.dtype).kind == "f",
-            dark=None if dark is None else _reference(dark, dataset.cube_shape[1:], "dark"),
-            white=None if white is None else _reference(white, dataset.cube_shape[1:], "white"),
-            dark_source=_source(dark), white_source=_source(white),
+            dark=dark_ref, white=white_ref, dark_source=dark_source, white_source=white_source,
             black_level=data.meta.get("black_level"), white_level=data.meta.get("white_level"))
         calibration, new_calibration = resolve_calibration(dataset, ws.calibrations, candidate)
         return dataset, calibration, new_dataset, new_calibration
+
+    @staticmethod
+    def _one_reference(abs_path, file, frames, sensor, n_frames, label):
+        """``(reference, source)`` of a dark or white reference from a file or this file's frames."""
+        if file is not None and frames is not None:
+            log_and_raise("Give the {} reference as a file or as frames, not both", label, depth=2)
+        if frames is not None:
+            first, last = _frame_range(frames, n_frames, label)
+            reference = read_frames(abs_path, first, last).mean(axis=0)
+            return (_reference(reference, sensor, label),
+                    f"{abs_path} frames {first}-{last}")
+        if file is None:
+            return None, None
+        return _reference(file, sensor, label), _source(file)
+
+    def _references_of(self, path, sensor):
+        """The dark and white references of another registered data file, with their sources."""
+        shared = self.dataset(path)
+        source, calibration = shared.ref, shared.calibration
+        if calibration.dark_ref_data is None or calibration.white_ref_data is None:
+            log_and_raise("{} has no dark and white reference spectra to share",
+                          source.source_path, depth=2)
+        origin = f"references of {source.source_path}"
+        return ((_reference(calibration.dark_ref_data, sensor, "dark"),
+                 calibration.dark_ref_source or origin),
+                (_reference(calibration.white_ref_data, sensor, "white"),
+                 calibration.white_ref_source or origin))
 
     def _write_dataset(self, dataset, calibration, new_dataset, new_calibration) -> None:
         if new_dataset:
@@ -538,7 +597,7 @@ class Dataset:
         first, last = _index_range(frames, n_frames, "frames")
         roi, spectra, refs = make_roi(self.ref, self.calibration, name=name,
                                       frames=(first, last), rows=rows,
-                                      pixels=_read_frames(self.path, first, last))
+                                      pixels=read_frames(self.path, first, last))
         created_at = roi.created_at
         assignments = [TargetAssignment(roi_id=roi.roi_id, target_id=target.target_id,
                                         value=float(values[target_name]), assigned_at=created_at)
@@ -664,15 +723,25 @@ class Prediction:
 # -- helpers -------------------------------------------------------------------
 
 
-def _read_header(path: str):
-    """Load only the metadata of image files that allow it, otherwise the whole file."""
+def read_header(path: str):
+    """Return a file's :class:`~enginir.io.SpectralData` without its pixels where possible.
+
+    EIFF and HDF5 files are read header-only: ``cube_shape``, wavelengths,
+    metadata and the pixel dtype are known, ``X`` holds no frames. Other
+    formats are read completely.
+    """
     if file_format(path) in _FRAME_FORMATS:
         return load_spectra(path, header_only=True)
     return load_spectra(path)
 
 
-def _read_frames(path: str, first: int, last: int) -> np.ndarray:
-    """Frames ``first..last`` as ``(frames, height, n_bands)`` in the file's dtype."""
+def read_frames(path: str, first: int, last: int) -> np.ndarray:
+    """Return frames ``first..last`` (inclusive) as ``(frames, height, n_bands)``.
+
+    EIFF and HDF5 files read only those frames; other formats are read
+    completely and sliced. Values keep the file's dtype; point-spectrum files
+    get a height of 1.
+    """
     if file_format(path) in _FRAME_FORMATS:
         X = load_spectra(path, frames=slice(first, last + 1)).X
     else:
@@ -866,6 +935,14 @@ def _same_path(left: str, right: str) -> bool:
 def _source(reference) -> str | None:
     return None if reference is None or isinstance(reference, np.ndarray) \
         else os.path.abspath(os.fspath(reference))
+
+
+def _frame_range(frames: tuple[int, int], n_frames: int, label: str) -> tuple[int, int]:
+    first, last = (int(frames[0]), int(frames[1]))
+    if not 0 <= first <= last < n_frames:
+        log_and_raise("The {} reference frames {}..{} are outside the file's {} frames", label,
+                      first, last, n_frames, depth=3)
+    return first, last
 
 
 def _reference(source, sensor_shape: tuple[int, ...], label: str) -> np.ndarray:

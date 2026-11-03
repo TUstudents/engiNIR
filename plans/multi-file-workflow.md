@@ -2,7 +2,7 @@
 
 Branch: `feature/multi-file-workflow`, based on `feature/plot-panels` (it uses
 the plot panels and plot pages). It merges after that branch.
-Status: phases 0–2 done
+Status: phases 0–3 done
 Date: 2026-11-02
 
 ## Goal
@@ -410,6 +410,67 @@ file opens a second window without the project. That is phase 3.
   - a replaced calibration leaves existing ROIs on their own calibration;
   - viewer: two files added, switching shows each with its own calibration
     and rectangles.
+
+**Done (2026-11-03).**
+
+Library (Qt-free):
+
+- `Project.add_dataset(..., dark_frames=, white_frames=, references_from=)`.
+  - Frame ranges are averaged with `read_frames`. The source is recorded as
+    `<path> frames a-b`.
+  - Shared references are copied into the new file's own calibration and
+    keep their original sources.
+  - Everything is validated before anything is written.
+- `read_header`/`read_frames` became public shared rules, with API docs.
+
+Viewer:
+
+- `_data_files.AddDataFileDialog`:
+  - offers references (file or frames each), same as another file, detector
+    levels or raw; floating-point files are taken as already calibrated;
+  - plots the mean dark and white spectra and reports the saturated share,
+    from the bit depth or the dtype maximum;
+  - enables OK only when the references are valid.
+- `HSIViewer.add_data_file` (File > Add Data File..., Open Data in a project
+  window, the "Add data file..." entry of the list):
+  - a registered file is shown without the dialog;
+  - `show_data_file` loads in a background job, runs the per-file mismatch
+    check and applies the stored calibration (`apply_shown_calibration`,
+    `ViewerState.set_calibration`).
+- The data file list sits in the Spatial Image header, sorted by name.
+  Missing files are marked "(not found)". A browser double-click on a data
+  file shows it.
+- Startup with a registered file applies its stored calibration, unless
+  references were given at startup.
+- **ROI creation keeps the shown file's calibration (D1 as revised).**
+  - When the viewer converts with exactly the file's reference context, the
+    active calibration is reused, so the reference sources survive and the
+    Explore signal unit stays a preview.
+  - Otherwise a new calibration is made. If the file already has ROIs, the
+    viewer asks first ("N ROI(s) drawn before keep their own calibration").
+
+Test infrastructure:
+
+- The autouse guard now also covers `QDialog.exec` and the `QFileDialog`
+  pickers.
+- A new guard fails a test on any exception raised in a Qt slot (PyQt only
+  prints them).
+- The second guard caught a real bug: the dialog scheduled a check before
+  creating its timer.
+
+Tests:
+
+- `tests/test_data_file_references.py` (5, headless).
+- 8 new viewer tests in `tests/test_multi_file_workflow.py`.
+- Eleven injected faults were caught. The fault "a registered file asks
+  again" first hung on a real dialog; it was caught after the guard was
+  extended.
+
+Not in this phase:
+
+- *Change calibration...* for a registered data file. Adding the file again
+  shows it without the dialog. To be added with phase 8, or as a context-menu
+  action.
 
 ### Phase 4: ROI grid tool
 

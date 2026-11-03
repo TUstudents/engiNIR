@@ -551,6 +551,15 @@ viewer.export_csv('data/roi_train.csv')
 
 ## 9. Dark / white reference loading
 
+In a project, references belong to each data file. **Add Data File...**
+(`HSIViewer.add_data_file`, dialog `_data_files.AddDataFileDialog`) takes
+them from reference files, from a frame range of the data file, or from
+another data file of the project, and writes the file and its calibration
+through `Project.add_dataset`. Showing a data file (`HSIViewer.show_data_file`,
+loaded in the background) restores its calibration into `ViewerState`
+(`set_calibration`, then the signal unit). The startup options below remain
+for a quick look without a project.
+
 Pass reference files at launch time:
 
 ```python

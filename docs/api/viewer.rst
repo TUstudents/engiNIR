@@ -175,7 +175,20 @@ HSIViewer
 ---------
 
 .. autoclass:: enginir.viewer._viewer.HSIViewer
-   :members: show, export_csv, export_workspace_plots, workspace_plot_frames, reset_layout
+   :members: show, export_csv, export_workspace_plots, workspace_plot_frames, reset_layout,
+             add_data_file, show_data_file, wait_for_data_file, apply_shown_calibration
+
+Data files
+----------
+
+.. automodule:: enginir.viewer._data_files
+   :no-members:
+
+.. autoclass:: enginir.viewer._data_files.AddDataFileDialog
+   :no-members:
+
+.. autoclass:: enginir.viewer._data_files.DataFileRequest
+   :members: add_dataset_kwargs
 
 Project browser and inspector
 -----------------------------

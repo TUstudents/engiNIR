@@ -28,6 +28,7 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_jobs.py` | `BackgroundWorker`, `_CallbackRelay`, `start_background_job`, `BusyStatusWidget` |
 | `_loading.py` | Shared wait-cursor/status/progress helpers for startup and open flows |
 | `_data_helpers.py` | Dataset-shape and spectral array helpers shared by viewer workflows |
+| `_data_files.py` | `AddDataFileDialog` and `DataFileRequest`: the calibration of a data file added to a project (reference files, frame ranges, shared references, levels, raw) |
 | `_ui_helpers.py` | Shared plot styling and figure-layout helpers |
 | `_plot_panel.py` | `PlotSpec`, `PlotTable`, `PlotPanel`: one plot with a header (title, maximize, PNG/SVG/CSV export) |
 | `_plot_grid.py` | `PlotGrid`, `PlotPage`, `PlotSlot`: paged plot grids with lazy pages and in-place maximize |

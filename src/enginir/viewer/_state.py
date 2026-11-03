@@ -6,6 +6,7 @@ in the panels; all derived data is computed here.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -200,6 +201,27 @@ class ProjectState(QObject):
         self._require_project("register_dataset").save_dataset(dataset)
         self._sync()
         self.datasets_changed.emit()
+
+    def add_data_file(self, path: str, **calibration: Any) -> str:
+        """Register a data file with its calibration, or recalibrate a registered one.
+
+        ``calibration`` are the reference keywords of
+        :meth:`enginir.Project.add_dataset`. Returns the dataset id.
+        """
+        project = self._require_project("add_data_file")
+        known = set(self.datasets)
+        dataset_id = project.add_dataset(path, **calibration).ref.dataset_id
+        self._sync()
+        self.datasets_changed.emit()
+        self.calibrations_changed.emit()
+        name = os.path.basename(str(path))
+        self.saved.emit(f"Data file '{name}' added to project" if dataset_id not in known
+                        else f"Calibration of '{name}' saved to project")
+        return dataset_id
+
+    def active_calibration(self, dataset_id: str) -> CalibrationSpec | None:
+        """The active calibration of a registered dataset, if any."""
+        return self.calibrations.get(self.active_calibration_ids.get(dataset_id, ""))
 
     def set_active_calibration(self, calibration: CalibrationSpec) -> None:
         """Persist a calibration and make it its dataset's active one."""
@@ -841,6 +863,19 @@ class ViewerState(QObject):
         self.pixel_size_mm = float(mm)
         if self.x_spatial_unit == "mm":
             self.units_changed.emit()
+
+    def set_calibration(self, *, black_level: float, white_level: float,
+                        dark_ref: np.ndarray | None = None,
+                        white_ref: np.ndarray | None = None) -> None:
+        """Convert with these detector levels and references (one units_changed signal)."""
+        if not np.isfinite(float(black_level)) or not np.isfinite(float(white_level)):
+            log_and_raise("black_level and white_level must be finite")
+        self.black_level = float(black_level)
+        self.white_level = float(white_level)
+        self.dark_ref = None if dark_ref is None else self._prepare_ref(dark_ref, "dark_ref")
+        self.white_ref = None if white_ref is None else self._prepare_ref(white_ref, "white_ref")
+        self._image_cache = None
+        self.units_changed.emit()
 
     def set_dark_ref(self, ref: np.ndarray | None) -> None:
         if ref is not None:

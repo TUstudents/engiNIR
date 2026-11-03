@@ -85,7 +85,7 @@ its workspaces.
 | Step | `enginir.Project` | Objects stored |
 |---|---|---|
 | 1. Create | `Project.create(path)` | project metadata |
-| 2. Register data | `project.add_dataset(path, dark=, white=, unit=)` | `DatasetRef`, `CalibrationSpec` (reused when identical; becomes active) |
+| 2. Register data | `project.add_dataset(path, dark=, white=, unit=)`; references also from frames of the file (`dark_frames=`, `white_frames=`) or another scan (`references_from=`) | `DatasetRef`, `CalibrationSpec` (reused when identical; becomes active) |
 | 3. Define a target | `project.add_target(name, unit=)` | `TargetDefinition` |
 | 4. Draw ROIs | `dataset.add_roi(name, frames=, rows=, values=)` | `TrainingROI` with spectra and reference pixels, `TargetAssignment` per value |
 | 5. Fit | `project.fit(target, recipe=, model=, n_components=)` | recipe (by content), `SampleSet` (reused), `SignalDomainContract` (reused), `ModelRun` |

@@ -573,11 +573,14 @@ class EDAView(QWidget):
             )
             return
         try:
-            dataset, calibration = self._ensure_current_dataset_context()
+            context = self._ensure_current_dataset_context()
         except Exception as exc:
             logger.error("Dataset context error while creating ROI: {}", exc)
             QMessageBox.warning(self, "Dataset context error", str(exc))
             return
+        if context is None:  # the user declined a calibration change
+            return
+        dataset, calibration = context
 
         dlg = NewROIDialog(
             f0,
@@ -614,26 +617,64 @@ class EDAView(QWidget):
                 )
             )
 
-    def _ensure_current_dataset_context(self) -> tuple[DatasetRef, CalibrationSpec]:
-        """Register the attached dataset and its current calibration (or reuse them)."""
+    def _ensure_current_dataset_context(self) -> tuple[DatasetRef, CalibrationSpec] | None:
+        """Register the attached dataset and its current calibration (or reuse them).
+
+        ``None`` when the user declines replacing the calibration of a data file
+        that has ROIs (dataset-calibration contract).
+        """
         cube_path = self._cube_path_provider()
         if not self._dataset_attached_provider() or not cube_path:
             log_and_raise("A real dataset must be attached before creating project-backed ROIs.")
         state, project = self.state, self.project_state
         dataset, is_new = resolve_dataset(
             project.datasets, cube_path, SpectralData(state.cube, state.wavelengths, state.meta))
-        if is_new:
-            project.register_dataset(dataset)
+        active = None if is_new else project.active_calibration(dataset.dataset_id)
+        if active is not None and _shows_calibration(state, active):
+            # The image shows the data file's own calibration (restored when it was
+            # shown): keep it, with its reference sources. The signal unit in
+            # Explore is only a preview and does not replace it.
+            return dataset, active
         has_refs = state.dark_ref is not None and state.white_ref is not None
         candidate = make_calibration(
             dataset, unit=str(state.y_unit_effective), precalibrated=state.calibrated,
             dark=state.dark_ref if has_refs else None, white=state.white_ref if has_refs else None,
             black_level=state.black_level, white_level=state.white_level)
-        calibration, is_new = resolve_calibration(dataset, project.calibrations, candidate)
-        if is_new or project.active_calibration_ids.get(dataset.dataset_id) != \
-                calibration.calibration_id:
+        calibration, is_new_calibration = resolve_calibration(dataset, project.calibrations,
+                                                              candidate)
+        if active is not None and calibration.calibration_id != active.calibration_id:
+            n_rois = sum(roi.dataset_id == dataset.dataset_id for roi in project.rois.values())
+            if n_rois and QMessageBox.question(
+                    self, "New calibration",
+                    f"The image uses other references or levels than the calibration of "
+                    f"{os.path.basename(dataset.source_path)}. New ROIs will use them; the "
+                    f"{n_rois} ROI(s) drawn before keep their own calibration. Continue?",
+            ) != QMessageBox.StandardButton.Yes:
+                logger.info("ROI not created: new calibration of {} declined",
+                            dataset.source_path)
+                return None
+        if is_new:
+            project.register_dataset(dataset)
+        if is_new_calibration or active is None or calibration.calibration_id != \
+                active.calibration_id:
             project.set_active_calibration(calibration)
         return project.datasets[dataset.dataset_id], calibration
+
+
+def _shows_calibration(state: ViewerState, calibration: CalibrationSpec) -> bool:
+    """Whether the viewer converts with exactly the reference context of ``calibration``."""
+    if calibration.mode == "precalibrated_import":
+        return bool(state.calibrated)
+    has_refs = state.dark_ref is not None and state.white_ref is not None
+    if calibration.dark_ref_data is not None and calibration.white_ref_data is not None:
+        return has_refs and np.array_equal(
+            np.asarray(state.dark_ref, dtype=np.float32), calibration.dark_ref_data
+        ) and np.array_equal(np.asarray(state.white_ref, dtype=np.float32),
+                             calibration.white_ref_data)
+    if calibration.black_level is not None and calibration.white_level is not None:
+        return not has_refs and float(state.black_level) == float(calibration.black_level) \
+            and float(state.white_level) == float(calibration.white_level)
+    return not has_refs and state.y_unit_effective == "DN"  # raw_dn
 
 
 __all__ = ["EDAView"]

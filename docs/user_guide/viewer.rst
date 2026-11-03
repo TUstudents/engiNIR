@@ -176,6 +176,29 @@ Prediction streams through the scan in bounded memory and reports its phase
 Projects
 --------
 
+A project collects ROIs from any number of data files. **File > Add Data
+File...** (or **Open Data...** while a project is open) adds a file to the
+project in the same window and asks how it is calibrated:
+
+- **Dark and white references**, each from a file or from frames of the data
+  file itself, such as a white tile or shutter-closed frames at the start of
+  the tray;
+- **Same references as another data file**, for one reference set per session;
+- **Detector levels** (the file's, or black 128 / white 3500);
+- **Raw counts**.
+
+The dialog plots the mean dark and white spectra and reports the share of
+saturated values before you accept them. Files with floating-point values are
+taken as already calibrated.
+
+The data file list in the Spatial Image header switches between the
+project's files, as does a double-click on a file in the browser. Each file
+is shown with its own calibration and its own ROIs. A file that was moved or
+deleted is listed as "(not found)"; its ROIs, values and models stay usable.
+Drawing ROIs keeps the calibration of the file. If you load other references
+first, the viewer asks before new ROIs use them, and the ROIs drawn before
+keep their own.
+
 There is no save step: every ROI, value, sample set, model and prediction is
 written when it is made. ROIs and targets are identified by stable ids; names
 are labels. Projects open metadata-first, so ROI spectra and model or

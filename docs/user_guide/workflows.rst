@@ -40,6 +40,17 @@ One call per step:
    * - Predict a new scan
      - ``model.predict(path)``, then ``prediction.map`` or ``prediction.y_pred``
 
+References need not be separate files. ``dark_frames=(first, last)`` and
+``white_frames=(first, last)`` average frames of the same file (a white tile
+or shutter-closed frames scanned in the tray), and ``references_from=path``
+reuses the references of another registered scan, so one session needs one
+reference set:
+
+.. code-block:: python
+
+   tray1 = project.add_dataset("tray1.eiff", dark_frames=(0, 9), white_frames=(990, 999))
+   tray2 = project.add_dataset("tray2.eiff", references_from="tray1.eiff")
+
 Calibrations, sample sets, signal domains and provenance are created for you,
 reused when identical, and validated before anything is written. Cross-
 validation keeps the pixels of one ROI together; metrics are per ROI.
