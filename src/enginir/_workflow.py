@@ -11,8 +11,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from collections.abc import Mapping
-from dataclasses import replace
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
@@ -46,9 +46,10 @@ from .project._ids import new_id, now_iso
 
 logger = get_logger(__name__)
 
-__all__ = ["DEFAULT_BLACK_LEVEL", "DEFAULT_WHITE_LEVEL", "Dataset", "Model", "Prediction",
-           "Project", "make_calibration", "make_roi", "read_frames", "read_header",
-           "resolve_calibration", "resolve_dataset", "resolve_prediction_calibration"]
+__all__ = ["DEFAULT_BLACK_LEVEL", "DEFAULT_WHITE_LEVEL", "Dataset", "GridCell", "Model",
+           "Prediction", "Project", "make_calibration", "make_roi", "read_frames", "read_header",
+           "resolve_calibration", "resolve_dataset", "resolve_prediction_calibration",
+           "roi_grid"]
 
 #: Dark and white detector levels of EVK cameras, used when a dataset is
 #: calibrated to reflectance or absorbance without reference spectra.
@@ -337,6 +338,40 @@ class Project:
                                 white_ref_spectra=white_ref_spectra)
         self.workspace.rois[roi.roi_id] = roi
 
+    def save_rois(self, rois: Sequence[tuple[TrainingROI, np.ndarray, tuple[np.ndarray,
+                                                                        np.ndarray] | None]],
+                  assignments: Sequence[TargetAssignment] = ()) -> None:
+        """Store several ROIs (with spectra and reference snapshots) completely or not at all.
+
+        Every ROI and assignment is validated, and names are checked to be
+        unique in the project and among themselves, before anything is
+        written. If a write fails, the ROIs already written are removed again
+        (ROI/target contract, ROI grid).
+        """
+        ws = self.workspace
+        names = [roi.name for roi, _spectra, _refs in rois]
+        for name in names:
+            self._require_new_name(ws.rois.values(), name, "ROI")
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        if duplicates:
+            log_and_raise("ROI names repeat within the batch: {}", duplicates)
+        self._validate(rois={roi.roi_id: roi for roi, _spectra, _refs in rois},
+                       target_assignments=list(assignments))
+        written: list[str] = []
+        try:
+            for roi, spectra, refs in rois:
+                self.save_roi(roi, spectra, dark_ref_spectra=refs[0] if refs else None,
+                              white_ref_spectra=refs[1] if refs else None)
+                written.append(roi.roi_id)
+            for assignment in assignments:
+                self.save_assignment(assignment)
+        except Exception as exc:
+            logger.error("Writing {} ROIs failed after {}: {}; removing them again", len(rois),
+                         len(written), exc)
+            for roi_id in written:
+                self.remove_roi(roi_id)
+            raise
+
     def save_recipe(self, recipe_id: str, recipe: PreprocessingRecipe | Mapping[str, Any]) -> None:
         """Store a preprocessing recipe under ``recipe_id``."""
         recipe_dict = _as_recipe(recipe).to_dict()
@@ -613,6 +648,27 @@ class Dataset:
             project.save_assignment(assignment)
         return roi
 
+    def add_rois(self, cells: Sequence[GridCell]) -> list[TrainingROI]:
+        """Store the cells of an ROI grid (see :func:`roi_grid`), all or none.
+
+        Returns
+        -------
+        list of TrainingROI
+            In the order of ``cells``.
+        """
+        if not cells:
+            log_and_raise("An ROI grid needs at least one cell")
+        n_frames = self.ref.cube_shape[0]
+        first = min(_index_range(cell.frames, n_frames, "frames")[0] for cell in cells)
+        last = max(_index_range(cell.frames, n_frames, "frames")[1] for cell in cells)
+        pixels = read_frames(self.path, first, last)
+        built = [make_roi(self.ref, self.calibration, name=cell.name, frames=cell.frames,
+                          rows=cell.rows, pixels=pixels[cell.frames[0] - first:
+                                                        cell.frames[1] - first + 1])
+                 for cell in cells]
+        self.project.save_rois(built)
+        return [roi for roi, _spectra, _refs in built]
+
 
 class Model:
     """A fitted, cross-validated model."""
@@ -748,6 +804,119 @@ def read_frames(path: str, first: int, last: int) -> np.ndarray:
         X = load_spectra(path).X[first:last + 1]
     X = np.asarray(X)
     return X[:, np.newaxis, :] if X.ndim == 2 else X
+
+
+@dataclass(frozen=True)
+class GridCell:
+    """One cell of an ROI grid: its grid position, pixel ranges and ROI name."""
+
+    row: int
+    column: int
+    frames: tuple[int, int]
+    rows: tuple[int, int]
+    name: str
+
+
+def roi_grid(
+    frames: tuple[int, int],
+    rows: tuple[int, int],
+    *,
+    n_rows: int,
+    n_columns: int,
+    inset: float = 0.0,
+    skip: Iterable[tuple[int, int]] = (),
+    order: str = "rows",
+    name_pattern: str = "{row}{column:02d}",
+    file: str = "",
+) -> list[GridCell]:
+    """Split the rectangle ``frames`` x ``rows`` into a grid of ROI cells (a tray).
+
+    Columns run along frames (the image's x axis), rows along rows (y).
+
+    Parameters
+    ----------
+    frames, rows:
+        Inclusive ``(first, last)`` ranges of the whole tray.
+    n_rows, n_columns:
+        Grid size.
+    inset:
+        Share of each cell's width and height left out on every side,
+        ``0 <= inset < 0.5``, to keep sample edges and the gaps out.
+    skip:
+        ``(row, column)`` positions (0-based) without a sample.
+    order:
+        ``"rows"`` (row by row) or ``"columns"``: the order of the cells and
+        of ``{n}``.
+    name_pattern:
+        Format string with ``{row}`` (``A``, ``B``, ..., ``AA``),
+        ``{column}`` (1-based), ``{n}`` (1-based running number in ``order``)
+        and ``{file}``.
+    file:
+        Value of ``{file}``, e.g. the data file's name without extension.
+
+    Returns
+    -------
+    list of GridCell
+    """
+    n_rows, n_columns = int(n_rows), int(n_columns)
+    if n_rows < 1 or n_columns < 1:
+        log_and_raise("An ROI grid needs at least one row and column, got {} x {}", n_rows,
+                      n_columns)
+    if not 0.0 <= float(inset) < 0.5:
+        log_and_raise("inset must be in [0, 0.5), got {}", inset)
+    if order not in ("rows", "columns"):
+        log_and_raise("order must be 'rows' or 'columns', got {!r}", order)
+    f_edges = _grid_edges(frames, n_columns, "frames")
+    r_edges = _grid_edges(rows, n_rows, "rows")
+    skipped = {(int(r), int(c)) for r, c in skip}
+    positions = [(r, c) for r in range(n_rows) for c in range(n_columns)]
+    if order == "columns":
+        positions.sort(key=lambda rc: (rc[1], rc[0]))
+    cells: list[GridCell] = []
+    for r, c in positions:
+        if (r, c) in skipped:
+            continue
+        cell_frames = _inset(f_edges[c], inset)
+        cell_rows = _inset(r_edges[r], inset)
+        try:
+            name = name_pattern.format(row=_row_letters(r), column=c + 1, n=len(cells) + 1,
+                                       file=file)
+        except (KeyError, IndexError, ValueError) as exc:
+            log_and_raise("Name pattern {!r} is not valid: {}", name_pattern, exc, cause=exc)
+        cells.append(GridCell(row=r, column=c, frames=cell_frames, rows=cell_rows, name=name))
+    names = [cell.name for cell in cells]
+    if len(set(names)) != len(names):
+        log_and_raise("Name pattern {!r} gives repeated names; use {{row}} and {{column}} or "
+                      "{{n}}", name_pattern)
+    return cells
+
+
+def _grid_edges(span: tuple[int, int], n: int, label: str) -> list[tuple[int, int]]:
+    first, last = int(span[0]), int(span[1])
+    if last < first:
+        log_and_raise("The grid {} range {}..{} is empty", label, first, last, depth=3)
+    size = last - first + 1
+    if size < n:
+        log_and_raise("{} {} cannot be split into {} cells", size, label, n, depth=3)
+    bounds = [first + (i * size) // n for i in range(n + 1)]
+    return [(bounds[i], bounds[i + 1] - 1) for i in range(n)]
+
+
+def _inset(cell: tuple[int, int], inset: float) -> tuple[int, int]:
+    first, last = cell
+    trim = int(round(inset * (last - first + 1)))
+    if last - first + 1 - 2 * trim < 1:
+        trim = (last - first) // 2  # keep at least the centre pixel
+    return first + trim, last - trim
+
+
+def _row_letters(index: int) -> str:
+    letters = ""
+    index += 1
+    while index:
+        index, remainder = divmod(index - 1, 26)
+        letters = chr(ord("A") + remainder) + letters
+    return letters
 
 
 def resolve_dataset(

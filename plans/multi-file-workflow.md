@@ -2,7 +2,7 @@
 
 Branch: `feature/multi-file-workflow`, based on `feature/plot-panels` (it uses
 the plot panels and plot pages). It merges after that branch.
-Status: phases 0–3 done
+Status: phases 0–4 done
 Date: 2026-11-02
 
 ## Goal
@@ -487,6 +487,46 @@ Not in this phase:
   - names;
   - a failure in one ROI writes nothing;
   - duplicate names refused.
+
+**Done (2026-11-03).**
+
+Library:
+
+- `roi_grid(frames, rows, n_rows=, n_columns=, inset=, skip=, order=,
+  name_pattern=, file=)` returns `GridCell`s:
+  - columns run along frames, rows along rows;
+  - remainder pixels are spread evenly;
+  - the inset keeps at least the centre pixel;
+  - `{row}` letters continue past Z as AA, AB, ...;
+  - repeated names are refused.
+- `Dataset.add_rois(cells)` reads the frame span once.
+- `Project.save_rois` checks names (against the project and within the
+  batch) and relationships before writing. If a write fails, it removes the
+  ROIs already written.
+
+Viewer:
+
+- **Add ROI grid** sits next to Add ROI. A drag around the tray opens
+  `RoiGridDialog`:
+  - rows, columns, inset %, name pattern and order;
+  - one toggle button per cell, labelled with its grid position, with the
+    ROI name as tooltip; untoggling skips the position;
+  - "N ROIs will be created, M skipped";
+  - OK only for a valid grid.
+- The cells are previewed on the canvas while the dialog is open (cyan, skipped
+  ones grey and dashed) and removed afterwards.
+- `ProjectState.add_rois` writes the ROIs and the status bar says "N ROIs saved
+  to project".
+
+Screenshot fix: the cell buttons truncated the full names ("tr...01"). They
+now show the position (A1 … D8).
+
+Tests:
+
+- `tests/test_roi_grid.py`: 13 headless tests, including the rollback after
+  a failed third write.
+- 3 viewer tests.
+- Nine injected faults were each caught.
 
 ### Phase 5: ROI table
 

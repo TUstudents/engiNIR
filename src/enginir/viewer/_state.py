@@ -265,6 +265,14 @@ class ProjectState(QObject):
         self.rois_changed.emit()
         self.saved.emit(f"ROI '{roi.name}' saved to project ({roi.n_pixels} pixels)")
 
+    def add_rois(self, rois: list[Any]) -> None:
+        """Persist several ROIs (``(roi, spectra, refs)``) completely or not at all."""
+        self._require_project("add_rois").save_rois(rois)
+        self._sync()
+        logger.info("Added {} ROIs", len(rois))
+        self.rois_changed.emit()
+        self.saved.emit(f"{len(rois)} ROIs saved to project")
+
     def register_recipe(self, recipe_id: str, recipe_dict: dict[str, Any]) -> None:
         """Persist a preprocessing recipe."""
         recipe_id = str(recipe_id).strip()

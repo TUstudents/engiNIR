@@ -190,6 +190,15 @@ Data files
 .. autoclass:: enginir.viewer._data_files.DataFileRequest
    :members: add_dataset_kwargs
 
+ROI grid
+--------
+
+.. automodule:: enginir.viewer._roi_grid
+   :no-members:
+
+.. autoclass:: enginir.viewer._roi_grid.RoiGridDialog
+   :no-members:
+
 Project browser and inspector
 -----------------------------
 

@@ -104,6 +104,19 @@ To record training data:
 3. Click **Add ROI** and drag a rectangle on the Spatial Image.
 4. Name the ROI and, optionally, enter its reference value.
 
+For a tray of samples, **Add ROI grid** creates them in one go:
+
+1. Drag one rectangle around the tray.
+2. Set the number of rows and columns, and the inset, the share of each cell
+   left out on every side to keep sample edges and gaps out.
+3. Click a cell to skip an empty position.
+4. Choose the name pattern (default ``{file}-{row}{column:02d}``, e.g.
+   ``tray03-B04``) and the order.
+
+The cells are shown on the image while the dialog is open. **OK** stores all
+ROIs, or none if one of them cannot be stored (for example because a name is
+already taken).
+
 The ROI is stored at once with its raw spectra, its dark and white reference
 pixels and the calibration in use, and appears in the browser. The status bar
 confirms each write, for example "✓ ROI 'tablet 3' saved to project".

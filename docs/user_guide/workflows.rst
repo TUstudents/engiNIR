@@ -51,6 +51,17 @@ reference set:
    tray1 = project.add_dataset("tray1.eiff", dark_frames=(0, 9), white_frames=(990, 999))
    tray2 = project.add_dataset("tray2.eiff", references_from="tray1.eiff")
 
+A tray of samples becomes one ROI per cell with :func:`~enginir._workflow.roi_grid`
+and ``dataset.add_rois``, all stored or none:
+
+.. code-block:: python
+
+   from enginir._workflow import roi_grid
+
+   cells = roi_grid((10, 409), (20, 219), n_rows=4, n_columns=8, inset=0.15,
+                    name_pattern="{file}-{row}{column:02d}", file="tray1")
+   tray1.add_rois(cells)
+
 Calibrations, sample sets, signal domains and provenance are created for you,
 reused when identical, and validated before anything is written. Cross-
 validation keeps the pixels of one ROI together; metrics are per ROI.

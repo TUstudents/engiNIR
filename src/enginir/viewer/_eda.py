@@ -37,6 +37,7 @@ from ._data_helpers import wavelength_axes_match
 from ..io import file_format
 from ._loading import ViewerBusyContext
 from ._modeling import NewROIDialog
+from ._roi_grid import RoiGridDialog
 from ._state import DEFAULT_SOURCE_MODALITY, ProjectState, ViewerState
 from ._theme import secondary_text_style
 from ..project._ids import now_iso
@@ -54,6 +55,8 @@ class _CanvasLike(Protocol):
     def enter_roi_draw_mode(self) -> None: ...
     def cancel_roi_draw_mode(self) -> None: ...
     def select_roi(self, roi_id: str | None) -> None: ...
+    def set_grid_preview(self, cells: list[Any], skipped: list[Any]) -> None: ...
+    def clear_grid_preview(self) -> None: ...
 
 
 class EDAView(QWidget):
@@ -272,6 +275,14 @@ class EDAView(QWidget):
         self._btn_roi_training.toggled.connect(self._on_add_roi_toggled)
         layout.addWidget(self._btn_roi_training)
 
+        self._btn_roi_grid = QToolButton()
+        self._btn_roi_grid.setText("Add ROI grid")
+        self._btn_roi_grid.setToolTip("Drag around a tray to create one ROI per sample cell")
+        self._btn_roi_grid.setCheckable(True)
+        self._btn_roi_grid.toggled.connect(self._on_add_roi_grid_toggled)
+        layout.addWidget(self._btn_roi_grid)
+        self._draw_purpose = "roi"
+
         self._btn_roi_delete = QToolButton()
         self._btn_roi_delete.setText("Delete ROI")
         self._btn_roi_delete.clicked.connect(self._delete_roi_btn_clicked)
@@ -449,6 +460,7 @@ class EDAView(QWidget):
         dataset_attached = self._dataset_attached_provider()
         selected_roi_id = self._selected_roi_id_provider()
         self._btn_roi_training.setEnabled(project_open and dataset_attached)
+        self._btn_roi_grid.setEnabled(project_open and dataset_attached)
         self._btn_roi_delete.setEnabled(project_open and selected_roi_id is not None)
         tooltip = ""
         hint = "Open or create a project to draw ROIs."
@@ -504,8 +516,21 @@ class EDAView(QWidget):
                 return dataset.dataset_id
         return None
 
+    def _on_add_roi_grid_toggled(self, enabled: bool) -> None:
+        if enabled:
+            self._set_add_roi_checked(False)
+            self._draw_purpose = "grid"
+            self._canvas.enter_roi_draw_mode()
+            self._roi_hint_label.setText("Drag around the tray on Spatial Image. Esc cancels.")
+            return
+        self._draw_purpose = "roi"
+        self._canvas.cancel_roi_draw_mode()
+        self.refresh_attachment_state()
+
     def _on_add_roi_toggled(self, enabled: bool) -> None:
         if enabled:
+            self._set_add_roi_grid_checked(False)
+            self._draw_purpose = "roi"
             self._canvas.enter_roi_draw_mode()
             self._roi_hint_label.setText("Drag on Spatial Image to define an ROI. Esc cancels.")
             return
@@ -517,14 +542,66 @@ class EDAView(QWidget):
         self._btn_roi_training.setChecked(checked)
         self._btn_roi_training.blockSignals(False)
 
+    def _set_add_roi_grid_checked(self, checked: bool) -> None:
+        self._btn_roi_grid.blockSignals(True)
+        self._btn_roi_grid.setChecked(checked)
+        self._btn_roi_grid.blockSignals(False)
+
     def _on_canvas_roi_draw_finished(self, f0: int, f1: int, r0: int, r1: int) -> None:
+        purpose, self._draw_purpose = self._draw_purpose, "roi"
         self._set_add_roi_checked(False)
+        self._set_add_roi_grid_checked(False)
         self.refresh_attachment_state()
-        self.on_training_roi_selected(f0, f1, r0, r1)
+        if purpose == "grid":
+            self.on_roi_grid_selected(f0, f1, r0, r1)
+        else:
+            self.on_training_roi_selected(f0, f1, r0, r1)
 
     def _on_canvas_roi_draw_canceled(self) -> None:
+        self._draw_purpose = "roi"
         self._set_add_roi_checked(False)
+        self._set_add_roi_grid_checked(False)
         self.refresh_attachment_state()
+
+    def on_roi_grid_selected(self, f0: int, f1: int, r0: int, r1: int) -> None:
+        """Create one ROI per cell of the tray rectangle, all or none (ROI/target contract)."""
+        if self.project_state.project_path is None or not self._dataset_attached_provider():
+            QMessageBox.warning(self, "No project or data file",
+                                "Open a project and show one of its data files to add ROIs.")
+            return
+        left, right, top, bottom = self.state._normalized_roi_bounds(f0, f1, r0, r1)
+        cube_path = self._cube_path_provider() or ""
+        dialog = RoiGridDialog((left, right), (top, bottom),
+                               file=pathlib.Path(cube_path).stem, parent=self)
+        dialog.preview_changed.connect(self._canvas.set_grid_preview)
+        dialog.preview_changed.emit(list(dialog.cells), [])
+        try:
+            accepted = dialog.exec() == QDialog.DialogCode.Accepted
+        finally:
+            self._canvas.clear_grid_preview()
+        if not accepted or not dialog.cells:
+            return
+        try:
+            context = self._ensure_current_dataset_context()
+        except Exception as exc:
+            logger.error("Dataset context error while creating an ROI grid: {}", exc)
+            QMessageBox.warning(self, "Dataset context error", str(exc))
+            return
+        if context is None:
+            return
+        dataset, calibration = context
+        try:
+            built = [make_roi(dataset, calibration, name=cell.name, frames=cell.frames,
+                              rows=cell.rows,
+                              pixels=self.state.cube[cell.frames[0]:cell.frames[1] + 1],
+                              preview_recipe=self.state.recipe)
+                     for cell in dialog.cells]
+            self.project_state.add_rois(built)
+        except (OSError, ValueError, KeyError) as exc:
+            logger.error("ROI grid not stored: {}", exc)
+            QMessageBox.warning(self, "ROI grid not stored", str(exc))
+            return
+        self._canvas.select_roi(built[0][0].roi_id)
 
     def _delete_roi_btn_clicked(self) -> None:
         roi_id = self._selected_roi_id_provider()

@@ -315,3 +315,93 @@ def test_a_registered_file_opens_with_its_stored_calibration(qapp, tmp_path, tra
         assert window.state.y_unit == "Reflectance"
     finally:
         window.close()
+
+
+def _grid_answers(monkeypatch, configure, seen_preview=None):
+    """Make RoiGridDialog.exec apply ``configure`` and press OK (or Cancel if no cells)."""
+    from PyQt6.QtWidgets import QDialog
+
+    from enginir.viewer._roi_grid import RoiGridDialog
+
+    def exec_(self):
+        configure(self)
+        if seen_preview is not None:
+            seen_preview.append(self.parent()._canvas.grid_preview_count)
+        return QDialog.DialogCode.Accepted if self.cells else QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(RoiGridDialog, "exec", exec_)
+
+
+def test_a_drawn_tray_becomes_one_roi_per_cell(qapp, two_file_project, monkeypatch):
+    from enginir.viewer import open_viewer
+
+    project_path, paths = two_file_project
+    previews: list[int] = []
+    _grid_answers(monkeypatch, lambda d: (d.set_grid(2, 2, inset_percent=0),
+                                          d.toggle_cell(0, 1)), previews)
+    window = open_viewer(paths["tray_b"], project=project_path)
+    try:
+        eda = window._eda_view
+        eda._btn_roi_grid.setChecked(True)  # Add ROI grid, then drag over the tray
+        eda._on_canvas_roi_draw_finished(8, 15, 0, 7)
+        state = window.project_state
+        names = sorted(r.name for r in state.rois.values() if r.name.startswith("tray_b-"))
+        assert names == ["tray_b-A01", "tray_b-B01", "tray_b-B02"]
+        roi = next(r for r in state.rois.values() if r.name == "tray_b-B02")
+        assert roi.spatial_bounds == (12, 15, 4, 7)
+        from enginir.io.project_store import load_roi_spectra
+
+        stored = load_roi_spectra(str(project_path), f"/rois/{roi.roi_id}/spectra")
+        np.testing.assert_array_equal(
+            stored, window.state.cube[12:16, 4:8].reshape(-1, window.state.n_bands))
+        assert window._saved_label.text() == "✓ 3 ROIs saved to project"
+        assert _drawn_roi_names(window) == ["B1", "tray_b-A01", "tray_b-B01", "tray_b-B02"]
+        # 3 cells with labels and 1 skipped cell were previewed, then removed.
+        assert previews == [7] and window._canvas.grid_preview_count == 0
+        assert not eda._btn_roi_grid.isChecked()
+    finally:
+        window.close()
+
+
+def test_a_grid_with_a_taken_name_is_refused_and_writes_nothing(qapp, two_file_project,
+                                                                monkeypatch):
+    from PyQt6.QtWidgets import QMessageBox
+
+    from enginir.viewer import open_viewer
+
+    project_path, paths = two_file_project
+    warnings: list[str] = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(
+        lambda _p, title, text, *a, **k: warnings.append(f"{title}: {text}")))
+    _grid_answers(monkeypatch, lambda d: d.set_grid(1, 2, pattern="A{column}"))
+    window = open_viewer(paths["tray_a"], project=project_path)
+    try:
+        before = set(window.project_state.rois)
+        window._eda_view.on_roi_grid_selected(0, 15, 0, 7)  # names A1 (taken) and A2 (taken)
+        assert warnings and "already exists" in warnings[0]
+        assert set(window.project_state.rois) == before
+    finally:
+        window.close()
+
+
+def test_the_grid_dialog_reports_counts_and_refuses_invalid_patterns(qapp):
+    from PyQt6.QtWidgets import QDialogButtonBox
+
+    from enginir.viewer._roi_grid import RoiGridDialog
+
+    dialog = RoiGridDialog((0, 39), (0, 19), file="tray03")
+    previews: list[tuple[int, int]] = []
+    dialog.preview_changed.connect(lambda cells, skipped: previews.append(
+        (len(cells), len(skipped))))
+    dialog.set_grid(2, 4)
+    assert dialog.status_text == "8 ROIs will be created"
+    dialog.toggle_cell(1, 3)
+    assert dialog.status_text == "7 ROIs will be created, 1 position(s) skipped"
+    assert previews[-1] == (7, 1)
+    assert [cell.name for cell in dialog.cells][:2] == ["tray03-A01", "tray03-A02"]
+    ok = dialog._buttons_box.button(QDialogButtonBox.StandardButton.Ok)
+    dialog.set_grid(2, 4, pattern="{file}")
+    assert ok is not None and not ok.isEnabled() and "repeated names" in dialog.status_text
+    dialog.set_grid(2, 4, pattern="T{n:02d}", order="columns")
+    assert ok.isEnabled() and [c.name for c in dialog.cells][:3] == ["T01", "T02", "T03"]
+    assert [(c.row, c.column) for c in dialog.cells][:2] == [(0, 0), (1, 0)]

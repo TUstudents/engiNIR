@@ -55,6 +55,11 @@ in the viewer follow the same rules.
 
 .. autofunction:: enginir._workflow.read_frames
 
+.. autofunction:: enginir._workflow.roi_grid
+
+.. autoclass:: enginir._workflow.GridCell
+   :no-members:
+
 Calibration defaults
 --------------------
 

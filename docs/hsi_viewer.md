@@ -495,6 +495,11 @@ runs.
    provided, it is persisted separately as a `TargetAssignment`. The status
    bar confirms every write (`ProjectState.saved`).
 
+**Add ROI grid** (`EDAView.on_roi_grid_selected`, `_roi_grid.RoiGridDialog`)
+splits a dragged tray rectangle into cells with `enginir._workflow.roi_grid`.
+It previews them on the canvas (`FalseColourCanvas.set_grid_preview`) and
+stores them through `ProjectState.add_rois` → `Project.save_rois`, all or none.
+
 A project may hold ROIs from several data files. The canvas draws only the
 ROIs whose `dataset_id` is the project dataset of the shown file
 (`EDAView.refresh_roi_overlays`, `EDAView.shown_dataset_id`). Attach
