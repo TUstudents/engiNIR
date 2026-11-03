@@ -120,6 +120,17 @@ same result later use the objects or their ids:
    model = project.fit(api, n_components=3)
    same = project.model(model_run_id=model.ref.model_run_id)
 
+A stored model can be fitted again on exactly its own data: ``model.refit()``
+uses its sample set (the ROI ids), preprocessing, signal, model settings and
+validation, not the ROIs that have values today, and stores the result as a
+new model. Unchanged data give the same metrics; changed reference values and
+differing metrics are reported in the log:
+
+.. code-block:: python
+
+   again = project.model(model_run_id=model.ref.model_run_id).refit()
+   again.metrics["rmsecv"] == model.metrics["rmsecv"]   # True for unchanged data
+
 ``project.rois``, ``project.targets`` and ``project.models`` are keyed by
 name and refuse repeated names; ``project.workspace`` holds every collection
 keyed by id. Functions that create objects by name (``add_roi``,

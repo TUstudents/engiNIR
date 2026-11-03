@@ -26,6 +26,9 @@
   the objects as well as names.
 - `enginir._workflow.data_file_labels`: data files that share a file name are
   shown with the folder that tells them apart.
+- `Model.refit()` fits a stored model again on exactly its sample set, recipe,
+  signal domain, hyperparameters and cross-validation, stores the new run, and
+  reports changed reference values and differing metrics.
 - `save_csv(columns=)` writes text columns next to `sample_id`; `load_csv`
   returns them in `meta["sample_columns"]`.
 - Projects with ROIs from several data files (trays):

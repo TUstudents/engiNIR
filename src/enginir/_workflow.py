@@ -828,6 +828,72 @@ class Model:
                                                   keys=("cv_outputs", "diagnostics"))
         return {**refs.get("diagnostics", {}), **refs.get("cv_outputs", {})}
 
+    def refit(self, *, name: str | None = None) -> Model:
+        """Fit this model again on exactly what it was fitted on, and store the new run.
+
+        Uses the stored sample set (its ``roi_ids`` and preprocessing recipe),
+        signal domain, model type, hyperparameters and requested
+        cross-validation, not the ROIs that have values now. Folds depend only
+        on the sample set, so unchanged data give the same metrics; reference
+        values changed since the fit are reported. Refused when an ROI of the
+        sample set was deleted.
+
+        Parameters
+        ----------
+        name:
+            Name of the new model (default: the usual name with ``(2)``, ...).
+
+        Returns
+        -------
+        Model
+            The new model; compare ``refitted.metrics`` with ``self.metrics``.
+        """
+        project, ws = self.project, self.project.workspace
+        sample_set = ws.sample_sets[self.ref.sample_set_id]
+        project.require_current_sample_set(sample_set.sample_set_id, action="refit the model")
+        if name is not None:
+            project._require_new_name(ws.model_runs.values(), name, "model",
+                                      key=project._model_name)
+        changed = self._changed_values(sample_set)
+        if changed:
+            logger.warning("Refitting model '{}': {} reference value(s) changed since it was "
+                           "fitted (ROI ids {}); the metrics will differ", self.name,
+                           len(changed), changed[:5])
+        requested = self.ref.cv_spec.get("requested", "auto")
+        cv: int | str = int(requested) if isinstance(requested, (int, np.integer)) \
+            else str(requested)
+        result = fit_model_run(
+            project_path=project.path, sample_set=sample_set, datasets=ws.datasets,
+            calibrations=ws.calibrations, rois=ws.rois,
+            target_assignments=ws.target_assignments, recipes=ws.recipes,
+            signal_domains=ws.signal_domains, signal_domain_id=self.ref.signal_domain_id,
+            model_type=self.ref.model_type, hyperparameters=dict(self.ref.hyperparameters),
+            cv=cv, target_name=self.target.name)
+        run = replace(result.model_run,
+                      name=name or project.default_model_name(result.model_run, self.recipe))
+        project.save_model_run(run)
+        refitted = Model(project, project.workspace.model_runs[run.model_run_id])
+        differences = _metric_differences(self.metrics, refitted.metrics)
+        if differences:
+            logger.warning("Refit of '{}' differs in {}", self.name, differences)
+        else:
+            logger.info("Refit of '{}' reproduced its metrics as '{}'", self.name, refitted.name)
+        return refitted
+
+    def _changed_values(self, sample_set: SampleSet) -> list[str]:
+        """Ids of ROIs whose current reference value differs from the one the model used."""
+        stored = self.diagnostics
+        if "roi_ids" not in stored or "y_true_roi" not in stored:
+            return []
+        assignments = self.project.workspace.target_assignments
+        changed = []
+        for roi_id, used in zip(np.asarray(stored["roi_ids"]).astype(str),
+                                np.asarray(stored["y_true_roi"], dtype=float).reshape(-1)):
+            now = assignments.get((roi_id, sample_set.target_id))
+            if now is None or not np.isclose(now.value, used, rtol=1e-9, atol=1e-12):
+                changed.append(str(roi_id))
+        return changed
+
     def predict(self, path: str | os.PathLike[str], *,
                 dark: str | os.PathLike[str] | np.ndarray | None = None,
                 white: str | os.PathLike[str] | np.ndarray | None = None) -> Prediction:
@@ -1482,6 +1548,18 @@ def _only(matches: list, name: str, kind: str, *, id_field: str):
                       kind, name, [getattr(obj, id_field) for obj in matches], error=KeyError,
                       depth=3)
     return matches[0]
+
+
+def _metric_differences(before: Mapping[str, Any], after: Mapping[str, Any]) -> dict[str, Any]:
+    """Numeric metrics that differ between two model runs: ``{name: (before, after)}``."""
+    differences: dict[str, Any] = {}
+    for key, value in before.items():
+        other = after.get(key)
+        if isinstance(value, (int, float, np.number)) and not isinstance(value, bool):
+            if not isinstance(other, (int, float, np.number)) or not np.isclose(
+                    float(value), float(other), rtol=1e-6, atol=1e-12, equal_nan=True):
+                differences[key] = (value, other)
+    return differences
 
 
 def _summary(metrics: Mapping[str, Any]) -> str:

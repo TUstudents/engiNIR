@@ -1,6 +1,6 @@
 # Plan: ids only in the viewer, names as labels
 
-Status: phases 0–5 done (2026-11-03)
+Status: all phases (0–6) done (2026-11-03)
 
 ## Goal
 
@@ -239,6 +239,24 @@ names, replacing the earlier "refuses names" entry).
 - `Model.refit()` and `Project.fit(sample_set=…)` fit exactly the stored
   `roi_ids` with the stored recipe and signal domain, and report whether the
   metrics match the stored run.
+
+**Done (2026-11-03).**
+
+- `Model.refit(*, name=None)` fits the run's own sample set (`roi_ids`,
+  recipe), signal domain, model type, hyperparameters and requested CV
+  (`cv_spec["requested"]`), stores a new run (default name with `(2)`, ...)
+  and returns it. Refused when an ROI of the sample set was deleted; a given
+  name that exists is refused.
+- Before fitting it compares the current reference values with the stored
+  `y_true_roi` and warns about changed ones; afterwards it compares the
+  numeric metrics (`rtol=1e-6`) and warns about differences, or logs that
+  the metrics were reproduced.
+- Contracts: *Refitting a stored model* in the sample-set/model-run contract
+  and the facade entry point in the headless contract. A viewer action for
+  refit is not part of this step.
+- Tests: refit reproduces the metrics exactly although a value was added
+  later; changed values and differing metrics are reported; deleted ROIs and
+  existing names are refused. Five injected faults caught.
 
 ## Risks
 

@@ -121,6 +121,9 @@ and writes nothing they would reject.
   the dataset, with its reference values (`{target name: value}`)
 - `project.fit(target, *, recipe, model, name=None, cv="auto", **hyperparameters)`
   builds the sample set, fits and cross-validates, and returns a model handle
+- `model.refit(*, name=None)` fits the model again on its stored sample set,
+  recipe, signal domain, hyperparameters and cross-validation and stores the
+  new run (`sample-set-model-run-contract_v3.md`, Refitting a stored model)
 - `model.predict(path, *, dark=None, white=None)` predicts a dataset and
   returns a prediction handle
 - read access: `project.datasets`, `project.rois`, `project.targets`,

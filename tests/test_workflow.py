@@ -276,3 +276,54 @@ def test_prediction_is_refused_before_an_incompatible_file_is_registered(tmp_pat
     with pytest.raises(ValueError, match="n_bands"):
         model.predict(path)
     assert _counts(project) == before
+
+
+def _warnings_during(action):
+    from loguru import logger
+
+    messages: list[str] = []
+    sink_id = logger.add(lambda message: messages.append(str(message)), level="WARNING")
+    try:
+        result = action()
+    finally:
+        logger.remove(sink_id)
+    return result, messages
+
+
+def test_refit_reproduces_a_model_from_its_stored_sample_set(tmp_path):
+    project, scan = _labelled_project(tmp_path)
+    model = project.fit("API", recipe=PreprocessingRecipe(snv=True), n_components=2, cv=3)
+    # A value added later changes what fit() would use, not what refit() uses.
+    scan.add_roi("late", frames=(0, 1), rows=(0, 1), values={"API": 9.0})
+
+    refitted, warnings = _warnings_during(model.refit)
+    assert warnings == []
+    assert refitted.ref.model_run_id != model.ref.model_run_id
+    assert refitted.name == "PLS 2 LV, SNV (2)"
+    for key in ("sample_set_id", "signal_domain_id", "model_type", "hyperparameters"):
+        assert getattr(refitted.ref, key) == getattr(model.ref, key)
+    assert refitted.ref.cv_spec["requested"] == 3
+    for key in ("rmsecv", "r2", "bias", "pixel_rmsecv", "n_rois"):
+        assert refitted.metrics[key] == pytest.approx(model.metrics[key], rel=1e-9)
+    assert project.fit("API", recipe=PreprocessingRecipe(snv=True), n_components=2,
+                       cv=3).metrics["n_rois"] == N_SAMPLES + 1
+
+    reopened = Project.open(project.path)
+    again = reopened.model(model_run_id=model.ref.model_run_id).refit(name="check")
+    assert again.metrics["rmsecv"] == pytest.approx(model.metrics["rmsecv"], rel=1e-9)
+
+
+def test_refit_reports_changed_values_and_refuses_deleted_rois(tmp_path):
+    project, scan = _labelled_project(tmp_path)
+    model = project.fit("API", n_components=1, cv="logo")
+    project.set_value("s2", "API", 7.5)
+    refitted, warnings = _warnings_during(model.refit)
+    assert any("1 reference value(s) changed" in w for w in warnings)
+    assert any("differs in" in w and "rmsecv" in w for w in warnings)
+    assert refitted.metrics["rmsecv"] != pytest.approx(model.metrics["rmsecv"])
+    with pytest.raises(ValueError, match="model called 'PLS 1 LV, raw' already exists"):
+        model.refit(name="PLS 1 LV, raw")
+
+    project.remove_roi(project.roi("s0").roi_id)
+    with pytest.raises(ValueError, match="Cannot refit the model: sample set .* lists deleted"):
+        model.refit()
