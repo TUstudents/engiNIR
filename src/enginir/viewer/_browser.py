@@ -191,6 +191,7 @@ class ProjectBrowser(QTreeWidget):
         for roi_id, roi in self.project_state.rois.items():
             label = f"{roi.name} [{roi_id}]" if roi.name else roi_id
             item = QTreeWidgetItem([label])
+            item.setToolTip(0, self.project_state.data_file_label(roi.dataset_id))
             item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "roi", "id": roi_id})
             section.addChild(item)
 

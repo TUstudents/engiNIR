@@ -244,9 +244,10 @@ Stable ids are the only identity of project objects
   full path as tooltip. This label is used wherever a data file is shown: the
   data file list, the ROI table, the Project ROIs tab, the fit dialog, the
   browser and messages
-- where ROI names may repeat (the ROI table, the mosaic, the browser, Model
-  plot hover and the inspector), the data file label is shown with the name,
-  or the view belongs to one data file
+- where ROI names may repeat, each ROI is told apart by more than its name:
+  the ROI table shows its data file label, the mosaic groups ROIs by data
+  file, the browser shows the id (data file label as tooltip), the inspector
+  shows id and data file, and Model plots select ROIs by id
 - every export of ROI data carries the ROI id next to its name, including
   Explore's ROI spectra export
 

@@ -407,16 +407,22 @@ class EDAView(QWidget):
             int(np.asarray(spectra_by_key[roi.spectra_storage_key]).shape[0]) for roi in rois
         )
         X = np.empty((total_rows, int(wavelengths.shape[0])), dtype=np.float64)
-        labels: list[str] = []
+        ids: list[str] = []
+        names: list[str] = []
+        files: list[str] = []
         start = 0
         for roi in rois:
             spectra = np.asarray(spectra_by_key[roi.spectra_storage_key], dtype=np.float64)
             stop = start + spectra.shape[0]
             X[start:stop] = spectra
-            label = roi.name or roi.roi_id
-            labels.extend([label] * spectra.shape[0])
+            n = spectra.shape[0]
+            # The id identifies the ROI; name and data file are labels (they may repeat).
+            ids.extend([roi.roi_id] * n)
+            names.extend([roi.name] * n)
+            files.extend([self.project_state.data_file_label(roi.dataset_id)] * n)
             start = stop
-        save_csv(path, X, wavelengths, sample_names=labels)
+        save_csv(path, X, wavelengths, sample_names=ids,
+                 columns={"roi_name": names, "data_file": files})
 
     def new_project_btn_clicked(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self, "New Project", "", "HDF5 (*.h5)")
@@ -578,7 +584,8 @@ class EDAView(QWidget):
         n_frames, height = (int(n) for n in self.state.cube.shape[:2])
         dialog = RoiGridDialog((n_frames, height), file=pathlib.Path(cube_path).stem,
                                defaults=load_grid_defaults(),
-                               taken_names={roi.name for roi in self.project_state.rois.values()},
+                               taken_names={roi.name
+                                            for roi in self.project_state.rois.values()},
                                parent=self.window())
         dialog.preview_changed.connect(self._canvas.set_grid_preview)
         dialog.redraw_preview()  # the image shows the grid before any change
@@ -712,10 +719,10 @@ class EDAView(QWidget):
         cube_path = self._cube_path_provider()
         if not self._dataset_attached_provider() or not cube_path:
             log_and_raise("A real dataset must be attached before creating project-backed ROIs.")
-        state, project = self.state, self.project_state
+        state, project_state = self.state, self.project_state
         dataset, is_new = resolve_dataset(
-            project.datasets, cube_path, SpectralData(state.cube, state.wavelengths, state.meta))
-        active = None if is_new else project.active_calibration(dataset.dataset_id)
+            project_state.datasets, cube_path, SpectralData(state.cube, state.wavelengths, state.meta))
+        active = None if is_new else project_state.active_calibration(dataset.dataset_id)
         if active is not None and _shows_calibration(state, active):
             # The image shows the data file's own calibration (restored when it was
             # shown): keep it, with its reference sources. The signal unit in
@@ -726,10 +733,10 @@ class EDAView(QWidget):
             dataset, unit=str(state.y_unit_effective), precalibrated=state.calibrated,
             dark=state.dark_ref if has_refs else None, white=state.white_ref if has_refs else None,
             black_level=state.black_level, white_level=state.white_level)
-        calibration, is_new_calibration = resolve_calibration(dataset, project.calibrations,
+        calibration, is_new_calibration = resolve_calibration(dataset, project_state.calibrations,
                                                               candidate)
         if active is not None and calibration.calibration_id != active.calibration_id:
-            n_rois = sum(roi.dataset_id == dataset.dataset_id for roi in project.rois.values())
+            n_rois = sum(roi.dataset_id == dataset.dataset_id for roi in project_state.rois.values())
             if n_rois and QMessageBox.question(
                     self, "New calibration",
                     f"The image uses other references or levels than the calibration of "
@@ -741,11 +748,11 @@ class EDAView(QWidget):
                             dataset.source_path)
                 return None
         if is_new:
-            project.register_dataset(dataset)
+            project_state.register_dataset(dataset)
         if is_new_calibration or active is None or calibration.calibration_id != \
                 active.calibration_id:
-            project.set_active_calibration(calibration)
-        return project.datasets[dataset.dataset_id], calibration
+            project_state.set_active_calibration(calibration)
+        return project_state.datasets[dataset.dataset_id], calibration
 
 
 def _shows_calibration(state: ViewerState, calibration: CalibrationSpec) -> bool:

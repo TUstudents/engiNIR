@@ -1090,3 +1090,19 @@ def test_eiff_device_info_reads_nul_terminated_utf16_fields_at_fixed_offsets():
         "serial": "SN-42", "camera_model": "AlphaVision", "manufacturer": "EVK"
     }
     assert _parse_device_info(bytes(100)) == {}  # short payload: absent fields are omitted
+
+
+def test_csv_text_columns_round_trip_next_to_the_sample_id(tmp_path):
+    from enginir.io import load_csv, save_csv
+
+    X = np.arange(6.0).reshape(2, 3)
+    path = tmp_path / "rois.csv"
+    save_csv(path, X, np.array([1000.0, 1100.0, 1200.0]), sample_names=["id1", "id2"],
+             columns={"roi_name": ["A1", "A1"], "data_file": ["a.h5", "b.h5"]})
+    data = load_csv(path)
+    np.testing.assert_array_equal(data.X, X)
+    assert data.meta["sample_names"] == ["id1", "id2"]
+    assert data.meta["sample_columns"] == {"roi_name": ["A1", "A1"],
+                                           "data_file": ["a.h5", "b.h5"]}
+    with pytest.raises(ValueError, match="non-numeric header"):
+        save_csv(path, X, np.array([1000.0, 1100.0, 1200.0]), columns={"1300": ["x", "y"]})

@@ -1,6 +1,6 @@
 # Plan: ids only in the viewer, names as labels
 
-Status: phases 0–3 done (2026-11-03)
+Status: phases 0–4 done (2026-11-03)
 
 ## Goal
 
@@ -195,6 +195,28 @@ multi-window tests remain the suspect if it returns.
 - Tests: a project with two `stream_hsi.h5` trays and the same grid names:
   both grids stored, table and tiles distinguishable, fit uses both,
   selection links the right ROI, exports carry distinct ids.
+
+**Done (2026-11-03).**
+
+- The grid dialog allows names that repeat ROIs of the project and says how
+  many repeat; only repeats within one grid are refused (`roi_grid`).
+- Explore's **Export csv**: `sample_id` holds the `roi_id`, with `roi_name`
+  and `data_file` text columns. `save_csv(columns=)` writes text columns and
+  `load_csv` returns them in `meta["sample_columns"]` instead of failing.
+- Inspector: data file label for ROIs, `name [id]` for assignments; browser
+  ROIs carry the data file label as tooltip; browser datasets show
+  `label [id]` with the path as tooltip.
+- Guard test `test_the_viewer_never_addresses_objects_by_name`: an AST scan
+  of `enginir.viewer` for name-based functions and views on the library
+  `Project` (`ProjectState.project`, `_require_project(...)`, a local
+  `project`). A first, broader version flagged `_eda.py` where the local
+  `project` was the `ProjectState` (id-keyed, so no bug); the local is now
+  `project_state`, so `project` always means the library object.
+- End-to-end test with two `stream_hsi.h5` trays and the same grid names;
+  five injected faults caught (export by name, repeats refused again,
+  `load_csv` without text columns, a name lookup and a name-keyed view in the
+  viewer).
+- Gap `G21` closed.
 
 ### Phase 5: docs
 

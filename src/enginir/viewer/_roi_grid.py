@@ -162,7 +162,8 @@ class RoiGridDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Add ROI grid")
         self._image_size, self._file = image_size, file
-        #: Names of the project's ROIs; a grid reusing one is refused before OK.
+        #: Names of the project's ROIs. Names are labels: repeating one is allowed and only
+        #: mentioned, because ROIs are told apart by id and data file.
         self._taken = set(taken_names)
         self._skip: set[tuple[int, int]] = set()
         self._buttons: dict[tuple[int, int], QToolButton] = {}
@@ -304,15 +305,13 @@ class RoiGridDialog(QDialog):
                        "them empty.")
             self._show([], skipped, outside, message, ok, inside=inside)
             return
-        taken = [cell.name for cell in planned if cell.name in self._taken]
-        if taken:
-            message = (f"{len(taken)} name(s) are already used in the project, e.g. "
-                       f"'{taken[0]}'. Choose another name pattern (several data files may "
-                       "have the same file name).")
-            self._show([], skipped, [], message, ok, inside=planned)
-            return
         message = f"{len(planned)} ROIs will be created" + (
             f", {len(self._skip)} position(s) empty" if self._skip else "")
+        repeated = [cell.name for cell in planned if cell.name in self._taken]
+        if repeated:
+            message += (f". {len(repeated)} name(s) repeat ROIs of the project, e.g. "
+                        f"'{repeated[0]}'; that is allowed (ROIs are told apart by id and "
+                        "data file).")
         self._show(planned, skipped, [], message, ok)
 
     def _show(self, cells: list[GridCell], skipped: list[GridCell], outside: list[GridCell],

@@ -511,48 +511,82 @@ def test_a_grid_starts_from_the_options_defaults_every_time(qapp, two_file_proje
         window.close()
 
 
-def test_a_grid_with_a_taken_name_is_refused_in_the_dialog(qapp, tmp_path, monkeypatch):
-    """Scans with the same file name in different folders give the same {file}; the dialog
-    refuses the clash before OK, so no error box follows."""
-    from PyQt6.QtWidgets import QDialogButtonBox
-
+def test_two_trays_with_the_same_file_name_work_by_id(qapp, tmp_path, monkeypatch):
+    """Scans called stream_hsi.h5 in two folders get the same grid names; the viewer stores
+    both grids, tells them apart and models, selects and exports them by id."""
     from enginir import Project
-    from enginir.io import save_hdf5
+    from enginir.io import load_csv, save_hdf5
     from enginir.viewer import open_viewer
     from enginir.viewer._grid_settings import GridDefaults, save_grid_defaults
 
     paths = []
-    for folder in ("run1", "run2"):
+    for folder, level in (("run1", 1000), ("run2", 2000)):
         (tmp_path / folder).mkdir()
         paths.append(tmp_path / folder / "stream_hsi.h5")
-        save_hdf5(str(paths[-1]), np.full((16, 8, 6), 1000, np.uint16),
+        save_hdf5(str(paths[-1]), np.full((16, 8, 6), level, np.uint16),
                   np.linspace(1000.0, 1500.0, 6))
     project = Project.create(tmp_path / "p.h5")
-    first = project.add_dataset(paths[0])
-    first.add_roi("stream_hsi-A01", frames=(0, 3), rows=(0, 3))
-    project.add_dataset(paths[1])
+    project.add_target("API", unit="%")
+    for path in paths:
+        project.add_dataset(path)
     save_grid_defaults(GridDefaults(n_rows=1, n_columns=2, width=4, height=4, origin_x=0,
                                     origin_y=0, spacing_x=0))
-    seen: list[tuple[str, bool]] = []
+    notes: list[str] = []
 
     def answer(dialog):
-        ok = dialog._buttons_box.button(QDialogButtonBox.StandardButton.Ok)
-        seen.append((dialog.status_text, ok.isEnabled()))
-        dialog.set_grid(name_pattern="run2-{row}{column:02d}")  # a pattern that is free
-        seen.append((dialog.status_text, ok.isEnabled()))
+        notes.append(dialog.status_text)
 
     _grid_answers(monkeypatch, answer)
-    window = open_viewer(paths[1], project=project.path)
+    window = open_viewer(paths[0], project=project.path)
     try:
-        before = set(window.project_state.rois)
+        state = window.project_state
         window._eda_view._btn_roi_grid.click()
-        assert seen[0] == ("1 name(s) are already used in the project, e.g. 'stream_hsi-A01'. "
-                           "Choose another name pattern (several data files may have the "
-                           "same file name).", False)
-        assert seen[1] == ("2 ROIs will be created", True)
-        names = {r.name for r in window.project_state.rois.values()} - {
-            window.project_state.rois[r].name for r in before}
-        assert names == {"run2-A01", "run2-A02"}
+        window.show_data_file(window._registered_dataset_id(str(paths[1])))
+        window.wait_for_data_file()
+        window._eda_view._btn_roi_grid.click()  # the same names on the second tray
+        assert notes[0] == "2 ROIs will be created"
+        assert "2 name(s) repeat ROIs of the project, e.g. 'stream_hsi-A01'" in notes[1]
+        rois = sorted(state.rois.values(), key=lambda r: (r.dataset_id, r.name))
+        assert [r.name for r in rois].count("stream_hsi-A01") == 2 and len(rois) == 4
+
+        # The table tells them apart by data file and writes by id.
+        window.show_roi_table()
+        table = window._roi_table
+        table.show_data_file(None)
+        model = table.model
+        rows = {(str(model.data(model.index(r, 0))), str(model.data(model.index(r, 1)))): r
+                for r in range(model.rowCount())}
+        assert set(rows) == {(f"stream_hsi.h5 ({run})", f"stream_hsi-A0{n}")
+                             for run in ("run1", "run2") for n in (1, 2)}
+        api_column = model.column_of(next(iter(state.targets)))
+        for (file, name), row in rows.items():
+            value = ("1" if "run1" in file else "2") + name[-1]
+            assert model.setData(model.index(row, api_column), value)
+        values = {(state.data_file_label(r.dataset_id), r.name): a.value
+                  for (roi_id, _t), a in state.target_assignments.items()
+                  for r in [state.rois[roi_id]]}
+        assert values[("stream_hsi.h5 (run2)", "stream_hsi-A01")] == 21.0
+        assert values[("stream_hsi.h5 (run1)", "stream_hsi-A01")] == 11.0
+
+        # Selecting a row selects that ROI (by id) on its own tray.
+        run1_a1 = next(r for r in rois if r.name == "stream_hsi-A01"
+                       and state.data_file_label(r.dataset_id).endswith("(run1)"))
+        window.open_roi(run1_a1.roi_id)
+        window.wait_for_data_file()
+        assert window._canvas._selected_roi_id == run1_a1.roi_id
+        assert window._cube_path == str(paths[0].resolve())
+
+        # A fit uses all four ROIs; the export carries four distinct ids.
+        fitted = Project.open(project.path).fit(project.target("API"), n_components=1)
+        sample_set = Project.open(project.path).workspace.sample_sets[fitted.ref.sample_set_id]
+        assert sorted(sample_set.roi_ids) == sorted(r.roi_id for r in rois)
+        window._eda_view.export_csv(str(tmp_path / "rois.csv"))
+        exported = load_csv(tmp_path / "rois.csv")
+        assert set(exported.meta["sample_names"]) == {r.roi_id for r in rois}
+        names = exported.meta["sample_columns"]["roi_name"]
+        assert names.count("stream_hsi-A01") == 2 * 16  # 16 pixels per ROI, two ROIs
+        assert set(exported.meta["sample_columns"]["data_file"]) == {
+            "stream_hsi.h5 (run1)", "stream_hsi.h5 (run2)"}
     finally:
         window.close()
 
