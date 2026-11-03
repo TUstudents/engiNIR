@@ -217,9 +217,12 @@ class Project:
         self.save_target(target)
         return target
 
-    def set_value(self, roi: str, target: str, value: float) -> None:
-        """Set (or replace) the reference value of ``target`` for ``roi``."""
+    def set_value(self, roi: str, target: str, value: float | None) -> None:
+        """Set (or replace) the reference value of ``target`` for ``roi``; ``None`` removes it."""
         roi_ref, target_ref = self.roi(roi), self.target(target)
+        if value is None:
+            self.remove_assignment(roi_ref.roi_id, target_ref.target_id)
+            return
         assignment = TargetAssignment(roi_id=roi_ref.roi_id, target_id=target_ref.target_id,
                                       value=value, assigned_at=now_iso())
         self.save_assignment(assignment)
@@ -320,6 +323,17 @@ class Project:
         """Store a target definition."""
         store.save_target_definition(self.path, target.target_id, target.to_dict())
         self.workspace.targets[target.target_id] = target
+
+    def save_assignments(self, assignments: Sequence[TargetAssignment]) -> None:
+        """Store several reference values; all are validated before any is written."""
+        self._validate(target_assignments=list(assignments))
+        for assignment in assignments:
+            self.save_assignment(assignment)
+
+    def remove_assignment(self, roi_id: str, target_id: str) -> None:
+        """Delete the reference value of ``target_id`` for ``roi_id`` (it becomes missing)."""
+        store.remove_target_assignment(self.path, target_id, roi_id)
+        self.workspace.target_assignments.pop((roi_id, target_id), None)
 
     def save_assignment(self, assignment: TargetAssignment) -> None:
         """Store (or replace) the reference value of one target for one ROI."""
@@ -458,7 +472,11 @@ class Project:
             allow_stale_sample_set_rois=True)
         for key, value in objects.items():
             if key in ("target_assignments",):
-                graph[key] = list(ws.target_assignments.values()) + list(value)
+                # A new value of a (roi, target) pair replaces the stored one: updating
+                # a value is the documented editing model (roi-target contract).
+                merged = dict(ws.target_assignments)
+                merged.update({(a.roi_id, a.target_id): a for a in value})
+                graph[key] = list(merged.values())
             elif isinstance(value, dict) and key != "active_calibration_ids":
                 graph[key] = {**graph[key], **value}
             else:

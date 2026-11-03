@@ -38,6 +38,7 @@ from ..prediction import predict_with_model_run, preflight_prediction
 from .._checks import log_and_raise
 from .._logging import get_logger
 from ..io.project_store import as_roi_storage_array
+from ..project._ids import now_iso
 
 logger = get_logger(__name__)
 
@@ -248,6 +249,34 @@ class ProjectState(QObject):
             f"{target.name if target is not None else assignment.target_id} = "
             f"{assignment.value:g}{unit} saved for ROI "
             f"'{roi.name if roi is not None else assignment.roi_id}'")
+
+    def set_roi_values(self, changes: list[tuple[str, str, float | None]]) -> None:
+        """Set or remove target values: ``(roi_id, target_id, value)``, ``None`` removes.
+
+        Every value is checked before any is written, so an invalid one leaves
+        the project unchanged.
+        """
+        project = self._require_project("set_roi_values")
+        now = now_iso()
+        assignments = [TargetAssignment(roi_id=roi_id, target_id=target_id, value=value,
+                                        assigned_at=now)
+                       for roi_id, target_id, value in changes if value is not None]
+        project.save_assignments(assignments)
+        for roi_id, target_id, value in changes:
+            if value is None:
+                project.remove_assignment(roi_id, target_id)
+        self._sync()
+        self.target_assignments_changed.emit()
+        if len(changes) == 1:
+            roi_id, target_id, value = changes[0]
+            target, roi = self.targets.get(target_id), self.rois.get(roi_id)
+            target_name = target.name if target is not None else target_id
+            roi_name = roi.name if roi is not None else roi_id
+            unit = f" {target.unit}" if target is not None and target.unit else ""
+            self.saved.emit(f"{target_name} value removed for ROI '{roi_name}'" if value is None
+                            else f"{target_name} = {value:g}{unit} saved for ROI '{roi_name}'")
+        elif changes:
+            self.saved.emit(f"{len(changes)} target values saved to project")
 
     def add_roi(
         self,

@@ -156,9 +156,25 @@ CSV, named by plot) into one folder. That includes Model pages you have not
 opened. A maximized plot stays maximized the next time the viewer opens, and
 **View > Reset Layout** restores the default layout.
 
-The controls assign reference values (**Assign target**), build the sample
-set of all ROIs with a value (**Build sample set**) and fit PLS or PCR
-(**Fit model**). Cross-validation keeps the pixels of one ROI together, and
+Reference values are typed in the **ROI table**, opened from **Target
+values...** in Model, from **ROI table** in Explore, or from the View menu:
+
+- One row per ROI (data file, name, pixel count) and one column per target.
+- It opens on the shown data file and the target selected in Model. The
+  filters choose a data file, or only ROIs that still lack a value.
+- Type a value and press **Enter**: it is stored at once and the next row
+  is edited. A decimal comma is accepted.
+- Clear a cell to remove a value; the ROI is then left out of models for
+  that target.
+- **Ctrl+V** pastes a column of values downwards from the current cell. All
+  values are checked first: one that is not a number, or more values than
+  rows, writes nothing.
+- Selecting a row selects the ROI in the browser and on the image.
+- The table works from the project file alone; the data files are not
+  needed.
+
+The controls build the sample set of all ROIs with a value
+(**Build sample set**) and fit PLS or PCR (**Fit model**). Cross-validation keeps the pixels of one ROI together, and
 reported metrics are per ROI: held-out pixel predictions are averaged per ROI
 before RMSECV, R², bias, RPD and RPIQ are computed. Until a model can be
 fitted, the readiness message says what is missing.

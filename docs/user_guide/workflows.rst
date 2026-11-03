@@ -51,6 +51,9 @@ reference set:
    tray1 = project.add_dataset("tray1.eiff", dark_frames=(0, 9), white_frames=(990, 999))
    tray2 = project.add_dataset("tray2.eiff", references_from="tray1.eiff")
 
+``project.set_value(roi, target, value)`` sets or replaces a reference value;
+``value=None`` removes it.
+
 A tray of samples becomes one ROI per cell with :func:`~enginir._workflow.roi_grid`
 and ``dataset.add_rois``, all stored or none:
 

@@ -393,6 +393,20 @@ def save_prediction_run(
                  compression)
 
 
+def remove_target_assignment(path: PathLike, target_id: str, roi_id: str) -> None:
+    """Delete the value of one target for one ROI; the ROI is then unlabeled for it.
+
+    Removing a value that does not exist is a no-op.
+    """
+    with _open_project(path, writable=True) as f:
+        assignments = f["target_assignments"].get(target_id)
+        if not isinstance(assignments, h5py.Group) or roi_id not in assignments:
+            return
+        del assignments[roi_id]
+    logger.info("Removed target assignment target='{}' roi='{}' from {}", target_id, roi_id,
+                path)
+
+
 def remove_roi_from_project(path: PathLike, roi_id: str) -> None:
     """Delete an ROI and all target values assigned to it."""
     with _open_project(path, writable=True) as f:
@@ -975,6 +989,7 @@ __all__ = [
     "load_roi_spectra_matrix",
     "open_prediction_run_artifact_writer",
     "remove_roi_from_project",
+    "remove_target_assignment",
     "save_calibration_spec",
     "save_dataset_ref",
     "save_model_run",

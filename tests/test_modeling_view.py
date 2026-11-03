@@ -133,42 +133,6 @@ def test_new_roi_dialog_rejects_non_finite_target_value(qapp, state_and_project,
     assert dialog.result() == 0
 
 
-def test_assign_target_dialog_rejects_non_finite_value(qapp, state_and_project, monkeypatch):
-    from enginir.viewer._modeling import AssignTargetValueDialog
-
-    _state, project = state_and_project
-    target = TargetDefinition(
-        target_id="target_1",
-        name="moisture",
-        unit="% w/w",
-        value_type="float",
-        missing_value_policy="allowed",
-        created_at="2026-04-02T10:00:00+00:00",
-    )
-    roi = TrainingROI(
-        roi_id="roi_1",
-        dataset_id="dataset_1",
-        calibration_id="cal_1",
-        name="ROI 1",
-        wavelengths=np.linspace(1000.0, 1700.0, 8),
-        n_pixels=4,
-        spatial_bounds=(0, 1, 0, 1),
-        source_file=str(project.project_path or ""),
-        created_at="2026-04-02T10:01:00+00:00",
-        provenance=_roi_provenance(),
-    )
-    warnings: list[str] = []
-    monkeypatch.setattr(QMessageBox, "warning", lambda *args: warnings.append(str(args[2])))
-
-    dialog = AssignTargetValueDialog(target, [roi], {})
-    dialog._value_edit.setText("inf")
-
-    dialog._on_accept()
-
-    assert any("finite numeric value" in message for message in warnings)
-    assert dialog.result() == 0
-
-
 def test_build_sample_set_from_selected_target(qapp, state_and_project):
     from enginir.viewer._modeling import ModelingView
 

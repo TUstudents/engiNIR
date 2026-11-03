@@ -2,7 +2,7 @@
 
 Branch: `feature/multi-file-workflow`, based on `feature/plot-panels` (it uses
 the plot panels and plot pages). It merges after that branch.
-Status: phases 0–4 done
+Status: phases 0–5 done
 Date: 2026-11-02
 
 ## Goal
@@ -538,6 +538,46 @@ Tests:
   - typing, removing and pasting are stored and reload;
   - empty cells stay missing, not zero;
   - selection reaches the canvas and the browser.
+
+**Done (2026-11-03).**
+
+Store and library:
+
+- `project_store.remove_target_assignment`.
+- `Project.remove_assignment`; `Project.set_value(..., None)` removes the
+  value.
+- `Project.save_assignments` checks every value before writing any.
+
+**Bug fixed (in 1.0.1 too).** Replacing a stored value failed as a
+"duplicate target assignment". `Project._validate` appended the new value to
+the stored ones instead of letting it replace them. Contract and CHANGELOG
+(Unreleased, Fixed) are updated.
+
+Viewer:
+
+- `_roi_table.RoiTableModel`/`RoiTableWidget` in a "ROI Table" dock, opened
+  from Explore's **ROI table**, Model's **Target values...** (which replaces
+  Assign target and its one-ROI dialog) and the View menu. On first open it
+  is resized to half the window height.
+- Rows are sorted naturally (A2 before A10); there is one column per target.
+- **Editing:**
+  - a decimal comma is accepted;
+  - a cleared cell removes the value;
+  - Enter stores the value and edits the row below (`closeEditor` with
+    `SubmitModelCache`; a child timer opens the next editor);
+  - value edits refresh cells without resetting the model, so the current
+    cell stays;
+  - `Ctrl+V` pastes a column, all-or-nothing.
+- Filters choose a data file (default: the shown file) or "only ROIs without
+  a value for ...". A count line reads, for example, "32 ROIs | API: 5 of 32".
+- Selecting a row selects the ROI in the browser and on the image; browser
+  selection moves the table's current row.
+
+Tests:
+
+- `tests/test_roi_table.py`: 12 tests.
+- Nine injected faults were each caught.
+- The test for `AssignTargetValueDialog` is gone with the dialog.
 
 ### Phase 6: Project ROIs tab
 

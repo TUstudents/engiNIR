@@ -47,13 +47,14 @@ from ._browser import ProjectBrowser
 from ..io import file_format
 from ._inspector import ProjectInspector
 from ._data_files import AddDataFileDialog
+from ._roi_table import RoiTableWidget
 from ._jobs import BusyStatusWidget, start_background_job
 from ._loading import ViewerBusyContext
 from ._model_diagnostics import ModelDiagnosticsWidget
 from . import _layout_settings as layout_settings
 from ._plot_grid import PlotPage, PlotPageWidget, PlotSlot
 from ._plot_panel import LARGE_EXPORT_VALUES, PlotFrame, PlotPanel
-from ._modeling import AssignTargetValueDialog, ModelingView, NewROIDialog, TargetSelectionDialog
+from ._modeling import ModelingView, NewROIDialog, TargetSelectionDialog
 from ._prediction import PREDICTION_HISTOGRAM, PredictionMapWidget, PredictionView
 from ._state import (
     DEFAULT_BLACK_LEVEL,
@@ -117,7 +118,6 @@ def _add_required_action(menu: QMenu, text: str) -> QAction:
 
 
 __all__ = [
-    "AssignTargetValueDialog",
     "HSIViewer",
     "LogPanel",
     "NewROIDialog",
@@ -613,6 +613,15 @@ class HSIViewer(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._spatial_dock)
         self.splitDockWidget(self._sensor_dock, self._spatial_dock, Qt.Orientation.Vertical)
 
+        # ROI table: target values of all ROIs; available in every workspace.
+        self._roi_table = RoiTableWidget(self.project_state)
+        self._roi_table.roi_selected.connect(self._on_canvas_roi_selected)
+        self._roi_table_dock = QDockWidget("ROI Table", self)
+        self._roi_table_dock.setObjectName("RoiTableDock")
+        self._roi_table_dock.setWidget(self._roi_table)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._roi_table_dock)
+        self._roi_table_dock.hide()
+
         self._default_explore_plot_visibility = {
             "sensor": True,
             "spatial": True,
@@ -901,16 +910,33 @@ class HSIViewer(QMainWindow):
         self.project_state.project_loaded.connect(self._refresh_data_file_choices)
         self.project_state.datasets_changed.connect(self._refresh_data_file_choices)
         self._project_browser.itemDoubleClicked.connect(self._on_browser_item_activated)
+        self._eda_view.roi_table_requested.connect(self.show_roi_table)
+        self._modeling_view.roi_table_requested.connect(self.show_roi_table)
         self._refresh_data_file_choices()
         saved = layout_settings.load_maximized().get("Explore", "")
         if saved in ("explore.image", "explore.spectrum"):
             self._explore_maximized = saved.removeprefix("explore.")
         self._sync_workspace_content_host()
 
+    def show_roi_table(self) -> None:
+        """Show the ROI table on the shown data file and the target selected in Model."""
+        self._roi_table.show_data_file(self._eda_view.shown_dataset_id())
+        target = self._modeling_view.current_target()
+        self._roi_table.focus_target(None if target is None else target.target_id)
+        was_hidden = self._roi_table_dock.isHidden()
+        self._roi_table_dock.show()
+        self._roi_table_dock.raise_()
+        if was_hidden and not self._roi_table_dock.isFloating():
+            # Next to the Explore docks it would get a few rows only.
+            self.resizeDocks([self._roi_table_dock], [max(360, self.height() // 2)],
+                             Qt.Orientation.Vertical)
+            self.resizeDocks([self._roi_table_dock], [460], Qt.Orientation.Horizontal)
+
     def _on_project_browser_selection_changed(self) -> None:
         payload = self._selected_project_browser_payload()
         if payload is not None and payload.get("kind") == "roi":
             self._canvas.select_roi(payload.get("id"))
+            self._roi_table.select_roi(str(payload.get("id")))
         else:
             self._canvas.select_roi(None)
         if payload is not None and payload.get("kind") == "model_run":
@@ -1476,6 +1502,7 @@ class HSIViewer(QMainWindow):
             self._dc3_dock,
             self._sensor_dock,
             self._spatial_dock,
+            self._roi_table_dock,
         ):
             action = _require_qt_object(
                 dock.toggleViewAction(), f"{dock.windowTitle()} toggle action"

@@ -270,7 +270,8 @@ The ROI creation flow is centred on `Spatial Image`:
 4. save the ROI and immediately show it as an overlay
 5. auto-select the new ROI in the canvas, project browser, and inspector
 
-Target assignment remains a separate modeling action.
+Target values are typed afterwards in the ROI table (`_roi_table.RoiTableWidget`),
+or in the ROI dialog for the selected target.
 
 This means ROI labels are display-only and do not need to be unique.
 Viewer-generated `target_id`, `sample_set_id`, and `model_run_id` values also
@@ -307,7 +308,7 @@ obvious.
 | Control | Action |
 |---|---|
 | **Target...** | Select one existing target or define a new target |
-| **Assign target** | Assign the active target to one ROI |
+| **Target values...** | Open the ROI table on the selected target: type, clear or paste the values of all ROIs |
 | **Build sample set** | Persist one v3 sample set from labeled ROIs using the active preprocessing recipe |
 | **Fit model** | Persist one `SignalDomainContract` and grouped v3 `ModelRun` |
 

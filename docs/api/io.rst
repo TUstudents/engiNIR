@@ -129,6 +129,8 @@ Saving objects
 
 .. autofunction:: enginir.io.project_store.remove_roi_from_project
 
+.. autofunction:: enginir.io.project_store.remove_target_assignment
+
 Writing large predictions incrementally
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

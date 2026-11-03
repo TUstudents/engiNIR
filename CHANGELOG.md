@@ -37,6 +37,13 @@
 
 ### Fixed
 
+- Replacing a stored target value (`Project.set_value`, and editing a value in
+  the viewer) was refused as a "duplicate target assignment". A new value now
+  replaces the stored one.
+- Re-attaching a registered data file warned "wavelength axis differs" for the
+  same file. The project stores wavelengths as float32, and the file's float64
+  axis differs from it by about 1e-4 nm. Axes are now compared at the stored
+  precision.
 - Large prediction maps are shown as a subsampled preview, and their axes
   and hover readout reported preview indices instead of the true frame and
   row. Axes, hover and CSV now use the true indices.

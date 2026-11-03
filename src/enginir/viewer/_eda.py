@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import Any, Protocol
 
 import numpy as np
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QFileDialog,
     QButtonGroup,
@@ -61,6 +62,9 @@ class _CanvasLike(Protocol):
 
 class EDAView(QWidget):
     """EDA controls for signal configuration, project files, and ROI drawing."""
+
+    #: Show the ROI table (target values of all ROIs).
+    roi_table_requested = pyqtSignal()
 
     def __init__(
         self,
@@ -287,6 +291,12 @@ class EDAView(QWidget):
         self._btn_roi_delete.setText("Delete ROI")
         self._btn_roi_delete.clicked.connect(self._delete_roi_btn_clicked)
         layout.addWidget(self._btn_roi_delete)
+
+        btn_table = QToolButton()
+        btn_table.setText("ROI table")
+        btn_table.setToolTip("Target values of all ROIs of the project")
+        btn_table.clicked.connect(self.roi_table_requested.emit)
+        layout.addWidget(btn_table)
 
         btn_export = QToolButton()
         btn_export.setText("Export csv")

@@ -33,9 +33,7 @@ from ..project import (
     ModelRun,
     SampleSet,
     SignalDomainContract,
-    TargetAssignment,
     TargetDefinition,
-    TrainingROI,
 )
 from ._jobs import BusyStatusWidget, BackgroundWorker, start_background_job
 from ._state import ProjectState, ViewerState
@@ -255,74 +253,6 @@ class TargetSelectionDialog(QDialog):
         return self._targets_by_id.get(selected_target_id)
 
 
-class AssignTargetValueDialog(QDialog):
-    """Dialog for assigning one selected target to one ROI."""
-
-    def __init__(
-        self,
-        target: TargetDefinition,
-        rois: list[TrainingROI],
-        current_assignments: dict[tuple[str, str], TargetAssignment],
-        parent: QWidget | None = None,
-    ) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("Assign Target Value")
-        self._target = target
-        self._current_assignments = current_assignments
-
-        layout = QFormLayout(self)
-        layout.addRow(
-            "Target:", QLabel(f"{target.name} ({target.unit})" if target.unit else target.name)
-        )
-
-        self._roi_combo = QComboBox()
-        for roi in rois:
-            label = f"{roi.name} [{roi.roi_id}]" if roi.name else roi.roi_id
-            self._roi_combo.addItem(label, roi.roi_id)
-        layout.addRow("ROI:", self._roi_combo)
-
-        self._value_edit = QLineEdit()
-        self._value_edit.setPlaceholderText("required")
-        layout.addRow("Value:", self._value_edit)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self._on_accept)
-        buttons.rejected.connect(self.reject)
-        layout.addRow(buttons)
-
-        self._roi_combo.currentIndexChanged.connect(self._prefill_assignment)
-        self._prefill_assignment()
-
-    def _prefill_assignment(self, _index: int = 0) -> None:
-        assignment = self._current_assignments.get((self.roi_id, self._target.target_id))
-        self._value_edit.setText("" if assignment is None else str(assignment.value))
-
-    def _on_accept(self) -> None:
-        text = self._value_edit.text().strip()
-        if not text:
-            QMessageBox.warning(self, "Validation", "Value is required.")
-            return
-        if _finite_float_from_text(text) is None:
-            QMessageBox.warning(self, "Validation", f"'{text}' is not a finite numeric value.")
-            return
-        self.accept()
-
-    @property
-    def roi_id(self) -> str:
-        """Return the selected ROI id for the target assignment."""
-        return str(self._roi_combo.currentData())
-
-    @property
-    def value(self) -> float:
-        """Return the finite target value entered by the user."""
-        value = _finite_float_from_text(self._value_edit.text().strip())
-        if value is None:
-            log_and_raise("AssignTargetValueDialog value requires finite numeric text")
-        return value
-
-
 class FitModelRunDialog(QDialog):
     """Dialog for selecting one sample set and model-fit configuration."""
 
@@ -414,6 +344,8 @@ class ModelingView(QWidget):
     """Modeling controls for target editing, sample-set builds, and model fitting."""
 
     view_state_changed = pyqtSignal()
+    #: Show the ROI table (target values of all ROIs).
+    roi_table_requested = pyqtSignal()
 
     def __init__(
         self,
@@ -509,9 +441,10 @@ class ModelingView(QWidget):
         action_grid.addWidget(self._btn_build_sample_set, 1, 1)
 
         self._btn_assign_target = QToolButton()
-        self._btn_assign_target.setText("Assign target")
+        self._btn_assign_target.setText("Target values...")
+        self._btn_assign_target.setToolTip("Type the reference values of all ROIs in the ROI table")
         configure_action(self._btn_assign_target)
-        self._btn_assign_target.clicked.connect(self.assign_target_btn_clicked)
+        self._btn_assign_target.clicked.connect(self.target_values_btn_clicked)
         action_grid.addWidget(self._btn_assign_target, 3, 0)
 
         self._btn_fit_model = QToolButton()
@@ -587,8 +520,8 @@ class ModelingView(QWidget):
         self._update_target_status()
         self._update_model_status()
 
-    def assign_target_btn_clicked(self) -> None:
-        target = self.current_target()
+    def target_values_btn_clicked(self) -> None:
+        """Open the ROI table on the selected target (ROI/target contract)."""
         if self.project_state.project_path is None:
             QMessageBox.warning(
                 self,
@@ -596,28 +529,7 @@ class ModelingView(QWidget):
                 "No project open. Use Project > New or Project > Open first.",
             )
             return
-        if target is None:
-            QMessageBox.warning(self, "No target selected", "Select or create a target first.")
-            return
-        rois = list(self.project_state.rois.values())
-        if not rois:
-            QMessageBox.information(
-                self, "No ROIs", "Draw a training ROI before assigning target values."
-            )
-            return
-        dlg = AssignTargetValueDialog(
-            target, rois, self.project_state.target_assignments, parent=self
-        )
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-        self.project_state.assign_target_to_roi(
-            TargetAssignment(
-                roi_id=dlg.roi_id,
-                target_id=target.target_id,
-                value=dlg.value,
-                assigned_at=now_iso(),
-            )
-        )
+        self.roi_table_requested.emit()
 
     def build_sample_set_btn_clicked(self) -> None:
         if self._job_thread is not None:
@@ -1443,7 +1355,6 @@ class ModelingView(QWidget):
 
 
 __all__ = [
-    "AssignTargetValueDialog",
     "FitModelRunDialog",
     "ModelingView",
     "NewROIDialog",

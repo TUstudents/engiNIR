@@ -91,9 +91,6 @@ Modeling view
 .. autoclass:: enginir.viewer._modeling.TargetSelectionDialog
    :members: target_name, target_unit, selected_target_id, creates_target
 
-.. autoclass:: enginir.viewer._modeling.AssignTargetValueDialog
-   :members: roi_id, value
-
 .. autoclass:: enginir.viewer._modeling.FitModelRunDialog
    :members: sample_set_id, model_type, n_components, signal_unit, cv
 
@@ -189,6 +186,17 @@ Data files
 
 .. autoclass:: enginir.viewer._data_files.DataFileRequest
    :members: add_dataset_kwargs
+
+ROI table
+---------
+
+.. automodule:: enginir.viewer._roi_table
+   :no-members:
+
+.. autoclass:: enginir.viewer._roi_table.RoiTableWidget
+   :members: show_data_file, focus_target, select_roi, paste_clipboard
+
+.. autofunction:: enginir.viewer._roi_table.parse_value
 
 ROI grid
 --------
