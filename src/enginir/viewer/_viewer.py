@@ -74,6 +74,7 @@ _COMPACT_LEFT_DOCK_WIDTH = 260
 _CONTROLS_DOCK_TARGET_HEIGHT = 230
 _SPECTRUM_PANEL_HEIGHT = 220
 _UNLIMITED_HEIGHT = 16777215  # QWIDGETSIZE_MAX
+_SAVED_MESSAGE_MS = 8000
 
 
 def _require_qt_object(value: _QtObject | None, context: str) -> _QtObject:
@@ -1139,9 +1140,21 @@ class HSIViewer(QMainWindow):
         self._populate_help_menu()
         self._default_layout_state = self.saveState()
         self._status_label = QLabel()
+        self._saved_label = QLabel()
+        self._saved_label.setObjectName("SavedMessage")
+        self._saved_clear = QTimer(self)
+        self._saved_clear.setSingleShot(True)
+        self._saved_clear.timeout.connect(self._saved_label.clear)
         status_bar = _require_qt_object(self.statusBar(), "main status bar")
         status_bar.addPermanentWidget(self._status_label, 1)
+        status_bar.addPermanentWidget(self._saved_label)
+        self.project_state.saved.connect(self._show_saved_message)
         self._update_status_strip()
+
+    def _show_saved_message(self, message: str) -> None:
+        """Confirm a project write in the status bar for a few seconds."""
+        self._saved_label.setText(f"✓ {message}")
+        self._saved_clear.start(_SAVED_MESSAGE_MS)
 
     def _viewer_busy_context(self, text: str) -> ViewerBusyContext:
         """Return a status-bar backed wait cursor context for blocking UI work."""
@@ -1270,6 +1283,7 @@ class HSIViewer(QMainWindow):
             )
             self._cube_path = normalized_path
             self._refresh_canvas_image()
+            self._eda_view.refresh_roi_overlays()
             self._eda_view.refresh_attachment_state()
             self._eda_view.update_project_status()
             self._update_status_strip()

@@ -492,7 +492,15 @@ runs.
 7. Repeat for each ROI.
 8. Each ROI is written immediately with a stable `roi_id`, the current
    dataset/calibration references, and raw spectra. If a target value is
-   provided, it is persisted separately as a `TargetAssignment`.
+   provided, it is persisted separately as a `TargetAssignment`. The status
+   bar confirms every write (`ProjectState.saved`).
+
+A project may hold ROIs from several data files. The canvas draws only the
+ROIs whose `dataset_id` is the project dataset of the shown file
+(`EDAView.refresh_roi_overlays`, `EDAView.shown_dataset_id`). Attach
+validation is per data file: an unregistered file is a new data file, and only
+a registered file that no longer matches its `DatasetRef` raises the warning
+gate (`_attachment.confirm_project_dataset_binding`).
 
 ```python
 # Inspect the canonical v3 project graph later

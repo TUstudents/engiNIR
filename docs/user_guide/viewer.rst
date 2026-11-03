@@ -105,8 +105,17 @@ To record training data:
 4. Name the ROI and, optionally, enter its reference value.
 
 The ROI is stored at once with its raw spectra, its dark and white reference
-pixels and the calibration in use, and appears in the browser. **Delete ROI**
-removes the selected ROI; **Export CSV** writes the ROI spectra to a CSV file.
+pixels and the calibration in use, and appears in the browser. The status bar
+confirms each write, for example "✓ ROI 'tablet 3' saved to project".
+**Delete ROI** removes the selected ROI; **Export CSV** writes the ROI spectra
+to a CSV file.
+
+A project can collect ROIs from several data files. The image shows only the
+ROIs drawn on the data file it displays; the browser lists all ROIs of the
+project. Attaching a data file the project does not know yet is not a
+mismatch. The viewer warns only when a registered data file has changed (a
+different format, shape or wavelength axis), and names the ROIs drawn from
+it.
 
 Model
 -----

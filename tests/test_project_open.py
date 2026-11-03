@@ -132,6 +132,27 @@ def test_open_project_from_project_only_window_skips_mismatch_warning(
     assert viewer.project_state.project_path == project_with_roi
 
 
+def test_attaching_another_data_file_does_not_warn_about_rois_of_other_files(
+    project_with_roi, small_cube, wavelengths, qapp, monkeypatch
+):
+    """A file that is not registered yet is a new data file of the project, not a mismatch."""
+    from PyQt6.QtWidgets import QMessageBox
+
+    from enginir.viewer._viewer import HSIViewer
+
+    warnings: list[str] = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args, **kwargs: (
+        warnings.append(str(args[2])) or QMessageBox.StandardButton.Cancel))
+
+    viewer = HSIViewer(small_cube, wavelengths)
+    viewer._cube_path = os.path.abspath("/other/cube.eiff")
+    viewer._open_project_btn_clicked_with_path(project_with_roi)
+
+    assert warnings == []
+    assert viewer.project_state.project_path == project_with_roi
+    assert viewer._canvas._roi_item_map == {}, "ROIs of /data/cube.eiff are not drawn here"
+
+
 @pytest.mark.parametrize(
     ("reply", "should_load"),
     [
@@ -139,7 +160,7 @@ def test_open_project_from_project_only_window_skips_mismatch_warning(
         ("Yes", True),
     ],
 )
-def test_attached_dataset_project_mismatch_uses_warning_gate(
+def test_a_registered_file_that_changed_uses_the_warning_gate(
     project_with_roi,
     small_cube,
     wavelengths,
@@ -148,6 +169,7 @@ def test_attached_dataset_project_mismatch_uses_warning_gate(
     reply,
     should_load,
 ):
+    """The file at a registered path no longer matches its DatasetRef (here: its shape)."""
     from PyQt6.QtWidgets import QMessageBox
 
     from enginir.viewer._viewer import HSIViewer
@@ -161,12 +183,14 @@ def test_attached_dataset_project_mismatch_uses_warning_gate(
         ),
     )
 
-    viewer = HSIViewer(small_cube, wavelengths)
-    viewer._cube_path = os.path.abspath("/other/cube.eiff")
+    viewer = HSIViewer(small_cube[:, :10], wavelengths)  # registered with 15 rows
+    viewer._cube_path = os.path.abspath("/data/cube.eiff")
     viewer._open_project_btn_clicked_with_path(project_with_roi)
 
     assert len(warnings) == 1
-    assert ("source file" in warnings[0]) or ("does not match" in warnings[0])
+    assert "no longer matches" in warnings[0]
+    assert "shape (frames, rows, bands): registered (20, 15, 50), file (20, 10, 50)" in warnings[0]
+    assert "'roi_x'" in warnings[0], "the ROIs drawn from it are named"
     assert (viewer.project_state.project_path == project_with_roi) is should_load
 
 

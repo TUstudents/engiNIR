@@ -354,6 +354,7 @@ def test_project_browser_selection_syncs_inspector_and_canvas(qapp, cube_and_wav
     _create_reopenable_model_project(str(project_path), wavelengths[:4])
 
     viewer = HSIViewer(cube, wavelengths)
+    viewer._cube_path = "/data/train.eiff"  # the window shows the data file of the ROIs
     viewer.project_state.open_project(str(project_path))
     qapp.processEvents()
 

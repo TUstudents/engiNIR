@@ -252,6 +252,19 @@ v3 rule:
 - project-only mode may inspect existing ROIs, but must not create new ones
 - newly created ROIs must not be derived from placeholder viewer state
 
+### ROI grid
+
+Many samples in one data file (a tray) may be created as a grid:
+
+- the user chooses one rectangle, the number of rows and columns, an inset
+  per cell, the cells to skip, and a name pattern
+- every cell becomes one `TrainingROI` with its own raw spectra, reference
+  snapshot and provenance, exactly as a single ROI
+- the grid is validated completely before anything is written, and written
+  completely or not at all; a failure leaves no ROI of the grid behind
+- names stay unique in the project; the default pattern starts with the data
+  file name
+
 ## 2. Define target
 
 When the user creates a new response variable such as `moisture` or `protein`,
@@ -267,6 +280,8 @@ Examples:
 When the user edits target values for an ROI:
 
 - one `TargetAssignment` is created or updated per `(roi_id, target_id)`
+- removing a value deletes the `TargetAssignment` of that pair; the ROI is
+  then unlabeled for that target, which is different from any stored value
 
 Examples:
 
@@ -296,8 +311,16 @@ v3 rule:
 
 ## 5. Review and edit targets
 
-The UI may expose one target at a time for editing or many targets in a grid.
-That is a UI decision.
+The viewer edits target values in an ROI table:
+
+- one row per ROI, showing its data file, name and pixel count
+- one column per target definition
+- an empty cell is a missing assignment, never zero
+- typing a value creates or updates the assignment when the cell is left;
+  clearing a cell removes it
+- pasting a column of values fills consecutive rows; values that are not
+  finite numbers are refused and nothing of that paste is written
+- the table works in project-only mode, without any data file
 
 The contract requirement is:
 
@@ -459,13 +482,13 @@ Out of scope for v3:
 Decision:
 
 - the domain model is multi-target
-- the v3 UI edits one selected target at a time
+- the v3 UI edits all targets in the ROI table, one column per target
+  (Workflow Semantics §5)
 
 Out of scope for v3:
 
-- multi-column target editing
-- simultaneous side-by-side editing of many targets
-- a dedicated multi-target spreadsheet editor
+- importing target values from external files (CSV, spreadsheets)
+- undo of target edits
 
 ### 3. Sample-unit interaction
 
@@ -494,3 +517,6 @@ This contract is implemented correctly when:
 - unlabeled ROIs remain valid project objects but are excluded from modeling for targets they do not have
 - targets are represented by explicit definitions and assignments, never by a
   single anonymous `y_value`
+- target values of all targets can be edited, removed and pasted in the ROI
+  table, also without any data file
+- an ROI grid is written completely or not at all

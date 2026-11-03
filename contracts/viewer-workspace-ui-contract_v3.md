@@ -239,25 +239,28 @@ right controls and views at the right phase.
 
 Purpose:
 
-- inspect the current dataset
+- inspect the data files of the project
 - choose signal/preprocessing/axis settings
-- create and review ROIs
+- create and review ROIs, including all ROIs stored in the project
 
 Primary task:
 
 - move from raw dataset context to validated ROI selection
 
-Primary content region:
+Primary content region, as two tabs:
 
-- spatial image
+1. `Data file`: the spatial image of the shown data file, with the ROI
+   rectangles of that data file only
+2. `Project ROIs`: all ROIs stored in the project, redrawn from the project
+   file without any data file (the ROI mosaic)
 
 Secondary content region:
 
-- sensor frame
-- spectral profile
-- spatial profile
-- histogram
-- DC3 / band slice
+- in `Data file`: sensor frame, spectral profile, spatial profile, histogram,
+  DC3 / band slice
+- in `Project ROIs`: the mean spectra of the shown ROIs and the pixel spectra
+  of the selected ROI, both in the current signal unit and preprocessing
+  preview, converted with each ROI's own stored references
 
 Required visual elements:
 
@@ -267,15 +270,32 @@ Required visual elements:
 - sensor-frame view
 - spatial profile
 - spectral profile
+- ROI mosaic: one tile per stored ROI, grouped by data file, with name and
+  current target value
+- ROI mean spectra coloured by the current target value
+- pixel spectra of the selected ROI
 
 Required controls:
 
 - project open/new
+- add data file (with its calibration) and choose the shown data file
 - signal unit selection
 - filtering/preprocessing preview controls
 - axis controls
-- ROI creation
+- ROI creation, single and as a grid
+- ROI table (target values)
 - ROI export
+
+Required behavior:
+
+- a project with ROIs opens on `Project ROIs`; that tab works in project-only
+  mode and with every data file missing
+- selecting an ROI in the mosaic, the ROI table, the browser or a Model plot
+  selects it everywhere; opening an ROI from the mosaic shows its data file in
+  `Data file` with the ROI highlighted
+- mosaic tiles and ROI spectra load off the UI thread; the first tiles appear
+  before all ROIs are read
+- the mosaic and the ROI spectra are plot panels (Plot Panel Policy)
 
 Required browser emphasis:
 
@@ -325,9 +345,10 @@ Required visible information:
 Required controls:
 
 - target selection/creation
-- target assignment editing
-- build sample set
-- fit model
+- target assignment editing (the ROI table)
+- fit model: one dialog with target, signal unit, preprocessing, model,
+  components and cross-validation; it builds or reuses the sample set of all
+  ROIs with a value for the target, from all data files
 
 Required browser emphasis:
 
@@ -340,7 +361,8 @@ Required preconditions surfaced in UI before running:
 - project open
 - at least one ROI
 - selected target
-- enough labeled ROIs for the chosen validation strategy
+- enough labeled ROIs for the chosen validation strategy, with the count of
+  labeled ROIs per data file
 - compatible signal-domain/calibration context
 
 Forbidden controls in Model:

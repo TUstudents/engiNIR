@@ -93,9 +93,9 @@ class EDAView(QWidget):
         layout.addWidget(self._roi_group())
 
         self.project_state.project_loaded.connect(self._update_project_status)
-        self.project_state.project_loaded.connect(self._on_rois_changed)
+        self.project_state.project_loaded.connect(self.refresh_roi_overlays)
         self.project_state.project_loaded.connect(self.refresh_attachment_state)
-        self.project_state.rois_changed.connect(self._on_rois_changed)
+        self.project_state.rois_changed.connect(self.refresh_roi_overlays)
         self.project_state.rois_changed.connect(self.refresh_attachment_state)
         self._canvas.roi_draw_finished.connect(self._on_canvas_roi_draw_finished)
         self._canvas.roi_draw_canceled.connect(self._on_canvas_roi_draw_canceled)
@@ -478,12 +478,31 @@ class EDAView(QWidget):
     def update_project_status(self) -> None:
         self._update_project_status()
 
-    def _on_rois_changed(self) -> None:
+    def refresh_roi_overlays(self) -> None:
+        """Draw the ROIs of the shown data file only (attachment contract).
+
+        ROIs of the project's other data files have no place on this image.
+        """
         self._canvas.clear_roi_rects()
-        for roi in self.project_state.rois.values():
-            f0, f1, r0, r1 = roi.spatial_bounds
-            self._canvas.add_roi_rect(f0, f1, r0, r1, roi.name, roi.roi_id)
+        dataset_id = self.shown_dataset_id()
+        if dataset_id is not None:
+            for roi in self.project_state.rois.values():
+                if roi.dataset_id != dataset_id:
+                    continue
+                f0, f1, r0, r1 = roi.spatial_bounds
+                self._canvas.add_roi_rect(f0, f1, r0, r1, roi.name, roi.roi_id)
         self._update_project_status()
+
+    def shown_dataset_id(self) -> str | None:
+        """The project dataset of the shown data file, or ``None`` if it is not registered."""
+        cube_path = self._cube_path_provider()
+        if not cube_path or not self._dataset_attached_provider():
+            return None
+        shown = os.path.abspath(cube_path)
+        for dataset in self.project_state.datasets.values():
+            if dataset.source_path and os.path.abspath(dataset.source_path) == shown:
+                return dataset.dataset_id
+        return None
 
     def _on_add_roi_toggled(self, enabled: bool) -> None:
         if enabled:

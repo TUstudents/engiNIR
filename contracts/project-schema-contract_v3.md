@@ -221,6 +221,12 @@ Explicit exceptions, each already governed by its own contract rule:
 - prediction staging: `initialize`/`write`/`finalize`/`discard` mutate the
   staged prediction group as part of the lifecycle status contract; the
   one-shot prediction writer is immutable like other objects
+- `DatasetRef.source_path`: the path is a location, not identity. It may be
+  updated after `Locate file...` has verified the file against the dataset
+  and against the stored raw pixels of its ROIs
+  (`project-dataset-attachment-contract_v3.md`, Missing and moved files)
+- `TargetAssignment` removal: deleting the assignment of a `(roi_id,
+  target_id)` pair returns it to "no value" (`roi-target-contract_v3.md`)
 
 ## Required Object Relationships
 

@@ -36,3 +36,27 @@ def _enginir_records_enabled():
     """Let tests observe enginir log records (the library is muted by default)."""
     logger.enable("enginir")
     yield
+
+
+@pytest.fixture(autouse=True)
+def _unexpected_message_boxes_fail(monkeypatch):
+    """An unexpected modal message box fails the test instead of blocking it.
+
+    Under the offscreen Qt platform a modal dialog waits forever, and the
+    per-test timeout does not interrupt Qt's event loop. Tests that expect a
+    dialog replace these functions themselves (their monkeypatch wins).
+    """
+    try:
+        from PyQt6.QtWidgets import QMessageBox
+    except ImportError:  # Qt-free environments
+        return
+
+    def unexpected(kind):
+        def show(*args, **_kwargs):
+            title = args[1] if len(args) > 1 else ""
+            text = args[2] if len(args) > 2 else ""
+            raise AssertionError(f"unexpected QMessageBox.{kind}: {title!r}: {text!r}")
+        return staticmethod(show)
+
+    for kind in ("warning", "critical", "information", "question"):
+        monkeypatch.setattr(QMessageBox, kind, unexpected(kind))

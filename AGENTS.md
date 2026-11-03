@@ -29,7 +29,7 @@ hide warnings.
   code, docs or this file disagree with a contract, the contract wins; change
   a contract only deliberately and in the same change as the code.
 - `docs/contract_coverage.md` maps every contract rule to its implementation
-  and tests, with the gap register (`G01`–`G19`). Update it when you close or
+  and tests, with the gap register (`G01`–`G20`). Update it when you close or
   open a gap.
 - `docs/hdf5_format.md` documents the project file layout.
 

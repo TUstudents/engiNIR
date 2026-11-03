@@ -108,6 +108,8 @@ class ProjectState(QObject):
     model_fitted = pyqtSignal(str)
     active_model_changed = pyqtSignal(str)
     prediction_completed = pyqtSignal(str)
+    #: A short message after a user-visible write, e.g. "ROI 'A01' saved to project".
+    saved = pyqtSignal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -210,12 +212,20 @@ class ProjectState(QObject):
         self._require_project("define_target").save_target(target)
         self._sync()
         self.targets_changed.emit()
+        self.saved.emit(f"Target '{target.name}' saved to project")
 
     def assign_target_to_roi(self, assignment: TargetAssignment) -> None:
         """Persist one ROI/target assignment."""
         self._require_project("assign_target_to_roi").save_assignment(assignment)
         self._sync()
         self.target_assignments_changed.emit()
+        target = self.targets.get(assignment.target_id)
+        roi = self.rois.get(assignment.roi_id)
+        unit = f" {target.unit}" if target is not None and target.unit else ""
+        self.saved.emit(
+            f"{target.name if target is not None else assignment.target_id} = "
+            f"{assignment.value:g}{unit} saved for ROI "
+            f"'{roi.name if roi is not None else assignment.roi_id}'")
 
     def add_roi(
         self,
@@ -231,6 +241,7 @@ class ProjectState(QObject):
         self._sync()
         logger.info("Added ROI '{}' ({} pixels)", roi.name, roi.n_pixels)
         self.rois_changed.emit()
+        self.saved.emit(f"ROI '{roi.name}' saved to project ({roi.n_pixels} pixels)")
 
     def register_recipe(self, recipe_id: str, recipe_dict: dict[str, Any]) -> None:
         """Persist a preprocessing recipe."""
@@ -477,10 +488,13 @@ class ProjectState(QObject):
 
     def remove_roi(self, roi_id: str) -> None:
         """Delete an ROI and its assignments."""
+        removed = self.rois.get(roi_id)
         affected_sample_set_ids = self._require_project("remove_roi").remove_roi(roi_id)
         self._sync()
         logger.info("Removed ROI '{}'", roi_id)
         self.rois_changed.emit()
+        self.saved.emit(f"ROI '{removed.name if removed is not None else roi_id}' "
+                        "removed from project")
         self.target_assignments_changed.emit()
         if affected_sample_set_ids:
             self.sample_sets_changed.emit()

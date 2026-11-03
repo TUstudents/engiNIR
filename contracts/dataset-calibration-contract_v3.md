@@ -365,6 +365,34 @@ or update an explicit `CalibrationSpec` for that dataset.
 
 The active viewer state must reference that calibration spec.
 
+The calibration is chosen when a data file is added to a project
+(`project-dataset-attachment-contract_v3.md`, Adding a data file). The dark and
+white references of `dark_white_reference` come from one of these sources:
+
+- **another file**: averaged over all its frames, giving one reference
+  spectrum per row and band
+- **a frame range of the data file itself**, such as a white tile or
+  shutter-closed frames scanned in the same image: averaged over those frames
+- **another data file of the project**: its reference arrays are copied
+  into a new `CalibrationSpec` of the new dataset; calibrations stay
+  dataset-local
+
+Required behavior:
+
+- `dark_ref_source` and `white_ref_source` record the source, for example
+  `white.eiff` or `tray03.eiff frames 0-20`; for copied references they keep
+  the original source
+- before a reference is accepted, the UI shows its mean spectrum and the share
+  of saturated values
+- scalar `black_level`/`white_level` remain the fallback without references
+
+Replacing the active calibration of a data file that already has ROIs
+applies to ROIs drawn afterwards only:
+
+- existing ROIs keep the calibration and the reference snapshot they were
+  drawn with
+- the UI must say so before the change, with the number of affected ROIs
+
 ## 3. Draw ROIs
 
 When a training ROI is persisted, the ROI provenance must record:
@@ -619,10 +647,15 @@ Decision:
 
 - `DatasetRef` and `CalibrationSpec` are persisted inside the project file
 
+Resolved:
+
+- a moved or renamed file is mapped back with `Locate file...`. It is
+  verified against the `DatasetRef` and the stored raw ROI pixels, then
+  `source_path` is updated (`project-dataset-attachment-contract_v3.md`).
+
 Still to specify:
 
 - whether any optional external cache or registry is allowed as a secondary optimization
-- how project-internal dataset records map to imported files that are later moved or renamed
 
 ### 3. Multiple calibration specs per dataset
 
