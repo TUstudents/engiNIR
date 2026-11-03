@@ -30,13 +30,13 @@ NAME_PATTERNS = (
 class GridDefaults:
     """The geometry and naming a new ROI grid starts with (pixels; x = frames, y = rows)."""
 
-    n_rows: int = 4
-    n_columns: int = 6
-    width: int = 20
-    height: int = 20
-    origin_x: int = 0
-    origin_y: int = 0
-    spacing_x: int = 10
+    n_rows: int = 1
+    n_columns: int = 5
+    width: int = 180
+    height: int = 110
+    origin_x: int = 150
+    origin_y: int = 64
+    spacing_x: int = 214
     spacing_y: int = 10
     name_pattern: str = NAME_PATTERNS[0]
     order: str = "rows"

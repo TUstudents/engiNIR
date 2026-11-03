@@ -222,7 +222,7 @@ ROI grid
    :no-members:
 
 .. autoclass:: enginir.viewer._roi_grid.RoiGridDialog
-   :members: set_values, set_grid, toggle_cell, redraw_preview
+   :members: set_values, set_grid, toggle_cell, redraw_preview, make_defaults
 
 .. autoclass:: enginir.viewer._roi_grid.GridDefaultsDialog
    :no-members:

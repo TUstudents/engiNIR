@@ -132,7 +132,8 @@ layout.
 
 Changes in the dialog apply to that grid only: the next grid starts from the
 Options defaults again. Set them once for your tray holder in **Options >
-ROI Grid Defaults** (stored in your user settings).
+ROI Grid Defaults**, or press **Make defaults** in the grid dialog to keep
+the current values for every new grid (stored in your user settings).
 
 The ROI is stored at once with its raw spectra, its dark and white reference
 pixels and the calibration in use, and appears in the browser. The status bar

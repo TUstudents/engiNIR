@@ -175,6 +175,10 @@ class RoiGridDialog(QDialog):
         select_all.clicked.connect(lambda: self._select_all(True))
         select_none = QPushButton("Select none")
         select_none.clicked.connect(lambda: self._select_all(False))
+        self._make_defaults = QPushButton("Make defaults")
+        self._make_defaults.setToolTip("Use this geometry and these names for every new ROI grid "
+                                       "(Options > ROI Grid Defaults)")
+        self._make_defaults.clicked.connect(self.make_defaults)
         select_row = QHBoxLayout()
         hint = QLabel("Click a cell to mark an empty position.")
         hint.setStyleSheet(secondary_text_style())
@@ -195,6 +199,12 @@ class RoiGridDialog(QDialog):
         form_box = QFormLayout()
         form_box.addRow(self.form)
         layout.addLayout(form_box)
+        defaults_row = QHBoxLayout()
+        self._defaults_note = QLabel("")
+        self._defaults_note.setStyleSheet(secondary_text_style())
+        defaults_row.addWidget(self._defaults_note, 1)
+        defaults_row.addWidget(self._make_defaults)
+        layout.addLayout(defaults_row)
         layout.addLayout(select_row)
         layout.addWidget(self._cell_area)
         layout.addWidget(self._status)
@@ -209,6 +219,12 @@ class RoiGridDialog(QDialog):
     def set_grid(self, **changes: Any) -> None:
         """Change some values, e.g. ``set_grid(n_rows=2, width=30)``."""
         self.form.set_values(replace(self.form.values(), **changes))
+
+    def make_defaults(self) -> None:
+        """Store the dialog's geometry and names as the defaults of every new ROI grid."""
+        save_grid_defaults(self.form.values())
+        logger.info("ROI grid defaults saved from the grid dialog: {}", self.form.values())
+        self._defaults_note.setText("Saved as the defaults for new grids.")
 
     def redraw_preview(self) -> None:
         """Report the current cells again (e.g. once the image is connected)."""
@@ -259,6 +275,7 @@ class RoiGridDialog(QDialog):
 
     def _update(self, *_args: Any) -> None:
         v = self.form.values()
+        self._defaults_note.setText("")
         if self._shape != (v.n_rows, v.n_columns):
             self._rebuild_cells(v.n_rows, v.n_columns)
         ok = self._buttons_box.button(QDialogButtonBox.StandardButton.Ok)

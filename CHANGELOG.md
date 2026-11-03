@@ -35,7 +35,9 @@
     origin and spacing in pixels, with empty positions and a selectable name
     pattern, drawn live on the image (outside cells red) and stored all or
     none (`roi_grid`, `Dataset.add_rois`). Every grid starts from **Options >
-    ROI Grid Defaults**; each ROI records its grid position and layout.
+    ROI Grid Defaults** (built in: 5 x 1 ROIs of 180 x 110 px, origin 150, 64,
+    spacing 214, 10); **Make defaults** in the grid dialog keeps the current
+    values for new grids. Each ROI records its grid position and layout.
   - The **ROI table** holds the values of every ROI for every target: type
     with Enter to the next row, clear to remove (`set_value(..., None)`),
     paste a column (checked first). It works without the data files.

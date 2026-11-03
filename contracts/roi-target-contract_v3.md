@@ -267,8 +267,10 @@ Many samples in one data file (a tray) may be created as a grid:
 - every created ROI lies inside the image; positions marked empty may lie
   outside it
 - a new grid starts from the user's defaults (Options > ROI Grid Defaults,
-  kept in the user settings, origin 0, 0 unless changed); changes in the grid
-  dialog apply to that grid only
+  kept in the user settings; built in: 5 columns x 1 row, ROI 180 x 110,
+  origin 150, 64, spacing 214, 10); changes in the grid dialog apply to that
+  grid only, unless the user makes them the defaults from the dialog
+  (`Make defaults`)
 - each ROI's provenance records its grid position (e.g. `B4`) and the grid
   geometry
 - every cell becomes one `TrainingROI` with its own raw spectra, reference

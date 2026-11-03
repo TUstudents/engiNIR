@@ -531,7 +531,8 @@ def test_a_grid_with_a_taken_name_is_refused_in_the_dialog(qapp, tmp_path, monke
     first = project.add_dataset(paths[0])
     first.add_roi("stream_hsi-A01", frames=(0, 3), rows=(0, 3))
     project.add_dataset(paths[1])
-    save_grid_defaults(GridDefaults(n_rows=1, n_columns=2, width=4, height=4, spacing_x=0))
+    save_grid_defaults(GridDefaults(n_rows=1, n_columns=2, width=4, height=4, origin_x=0,
+                                    origin_y=0, spacing_x=0))
     seen: list[tuple[str, bool]] = []
 
     def answer(dialog):
@@ -563,7 +564,8 @@ def test_the_grid_dialog_reports_counts_outside_cells_and_invalid_patterns(qapp)
     from enginir.viewer._roi_grid import RoiGridDialog
 
     dialog = RoiGridDialog((40, 20), file="tray03", defaults=GridDefaults(
-        n_rows=2, n_columns=4, width=10, height=10, spacing_x=0, spacing_y=0))
+        n_rows=2, n_columns=4, width=10, height=10, origin_x=0, origin_y=0, spacing_x=0,
+        spacing_y=0))
     previews: list[tuple[int, int, int]] = []
     dialog.preview_changed.connect(lambda cells, skipped, outside: previews.append(
         (len(cells), len(skipped), len(outside))))
@@ -652,3 +654,21 @@ def test_profile_axes_fit_their_labels_after_a_file_is_shown(qapp, tmp_path):
                 type(panel).__name__
     finally:
         window.close()
+
+
+def test_make_defaults_in_the_grid_dialog_sets_the_next_grid(qapp):
+    from enginir.viewer._grid_settings import GridDefaults, load_grid_defaults
+    from enginir.viewer._roi_grid import RoiGridDialog
+
+    built_in = GridDefaults()
+    assert (built_in.n_columns, built_in.n_rows, built_in.width, built_in.height,
+            built_in.origin_x, built_in.origin_y, built_in.spacing_x, built_in.spacing_y) \
+        == (5, 1, 180, 110, 150, 64, 214, 10)
+    dialog = RoiGridDialog((2000, 300), file="tray", defaults=load_grid_defaults())
+    dialog.set_grid(n_rows=2, width=170, spacing_y=20)
+    assert load_grid_defaults() == built_in  # a change in the dialog is for this grid only
+    dialog._make_defaults.click()
+    assert load_grid_defaults() == dialog.form.values()
+    assert load_grid_defaults().width == 170
+    following = RoiGridDialog((2000, 300), file="tray", defaults=load_grid_defaults())
+    assert following.form.values() == dialog.form.values()
