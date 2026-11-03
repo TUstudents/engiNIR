@@ -309,12 +309,14 @@ obvious.
 |---|---|
 | **Target...** | Select one existing target or define a new target |
 | **Target values...** | Open the ROI table on the selected target: type, clear or paste the values of all ROIs |
-| **Build sample set** | Persist one v3 sample set from labeled ROIs using the active preprocessing recipe |
-| **Fit model** | Persist one `SignalDomainContract` and grouped v3 `ModelRun` |
+| **Fit model** | One dialog: target, signal unit, preprocessing (prefilled from the Explore preview), model, components, validation, and the labelled ROIs per data file; stores the grouped v3 `ModelRun` |
 
-The Modeling section operates from project state. Sample sets are built from
-persisted ROIs plus `TargetAssignment`s, and model fitting uses ROI-grouped CV
-with ROI-level primary reporting.
+The Modeling section operates from project state. The fit dialog finds the
+sample set of all ROIs with a value for the target (`resolve_sample_set`,
+the rule `Project.fit` uses): an equal stored sample set, recipe and
+`SignalDomainContract` are reused, new ones are stored only together with
+the fitted model. A refused or failed fit writes nothing. Model fitting uses
+ROI-grouped CV with ROI-level primary reporting.
 
 ### Predict workspace
 

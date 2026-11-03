@@ -318,8 +318,7 @@ Purpose:
 
 - define targets
 - assign target values
-- build sample sets
-- fit models
+- fit models (the fit builds or reuses the sample set)
 
 Primary task:
 
@@ -603,8 +602,7 @@ A test that iterates over all registered plots verifies this.
 
 The following actions are long-running service actions in v3:
 
-- build sample set
-- fit model
+- fit model (including building its sample set)
 - run prediction
 
 Required behavior:

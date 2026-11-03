@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
+import os
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
 from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
     QGridLayout,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -27,7 +31,8 @@ from PyQt6.QtWidgets import (
 from .._checks import log_and_raise
 from .._logging import get_logger
 from ..io.project_store import load_model_run_artifact_refs
-from ..modeling import build_sample_set as build_project_sample_set
+from .._workflow import recipe_id_for, resolve_sample_set, resolve_signal_domain
+from ..preprocessing import PreprocessingRecipe
 from ..project import check_signal_domain_compatibility
 from ..project import (
     ModelRun,
@@ -254,25 +259,84 @@ class TargetSelectionDialog(QDialog):
 
 
 class FitModelRunDialog(QDialog):
-    """Dialog for selecting one sample set and model-fit configuration."""
+    """Everything a fit needs in one place (model diagnostics contract).
+
+    Target, signal unit, preprocessing (starting from the Explore preview,
+    but shown and chosen here), model, components and cross-validation. The
+    sample set is the set of all ROIs with a value for the target, from all
+    data files; ``readiness(target_id)`` describes it before the fit.
+    """
 
     def __init__(
         self,
-        sample_sets: list[tuple[str, str]],
+        targets: list[tuple[str, str]],
         *,
-        default_sample_set_id: str | None,
+        default_target_id: str | None,
+        recipe: PreprocessingRecipe,
         default_signal_unit: str,
+        readiness: Callable[[str], tuple[str, bool]],
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Fit Model Run")
-
+        self.setWindowTitle("Fit model")
+        self._readiness = readiness
         layout = QFormLayout(self)
 
-        self._sample_set_combo = QComboBox()
-        for sample_set_id, label in sample_sets:
-            self._sample_set_combo.addItem(label, sample_set_id)
-        layout.addRow("Sample set:", self._sample_set_combo)
+        self._target_combo = QComboBox()
+        for target_id, label in targets:
+            self._target_combo.addItem(label, target_id)
+        if default_target_id is not None:
+            self._target_combo.setCurrentIndex(max(0, self._target_combo.findData(
+                default_target_id)))
+        self._target_combo.currentIndexChanged.connect(self._update_readiness)
+        layout.addRow("Target:", self._target_combo)
+
+        self._signal_unit_combo = QComboBox()
+        self._signal_unit_combo.addItems(["DN", "Reflectance", "Absorbance"])
+        current_signal_index = self._signal_unit_combo.findText(default_signal_unit)
+        if current_signal_index >= 0:
+            self._signal_unit_combo.setCurrentIndex(current_signal_index)
+        layout.addRow("Signal unit:", self._signal_unit_combo)
+
+        self._filter_combo = QComboBox()
+        for label, value in (("None", "none"), ("SG smooth", "sg_smooth"),
+                             ("SG 1st derivative", "sg_d1"), ("SG 2nd derivative", "sg_d2")):
+            self._filter_combo.addItem(label, value)
+        self._filter_combo.setCurrentIndex(max(0, self._filter_combo.findData(recipe.filter)))
+        self._window_spin = QSpinBox()
+        self._window_spin.setRange(3, 101)
+        self._window_spin.setSingleStep(2)
+        self._window_spin.setValue(recipe.sg_window)
+        self._poly_spin = QSpinBox()
+        self._poly_spin.setRange(1, 10)
+        self._poly_spin.setValue(recipe.sg_polyorder)
+        filter_row = QHBoxLayout()
+        filter_row.addWidget(self._filter_combo, 1)
+        filter_row.addWidget(QLabel("window"))
+        filter_row.addWidget(self._window_spin)
+        filter_row.addWidget(QLabel("order"))
+        filter_row.addWidget(self._poly_spin)
+        layout.addRow("Filter:", filter_row)
+        self._snv = QCheckBox("SNV")
+        self._msc = QCheckBox("MSC")
+        self._emsc = QCheckBox("EMSC")
+        self._detrend = QCheckBox("Detrend")
+        self._detrend_order = QSpinBox()
+        self._detrend_order.setRange(1, 3)
+        self._detrend_order.setValue(recipe.detrend_order)
+        for box, value in ((self._snv, recipe.snv), (self._msc, recipe.msc),
+                           (self._emsc, recipe.emsc), (self._detrend, recipe.detrend)):
+            box.setChecked(value)
+        scatter_row = QHBoxLayout()
+        for widget in (self._snv, self._msc, self._emsc, self._detrend, self._detrend_order):
+            scatter_row.addWidget(widget)
+        layout.addRow("Normalization:", scatter_row)
+        self._filter_combo.currentIndexChanged.connect(self._update_enabled)
+        self._detrend.toggled.connect(self._update_enabled)
+        self._update_enabled()
+        hint = QLabel("Starts from the Explore preview; the model is trained with this.")
+        hint.setStyleSheet(secondary_text_style())
+        layout.addRow("", hint)
 
         self._model_type_combo = QComboBox()
         self._model_type_combo.addItems(["PLS", "PCR"])
@@ -283,41 +347,74 @@ class FitModelRunDialog(QDialog):
         self._components_spin.setValue(6)
         layout.addRow("Components:", self._components_spin)
 
-        self._signal_unit_combo = QComboBox()
-        self._signal_unit_combo.addItems(["DN", "Reflectance", "Absorbance"])
-        current_signal_index = self._signal_unit_combo.findText(default_signal_unit)
-        if current_signal_index >= 0:
-            self._signal_unit_combo.setCurrentIndex(current_signal_index)
-        layout.addRow("Signal unit:", self._signal_unit_combo)
-
         self._cv_combo = QComboBox()
         self._cv_combo.addItem("Auto grouped (7 folds or leave-one-ROI-out)", "auto")
         self._cv_combo.addItem("Leave-one-ROI-out", "logo")
         self._cv_combo.addItem("7 folds", 7)
         layout.addRow("Validation:", self._cv_combo)
 
-        buttons = QDialogButtonBox(
+        self._readiness_label = QLabel("")
+        self._readiness_label.setWordWrap(True)
+        layout.addRow("Sample set:", self._readiness_label)
+
+        self._buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        buttons.accepted.connect(self._on_accept)
-        buttons.rejected.connect(self.reject)
-        layout.addRow(buttons)
+        self._buttons.accepted.connect(self._on_accept)
+        self._buttons.rejected.connect(self.reject)
+        layout.addRow(self._buttons)
+        self._update_readiness()
 
-        if default_sample_set_id is not None:
-            current_index = self._sample_set_combo.findData(default_sample_set_id)
-            if current_index >= 0:
-                self._sample_set_combo.setCurrentIndex(current_index)
+    def _update_enabled(self, *_args: Any) -> None:
+        smoothing = self._filter_combo.currentData() != "none"
+        self._window_spin.setEnabled(smoothing)
+        self._poly_spin.setEnabled(smoothing)
+        self._detrend_order.setEnabled(self._detrend.isChecked())
+
+    def _update_readiness(self, *_args: Any) -> None:
+        target_id = self._target_combo.currentData()
+        text, ready = ("Define a target first.", False) if target_id is None \
+            else self._readiness(str(target_id))
+        self._readiness_label.setText(text)
+        ok = self._buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if ok is not None:
+            ok.setEnabled(ready)
+
+    @property
+    def readiness_text(self) -> str:
+        return self._readiness_label.text()
 
     def _on_accept(self) -> None:
-        if self._sample_set_combo.currentIndex() < 0:
-            QMessageBox.warning(self, "Validation", "Select a sample set first.")
+        try:
+            self.recipe  # noqa: B018 (validates the preprocessing)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Preprocessing", str(exc))
             return
         self.accept()
 
     @property
-    def sample_set_id(self) -> str:
-        """Return the selected sample-set id."""
-        return str(self._sample_set_combo.currentData())
+    def target_id(self) -> str:
+        """Return the selected target id."""
+        return str(self._target_combo.currentData())
+
+    @property
+    def recipe(self) -> PreprocessingRecipe:
+        """The chosen preprocessing (raises ``ValueError`` if it is not valid)."""
+        return PreprocessingRecipe(
+            filter=str(self._filter_combo.currentData()), sg_window=self._window_spin.value(),
+            sg_polyorder=self._poly_spin.value(), snv=self._snv.isChecked(),
+            msc=self._msc.isChecked(), emsc=self._emsc.isChecked(),
+            detrend=self._detrend.isChecked(), detrend_order=self._detrend_order.value())
+
+    def set_recipe(self, recipe: PreprocessingRecipe) -> None:
+        """Choose a preprocessing (for scripts and tests)."""
+        self._filter_combo.setCurrentIndex(max(0, self._filter_combo.findData(recipe.filter)))
+        self._window_spin.setValue(recipe.sg_window)
+        self._poly_spin.setValue(recipe.sg_polyorder)
+        for box, value in ((self._snv, recipe.snv), (self._msc, recipe.msc),
+                           (self._emsc, recipe.emsc), (self._detrend, recipe.detrend)):
+            box.setChecked(value)
+        self._detrend_order.setValue(recipe.detrend_order)
 
     @property
     def model_type(self) -> str:
@@ -434,18 +531,12 @@ class ModelingView(QWidget):
         self._btn_target.clicked.connect(self.select_target_btn_clicked)
         action_grid.addWidget(self._btn_target, 1, 0)
 
-        self._btn_build_sample_set = QToolButton()
-        self._btn_build_sample_set.setText("Build sample set")
-        configure_action(self._btn_build_sample_set)
-        self._btn_build_sample_set.clicked.connect(self.build_sample_set_btn_clicked)
-        action_grid.addWidget(self._btn_build_sample_set, 1, 1)
-
         self._btn_assign_target = QToolButton()
         self._btn_assign_target.setText("Target values...")
         self._btn_assign_target.setToolTip("Type the reference values of all ROIs in the ROI table")
         configure_action(self._btn_assign_target)
         self._btn_assign_target.clicked.connect(self.target_values_btn_clicked)
-        action_grid.addWidget(self._btn_assign_target, 3, 0)
+        action_grid.addWidget(self._btn_assign_target, 1, 1)
 
         self._btn_fit_model = QToolButton()
         self._btn_fit_model.setText("Fit model")
@@ -531,91 +622,47 @@ class ModelingView(QWidget):
             return
         self.roi_table_requested.emit()
 
-    def build_sample_set_btn_clicked(self) -> None:
-        if self._job_thread is not None:
-            return
-        if self.project_state.project_path is None:
-            QMessageBox.warning(
-                self, "No project open", "Open a project before building a sample set."
-            )
-            return
-        target = self.current_target()
-        if target is None:
-            QMessageBox.warning(
-                self, "No target selected", "Select a target before building a sample set."
-            )
-            return
-        if not self.project_state.rois:
-            QMessageBox.information(
-                self, "No ROIs", "Draw at least one ROI before building a sample set."
-            )
-            return
-
-        recipe_id = str(uuid.uuid4())
-        recipe_dict = self.state.recipe.to_dict()
-        project_path = self._require_project_path()
-        rois = dict(self.project_state.rois)
-        target_assignments = dict(self.project_state.target_assignments)
-
-        def job():
-            return build_project_sample_set(
-                project_path=project_path,
-                rois=rois,
-                target_assignments=target_assignments,
-                target_id=target.target_id,
-                preprocessing_recipe_id=recipe_id,
-            )
-
-        self._set_busy(True, "Building sample set...")
-        self._job_thread, self._job_worker, self._job_relay = start_background_job(
-            owner=self,
-            fn=job,
-            on_success=lambda sample_set_data: self._on_build_sample_set_success(
-                sample_set_data=sample_set_data,
-                recipe_id=recipe_id,
-                recipe_dict=recipe_dict,
-                project_path=project_path,
-            ),
-            on_error=lambda msg: self._on_job_error("Build sample set failed", msg),
-            on_finished=self._clear_job,
-        )
-
     def fit_model_btn_clicked(self) -> None:
         if self._job_thread is not None:
             return
-        if self.project_state.project_path is None:
+        state = self.project_state
+        if state.project_path is None:
             QMessageBox.warning(self, "No project open", "Open a project before fitting a model.")
             return
-        if not self.project_state.sample_sets:
-            QMessageBox.information(
-                self,
-                "No sample sets",
-                "Build a sample set before fitting a model.",
-            )
+        if not state.targets:
+            QMessageBox.information(self, "No target", "Define a target and its values first.")
             return
-
+        current = self.current_target()
         dlg = FitModelRunDialog(
-            self._sample_set_choices(),
-            default_sample_set_id=self._default_sample_set_id(),
+            [(target_id, target.name if not target.unit else f"{target.name} ({target.unit})")
+             for target_id, target in sorted(state.targets.items(),
+                                             key=lambda item: item[1].name.lower())],
+            default_target_id=None if current is None else current.target_id,
+            recipe=self.state.recipe,
             default_signal_unit=self.state.y_unit,
+            readiness=self.fit_readiness,
             parent=self,
         )
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        sample_set = self.project_state.sample_sets[dlg.sample_set_id]
+        self._selected_target_id = dlg.target_id
+        planned = self._plan_fit_sample_set(dlg.target_id, dlg.recipe)
+        if planned is None:
+            return
+        sample_set, is_new, recipe = planned
+        # Like Project.fit: check, fit, and store the recipe and sample set only with the model.
         preflight_error = self._validate_fit_preflight(
-            sample_set_id=dlg.sample_set_id,
+            sample_set=sample_set,
             cv=dlg.cv,
             required_signal_unit=dlg.signal_unit,
         )
         if preflight_error is not None:
             QMessageBox.warning(self, "Fit model failed", preflight_error)
             return
-
-        signal_domain = self._build_signal_domain_contract(
-            sample_set_id=dlg.sample_set_id,
+        signal_domain = resolve_signal_domain(self._build_signal_domain_contract(
+            sample_set=sample_set,
             required_signal_unit=dlg.signal_unit,
-        )
+        ), self.project_state.signal_domains)
         project_path = self._require_project_path()
         target = self.project_state.targets.get(sample_set.target_id)
         target_name = None if target is None else target.name
@@ -626,6 +673,7 @@ class ModelingView(QWidget):
         rois = dict(self.project_state.rois)
         target_assignments = dict(self.project_state.target_assignments)
         recipes = dict(self.project_state.recipes)
+        recipes.setdefault(sample_set.preprocessing_recipe_id, recipe.to_dict())
 
         from ..modeling import fit_model_run as fit_project_model_run
 
@@ -654,20 +702,64 @@ class ModelingView(QWidget):
                 model_run_result=model_run_result,
                 signal_domain=signal_domain,
                 project_path=project_path,
+                sample_set=sample_set if is_new else None,
+                recipe=recipe,
             ),
             on_error=lambda msg: self._on_job_error("Fit model failed", msg),
             on_finished=self._clear_job,
         )
 
+    def fit_readiness(self, target_id: str) -> tuple[str, bool]:
+        """What a fit of ``target_id`` would use, per data file; and whether it can run."""
+        state = self.project_state
+        per_file: dict[str, list[int]] = {}
+        for roi in state.rois.values():
+            counts = per_file.setdefault(roi.dataset_id, [0, 0])
+            counts[1] += 1
+            counts[0] += (roi.roi_id, target_id) in state.target_assignments
+        lines = []
+        for dataset_id, (labelled, total) in sorted(
+                per_file.items(), key=lambda item: self._data_file_name(item[0]).lower()):
+            lines.append(f"{self._data_file_name(dataset_id)}: {labelled} of {total} ROIs "
+                         "have a value")
+        try:
+            sample_set, _new = resolve_sample_set(
+                rois=state.rois, target_assignments=state.target_assignments,
+                target_id=target_id, recipe_id="recipe_preview", sample_sets={})
+        except ValueError as exc:
+            lines.append(f"Cannot fit: {exc}")
+            return "\n".join(lines), False
+        lines.append(f"The model uses {len(sample_set.roi_ids)} ROIs from "
+                     f"{len(sample_set.dataset_ids)} data file(s).")
+        return "\n".join(lines), True
+
+    def _data_file_name(self, dataset_id: str) -> str:
+        dataset = self.project_state.datasets.get(dataset_id)
+        return os.path.basename(dataset.source_path) if dataset is not None else dataset_id
+
+    def _plan_fit_sample_set(self, target_id: str, recipe: PreprocessingRecipe
+                             ) -> tuple[SampleSet, bool, PreprocessingRecipe] | None:
+        """The stored sample set of the target's labelled ROIs with ``recipe``, or a new one."""
+        state = self.project_state
+        try:
+            sample_set, is_new = resolve_sample_set(
+                rois=state.rois, target_assignments=state.target_assignments,
+                target_id=target_id, recipe_id=recipe_id_for(recipe),
+                sample_sets=state.sample_sets)
+        except ValueError as exc:
+            logger.error("No sample set for the fit: {}", exc)
+            QMessageBox.warning(self, "Fit model failed", str(exc))
+            return None
+        return sample_set, is_new, recipe
+
     def _validate_fit_preflight(
         self,
         *,
-        sample_set_id: str,
+        sample_set: SampleSet,
         cv: int | str,
         required_signal_unit: str,
     ) -> str | None:
-        sample_set = self.project_state.sample_sets[sample_set_id]
-        stale_message = self.project_state.stale_sample_set_message(sample_set_id)
+        stale_message = self._stale_message(sample_set)
         if stale_message is not None:
             return stale_message
         n_roi_groups = self._sample_set_group_count(sample_set)
@@ -675,23 +767,18 @@ class ModelingView(QWidget):
         if cv_error is not None:
             return cv_error
         signal_domain_error = self._validate_signal_domain_preflight(
-            sample_set_id=sample_set_id,
+            sample_set=sample_set,
             required_signal_unit=required_signal_unit,
         )
         if signal_domain_error is not None:
             return signal_domain_error
         return None
 
-    def _sample_set_choices(self) -> list[tuple[str, str]]:
-        choices: list[tuple[str, str]] = []
-        for sample_set_id, sample_set in self.project_state.sample_sets.items():
-            target = self.project_state.targets.get(sample_set.target_id)
-            target_label = target.name if target is not None else sample_set.target_id
-            label = f"{target_label} [{sample_set_id}]"
-            if self.project_state.missing_roi_ids_for_sample_set(sample_set_id):
-                label += " (stale: deleted ROI)"
-            choices.append((sample_set_id, label))
-        return choices
+    def _stale_message(self, sample_set: SampleSet) -> str | None:
+        """Why a stored sample set cannot be refit (a planned one is never stale)."""
+        if sample_set.sample_set_id not in self.project_state.sample_sets:
+            return None
+        return self.project_state.stale_sample_set_message(sample_set.sample_set_id)
 
     def _default_sample_set_id(self) -> str | None:
         current_target = self.current_target()
@@ -711,11 +798,10 @@ class ModelingView(QWidget):
     def _build_signal_domain_contract(
         self,
         *,
-        sample_set_id: str,
+        sample_set: SampleSet,
         required_signal_unit: str,
     ) -> SignalDomainContract:
-        sample_set = self.project_state.sample_sets[sample_set_id]
-        stale_message = self.project_state.stale_sample_set_message(sample_set_id)
+        stale_message = self._stale_message(sample_set)
         if stale_message is not None:
             log_and_raise("{}", stale_message)
         # Opening the project validated that every ROI's dataset and calibration exist.
@@ -1110,7 +1196,7 @@ class ModelingView(QWidget):
             labeled_count = len(labeled_roi_ids)
             label = "ROI" if labeled_count == 1 else "ROIs"
             self._readiness_status.setText(
-                f"Ready: build a sample set from {labeled_count} labeled {label}."
+                f"Ready: fit a model from {labeled_count} labeled {label}."
             )
             return
 
@@ -1139,7 +1225,7 @@ class ModelingView(QWidget):
                     elif n_roi_groups < 7:
                         details.append("Auto validation will use leave-one-ROI-out")
                     signal_domain_error = self._validate_signal_domain_preflight(
-                        sample_set_id=sample_set.sample_set_id,
+                        sample_set=sample_set,
                         required_signal_unit=str(self.state.y_unit_effective),
                     )
                     if signal_domain_error is not None:
@@ -1168,39 +1254,25 @@ class ModelingView(QWidget):
         )
         return True
 
-    def _on_build_sample_set_success(
-        self,
-        *,
-        sample_set_data: Any,
-        recipe_id: str,
-        recipe_dict: dict[str, object],
-        project_path: str,
-    ) -> None:
-        if self._job_result_is_stale(project_path, what="sample set"):
-            return
-        try:
-            self.project_state.register_recipe(recipe_id, recipe_dict)
-            self.project_state.create_sample_set(sample_set_data.sample_set)
-        except Exception as exc:
-            logger.exception("Persisting the built sample set failed")
-            self._on_job_error("Build sample set failed", str(exc))
-            return
-        self._last_sample_set_id = sample_set_data.sample_set.sample_set_id
-        self._service_status.set_idle(
-            f"Service: sample set {sample_set_data.sample_set.sample_set_id}"
-        )
-        self._update_model_status()
-
     def _on_fit_model_success(
         self,
         *,
         model_run_result: Any,
         signal_domain: SignalDomainContract,
         project_path: str,
+        sample_set: SampleSet | None = None,
+        recipe: PreprocessingRecipe | None = None,
     ) -> None:
+        """Store the fitted run with its new sample set and recipe (``None``: already stored)."""
         if self._job_result_is_stale(project_path, what="model run"):
             return
+        state = self.project_state
         try:
+            if sample_set is not None and recipe is not None \
+                    and sample_set.preprocessing_recipe_id not in state.recipes:
+                state.register_recipe(sample_set.preprocessing_recipe_id, recipe.to_dict())
+            if sample_set is not None and sample_set.sample_set_id not in state.sample_sets:
+                state.create_sample_set(sample_set)
             self.project_state.finalize_model_run_result(
                 model_run_result=model_run_result,
                 signal_domain=signal_domain,
@@ -1209,6 +1281,7 @@ class ModelingView(QWidget):
             logger.exception("Persisting the fitted model run failed")
             self._on_job_error("Fit model failed", str(exc))
             return
+        self._last_sample_set_id = model_run_result.model_run.sample_set_id
         self._service_status.set_idle(f"Service: model {model_run_result.model_run.model_run_id}")
         self._update_model_status()
 
@@ -1224,7 +1297,6 @@ class ModelingView(QWidget):
     def _set_busy(self, busy: bool, text: str | None = None) -> None:
         self._btn_target.setEnabled(not busy)
         self._btn_assign_target.setEnabled(not busy)
-        self._btn_build_sample_set.setEnabled(not busy)
         self._btn_fit_model.setEnabled(not busy)
         if busy:
             self._service_status.set_busy(text or "Working...")
@@ -1239,7 +1311,6 @@ class ModelingView(QWidget):
         self._job_relay = None
         self._btn_target.setEnabled(True)
         self._btn_assign_target.setEnabled(True)
-        self._btn_build_sample_set.setEnabled(True)
         self._btn_fit_model.setEnabled(True)
 
     def _selected_workspace_model_run(self) -> ModelRun | None:
@@ -1313,21 +1384,21 @@ class ModelingView(QWidget):
     def _validate_signal_domain_preflight(
         self,
         *,
-        sample_set_id: str,
+        sample_set: SampleSet,
         required_signal_unit: str,
     ) -> str | None:
-        stale_message = self.project_state.stale_sample_set_message(sample_set_id)
+        sample_set_id = sample_set.sample_set_id
+        stale_message = self._stale_message(sample_set)
         if stale_message is not None:
             return stale_message
         try:
             signal_domain = self._build_signal_domain_contract(
-                sample_set_id=sample_set_id,
+                sample_set=sample_set,
                 required_signal_unit=required_signal_unit,
             )
         except ValueError as exc:
             return str(exc)
 
-        sample_set = self.project_state.sample_sets[sample_set_id]
         checked_contexts: set[tuple[str, str]] = set()
         for roi_id in sample_set.roi_ids:
             if roi_id not in self.project_state.rois:

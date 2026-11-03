@@ -2,7 +2,7 @@
 
 Branch: `feature/multi-file-workflow`, based on `feature/plot-panels` (it uses
 the plot panels and plot pages). It merges after that branch.
-Status: phases 0–6 done
+Status: phases 0–7 done
 Date: 2026-11-02
 
 ## Goal
@@ -656,6 +656,40 @@ Tests:
 - Remove Build sample set from the UI.
 - Tests: refitting with the same settings reuses the sample set, recipe and
   signal domain; a different recipe creates a new sample set.
+
+**Done (2026-11-03).**
+
+Library:
+
+- `modeling.plan_sample_set` builds a sample set without reading spectra;
+  `build_sample_set` uses it.
+- `_workflow.resolve_sample_set`, `resolve_signal_domain` and
+  `recipe_id_for` are shared rules; `Project.fit` uses them.
+
+Viewer:
+
+- `FitModelRunDialog` shows the target, the signal unit, the preprocessing
+  (prefilled from the Explore preview; window/order and the detrend order
+  are enabled only when they apply), the model, components and validation.
+  The readiness line counts the ROIs with a value per data file and gives
+  the reason when a fit cannot run; OK is enabled only then.
+- The fit plans the sample set, checks it (stale ROIs, CV groups, signal
+  domain), fits, and stores the recipe, sample set and signal domain only
+  with the model, like `Project.fit`. A refused or failed fit writes
+  nothing. An equal stored sample set or signal domain is reused.
+- The Build sample set button and its job are gone.
+
+Tests:
+
+- `tests/test_modeling_view.py`: the build tests are replaced by four tests:
+  dialog prefill and readiness, refit reuse (sample set and signal domain)
+  and a new sample set for another recipe, failed fit, refused fit.
+- Five injected faults were caught: the dialog's recipe ignored, no reuse,
+  storing before the fit, readiness ignoring the target, no signal-domain
+  reuse.
+- Seen once in five runs: a segmentation fault while
+  `test_a_window_draws_only_the_rois_of_its_data_file` opens two windows.
+  It is in code this phase does not change and did not recur.
 
 ### Phase 8: reopen and relink
 

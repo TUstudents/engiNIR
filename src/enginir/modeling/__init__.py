@@ -12,6 +12,7 @@ from ._service import (
     aggregate_sample_set_predictions,
     build_sample_set,
     fit_model_run,
+    plan_sample_set,
     roi_spectrum_summaries,
     roi_to_signal_domain,
 )
@@ -23,6 +24,7 @@ __all__ = [
     "aggregate_sample_set_predictions",
     "build_sample_set",
     "fit_model_run",
+    "plan_sample_set",
     "roi_spectrum_summaries",
     "roi_to_signal_domain",
 ]

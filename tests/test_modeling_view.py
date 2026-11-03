@@ -7,13 +7,12 @@ import types
 
 import numpy as np
 import pytest
-from PyQt6.QtWidgets import QDialog, QMessageBox
+from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QMessageBox
 
 from enginir.project import (
     CalibrationSpec,
     DatasetRef,
     ModelRun,
-    SampleSet,
     TargetAssignment,
     TargetDefinition,
     TrainingROI,
@@ -133,111 +132,8 @@ def test_new_roi_dialog_rejects_non_finite_target_value(qapp, state_and_project,
     assert dialog.result() == 0
 
 
-def test_build_sample_set_from_selected_target(qapp, state_and_project):
-    from enginir.viewer._modeling import ModelingView
-
-    state, project = state_and_project
-    project.define_target(
-        TargetDefinition(
-            target_id="target_1",
-            name="moisture",
-            unit="% w/w",
-            value_type="float",
-            missing_value_policy="allowed",
-            created_at="2026-04-02T10:00:00+00:00",
-        )
-    )
-    for roi_id, value, start in [("roi_1", 3.2, 0), ("roi_2", 3.8, 2)]:
-        project.add_roi(
-            TrainingROI(
-                roi_id=roi_id,
-                dataset_id="dataset_1",
-                calibration_id="cal_1",
-                name=roi_id,
-                wavelengths=state.wavelengths.astype("float32"),
-                n_pixels=4,
-                spatial_bounds=(start, start + 1, 0, 1),
-                source_file="cube.eiff",
-                created_at="2026-04-02T10:01:00+00:00",
-                provenance=_roi_provenance(),
-            ),
-            np.arange(32, 64, dtype=np.uint16).reshape(4, 8)
-            if roi_id == "roi_2"
-            else np.arange(32, dtype=np.uint16).reshape(4, 8),
-        )
-        project.assign_target_to_roi(
-            TargetAssignment(
-                roi_id=roi_id,
-                target_id="target_1",
-                value=value,
-                assigned_at="2026-04-02T10:02:00+00:00",
-            )
-        )
-
-    view = ModelingView(state, project)
-    view._selected_target_id = "target_1"
-    view.build_sample_set_btn_clicked()
-    _wait_until(qapp, lambda: len(project.sample_sets) == 1)
-
-    sample_set = next(iter(project.sample_sets.values()))
-    assert sample_set.target_id == "target_1"
-    assert view._service_status.label.text().startswith("Service: sample set ")
-    assert "fit a model" in view._readiness_status.text().lower()
-
-
-def test_build_sample_set_failure_is_reported_without_persisting_recipe(
-    qapp, state_and_project, monkeypatch
-):
-    from enginir.viewer._modeling import ModelingView
-
-    state, project = state_and_project
-    project.define_target(
-        TargetDefinition(
-            target_id="target_unlabeled",
-            name="protein",
-            unit="% w/w",
-            value_type="float",
-            missing_value_policy="allowed",
-            created_at="2026-04-02T10:05:00+00:00",
-        )
-    )
-    project.add_roi(
-        TrainingROI(
-            roi_id="roi_unlabeled",
-            dataset_id="dataset_1",
-            calibration_id="cal_1",
-            name="grain_b",
-            wavelengths=state.wavelengths.astype("float32"),
-            n_pixels=4,
-            spatial_bounds=(0, 1, 0, 1),
-            source_file="cube.eiff",
-            created_at="2026-04-02T10:06:00+00:00",
-            provenance=_roi_provenance(),
-        ),
-        np.arange(32, dtype=np.uint16).reshape(4, 8),
-    )
-
-    warnings: list[str] = []
-    monkeypatch.setattr(
-        QMessageBox, "warning", lambda *args, **kwargs: warnings.append(str(args[2]))
-    )
-
-    view = ModelingView(state, project)
-    view._selected_target_id = "target_unlabeled"
-    recipes_before = set(project.recipes)
-    sample_sets_before = set(project.sample_sets)
-    view.build_sample_set_btn_clicked()
-    _wait_until(qapp, lambda: bool(warnings))
-
-    assert "has a value for target" in warnings[0]
-    assert set(project.recipes) == recipes_before
-    assert set(project.sample_sets) == sample_sets_before
-
-
-def test_fit_model_builds_signal_domain_and_persists_run(qapp, state_and_project, monkeypatch):
-    from enginir.viewer._modeling import FitModelRunDialog, ModelingView
-
-    state, project = state_and_project
+def _labelled_rois(state, project, values=(3.2, 3.8), *, unlabelled=0):
+    """A Reflectance calibration, target ``moisture`` and one ROI per value (plus unlabelled)."""
     project.set_active_calibration(
         CalibrationSpec(
             calibration_id="cal_1",
@@ -263,7 +159,8 @@ def test_fit_model_builds_signal_domain_and_persists_run(qapp, state_and_project
             created_at="2026-04-02T10:01:00+00:00",
         )
     )
-    for roi_id, value, start in [("roi_1", 3.2, 0), ("roi_2", 3.8, 2)]:
+    for index in range(len(values) + unlabelled):
+        roi_id = f"roi_{index + 1}"
         project.add_roi(
             TrainingROI(
                 roi_id=roi_id,
@@ -272,58 +169,36 @@ def test_fit_model_builds_signal_domain_and_persists_run(qapp, state_and_project
                 name=roi_id,
                 wavelengths=state.wavelengths.astype("float32"),
                 n_pixels=4,
-                spatial_bounds=(start, start + 1, 0, 1),
+                spatial_bounds=(index, index, 0, 3),
                 source_file="/tmp/cube.eiff",
                 created_at="2026-04-02T10:01:30+00:00",
                 provenance=_roi_provenance(),
             ),
-            np.arange(32, 64, dtype=np.uint16).reshape(4, 8)
-            if roi_id == "roi_2"
-            else np.arange(32, dtype=np.uint16).reshape(4, 8),
+            np.arange(32 * index, 32 * (index + 1), dtype=np.uint16).reshape(4, 8),
         )
-        project.assign_target_to_roi(
-            TargetAssignment(
-                roi_id=roi_id,
-                target_id="target_1",
-                value=value,
-                assigned_at="2026-04-02T10:02:00+00:00",
+        if index < len(values):
+            project.assign_target_to_roi(
+                TargetAssignment(
+                    roi_id=roi_id,
+                    target_id="target_1",
+                    value=values[index],
+                    assigned_at="2026-04-02T10:02:00+00:00",
+                )
             )
-        )
-    project.register_recipe("recipe_1", state.recipe.to_dict())
-    project.create_sample_set(
-        SampleSet(
-            sample_set_id="sample_set_1",
-            roi_ids=["roi_1", "roi_2"],
-            target_id="target_1",
-            observation_unit="pixel",
-            target_level="roi",
-            grouping_unit="roi",
-            validation_unit="roi",
-            weighting_policy="per_pixel_unweighted",
-            reporting_level="roi",
-            roi_aggregation="mean",
-            preprocessing_recipe_id="recipe_1",
-            dataset_ids=["dataset_1"],
-            created_at="2026-04-02T10:03:00+00:00",
-        )
-    )
 
-    def fake_exec(self):
-        self._signal_unit_combo.setCurrentIndex(self._signal_unit_combo.findText("Reflectance"))
-        return QDialog.DialogCode.Accepted
 
-    monkeypatch.setattr(FitModelRunDialog, "exec", fake_exec)
-    captured: dict[str, object] = {}
-
-    def fake_fit_model_run(**kwargs):
-        captured.update(kwargs)
+def _fake_fit(captured: list[dict[str, object]], *, fail: bool = False):
+    def fit(**kwargs):
+        captured.append(kwargs)
+        if fail:
+            raise RuntimeError("fit exploded")
         return types.SimpleNamespace(
             model_run=ModelRun(
-                model_run_id="model_1",
+                model_run_id=f"model_{len(captured)}",
                 sample_set_id=kwargs["sample_set"].sample_set_id,
                 signal_domain_id=kwargs["signal_domain_id"],
                 model_type="PLS",
-                hyperparameters={"n_components": 6},
+                hyperparameters={"n_components": 1},
                 cv_spec={},
                 metrics={"rmsecv": 1.23},
                 artifact_refs={},
@@ -332,78 +207,113 @@ def test_fit_model_builds_signal_domain_and_persists_run(qapp, state_and_project
             predictor=object(),
         )
 
-    monkeypatch.setattr("enginir.modeling.fit_model_run", fake_fit_model_run)
+    return fit
+
+
+def test_fit_dialog_starts_from_the_preview_and_explains_readiness(qapp, state_and_project):
+    from enginir.viewer._modeling import FitModelRunDialog, ModelingView
+
+    state, project = state_and_project
+    _labelled_rois(state, project, unlabelled=1)
+    project.define_target(TargetDefinition(
+        target_id="target_2", name="fat", unit="%", value_type="float",
+        missing_value_policy="allowed", created_at="2026-04-02T10:01:00+00:00"))
+    state.set_preprocess_snv(True)
+    view = ModelingView(state, project)
+    dialog = FitModelRunDialog([("target_1", "moisture"), ("target_2", "fat")],
+                               default_target_id="target_1", recipe=state.recipe,
+                               default_signal_unit="Reflectance",
+                               readiness=view.fit_readiness)
+    assert dialog.target_id == "target_1" and dialog.recipe == state.recipe
+    assert dialog.readiness_text.splitlines() == [
+        "cube.eiff: 2 of 3 ROIs have a value",
+        "The model uses 2 ROIs from 1 data file(s).",
+    ]
+    ok = dialog._buttons.button(QDialogButtonBox.StandardButton.Ok)
+    assert ok.isEnabled()
+
+    dialog._target_combo.setCurrentIndex(1)  # fat: no values yet
+    assert dialog.readiness_text.startswith("cube.eiff: 0 of 3 ROIs have a value\nCannot fit:")
+    assert not ok.isEnabled()
+
+
+def test_a_fit_stores_its_sample_set_and_a_refit_reuses_it(qapp, state_and_project, monkeypatch):
+    from enginir import PreprocessingRecipe
+    from enginir._workflow import recipe_id_for
+    from enginir.viewer._modeling import FitModelRunDialog, ModelingView
+
+    state, project = state_and_project
+    _labelled_rois(state, project)
+    chosen = {"recipe": state.recipe}
+
+    def fake_exec(self):
+        self._signal_unit_combo.setCurrentIndex(self._signal_unit_combo.findText("Reflectance"))
+        self.set_recipe(chosen["recipe"])
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(FitModelRunDialog, "exec", fake_exec)
+    captured: list[dict[str, object]] = []
+    monkeypatch.setattr("enginir.modeling.fit_model_run", _fake_fit(captured))
 
     view = ModelingView(state, project)
     view._selected_target_id = "target_1"
     view.fit_model_btn_clicked()
     _wait_until(qapp, lambda: "model_1" in project.model_runs)
-
-    assert captured["sample_set"].sample_set_id == "sample_set_1"
-    assert "signal_domain_id" in captured
-    assert captured["cv"] == "auto"
+    (sample_set,) = project.sample_sets.values()
+    assert sample_set.roi_ids == ["roi_1", "roi_2"] and sample_set.target_id == "target_1"
+    assert sample_set.preprocessing_recipe_id == recipe_id_for(state.recipe)
+    assert captured[0]["cv"] == "auto"
     assert view._service_status.label.text() == "Service: model model_1"
+
+    _wait_until(qapp, lambda: view._job_thread is None)
+    view.fit_model_btn_clicked()  # the same choices: the same sample set
+    _wait_until(qapp, lambda: "model_2" in project.model_runs)
+    assert list(project.sample_sets) == [sample_set.sample_set_id]
+    assert project.model_runs["model_2"].sample_set_id == sample_set.sample_set_id
+    assert len(project.signal_domains) == 1
+    assert project.model_runs["model_2"].signal_domain_id \
+        == project.model_runs["model_1"].signal_domain_id
+
+    _wait_until(qapp, lambda: view._job_thread is None)
+    chosen["recipe"] = PreprocessingRecipe(snv=True)  # another preprocessing: a new sample set
+    view.fit_model_btn_clicked()
+    _wait_until(qapp, lambda: "model_3" in project.model_runs)
+    snv_id = recipe_id_for(PreprocessingRecipe(snv=True))
+    assert len(project.sample_sets) == 2 and snv_id in project.recipes
+    assert project.sample_sets[project.model_runs["model_3"].sample_set_id] \
+        .preprocessing_recipe_id == snv_id
+    assert snv_id in captured[2]["recipes"]  # the fit was trained with the chosen recipe
+
+
+def test_a_failed_fit_stores_nothing(qapp, state_and_project, monkeypatch):
+    from enginir.viewer._modeling import FitModelRunDialog, ModelingView
+
+    state, project = state_and_project
+    _labelled_rois(state, project)
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        QMessageBox, "warning", lambda *args, **kwargs: warnings.append(str(args[2]))
+    )
+    state.set_y_unit("Reflectance")
+    monkeypatch.setattr(FitModelRunDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
+    captured: list[dict[str, object]] = []
+    monkeypatch.setattr("enginir.modeling.fit_model_run", _fake_fit(captured, fail=True))
+    recipes_before = set(project.recipes)
+
+    view = ModelingView(state, project)
+    view.fit_model_btn_clicked()
+    _wait_until(qapp, lambda: bool(warnings))
+
+    assert captured and "fit exploded" in warnings[0]
+    assert project.sample_sets == {} and set(project.recipes) == recipes_before
+    assert project.model_runs == {}
 
 
 def test_fit_model_group_validation_guard(qapp, state_and_project, monkeypatch):
     from enginir.viewer._modeling import FitModelRunDialog, ModelingView
 
     state, project = state_and_project
-    project.define_target(
-        TargetDefinition(
-            target_id="target_1",
-            name="moisture",
-            unit="% w/w",
-            value_type="float",
-            missing_value_policy="allowed",
-            created_at="2026-04-02T10:01:00+00:00",
-        )
-    )
-    for roi_id, value, start in [("roi_1", 3.2, 0), ("roi_2", 3.8, 2)]:
-        project.add_roi(
-            TrainingROI(
-                roi_id=roi_id,
-                dataset_id="dataset_1",
-                calibration_id="cal_1",
-                name=roi_id,
-                wavelengths=state.wavelengths.astype("float32"),
-                n_pixels=4,
-                spatial_bounds=(start, start + 1, 0, 1),
-                source_file="/tmp/cube.eiff",
-                created_at="2026-04-02T10:01:30+00:00",
-                provenance=_roi_provenance(),
-            ),
-            np.arange(32, 64, dtype=np.uint16).reshape(4, 8)
-            if roi_id == "roi_2"
-            else np.arange(32, dtype=np.uint16).reshape(4, 8),
-        )
-        project.assign_target_to_roi(
-            TargetAssignment(
-                roi_id=roi_id,
-                target_id="target_1",
-                value=value,
-                assigned_at="2026-04-02T10:02:00+00:00",
-            )
-        )
-    project.register_recipe("recipe_1", state.recipe.to_dict())
-    project.create_sample_set(
-        SampleSet(
-            sample_set_id="sample_set_1",
-            roi_ids=["roi_1", "roi_2"],
-            target_id="target_1",
-            observation_unit="pixel",
-            target_level="roi",
-            grouping_unit="roi",
-            validation_unit="roi",
-            weighting_policy="per_pixel_unweighted",
-            reporting_level="roi",
-            roi_aggregation="mean",
-            preprocessing_recipe_id="recipe_1",
-            dataset_ids=["dataset_1"],
-            created_at="2026-04-02T10:03:00+00:00",
-        )
-    )
-
+    _labelled_rois(state, project)
     warnings: list[str] = []
     monkeypatch.setattr(
         QMessageBox, "warning", lambda *args, **kwargs: warnings.append(str(args[2]))
@@ -425,6 +335,7 @@ def test_fit_model_group_validation_guard(qapp, state_and_project, monkeypatch):
     assert warnings == [
         "7-fold grouped validation requires at least 7 ROI groups in the selected sample set."
     ]
+    assert project.sample_sets == {}, "a refused fit writes nothing"
 
 
 @pytest.mark.parametrize("model_type", ["PLS", "PCR"])

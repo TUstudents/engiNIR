@@ -92,7 +92,7 @@ Modeling view
    :members: target_name, target_unit, selected_target_id, creates_target
 
 .. autoclass:: enginir.viewer._modeling.FitModelRunDialog
-   :members: sample_set_id, model_type, n_components, signal_unit, cv
+   :members: target_id, recipe, set_recipe, model_type, n_components, signal_unit, cv
 
 Prediction view
 ---------------

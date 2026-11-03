@@ -13,6 +13,8 @@ groups for validation, ROI-mean reporting) are listed in
 
 .. autofunction:: enginir.modeling.build_sample_set
 
+.. autofunction:: enginir.modeling.plan_sample_set
+
 .. autofunction:: enginir.modeling.fit_model_run
 
 .. autofunction:: enginir.modeling.aggregate_sample_set_predictions

@@ -21,7 +21,7 @@ from ._checks import log_and_raise
 from ._logging import get_logger
 from .io import file_format, load_spectra
 from .io import project_store as store
-from .modeling import build_sample_set, fit_model_run
+from .modeling import fit_model_run, plan_sample_set
 from .prediction import (
     PredictionResult,
     build_dataset_ref_from_spectral_data,
@@ -48,7 +48,8 @@ logger = get_logger(__name__)
 
 __all__ = ["DEFAULT_BLACK_LEVEL", "DEFAULT_WHITE_LEVEL", "Dataset", "GridCell", "Model",
            "Prediction", "Project", "make_calibration", "make_roi", "read_frames", "read_header",
-           "resolve_calibration", "resolve_dataset", "resolve_prediction_calibration",
+           "recipe_id_for", "resolve_calibration", "resolve_dataset",
+           "resolve_prediction_calibration", "resolve_sample_set", "resolve_signal_domain",
            "roi_grid"]
 
 #: Dark and white detector levels of EVK cameras, used when a dataset is
@@ -267,13 +268,12 @@ class Project:
             self._require_new_name(ws.model_runs.values(), name, "model", key=self._model_name)
         recipes = {**ws.recipes, recipe_id: recipe_dict}
 
-        built = build_sample_set(project_path=self.path, rois=ws.rois,
-                                 target_assignments=ws.target_assignments,
-                                 target_id=target_ref.target_id,
-                                 preprocessing_recipe_id=recipe_id)
-        sample_set = _existing(ws.sample_sets.values(), built.sample_set, _same_sample_set)
-        domain = self._training_signal_domain(sample_set)
-        domain = _existing(ws.signal_domains.values(), domain, _same_signal_domain)
+        # The fit reads the spectra; the sample set itself needs none.
+        sample_set, _new = resolve_sample_set(
+            rois=ws.rois, target_assignments=ws.target_assignments,
+            target_id=target_ref.target_id, recipe_id=recipe_id, sample_sets=ws.sample_sets)
+        domain = resolve_signal_domain(self._training_signal_domain(sample_set),
+                                       ws.signal_domains)
         result = fit_model_run(
             project_path=self.path, sample_set=sample_set, datasets=ws.datasets,
             calibrations=ws.calibrations, rois=ws.rois,
@@ -935,6 +935,47 @@ def _row_letters(index: int) -> str:
         index, remainder = divmod(index - 1, 26)
         letters = chr(ord("A") + remainder) + letters
     return letters
+
+
+def recipe_id_for(recipe: PreprocessingRecipe | Mapping[str, Any] | None) -> str:
+    """The content-derived id of a preprocessing recipe: the same steps give the same id."""
+    return _recipe_id(_as_recipe(recipe))
+
+
+def resolve_signal_domain(candidate: SignalDomainContract,
+                          signal_domains: Mapping[str, SignalDomainContract]
+                          ) -> SignalDomainContract:
+    """Return the stored signal domain with the content of ``candidate``, or ``candidate``.
+
+    Refitting with the same data and signal unit reuses the stored contract
+    instead of adding an equal one with a new id.
+    """
+    return _existing(signal_domains.values(), candidate, _same_signal_domain)
+
+
+def resolve_sample_set(
+    *,
+    rois: Mapping[str, TrainingROI],
+    target_assignments: Mapping[tuple[str, str], TargetAssignment],
+    target_id: str,
+    recipe_id: str,
+    sample_sets: Mapping[str, SampleSet],
+) -> tuple[SampleSet, bool]:
+    """The sample set of every ROI with a value for ``target_id``, and whether it is new.
+
+    A stored sample set with the same ROIs, target and recipe is reused;
+    otherwise a new one is returned (not yet stored). No spectra are read.
+
+    Raises
+    ------
+    ValueError
+        If no ROI has a value for the target, or the labelled ROIs have
+        different wavelength axes (see :func:`enginir.modeling.plan_sample_set`).
+    """
+    planned = plan_sample_set(rois=dict(rois), target_assignments=dict(target_assignments),
+                              target_id=target_id, preprocessing_recipe_id=recipe_id)
+    stored = _existing(sample_sets.values(), planned, _same_sample_set)
+    return stored, stored is planned
 
 
 def resolve_dataset(

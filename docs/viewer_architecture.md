@@ -20,7 +20,7 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_recent.py` | MRU file list (`~/.config/enginir/recent.json`) |
 | `_eda.py` | `EDAView` — signal, preprocessing, project, and ROI controls |
 | `_attachment.py` | Project/dataset binding validation |
-| `_modeling.py` | `ModelingView` — target, sample set, and model fit workflows |
+| `_modeling.py` | `ModelingView` — target, target values (ROI table) and the fit dialog |
 | `_model_diagnostics.py` | Model workspace diagnostics surface |
 | `_prediction.py` | `PredictionView` and `PredictionMapWidget` |
 | `_browser.py` | Read-only workspace object tree |
@@ -167,7 +167,7 @@ Pattern: `_jobs.py:start_background_job(owner, fn, on_success, on_error, on_fini
 5. Starts thread
 6. Returns `(thread, worker, relay)` — caller must store all three
 
-**Used by:** `_modeling.py` (build sample set, fit model), `_prediction.py` (predict dataset), `_loading.py` (launcher startup jobs)
+**Used by:** `_modeling.py` (fit model), `_prediction.py` (predict dataset), `_loading.py` (launcher startup jobs)
 
 **Error contract:** `BackgroundWorker.run()` catches `Exception`, logs via `logger.error`, emits `failed(str)`. Callers show `QMessageBox` in `on_error` callback.
 

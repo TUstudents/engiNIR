@@ -194,8 +194,15 @@ values...** in Model, from **ROI table** in Explore, or from the View menu:
 - The table works from the project file alone; the data files are not
   needed.
 
-The controls build the sample set of all ROIs with a value
-(**Build sample set**) and fit PLS or PCR (**Fit model**). Cross-validation keeps the pixels of one ROI together, and
+**Fit model** opens one dialog with everything the fit needs: the target,
+the signal unit, the preprocessing (it starts from the Explore preview, but
+what the dialog shows is what the model is trained with), PLS or PCR, the
+number of components and the validation. Below, the dialog counts per data
+file how many ROIs have a value for the target and says why a fit cannot run
+yet; **OK** is enabled only when it can. The model uses all ROIs with a
+value, from all data files. Fitting again with the same target, ROIs and
+preprocessing reuses the stored sample set; the sample set and preprocessing
+are stored only together with a fitted model. Cross-validation keeps the pixels of one ROI together, and
 reported metrics are per ROI: held-out pixel predictions are averaged per ROI
 before RMSECV, R², bias, RPD and RPIQ are computed. Until a model can be
 fitted, the readiness message says what is missing.
