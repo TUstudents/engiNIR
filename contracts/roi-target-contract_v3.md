@@ -173,7 +173,9 @@ Allowed `missing_value_policy` values in v3:
 Required invariants:
 
 - target identity is stable inside the project
-- target `name` is user-facing and should be unique within one project
+- target `name` is a user-facing label; identity is `target_id`. The UI offers
+  the existing targets by name, so a new target does not repeat a name by
+  accident, but a repeated name is a label, not an error
 - target definitions are project-owned objects, not implicit table columns
 
 v3 scope:
@@ -273,8 +275,10 @@ Many samples in one data file (a tray) may be created as a grid:
   snapshot and provenance, exactly as a single ROI
 - the grid is validated completely before anything is written, and written
   completely or not at all; a failure leaves no ROI of the grid behind
-- names stay unique in the project; the default pattern starts with the data
-  file name
+- names are labels and may repeat ROIs of other data files, for example when
+  several data files share a file name; the default pattern starts with the
+  data file name. Only names repeated within one grid are refused, because
+  such a pattern cannot tell its own cells apart
 
 ## 2. Define target
 

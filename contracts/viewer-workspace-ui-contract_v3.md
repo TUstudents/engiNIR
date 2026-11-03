@@ -224,6 +224,35 @@ Required UI behavior:
 
 - all workspace controls may be enabled subject to their own local preconditions
 
+## Identity In The Viewer
+
+Stable ids are the only identity of project objects
+(`project-schema-contract_v3.md` §2–3); names are labels. In the viewer, the
+`enginir-viewer` tool and the `enginir.viewer` module:
+
+- every selection, link, write and export refers to objects by id: the
+  browser, the ROI table, the Project ROIs tab, the canvas, the Model plots,
+  the fit dialog and the Predict workspace carry ids, never names
+- the viewer never resolves a name to an object; it does not call the
+  name-based facade functions (`Project.roi`, `.target`, `.model`,
+  `set_value`, `fit`, `Dataset.add_roi`, …), which exist for scripts
+  (`headless-workflow-contract_v3.md`, Names and ids)
+- names are display text and may repeat; the viewer creates and stores ROIs
+  whose names repeat other ROIs' names without asking
+- a data file is shown by its file name; when several data files of the
+  project share a file name, each is shown as `file name (folder)`, with the
+  full path as tooltip. This label is used wherever a data file is shown: the
+  data file list, the ROI table, the Project ROIs tab, the fit dialog, the
+  browser and messages
+- where ROI names may repeat (the ROI table, the mosaic, the browser, Model
+  plot hover and the inspector), the data file label is shown with the name,
+  or the view belongs to one data file
+- every export of ROI data carries the ROI id next to its name, including
+  Explore's ROI spectra export
+
+A test scans `enginir.viewer` and fails on calls of the name-based facade
+functions.
+
 ## Workspace Contracts
 
 Each workspace has:

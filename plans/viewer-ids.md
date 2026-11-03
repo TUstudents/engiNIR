@@ -1,6 +1,6 @@
 # Plan: ids only in the viewer, names as labels
 
-Status: phase 0 done; phases 1–5 proposed (2026-11-03)
+Status: phases 0–1 done; phases 2–5 proposed (2026-11-03)
 
 ## Goal
 
@@ -95,6 +95,28 @@ multi-window tests remain the suspect if it returns.
   with their data file; data files with repeated file names are labelled
   with their folder (N3); every export carries the ids.
 - `docs/contract_coverage.md`: new rows, and the guard test of phase 4.
+
+**Done (2026-11-03).** Contract changes:
+
+- `headless-workflow-contract_v3.md`, *Names and ids* (was *Names*): names
+  are labels and may repeat; name addressing is the facade's convenience for
+  scripts, not a reproducible reference; every name-taking function also
+  takes the object or an id keyword (`roi_id=`, `target_id=`,
+  `model_run_id=`), and a string is always a name; ambiguous lookups list the
+  ids and never pick one; the facade refuses names it creates itself when
+  they exist (N1); the 1.0 name calls stay supported (N4). Name-keyed read
+  mappings (`project.rois`, ...) are an error listing the repeats when names
+  repeat; `project.workspace` is keyed by id.
+- `roi-target-contract_v3.md`: grid names may repeat other data files' ROIs;
+  only repeats within one grid are refused. Target names are labels; the UI
+  offers existing targets so a name is not repeated by accident.
+- `viewer-workspace-ui-contract_v3.md`, new *Identity In The Viewer*: ids for
+  every selection, link, write and export; no name-based facade calls;
+  repeated names stored without asking; data files labelled
+  `file name (folder)` when file names repeat (N3); the data file label next
+  to repeatable ROI names; ROI ids in every ROI export; a guard test.
+- Ledger: the facade row is *Partial*, a new viewer identity row is a *Gap*,
+  both under the new `G21` (open); `AGENTS.md` names the register `G01`–`G21`.
 
 ### Phase 2: library
 
