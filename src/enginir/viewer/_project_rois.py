@@ -538,8 +538,7 @@ class ProjectRoisView(QWidget):
                 if dataset in (None, _ALL_FILES) or roi.dataset_id == dataset]
 
     def _file_names(self) -> dict[str, str]:
-        return {dataset_id: os.path.basename(ref.source_path)
-                for dataset_id, ref in self.project_state.datasets.items()}
+        return dict(self.project_state.data_file_labels)
 
     def _labels(self) -> dict[str, str]:
         state = self.project_state

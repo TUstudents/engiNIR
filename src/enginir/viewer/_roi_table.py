@@ -15,7 +15,6 @@ only the project file, never the data files.
 from __future__ import annotations
 
 import math
-import os
 import re
 from typing import Any
 
@@ -144,8 +143,7 @@ class RoiTableModel(QAbstractTableModel):
                 if target_id in self._target_ids else None)
 
     def _file_name(self, dataset_id: str) -> str:
-        dataset = self.project_state.datasets.get(dataset_id)
-        return os.path.basename(dataset.source_path) if dataset is not None else dataset_id
+        return self.project_state.data_file_label(dataset_id)
 
     # -- Qt model -----------------------------------------------------------
 
@@ -332,7 +330,9 @@ class RoiTableWidget(QWidget):
         self._file_filter.addItem("All data files", _ALL_FILES)
         for dataset_id, dataset in sorted(state.datasets.items(),
                                           key=lambda item: item[1].source_path.lower()):
-            self._file_filter.addItem(os.path.basename(dataset.source_path), dataset_id)
+            self._file_filter.addItem(state.data_file_label(dataset_id), dataset_id)
+            self._file_filter.setItemData(self._file_filter.count() - 1, dataset.source_path,
+                                          Qt.ItemDataRole.ToolTipRole)
         for target_id, target in sorted(state.targets.items(),
                                         key=lambda item: item[1].name.lower()):
             self._missing_target.addItem(target.name, target_id)

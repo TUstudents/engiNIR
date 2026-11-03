@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QFrame, QSizePolicy, QTreeWidget, QTreeWidgetItem, QWidget
@@ -173,10 +172,9 @@ class ProjectBrowser(QTreeWidget):
     def _populate_datasets(self) -> None:
         section = self._sections["datasets"]
         for dataset_id, dataset in self.project_state.datasets.items():
-            label = dataset_id
-            if dataset.source_path:
-                label = f"{dataset_id} | {Path(dataset.source_path).name}"
+            label = f"{self.project_state.data_file_label(dataset_id)} [{dataset_id}]"
             item = QTreeWidgetItem([label])
+            item.setToolTip(0, dataset.source_path or dataset_id)
             item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "dataset", "id": dataset_id})
             section.addChild(item)
 

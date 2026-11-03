@@ -1,6 +1,6 @@
 # Plan: ids only in the viewer, names as labels
 
-Status: phases 0–2 done (2026-11-03)
+Status: phases 0–3 done (2026-11-03)
 
 ## Goal
 
@@ -164,6 +164,20 @@ multi-window tests remain the suspect if it returns.
   the Project ROIs blocks and filter, the fit dialog's per-file counts, the
   browser, the not-found and Locate messages.
 - `{file}` in grid name patterns stays the file stem (a label, may repeat).
+
+**Done (2026-11-03).**
+
+- `enginir._workflow.data_file_labels(datasets)`: the file name when it is
+  unique (case-insensitive); otherwise `file name (folders)` with as many
+  parent folders as tell the repeats apart; folders over 40 characters are
+  shortened in the middle unless that makes two labels equal.
+- `ProjectState.data_file_labels` (recomputed on every sync) and
+  `data_file_label(dataset_id)`; used by the data file list (full path as
+  tooltip), the ROI table column and filter (path tooltip), the Project ROIs
+  blocks and filter, the fit dialog's per-file counts, the browser
+  (`label [id]`, path tooltip), the Add Data File "same references as" list,
+  the status strip and the replace-calibration question.
+- Tests in `test_data_file_labels.py`; six injected faults caught.
 
 ### Phase 4: viewer by ids only
 

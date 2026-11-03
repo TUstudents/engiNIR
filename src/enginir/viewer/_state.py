@@ -20,6 +20,7 @@ from .._workflow import (
     DEFAULT_WHITE_LEVEL,
     Dataset,
     Project,
+    data_file_labels,
     resolve_dataset,
     resolve_prediction_calibration,
 )
@@ -135,6 +136,8 @@ class ProjectState(QObject):
         self.sample_sets: dict[str, SampleSet] = {}
         self.model_runs: dict[str, ModelRun] = {}
         self.predictions: dict[str, PredictionRun] = {}
+        #: Display label per dataset id: the file name, with its folder when names repeat.
+        self.data_file_labels: dict[str, str] = {}
         self._prediction_artifact_versions: dict[str, int] = {}
         self.model_registry: dict[str, Any] = {}
         self.active_model_name: str | None = None
@@ -246,6 +249,10 @@ class ProjectState(QObject):
         self._written()
         self.datasets_changed.emit()
         self.saved.emit(f"Data file '{os.path.basename(path)}' located")
+
+    def data_file_label(self, dataset_id: str) -> str:
+        """How a data file is shown: its file name, with the folder when file names repeat."""
+        return self.data_file_labels.get(dataset_id, dataset_id)
 
     def active_calibration(self, dataset_id: str) -> CalibrationSpec | None:
         """The active calibration of a registered dataset, if any."""
@@ -699,6 +706,7 @@ class ProjectState(QObject):
         self.sample_sets = dict(ws.sample_sets)
         self.model_runs = dict(ws.model_runs)
         self.predictions = dict(ws.predictions)
+        self.data_file_labels = data_file_labels(self.datasets)
 
     def _apply_prediction_run(self, prediction: PredictionRun) -> None:
         """Show a prediction run that is not (yet) stored, e.g. in tests."""

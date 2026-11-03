@@ -733,7 +733,8 @@ class EDAView(QWidget):
             if n_rois and QMessageBox.question(
                     self, "New calibration",
                     f"The image uses other references or levels than the calibration of "
-                    f"{os.path.basename(dataset.source_path)}. New ROIs will use them; the "
+                    f"{self.project_state.data_file_label(dataset.dataset_id)}. New ROIs will "
+                    "use them; the "
                     f"{n_rois} ROI(s) drawn before keep their own calibration. Continue?",
             ) != QMessageBox.StandardButton.Yes:
                 logger.info("ROI not created: new calibration of {} declined",

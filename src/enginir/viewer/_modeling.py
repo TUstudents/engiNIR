@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import uuid
 from collections.abc import Callable
 from typing import Any
@@ -734,8 +733,7 @@ class ModelingView(QWidget):
         return "\n".join(lines), True
 
     def _data_file_name(self, dataset_id: str) -> str:
-        dataset = self.project_state.datasets.get(dataset_id)
-        return os.path.basename(dataset.source_path) if dataset is not None else dataset_id
+        return self.project_state.data_file_label(dataset_id)
 
     def _plan_fit_sample_set(self, target_id: str, recipe: PreprocessingRecipe
                              ) -> tuple[SampleSet, bool, PreprocessingRecipe] | None:

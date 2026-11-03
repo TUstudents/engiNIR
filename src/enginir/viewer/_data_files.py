@@ -48,7 +48,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .._logging import get_logger
-from .._workflow import DEFAULT_BLACK_LEVEL, DEFAULT_WHITE_LEVEL, read_frames
+from .._workflow import DEFAULT_BLACK_LEVEL, DEFAULT_WHITE_LEVEL, data_file_labels, read_frames
 from ..io import load_spectra
 from ..project import CalibrationSpec, DatasetRef
 from ._theme import panel_colors, secondary_text_style
@@ -223,12 +223,12 @@ class AddDataFileDialog(QDialog):
             references_layout.addRow("White:", self._white)
             self._references = references
             self._shared = QComboBox()
+            labels = data_file_labels(datasets)
             for dataset_id, dataset in datasets.items():
                 active = active_calibrations.get(dataset_id)
                 if active is not None and active.dark_ref_data is not None \
                         and active.white_ref_data is not None:
-                    self._shared.addItem(os.path.basename(dataset.source_path),
-                                         dataset.source_path)
+                    self._shared.addItem(labels[dataset_id], dataset.source_path)
                     self._shared_means[dataset.source_path] = (
                         np.asarray(active.dark_ref_data, dtype=np.float64).mean(axis=0),
                         np.asarray(active.white_ref_data, dtype=np.float64).mean(axis=0))

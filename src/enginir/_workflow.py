@@ -47,7 +47,8 @@ from .project._ids import new_id, now_iso
 logger = get_logger(__name__)
 
 __all__ = ["DEFAULT_BLACK_LEVEL", "DEFAULT_WHITE_LEVEL", "Dataset", "GridCell", "Model",
-           "Prediction", "Project", "check_data_file_location", "make_calibration", "make_roi", "read_frames", "read_header",
+           "Prediction", "Project", "check_data_file_location", "data_file_labels",
+           "make_calibration", "make_roi", "read_frames", "read_header",
            "recipe_id_for", "resolve_calibration", "resolve_dataset",
            "resolve_prediction_calibration", "resolve_sample_set", "resolve_signal_domain",
            "roi_grid"]
@@ -918,6 +919,50 @@ def read_frames(path: str, first: int, last: int) -> np.ndarray:
         X = load_spectra(path).X[first:last + 1]
     X = np.asarray(X)
     return X[:, np.newaxis, :] if X.ndim == 2 else X
+
+
+#: Longest folder part of a data file label before it is shortened in the middle.
+_LABEL_FOLDER_CHARS = 40
+
+
+def data_file_labels(datasets: Mapping[str, DatasetRef]) -> dict[str, str]:
+    """A short, unique display label per dataset id (viewer identity rule).
+
+    A data file is labelled by its file name. When several data files share
+    a file name, each gets the folder that tells it apart, e.g.
+    ``stream_hsi.h5 (API 10% - nozzle 0.6 mm)``: the parent folder, or more
+    of the path where parent folders repeat too. Long folders are shortened
+    in the middle unless that would make two labels equal. Labels are for
+    display only; datasets are identified by id.
+    """
+    paths = {dataset_id: _native_path(ref.source_path).replace("\\", "/").split("/")
+             if ref.source_path else [dataset_id] for dataset_id, ref in datasets.items()}
+    by_name: dict[str, list[str]] = {}
+    for dataset_id, parts in paths.items():
+        by_name.setdefault(parts[-1].lower(), []).append(dataset_id)
+    labels: dict[str, str] = {}
+    for ids in by_name.values():
+        if len(ids) == 1:
+            labels[ids[0]] = paths[ids[0]][-1]
+            continue
+        depth = 1  # folders above the file needed to tell this group apart
+        while depth < max(len(paths[i]) - 1 for i in ids) and len(
+                {"/".join(paths[i][-1 - depth:-1]) for i in ids}) < len(ids):
+            depth += 1
+        folders = {i: "/".join(paths[i][-1 - depth:-1]) for i in ids}
+        short = {i: _shorten_middle(folder, _LABEL_FOLDER_CHARS) for i, folder in folders.items()}
+        if len(set(short.values())) < len(ids):
+            short = folders
+        for i in ids:
+            labels[i] = f"{paths[i][-1]} ({short[i]})" if short[i] else paths[i][-1]
+    return labels
+
+
+def _shorten_middle(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    keep = limit - 1
+    return f"{text[:keep - keep // 2]}…{text[-(keep // 2):]}"
 
 
 def check_data_file_location(

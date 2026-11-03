@@ -851,7 +851,9 @@ class HSIViewer(QMainWindow):
 
         dataset_label = "none"
         if self._cube_path:
-            dataset_label = os.path.basename(self._cube_path)
+            shown = self._eda_view.shown_dataset_id()
+            dataset_label = (self.project_state.data_file_label(shown) if shown is not None
+                             else os.path.basename(self._cube_path))
 
         frame_label = "-" if not self.state.has_dataset else str(self.state.frame)
         row_label = "-" if not self.state.has_dataset else str(self.state.row)
@@ -1573,13 +1575,16 @@ class HSIViewer(QMainWindow):
         combo.blockSignals(True)
         combo.clear()
         shown = self._eda_view.shown_dataset_id()
-        datasets = sorted(self.project_state.datasets.items(),
-                          key=lambda item: os.path.basename(item[1].source_path).lower())
+        state = self.project_state
+        datasets = sorted(state.datasets.items(),
+                          key=lambda item: state.data_file_label(item[0]).lower())
         for dataset_id, dataset in datasets:
-            name = os.path.basename(dataset.source_path)
+            name = state.data_file_label(dataset_id)
             if not os.path.exists(dataset.source_path):
                 name += " (not found)"
             combo.addItem(name, dataset_id)
+            combo.setItemData(combo.count() - 1, dataset.source_path,
+                              Qt.ItemDataRole.ToolTipRole)
         if shown is None:
             label = ("Data file: none" if not self._cube_path
                      else f"{os.path.basename(self._cube_path)} (not in project)")
