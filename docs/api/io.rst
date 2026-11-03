@@ -131,6 +131,8 @@ Saving objects
 
 .. autofunction:: enginir.io.project_store.remove_target_assignment
 
+.. autofunction:: enginir.io.project_store.load_roi_band_images
+
 Writing large predictions incrementally
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

@@ -173,7 +173,8 @@ HSIViewer
 
 .. autoclass:: enginir.viewer._viewer.HSIViewer
    :members: show, export_csv, export_workspace_plots, workspace_plot_frames, reset_layout,
-             add_data_file, show_data_file, wait_for_data_file, apply_shown_calibration
+             add_data_file, show_data_file, wait_for_data_file, apply_shown_calibration,
+             show_roi_table, show_project_rois, open_roi
 
 Data files
 ----------
@@ -186,6 +187,20 @@ Data files
 
 .. autoclass:: enginir.viewer._data_files.DataFileRequest
    :members: add_dataset_kwargs
+
+Project ROIs
+------------
+
+.. automodule:: enginir.viewer._project_rois
+   :no-members:
+
+.. autoclass:: enginir.viewer._project_rois.ProjectRoisView
+   :no-members:
+
+.. autoclass:: enginir.viewer._project_rois.RoiMosaic
+   :no-members:
+
+.. autofunction:: enginir.viewer._project_rois.mosaic_layout
 
 ROI table
 ---------

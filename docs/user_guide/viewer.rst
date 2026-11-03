@@ -156,6 +156,27 @@ CSV, named by plot) into one folder. That includes Model pages you have not
 opened. A maximized plot stays maximized the next time the viewer opens, and
 **View > Reset Layout** restores the default layout.
 
+The **Project ROIs** tab of Explore shows every ROI stored in the project,
+from the project file alone; the data files are not needed:
+
+- **ROI mosaic:** each ROI's stored pixels are redrawn as a tile at its
+  place in its data file, one block per file, with its name and the value of
+  the target selected in Model. A data file filter narrows it down.
+- **ROI mean spectra:** one line per ROI, coloured by that value (ROIs
+  without a value in grey).
+- **Selected ROI pixels:** the median and the 5–95 % band of the selected
+  ROI's pixels.
+
+The spectra use the signal unit and preprocessing chosen in Explore. Each
+ROI is converted with its own stored references, by the same function the
+model fit uses. In **Raw DN** you see the stored counts. ROIs that cannot be
+shown in the chosen unit, for example raw counts without references in
+absorbance, are counted in the tab's status line.
+
+A project with ROIs opens on this tab. Clicking a tile selects the ROI
+everywhere; double-clicking it opens its data file with the ROI selected.
+Tiles and spectra load in the background, and only while the tab is shown.
+
 Reference values are typed in the **ROI table**, opened from **Target
 values...** in Model, from **ROI table** in Explore, or from the View menu:
 

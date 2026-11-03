@@ -47,6 +47,7 @@ from ._browser import ProjectBrowser
 from ..io import file_format
 from ._inspector import ProjectInspector
 from ._data_files import AddDataFileDialog
+from ._project_rois import ProjectRoisView
 from ._roi_table import RoiTableWidget
 from ._jobs import BusyStatusWidget, start_background_job
 from ._loading import ViewerBusyContext
@@ -287,8 +288,8 @@ class HSIViewer(QMainWindow):
 
         self._canvas = FalseColourCanvas()
         self._spectrum = SpectrumPanel(self.state)
-        self._explore_content_page = QWidget()
-        central_layout = QVBoxLayout(self._explore_content_page)
+        self._data_file_page = QWidget()
+        central_layout = QVBoxLayout(self._data_file_page)
         central_layout.setContentsMargins(0, 0, 0, 0)
         central_layout.setSpacing(0)
 
@@ -317,7 +318,7 @@ class HSIViewer(QMainWindow):
         self._spectrum_panel.setFixedHeight(_SPECTRUM_PANEL_HEIGHT)
         self._explore_maximized: str | None = None
         self._explore_escape = QShortcut(QKeySequence(Qt.Key.Key_Escape),
-                                         self._explore_content_page)
+                                         self._data_file_page)
         self._explore_escape.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self._explore_escape.activated.connect(self._on_explore_escape)
         self._explore_escape.setEnabled(False)
@@ -336,6 +337,13 @@ class HSIViewer(QMainWindow):
 
         self._workspace_content_stack = QStackedWidget()
         self._workspace_content_stack.setObjectName("WorkspaceContentStack")
+        # Explore: the shown data file, or all ROIs of the project (filled in later).
+        self._explore_tabs = QTabWidget()
+        self._explore_tabs.setDocumentMode(True)
+        self._explore_tabs.addTab(self._data_file_page, "Data file")
+        self._explore_content_page = self._explore_tabs
+        self._project_rois: ProjectRoisView | None = None
+        self._pending_roi_selection: str | None = None
         self._workspace_content_stack.addWidget(self._explore_content_page)
         self._workspace_content_stack.addWidget(self._model_content_page)
         self._workspace_content_stack.addWidget(self._predict_content_page)
@@ -911,12 +919,56 @@ class HSIViewer(QMainWindow):
         self.project_state.datasets_changed.connect(self._refresh_data_file_choices)
         self._project_browser.itemDoubleClicked.connect(self._on_browser_item_activated)
         self._eda_view.roi_table_requested.connect(self.show_roi_table)
+        self._project_rois = ProjectRoisView(
+            self.state, self.project_state,
+            current_target_id=lambda: (None if (target := self._modeling_view.current_target())
+                                       is None else target.target_id),
+            provenance=self._explore_provenance)
+        self._explore_tabs.addTab(self._project_rois, "Project ROIs")
+        self._project_rois.roi_selected.connect(self._on_canvas_roi_selected)
+        self._project_rois.roi_opened.connect(self.open_roi)
+        self._modeling_view.view_state_changed.connect(self._project_rois.current_target_changed)
+        self.project_state.rois_changed.connect(self._update_project_rois_tab)
+        self.project_state.project_loaded.connect(self._update_project_rois_tab)
+        self.project_state.project_loaded.connect(self._choose_explore_tab)
+        self._update_project_rois_tab()
+        self._choose_explore_tab()
         self._modeling_view.roi_table_requested.connect(self.show_roi_table)
         self._refresh_data_file_choices()
         saved = layout_settings.load_maximized().get("Explore", "")
         if saved in ("explore.image", "explore.spectrum"):
             self._explore_maximized = saved.removeprefix("explore.")
         self._sync_workspace_content_host()
+
+    def show_project_rois(self) -> None:
+        """Show the Project ROIs tab of Explore."""
+        self._workspace_tabs.setCurrentWidget(self._eda_view)
+        if self._project_rois is not None:
+            self._explore_tabs.setCurrentWidget(self._project_rois)
+
+    def open_roi(self, roi_id: str) -> None:
+        """Show the data file of an ROI with the ROI selected (Data file tab)."""
+        roi = self.project_state.rois.get(roi_id)
+        if roi is None:
+            return
+        self._explore_tabs.setCurrentWidget(self._data_file_page)
+        if self._eda_view.shown_dataset_id() == roi.dataset_id:
+            self._canvas.select_roi(roi_id)
+            self._on_canvas_roi_selected(roi_id)
+            return
+        self._pending_roi_selection = roi_id
+        self.show_data_file(roi.dataset_id)
+
+    def _update_project_rois_tab(self, *_args: Any) -> None:
+        if self._project_rois is not None:
+            self._explore_tabs.setTabText(self._explore_tabs.indexOf(self._project_rois),
+                                          f"Project ROIs ({len(self.project_state.rois)})")
+
+    def _choose_explore_tab(self, *_args: Any) -> None:
+        """A project with ROIs and no data file shown opens on its ROIs (attachment contract)."""
+        if self._project_rois is not None and self.project_state.rois \
+                and not self.has_attached_dataset():
+            self._explore_tabs.setCurrentWidget(self._project_rois)
 
     def show_roi_table(self) -> None:
         """Show the ROI table on the shown data file and the target selected in Model."""
@@ -937,6 +989,8 @@ class HSIViewer(QMainWindow):
         if payload is not None and payload.get("kind") == "roi":
             self._canvas.select_roi(payload.get("id"))
             self._roi_table.select_roi(str(payload.get("id")))
+            if self._project_rois is not None:
+                self._project_rois.select_roi(str(payload.get("id")))
         else:
             self._canvas.select_roi(None)
         if payload is not None and payload.get("kind") == "model_run":
@@ -1409,6 +1463,10 @@ class HSIViewer(QMainWindow):
         self._eda_view.update_project_status()
         self._update_status_strip()
         self._refresh_data_file_choices()
+        if self._pending_roi_selection is not None:
+            pending, self._pending_roi_selection = self._pending_roi_selection, None
+            self._canvas.select_roi(pending)  # also when the browser already selects it
+            self._on_canvas_roi_selected(pending)
         from ._recent import add as _recent_add
 
         _recent_add(dataset.source_path)
@@ -1596,7 +1654,12 @@ class HSIViewer(QMainWindow):
         if current is self._prediction_view:
             self._ensure_predict_content_page()
             return list(self._predict_graph_panel.panels.values())
-        return [self._canvas_frame, self._spectrum_panel, *self._dock_frames.values()]
+        frames: list[PlotFrame] = [self._canvas_frame, self._spectrum_panel,
+                                   *self._dock_frames.values()]
+        if self._project_rois is not None:
+            frames += [self._project_rois.mosaic_frame, self._project_rois.means,
+                       self._project_rois.pixels]
+        return frames
 
     def export_workspace_plots(self, folder: str | os.PathLike[str]) -> tuple[list[str], list[str]]:
         """Write PNG and CSV of every plot of the current workspace that shows data.
@@ -1728,3 +1791,7 @@ class HSIViewer(QMainWindow):
             self._predict_map_widget.restyle_theme()
             self._predict_histogram.restyle_theme()
         self._log_panel.restyle_theme()
+        if self._project_rois is not None:
+            self._project_rois.mosaic.restyle_theme()
+            self._project_rois.means.restyle_theme()
+            self._project_rois.pixels.restyle_theme()

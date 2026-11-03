@@ -496,6 +496,12 @@ runs.
    provided, it is persisted separately as a `TargetAssignment`. The status
    bar confirms every write (`ProjectState.saved`).
 
+Explore's central area has two tabs: **Data file** (the image and its plots)
+and **Project ROIs** (`_project_rois.ProjectRoisView`). The second tab reads
+stored ROI pixels with `project_store.load_roi_band_images`, and ROI spectra
+with `modeling.roi_spectrum_summaries`. The latter converts each ROI with
+`modeling.roi_to_signal_domain`, the function the fit uses.
+
 **Add ROI grid** (`EDAView.on_roi_grid_selected`, `_roi_grid.RoiGridDialog`)
 splits a dragged tray rectangle into cells with `enginir._workflow.roi_grid`.
 It previews them on the canvas (`FalseColourCanvas.set_grid_preview`) and

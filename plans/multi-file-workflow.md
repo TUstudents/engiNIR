@@ -2,7 +2,7 @@
 
 Branch: `feature/multi-file-workflow`, based on `feature/plot-panels` (it uses
 the plot panels and plot pages). It merges after that branch.
-Status: phases 0–5 done
+Status: phases 0–6 done
 Date: 2026-11-02
 
 ## Goal
@@ -598,6 +598,56 @@ Tests:
     (same function);
   - filters;
   - the tab works with the data file deleted from disk.
+
+**Done (2026-11-03).**
+
+Library:
+
+- `modeling.roi_to_signal_domain` converts one ROI with its calibration and
+  reference snapshot. `_signal_domain_matrix` (the fit) now calls it.
+- `modeling.roi_spectrum_summaries` gives the mean, median and 5–95 %
+  spectra per ROI.
+  - It reads one ROI and its snapshot at a time.
+  - Preprocessing is applied per pixel before averaging. MSC/EMSC learn
+    their reference from the ROI means.
+  - DN gives the stored raw counts.
+  - ROIs that cannot give the unit are skipped with a reason, without
+    error-level log lines.
+- `project_store.load_roi_band_images` reads only the colour bands of each
+  ROI.
+
+Viewer:
+
+- Explore has the tabs **Data file** and **Project ROIs (N)**.
+- `ProjectRoisView` holds the data file filter and a `PlotPageWidget`:
+  - `RoiMosaic` (a `PlotFrame` source) shows tiles at their frame/row
+    positions, one block per file, with the Spatial Image's false colour and
+    shared stretch. Labels are the name without the file prefix plus the
+    value to 3 digits.
+  - `explore.roi_means` and `explore.roi_pixels` are registered specs.
+- Loading runs in background jobs: tiles in batches of 40, spectra after.
+  Nothing is read while the tab is hidden.
+- A project with ROIs and no shown data file opens on the tab. A tile click
+  selects the ROI everywhere; a double-click runs `open_roi` (shows its file
+  with the ROI selected). Changing the Model target or the Explore unit or
+  preprocessing updates the tab.
+
+Screenshot fixes:
+
+- In a project-only window (signal unit DN), every ROI with references was
+  "not convertible to DN", and each logged an error. DN now shows the raw
+  counts.
+- Full names overlapped the small tiles; labels are now short.
+
+Tests:
+
+- `tests/test_roi_spectra.py`: 4 tests, including a spy showing that the
+  fit and the tab use the same conversion.
+- `tests/test_project_rois.py`: 6 tests.
+- The registry and export-all tests include the new plots.
+- Of nine injected faults, eight were caught. "Pixels not updated after a
+  tile click" is not a fault, because the browser round trip updates the
+  plot too.
 
 ### Phase 7: Fit dialog
 

@@ -40,7 +40,7 @@ from __future__ import annotations
 import datetime as dt
 import os
 import uuid
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
@@ -661,6 +661,30 @@ def load_roi_spectra_matrix(
     return matrix, rows
 
 
+def load_roi_band_images(
+    path: PathLike, rois: Mapping[str, Any], band_indices: Sequence[int]
+) -> dict[str, np.ndarray]:
+    """Read a few bands of each ROI's stored pixels as an image patch.
+
+    ``rois`` maps ROI ids to objects with ``spatial_bounds`` ``(f0, f1, r0,
+    r1)``; stored spectra are in frame x row order. Returns ``{roi_id: array
+    (frames, rows, len(band_indices))}`` in the stored dtype. Only the
+    requested bands are read from the file.
+    """
+    bands = [int(b) for b in band_indices]
+    order = sorted(set(bands))  # h5py reads increasing column indices
+    images: dict[str, np.ndarray] = {}
+    with _open_project(path) as f:
+        for roi_id, roi in rois.items():
+            f0, f1, r0, r1 = (int(v) for v in roi.spatial_bounds)
+            dataset = f[f"/rois/{roi_id}/spectra"]
+            if not isinstance(dataset, h5py.Dataset):
+                log_and_raise("ROI '{}' has no stored spectra", roi_id, error=KeyError)
+            picked = np.asarray(dataset[:, order])[:, [order.index(b) for b in bands]]
+            images[roi_id] = picked.reshape(f1 - f0 + 1, r1 - r0 + 1, len(bands))
+    return images
+
+
 def iter_roi_calibration_refs(
     path: PathLike, roi_ids: Iterable[str]
 ) -> Iterator[tuple[str, tuple[np.ndarray, np.ndarray] | None]]:
@@ -990,6 +1014,7 @@ __all__ = [
     "open_prediction_run_artifact_writer",
     "remove_roi_from_project",
     "remove_target_assignment",
+    "load_roi_band_images",
     "save_calibration_spec",
     "save_dataset_ref",
     "save_model_run",

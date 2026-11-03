@@ -7,16 +7,22 @@ describes the result as a :class:`~enginir.project.ModelRun`.
 
 from ._service import (
     ModelRunResult,
+    RoiSpectrumSummary,
     SampleSetData,
     aggregate_sample_set_predictions,
     build_sample_set,
     fit_model_run,
+    roi_spectrum_summaries,
+    roi_to_signal_domain,
 )
 
 __all__ = [
     "ModelRunResult",
+    "RoiSpectrumSummary",
     "SampleSetData",
     "aggregate_sample_set_predictions",
     "build_sample_set",
     "fit_model_run",
+    "roi_spectrum_summaries",
+    "roi_to_signal_domain",
 ]

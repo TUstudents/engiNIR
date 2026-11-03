@@ -17,6 +17,13 @@ groups for validation, ROI-mean reporting) are listed in
 
 .. autofunction:: enginir.modeling.aggregate_sample_set_predictions
 
+.. autofunction:: enginir.modeling.roi_to_signal_domain
+
+.. autofunction:: enginir.modeling.roi_spectrum_summaries
+
+.. autoclass:: enginir.modeling.RoiSpectrumSummary
+   :no-members:
+
 .. autoclass:: enginir.modeling.SampleSetData
    :members:
 

@@ -28,6 +28,7 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_jobs.py` | `BackgroundWorker`, `_CallbackRelay`, `start_background_job`, `BusyStatusWidget` |
 | `_loading.py` | Shared wait-cursor/status/progress helpers for startup and open flows |
 | `_data_helpers.py` | Dataset-shape and spectral array helpers shared by viewer workflows |
+| `_project_rois.py` | `ProjectRoisView` (Explore's Project ROIs tab), `RoiMosaic` (stored ROI pixels as tiles, a `PlotSource`), specs `explore.roi_means`/`explore.roi_pixels` fed by `enginir.modeling.roi_spectrum_summaries` |
 | `_roi_table.py` | `RoiTableModel`/`RoiTableWidget`: target values of all ROIs (one column per target), Enter-to-next-row editing, column paste, data file and missing-value filters |
 | `_roi_grid.py` | `RoiGridDialog`: a tray rectangle split into ROI cells (`roi_grid`), with skip buttons and a live preview on the canvas |
 | `_data_files.py` | `AddDataFileDialog` and `DataFileRequest`: the calibration of a data file added to a project (reference files, frame ranges, shared references, levels, raw) |
