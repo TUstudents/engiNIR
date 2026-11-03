@@ -2,7 +2,7 @@
 
 Branch: `feature/multi-file-workflow`, based on `feature/plot-panels` (it uses
 the plot panels and plot pages). It merges after that branch.
-Status: phases 0–8 done
+Status: all phases (0–9) done
 Date: 2026-11-02
 
 ## Goal
@@ -748,6 +748,42 @@ Tests:
   - project open stays metadata-first, under 1 s for the benchmark project;
   - the first tile appears in under 1 s;
   - the UI stays responsive while means are computed.
+
+**Done (2026-11-03).**
+
+Benchmark re-run (`ENGINIR_PERF=1`, same machine, 400 ROIs):
+
+| Step | Phase 0 | Before fixes | Now | Target |
+|---|---|---|---|---|
+| Open project (`ProjectState.open_project`) | 0.78 s | 0.75 s | 0.75 s | < 1 s ✓ |
+| Project-only window built | 2.4 s | 3.4 s | 1.5 s | — |
+| First tile, after the window is built | — | ~1.5 s | 0.73 s | < 1 s ✓ |
+| All 400 tiles, from `open_project` | — | 11.8 s | 5.4 s | — |
+| Event-loop gap while the tab loads (95 %) | — | 124 ms | 11 ms | responsive ✓ |
+| Longest single gap | — | 452 ms | 310 ms | — |
+| Locate check, 40 ROIs | — | 0.3 s | 0.3 s | — |
+| Fit PLS 5 LV, auto CV | 41–47 s | 43 s | 43 s | (follow-up) |
+
+Fixes found by the re-run:
+
+- Opening a project laid the mosaic out 8 times (each target or model-status
+  signal called `set_rois`, 0.32 s each). Labels are now updated in place,
+  coalesced to one update per event-loop pass.
+- Each tile batch re-stretched and recreated all tiles (quadratic). Tiles
+  are now drawn incrementally with the first batch's stretch and
+  re-stretched once together at the end; the shared stretch samples at most
+  200,000 pixels.
+
+The remaining single gaps are the one layout of 400 tiles (0.22 s) and
+drawing 400 mean curves (0.20 s). The fit stays the slow step: scikit-learn
+PLS on 800,000 × 224 pixels, a library follow-up (float32 PLS with in-place
+deflation).
+
+Docs: a walkthrough "one model from several trays" in the viewer guide; the
+Project ROIs text moved from Model to Explore; `Dataset.locate` in the
+workflows guide; CHANGELOG entries. Tests: two more in
+`test_project_rois.py` (labels without a new layout, one final stretch over
+batches), each checked against an injected fault. G20 is closed.
 
 ## Risks
 

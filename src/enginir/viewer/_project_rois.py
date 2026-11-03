@@ -106,15 +106,29 @@ def _short_name(name: str, file_name: str) -> str:
     return name
 
 
+#: Pixels sampled for the shared stretch; enough for stable 2/98 % percentiles.
+_STRETCH_SAMPLE = 200_000
+
+
+def stretch_limits(patches: Mapping[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+    """The 2 and 98 % levels per channel of all patches (from at most ~200,000 pixels)."""
+    pooled = np.concatenate([p.reshape(-1, p.shape[-1]) for p in patches.values()])
+    step = max(1, pooled.shape[0] // _STRETCH_SAMPLE)
+    low, high = np.percentile(pooled[::step].astype(np.float32), [2, 98], axis=0)
+    return low, np.maximum(high - low, 1e-9)
+
+
+def _stretched(patch: np.ndarray, limits: tuple[np.ndarray, np.ndarray]) -> np.ndarray:
+    low, scale = limits
+    return np.clip((patch.astype(np.float32) - low) / scale, 0.0, 1.0)
+
+
 def stretch_to_rgb(patches: Mapping[str, np.ndarray]) -> dict[str, np.ndarray]:
     """2–98 % contrast stretch per channel, shared by all patches."""
     if not patches:
         return {}
-    pooled = np.concatenate([p.reshape(-1, p.shape[-1]) for p in patches.values()]).astype(float)
-    low, high = np.percentile(pooled, [2, 98], axis=0)
-    scale = np.maximum(high - low, 1e-9)
-    return {roi_id: np.clip((p.astype(float) - low) / scale, 0.0, 1.0)
-            for roi_id, p in patches.items()}
+    limits = stretch_limits(patches)
+    return {roi_id: _stretched(p, limits) for roi_id, p in patches.items()}
 
 
 class RoiMosaic(QWidget):
@@ -156,6 +170,9 @@ class RoiMosaic(QWidget):
         self._headers: list[tuple[str, float]] = []
         self._patches: dict[str, np.ndarray] = {}
         self._images: dict[str, pg.ImageItem] = {}
+        self._label_items: dict[str, pg.TextItem] = {}
+        # Fixed from the first tiles while they load, recomputed once all are in.
+        self._limits: tuple[np.ndarray, np.ndarray] | None = None
         self._selection: QGraphicsRectItem | None = None
         self._selected: str | None = None
         self.restyle_theme()
@@ -167,6 +184,8 @@ class RoiMosaic(QWidget):
         """Lay out ``rois`` (tiles stay empty until :meth:`add_patches`)."""
         self._plot.clear()
         self._images.clear()
+        self._label_items.clear()
+        self._limits = None
         self._selection = None
         self._patches = {k: v for k, v in self._patches.items() if k in {r.roi_id for r in rois}}
         self._rois = {roi.roi_id: roi for roi in rois}
@@ -191,16 +210,41 @@ class RoiMosaic(QWidget):
             label.setFont(font)
             label.setPos(x, y + h)
             self._plot.addItem(label)
+            self._label_items[roi_id] = label
         self._message.setText("" if rois else "No ROIs stored in the project yet.")
         self._redraw_images()
         self._view.autoRange(padding=0.02)
         self.select_roi(self._selected)
 
 
+    def set_labels(self, labels: Mapping[str, str]) -> None:
+        """Change the tile labels (e.g. another target) without laying the tiles out again."""
+        self._labels = dict(labels)
+        for roi_id, item in self._label_items.items():
+            text = self._labels.get(roi_id, "")
+            if item.toPlainText() != text:
+                item.setText(text)
+
+    def shown_roi_ids(self) -> set[str]:
+        return set(self._rois)
+
     def add_patches(self, patches: Mapping[str, np.ndarray]) -> None:
-        """Raw band patches ``(frames, rows, 3)`` of some ROIs; all tiles are re-stretched."""
-        self._patches.update({k: v for k, v in patches.items() if k in self._rois})
-        self._redraw_images()
+        """Raw band patches ``(frames, rows, 3)`` of some ROIs.
+
+        Only the new tiles are drawn, with the stretch of the first tiles;
+        when the last tile arrives, all are stretched once more together.
+        """
+        new = {k: v for k, v in patches.items() if k in self._rois}
+        self._patches.update(new)
+        if self._limits is None and self._patches:
+            self._limits = stretch_limits(self._patches)
+        if not self.missing_patches() and len(self._patches) > len(new):
+            self._limits = stretch_limits(self._patches)
+            for roi_id, item in self._images.items():
+                item.setImage(np.transpose(_stretched(self._patches[roi_id], self._limits),
+                                           (1, 0, 2)), levels=(0.0, 1.0))
+        for roi_id in new:
+            self._draw_tile(roi_id)
 
     def missing_patches(self) -> list[str]:
         return [roi_id for roi_id in self._rois if roi_id not in self._patches]
@@ -209,14 +253,24 @@ class RoiMosaic(QWidget):
         for item in self._images.values():
             self._plot.removeItem(item)
         self._images.clear()
-        for roi_id, rgb in stretch_to_rgb(self._patches).items():
-            x, y, w, h = self._places[roi_id]
-            item = pg.ImageItem(np.transpose(rgb, (1, 0, 2)), axisOrder="row-major",
-                                levels=(0.0, 1.0))
-            item.setRect(QRectF(x, y, w, h))
-            item.setZValue(-1)
-            self._plot.addItem(item)
-            self._images[roi_id] = item
+        self._limits = stretch_limits(self._patches) if self._patches else None
+        for roi_id in self._patches:
+            self._draw_tile(roi_id)
+
+    def _draw_tile(self, roi_id: str) -> None:
+        if self._limits is None:
+            return
+        old = self._images.pop(roi_id, None)
+        if old is not None:
+            self._plot.removeItem(old)
+        x, y, w, h = self._places[roi_id]
+        rgb = _stretched(self._patches[roi_id], self._limits)
+        item = pg.ImageItem(np.transpose(rgb, (1, 0, 2)), axisOrder="row-major",
+                            levels=(0.0, 1.0))
+        item.setRect(QRectF(x, y, w, h))
+        item.setZValue(-1)
+        self._plot.addItem(item)
+        self._images[roi_id] = item
 
     # -- selection ------------------------------------------------------
 
@@ -451,6 +505,11 @@ class ProjectRoisView(QWidget):
         self._rebuild_timer.setSingleShot(True)
         self._rebuild_timer.setInterval(150)
         self._rebuild_timer.timeout.connect(self.rebuild)
+        # Target and value changes come in bursts (opening, pasting): one label update per pass.
+        self._labels_timer = QTimer(self)
+        self._labels_timer.setSingleShot(True)
+        self._labels_timer.setInterval(0)
+        self._labels_timer.timeout.connect(self._apply_labels)
         for signal in (project_state.project_loaded, project_state.rois_changed,
                        project_state.datasets_changed):
             signal.connect(self._refresh_files)
@@ -526,7 +585,13 @@ class ProjectRoisView(QWidget):
         self._compute_spectra()
 
     def _refresh_labels(self, *_args: Any) -> None:
-        self.mosaic.set_rois(self._shown_rois(), self._file_names(), self._labels())
+        self._labels_timer.start()
+
+    def _apply_labels(self) -> None:
+        if {roi.roi_id for roi in self._shown_rois()} != self.mosaic.shown_roi_ids():
+            self._schedule_rebuild()
+            return
+        self.mosaic.set_labels(self._labels())
         self._update_means_plot()
 
     def _spectra_settings_changed(self, *_args: Any) -> None:

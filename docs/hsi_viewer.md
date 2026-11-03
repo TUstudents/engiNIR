@@ -502,7 +502,10 @@ Explore's central area has two tabs: **Data file** (the image and its plots)
 and **Project ROIs** (`_project_rois.ProjectRoisView`). The second tab reads
 stored ROI pixels with `project_store.load_roi_band_images`, and ROI spectra
 with `modeling.roi_spectrum_summaries`. The latter converts each ROI with
-`modeling.roi_to_signal_domain`, the function the fit uses.
+`modeling.roi_to_signal_domain`, the function the fit uses. On the benchmark
+project (10 trays, 400 ROIs of 2,000 pixels) the first tile appears 0.7 s
+after the window and all 400 within about 4 s, with the event loop free
+between batches.
 
 **Add ROI grid** (`EDAView.on_roi_grid_selected`, `_roi_grid.RoiGridDialog`)
 splits a dragged tray rectangle into cells with `enginir._workflow.roi_grid`.

@@ -65,6 +65,15 @@ and ``dataset.add_rois``, all stored or none:
                     name_pattern="{file}-{row}{column:02d}", file="tray1")
    tray1.add_rois(cells)
 
+A scan that was moved or renamed is pointed at its new place with
+``dataset.locate(new_path)``. The file is accepted only if it is the same
+scan (format, shape, wavelengths, and the stored pixels of every ROI);
+otherwise nothing changes:
+
+.. code-block:: python
+
+   project.dataset("tray1.eiff").locate("archive/2026-11/tray1.eiff")
+
 Calibrations, sample sets, signal domains and provenance are created for you,
 reused when identical, and validated before anything is written. Cross-
 validation keeps the pixels of one ROI together; metrics are per ROI.

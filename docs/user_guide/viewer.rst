@@ -130,6 +130,27 @@ mismatch. The viewer warns only when a registered data file has changed (a
 different format, shape or wavelength axis), and names the ROIs drawn from
 it.
 
+The **Project ROIs** tab of Explore shows every ROI stored in the project,
+from the project file alone; the data files are not needed:
+
+- **ROI mosaic:** each ROI's stored pixels are redrawn as a tile at its
+  place in its data file, one block per file, with its name and the value of
+  the target selected in Model. A data file filter narrows it down.
+- **ROI mean spectra:** one line per ROI, coloured by that value (ROIs
+  without a value in grey).
+- **Selected ROI pixels:** the median and the 5–95 % band of the selected
+  ROI's pixels.
+
+The spectra use the signal unit and preprocessing chosen in Explore. Each
+ROI is converted with its own stored references, by the same function the
+model fit uses. In **Raw DN** you see the stored counts. ROIs that cannot be
+shown in the chosen unit, for example raw counts without references in
+absorbance, are counted in the tab's status line.
+
+A project with ROIs opens on this tab. Clicking a tile selects the ROI
+everywhere; double-clicking it opens its data file with the ROI selected.
+Tiles and spectra load in the background, and only while the tab is shown.
+
 Model
 -----
 
@@ -156,27 +177,6 @@ CSV, named by plot) into one folder. That includes Model pages you have not
 opened. A maximized plot stays maximized the next time the viewer opens, and
 **View > Reset Layout** restores the default layout.
 
-The **Project ROIs** tab of Explore shows every ROI stored in the project,
-from the project file alone; the data files are not needed:
-
-- **ROI mosaic:** each ROI's stored pixels are redrawn as a tile at its
-  place in its data file, one block per file, with its name and the value of
-  the target selected in Model. A data file filter narrows it down.
-- **ROI mean spectra:** one line per ROI, coloured by that value (ROIs
-  without a value in grey).
-- **Selected ROI pixels:** the median and the 5–95 % band of the selected
-  ROI's pixels.
-
-The spectra use the signal unit and preprocessing chosen in Explore. Each
-ROI is converted with its own stored references, by the same function the
-model fit uses. In **Raw DN** you see the stored counts. ROIs that cannot be
-shown in the chosen unit, for example raw counts without references in
-absorbance, are counted in the tab's status line.
-
-A project with ROIs opens on this tab. Clicking a tile selects the ROI
-everywhere; double-clicking it opens its data file with the ROI selected.
-Tiles and spectra load in the background, and only while the tab is shown.
-
 Reference values are typed in the **ROI table**, opened from **Target
 values...** in Model, from **ROI table** in Explore, or from the View menu:
 
@@ -202,7 +202,8 @@ file how many ROIs have a value for the target and says why a fit cannot run
 yet; **OK** is enabled only when it can. The model uses all ROIs with a
 value, from all data files. Fitting again with the same target, ROIs and
 preprocessing reuses the stored sample set; the sample set and preprocessing
-are stored only together with a fitted model. Cross-validation keeps the pixels of one ROI together, and
+are stored only together with a fitted model. Cross-validation keeps the
+pixels of one ROI together, and
 reported metrics are per ROI: held-out pixel predictions are averaged per ROI
 before RMSECV, R², bias, RPD and RPIQ are computed. Until a model can be
 fitted, the readiness message says what is missing.
@@ -262,6 +263,7 @@ data file. The **Data file** tab then loads the file you showed last for this
 project (remembered in your user settings, not in the project). Several
 windows on one project stay in step: a value typed in one appears in the
 others.
+
 Drawing ROIs keeps the calibration of the file. If you load other references
 first, the viewer asks before new ROIs use them, and the ROIs drawn before
 keep their own.
@@ -271,6 +273,49 @@ written when it is made. ROIs and targets are identified by stable ids; names
 are labels. Projects open metadata-first, so ROI spectra and model or
 prediction arrays are read only when a plot or job needs them. To script
 what the viewer does, use :class:`enginir.Project` (:doc:`workflows`).
+
+Walkthrough: one model from several trays
+-----------------------------------------
+
+A typical calibration session scans several trays of samples, with dark and
+white references recorded once. From an empty project to a model:
+
+1. **Create the project.** On the welcome screen choose **Create Project...** and
+   pick where the project file goes. The window opens on Explore with no data
+   file.
+2. **Add the first tray.** **File > Add Data File...** opens the file and
+   asks for its calibration. If the tray has a white tile and shutter-closed
+   frames, choose them as frame ranges of the file itself; otherwise choose
+   the dark and white reference files. Check the mean spectra and the share
+   of saturated values, then **OK**: the data file and its calibration are
+   stored together.
+3. **Draw the samples.** **Add ROI grid**, drag a rectangle around the tray,
+   set rows, columns and inset, click empty positions to skip them, and
+   **OK**. Every cell becomes an ROI named after the file and its position,
+   e.g. ``tray01-B04``, with its raw pixels and reference pixels.
+4. **Add the next trays.** Repeat **Add Data File...** and choose **Same
+   references as** the first tray for the rest of the session, then draw their
+   grids. The data file list in the image header switches between the trays;
+   each shows only its own ROIs.
+5. **Enter the reference values.** **Target...** in Model defines the target
+   (for example ``API`` in ``%``). **Target values...** opens the ROI table:
+   type each value and press **Enter**, or paste a column from a spreadsheet
+   with **Ctrl+V**. Cells left empty are samples without a value.
+6. **Look at what you collected.** The **Project ROIs** tab shows every ROI
+   of every tray, with its value, and the mean spectra coloured by value in
+   the signal unit and preprocessing chosen in Explore. An outlying spectrum
+   or a misplaced cell shows up here; double-click its tile to see it on its
+   tray.
+7. **Fit.** **Fit model** shows, per tray, how many ROIs have a value. Choose
+   the signal unit, preprocessing, PLS or PCR, the number of components and
+   the validation, and **OK**. The fit uses every ROI with a value from all
+   trays; cross-validation keeps the pixels of one sample together.
+8. **Come back later.** Opening the project shows the Project ROIs tab at
+   once, without reading any tray. Values, models and predictions work even if
+   the tray files are gone; a moved tray file is found again with **Locate
+   file...**, which accepts it only if its pixels match.
+
+The same session from Python is in :doc:`workflows`.
 
 From Python
 -----------

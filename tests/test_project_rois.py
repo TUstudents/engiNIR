@@ -194,3 +194,44 @@ def test_raw_counts_are_shown_in_dn_and_skipped_rois_are_explained(trays, tmp_pa
                                                  datasets=ws.datasets,
                                                  calibrations=ws.calibrations, signal_unit="DN")
     assert skipped == {project.roi("F1").roi_id: "precalibrated data has no raw counts"}
+
+
+def test_a_new_value_relabels_the_tile_without_laying_out_again(qapp, trays, monkeypatch):
+    project, _paths = trays
+    window = _open(qapp, project)
+    try:
+        view = window._project_rois
+        _settle(qapp, view)
+        layouts: list[int] = []
+        original = view.mosaic.set_rois
+        monkeypatch.setattr(view.mosaic, "set_rois",
+                            lambda *a, **k: layouts.append(1) or original(*a, **k))
+        state = window.project_state
+        b1 = project.roi("tray_b-B1").roi_id
+        api = project.target("API").target_id
+        state.set_roi_values([(b1, api, 7.0)])
+        state.set_roi_values([(b1, api, 8.0)])  # a burst: one label update
+        _settle(qapp, view)
+        assert view.mosaic._label_items[b1].toPlainText() == "B1 8"
+        assert view.mosaic.tile_count() == 3 and layouts == []
+    finally:
+        window.close()
+
+
+def test_tiles_loaded_in_batches_share_one_stretch_at_the_end(qapp, trays, monkeypatch):
+    from enginir.viewer import _project_rois
+
+    monkeypatch.setattr(_project_rois, "_TILE_BATCH", 1)  # three batches, three stretches
+    project, _paths = trays
+    window = _open(qapp, project)
+    try:
+        view = window._project_rois
+        _settle(qapp, view)
+        mosaic = view.mosaic
+        expected = _project_rois.stretch_to_rgb(mosaic._patches)
+        assert mosaic.tile_count() == 3
+        for roi_id, item in mosaic._images.items():
+            np.testing.assert_allclose(item.image, np.transpose(expected[roi_id], (1, 0, 2)),
+                                       atol=1e-6)
+    finally:
+        window.close()

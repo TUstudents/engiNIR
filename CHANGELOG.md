@@ -21,9 +21,37 @@
   PNG and CSV into one folder.
 - The maximized plot of each workspace is remembered between sessions;
   **View > Reset Layout** clears it.
+- Projects with ROIs from several data files (trays):
+  - **File > Add Data File...** adds a scan to the open project with its
+    calibration: dark/white references from files, from frame ranges of the
+    scan itself (`dark_frames`/`white_frames`), or the references of another
+    data file (`references_from`). The dialog shows the mean reference
+    spectra and the saturated share; the data file and calibration are
+    stored together. The data file list switches between the project's
+    scans, and each shows only its own ROIs.
+  - **Add ROI grid** turns a tray into one ROI per cell (rows, columns,
+    inset, skipped cells, name pattern), stored all or none
+    (`roi_grid`, `Dataset.add_rois`).
+  - The **ROI table** holds the values of every ROI for every target: type
+    with Enter to the next row, clear to remove (`set_value(..., None)`),
+    paste a column (checked first). It works without the data files.
+  - The **Project ROIs** tab draws every stored ROI from the project file
+    alone: a tile mosaic per data file, ROI mean spectra coloured by value,
+    and the pixel spread of the selected ROI, converted by the same function
+    as the fit. A project with ROIs opens on it.
+  - **Fit model** is one dialog: target, signal unit, preprocessing
+    (prefilled from Explore), model, components, validation, and the
+    labelled ROIs per data file. It reuses an equal stored sample set and
+    signal domain and stores new ones only with the fitted model.
+  - **Locate file...** finds a moved scan again, accepting it only if its
+    pixels equal the stored ROI pixels (`Dataset.locate`). The last shown
+    scan of each project is remembered in the user settings, and windows on
+    one project refresh each other.
 
 ### Changed
 
+- **Build sample set** is gone from the Model workspace; **Fit model**
+  builds or reuses the sample set.
 - The spectral-plot selector of the Model workspace is gone: coefficients
   and loadings have their own plots.
 - The scores plot is labelled as training scores.
