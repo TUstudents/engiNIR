@@ -492,24 +492,37 @@ def test_reopened_model_run_renders_every_diagnostic_and_selects_rois(qapp, tmp_
     n_rois = len(reopened.rois)
 
     widget = ModelDiagnosticsWidget()
+    widget.resize(900, 600)
+    widget.show()
     widget.update_data(payload)
-    assert widget._pred_ax.collections[0].get_offsets().shape[0] == n_rois
-    assert widget._resid_ax.collections[0].get_offsets().shape[0] == n_rois
-    assert widget._target_dist_ax.patches
-    assert widget._scores_ax.collections[0].get_offsets().shape[0] == n_rois
-    for mode in ("coefficients", "loadings"):
-        widget.set_spectral_mode(mode)
-        line = widget._spectral_ax.lines[0]
+    widget.grid.set_current_page("Spectral")
+    qapp.processEvents()
+
+    def axes(plot_id):
+        panel = widget.grid.panel(plot_id)
+        assert panel is not None
+        return panel.figure.axes[0]
+
+    assert axes("model.pred_vs_ref").collections[0].get_offsets().shape[0] == n_rois
+    assert axes("model.residuals").collections[0].get_offsets().shape[0] == n_rois
+    assert axes("model.target_distribution").patches
+    assert axes("model.scores").collections[0].get_offsets().shape[0] == n_rois
+    assert "training" in axes("model.scores").get_xlabel()
+    for plot_id, key in (("model.coefficients", "coefficients"), ("model.loadings", "loadings")):
+        line = axes(plot_id).lines[0]
         np.testing.assert_allclose(line.get_xdata(), wavelengths)
-        np.testing.assert_allclose(line.get_ydata(), payload[mode])
-    for ax in (widget._pred_ax, widget._resid_ax, widget._target_dist_ax, widget._scores_ax,
-               widget._spectral_ax):
-        assert not [t for t in ax.texts if "yet." in t.get_text()], "no empty state left"
+        np.testing.assert_allclose(line.get_ydata(), payload[key])
+    for plot_id in ("model.pred_vs_ref", "model.residuals", "model.target_distribution",
+                    "model.scores", "model.coefficients", "model.loadings"):
+        assert not [t for t in axes(plot_id).texts if "yet." in t.get_text()], plot_id
 
     selected: list[str] = []
     widget.roi_selected.connect(selected.append)
-    widget._canvas.draw()
-    x, y = widget._scores_ax.collections[0].get_offsets()[1]
-    px, py = widget._scores_ax.transData.transform((x, y))
-    widget._on_canvas_click(types.SimpleNamespace(inaxes=widget._scores_ax, x=px, y=py))
+    scores_panel = widget.grid.panel("model.scores")
+    assert scores_panel is not None
+    scores_ax = axes("model.scores")
+    scores_panel.figure.canvas.draw()
+    x, y = scores_ax.collections[0].get_offsets()[1]
+    px, py = scores_ax.transData.transform((x, y))
+    scores_panel._on_canvas_click(types.SimpleNamespace(inaxes=scores_ax, x=px, y=py))
     assert selected == [str(payload["roi_ids"][1])]

@@ -2,6 +2,8 @@
 
 Wraps a pyqtgraph ``ImageItem`` in a plot with visible axes.
 Provides pan/zoom, crosshair overlay, ROI interaction, and click-to-navigate.
+It is a :class:`~enginir.viewer._plot_panel.PlotSource`: exports redraw the
+current view (image, ROIs, crosshair) with matplotlib in the print colors.
 """
 
 from __future__ import annotations
@@ -10,6 +12,9 @@ from dataclasses import dataclass
 
 import numpy as np
 import pyqtgraph as pg
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.figure import Figure
+from matplotlib.patches import Rectangle
 from pyqtgraph.GraphicsScene import GraphicsScene
 from pyqtgraph.graphicsItems.PlotItem import PlotItem
 from pyqtgraph.graphicsItems.ViewBox.ViewBox import ViewBox
@@ -20,7 +25,9 @@ from PyQt6.QtWidgets import QGraphicsSceneMouseEvent
 
 from .._checks import log_and_raise
 from .._logging import get_logger
-from ._theme import panel_colors
+from ._plot_panel import PlotColumn, PlotTable
+from ._theme import panel_colors, print_colors
+from ._ui_helpers import style_axes
 
 # Use numpy (row, col) axis convention for ImageItem data.
 pg.setConfigOption("imageAxisOrder", "row-major")
@@ -34,6 +41,7 @@ class _RoiOverlay:
     rect: pg.RectROI
     text: pg.TextItem
     bounds: tuple[int, int, int, int]
+    label: str
 
 
 class FalseColourCanvas(QWidget):
@@ -88,6 +96,8 @@ class FalseColourCanvas(QWidget):
         self._roi_item_map: dict[str, _RoiOverlay] = {}
         # Stored as (height, width) to match the row-major ImageItem convention.
         self._image_shape: tuple[int, int] | None = None
+        self._rgb: np.ndarray | None = None  # the shown image, (height, width, 3) in [0, 1]
+        self._crosshair: tuple[int, int] | None = None
         self._interaction_mode = "navigate"
         self._roi_draw_start: tuple[int, int] | None = None
         self._roi_preview_item: pg.RectROI | None = None
@@ -126,7 +136,8 @@ class FalseColourCanvas(QWidget):
         if rgb_arr.ndim != 3 or rgb_arr.shape[2] != 3:
             log_and_raise("FalseColourCanvas.set_image expects RGB shape (height, width, 3), "
                           "got {}", rgb_arr.shape)
-        img = (np.clip(rgb_arr, 0.0, 1.0) * 255).astype(np.uint8)
+        self._rgb = np.clip(rgb_arr, 0.0, 1.0)
+        img = (self._rgb * 255).astype(np.uint8)
         self._image_item.setImage(img)
         self._image_shape = (int(img.shape[0]), int(img.shape[1]))
         self._view.autoRange()
@@ -135,12 +146,14 @@ class FalseColourCanvas(QWidget):
         """Clear the current image and disable image-space interaction."""
         self._image_item.clear()
         self._image_shape = None
+        self._rgb = None
         self._vline.setVisible(False)
         self._hline.setVisible(False)
         self._clear_roi_preview()
 
     def set_crosshair(self, frame: int, row: int) -> None:
         """Move crosshair to *(frame, row)* and make it visible."""
+        self._crosshair = (frame, row)
         self._vline.setPos(frame)
         self._hline.setPos(row)
         self._vline.setVisible(True)
@@ -201,6 +214,7 @@ class FalseColourCanvas(QWidget):
                 rect=rect,
                 text=text,
                 bounds=(f0, f1, r0, r1),
+                label=label,
             )
 
     def clear_roi_rects(self) -> None:
@@ -219,6 +233,54 @@ class FalseColourCanvas(QWidget):
             text = entry.text
             rect.setPen(self._roi_pen(selected=selected))
             text.setColor(self._roi_color(selected=selected))
+
+    @property
+    def is_drawing_roi(self) -> bool:
+        return self._interaction_mode == "draw_roi"
+
+    def plot_table(self) -> PlotTable | None:
+        """The shown false-colour image, one row per pixel (frame, row, RGB in [0, 1])."""
+        if self._rgb is None:
+            return None
+        height, width = self._rgb.shape[:2]
+        rows, frames = np.indices((height, width))
+        return PlotTable(columns=(
+            PlotColumn("frame", frames.ravel()),
+            PlotColumn("row", rows.ravel()),
+            *(PlotColumn(name, self._rgb[:, :, channel].ravel())
+              for channel, name in enumerate(("red", "green", "blue"))),
+        ), metadata={"rgb": "raw bands nearest 1650/1300/1050 nm, 2-98 % stretch"})
+
+    def print_figure(self) -> Figure:
+        """The current view (zoom, ROIs, crosshair) in the print colors."""
+        colors = print_colors()
+        fig = Figure(figsize=(max(self.width(), 200) / 100, max(self.height(), 150) / 100),
+                     facecolor=colors["bg"])
+        FigureCanvasAgg(fig)
+        ax = fig.add_subplot(111)
+        style_axes(ax, colors)
+        if self._rgb is not None:
+            height, width = self._rgb.shape[:2]
+            # pyqtgraph puts pixel (row, frame) on [frame, frame + 1] x [row, row + 1].
+            ax.imshow(self._rgb, aspect="auto", origin="upper", interpolation="nearest",
+                      extent=(0, width, height, 0))
+        for roi_id, entry in self._roi_item_map.items():
+            f0, f1, r0, r1 = entry.bounds
+            color = tuple(c / 255 for c in self._roi_color(
+                selected=roi_id == self._selected_roi_id))
+            ax.add_patch(Rectangle((f0, r0), f1 - f0 + 1, r1 - r0 + 1, fill=False,
+                                   edgecolor=color, linewidth=1.2))
+            ax.text(f0, r0, entry.label, color=color, fontsize=7, va="top")
+        if self._crosshair is not None and self._vline.isVisible():
+            ax.axvline(self._crosshair[0], color="yellow", linewidth=0.8)
+            ax.axhline(self._crosshair[1], color="yellow", linewidth=0.8)
+        (x0, x1), (y0, y1) = self._view.viewRange()
+        ax.set_xlim(x0, x1)
+        ax.set_ylim(y1, y0)  # rows grow downwards, as on screen
+        ax.set_xlabel("Frame", color=colors["fg"])
+        ax.set_ylabel("Row", color=colors["fg"])
+        fig.tight_layout()
+        return fig
 
     def restyle_theme(self) -> None:
         """Apply the current app theme to the pyqtgraph canvas chrome."""

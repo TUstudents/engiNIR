@@ -14,7 +14,7 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_theme.py` | Shared Qt stylesheet (Fusion + light palette) |
 | `_state.py` | `ViewerState` (UI) + `ProjectState` (Qt adapter over `enginir.Project`) |
 | `_canvas.py` | `FalseColourCanvas` (pyqtgraph image surface, crosshair, ROI draw/selection) |
-| `_panels.py` | Exploration dock widgets (Histogram, RAW, Sensor, Spatial, Spectrum) |
+| `_panels.py` | Exploration dock widgets: Histogram, Spatial and Spectrum (matplotlib); RAW and Sensor Frame (pyqtgraph `_ImagePanel`) |
 | `_viewer.py` | `HSIViewer(QMainWindow)` shell, menus, docks, status strip, workspace host |
 | `_welcome.py` | Launcher window with recent files list and startup routing |
 | `_recent.py` | MRU file list (`~/.config/enginir/recent.json`) |
@@ -29,6 +29,10 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_loading.py` | Shared wait-cursor/status/progress helpers for startup and open flows |
 | `_data_helpers.py` | Dataset-shape and spectral array helpers shared by viewer workflows |
 | `_ui_helpers.py` | Shared plot styling and figure-layout helpers |
+| `_plot_panel.py` | `PlotSpec`, `PlotTable`, `PlotPanel`: one plot with a header (title, maximize, PNG/SVG/CSV export) |
+| `_plot_grid.py` | `PlotGrid`, `PlotPage`, `PlotSlot`: paged plot grids with lazy pages and in-place maximize |
+| `_plot_registry.py` | Registry of all plots and of the plot pages of each workspace |
+| `_layout_settings.py` | Maximized plot per workspace in the user settings (`plot_layout.json`) |
 
 ---
 
@@ -247,24 +251,86 @@ frame, signal unit, or preprocessing parameters.
 - Explore dock panels defer rebuilds while hidden, but the default visible Explore panels still perform one initial build so guides and labels exist immediately after viewer construction.
 - `HistogramPanel` updates its existing bar artists in place instead of rebuilding the axes on every frame/unit change.
 - `ModelDiagnosticsWidget` and `PredictionMapWidget` skip redraws for unchanged payload objects.
-- Figure layout uses a size-aware `maybe_tight_layout(...)` helper, so `tight_layout()` is only recomputed when the canvas size changes.
+- Each plot panel has its own canvas. Changing one plot redraws only that plot. A page draws when it is first shown, and a panel draws only while visible.
+- Figure layout is recomputed for a new payload or a new canvas size (`maybe_tight_layout(...)` for in-place panels), not on every redraw.
+- `tests/test_plot_performance.py` (opt-in, `ENGINIR_PERF=1`) times the Model diagnostics against the single-figure baseline.
 - Welcome-screen startup loads dataset/project payloads in a worker thread and only constructs Qt widgets on the GUI thread after loading completes.
 
 ---
 
-## Adding a new panel
+## Plot panels
 
-Follow the pattern in `_model_diagnostics.py`:
+Workspace plots follow the Plot Panel Policy of
+`contracts/viewer-workspace-ui-contract_v3.md`. The Model diagnostics are the
+first workspace built this way:
 
-1. Create `_my_panel.py` inheriting from `QWidget`
-2. Add a matplotlib `Figure` + `FigureCanvasQTAgg`
-3. Implement `update_data(payload, *, empty_reason="")` and `clear()`
-4. Use `panel_colors()`, `style_axes()`, and `maybe_tight_layout()` from
-   `_ui_helpers.py` rather than defining local theme constants
-5. Add logger: `from enginir._logging import get_logger; logger = get_logger(__name__)`
-6. Wire in `_viewer.py`: import, instantiate, add to layout, connect signals
-7. Add to `__all__` in your module
+- a `PlotSpec` per plot has `render(fig, payload, colors)` and
+  `table(payload) -> PlotTable`
+- a `PlotPanel` shows one spec under a header (title, maximize, PNG/SVG/CSV
+  export)
+- a `PlotGrid` lays out the panels on pages (`PlotPage`/`PlotSlot`)
 
-New viewer surfaces should follow the lightweight widget patterns used in
-`_model_diagnostics.py` and `_prediction.py` rather than introducing a new
-ABC layer.
+Plots that update their artists in place (the Explore panels in
+`_panels.py` and the pyqtgraph `FalseColourCanvas`) are not specs. They
+implement `PlotSource` (`plot_table()`, `print_figure()`) and are shown in a
+`PlotFrame`:
+
+- The RAW and Sensor Frame panels (`_ImagePanel`) draw with pyqtgraph and
+  build their print figure by redrawing the shown image with matplotlib.
+- The other `_panels.py` panels build their print figure with `print_copy` (a pickled copy of
+  the screen figure, recoloured).
+- The canvas redraws its current view with matplotlib.
+- `PredictionMapWidget` is a source too. Its header controls (output, pan,
+  zoom, reset) are added to its frame. It emits `displayed_map_changed` to
+  feed the `predict.histogram` spec.
+- `PlotPageWidget` lays out frames that are not specs in slots, with the same
+  maximize as `PlotGrid`. The Predict page uses it for the map and the
+  histogram.
+- The dock frames give their header to the dock as its title bar.
+  `HSIViewer` handles maximize for the Explore page and for the docks.
+
+`ModelDiagnosticsWidget` wraps the grid of the `"Model"` workspace, with the
+`Fit` and `Spectral` pages. It hands the same diagnostics payload to every
+plot, and `ModelingView.workspace_diagnostics_provenance()` supplies the CSV
+provenance lines.
+
+Drawing rules:
+
+- `render` draws with the `colors` it is given: the screen theme on screen,
+  `print_colors()` for exports. It never sets an axes title, because the
+  header shows the title.
+- When the payload has no data for its plot, `render` draws an empty-state
+  message with `draw_placeholder`, and `table` returns an empty `PlotTable`.
+  That disables export.
+- `render` returns `RoiPoints` for clickable ROI points. The panel turns a
+  click into `roi_selected`.
+- A panel draws only while visible, and only for a new payload object. A
+  page is built the first time it is shown.
+
+Workspace export and layout state:
+
+- `HSIViewer.workspace_plot_frames()` lists the plots of the current
+  workspace. For Model it calls `PlotGrid.all_panels()`, which builds unopened
+  pages without switching to them.
+- `export_workspace_plots(folder)` writes `<plot_id>.png`/`.csv` for each
+  plot that shows data.
+- `_layout_settings.py` keeps the maximized plot of each workspace in
+  `plot_layout.json` in the config directory (Explore page, Model grid,
+  Predict page; not floating docks). `reset_layout()` clears it.
+
+## Adding a new plot
+
+1. Write `render` and `table` for the payload the workspace already builds,
+   and wrap them in a `PlotSpec` with a unique `plot_id` (`"<workspace>.<name>"`).
+2. Register it with `register_plot(...)` and add a `PlotSlot` to the
+   workspace's pages in the module that owns the workspace (for example
+   `_model_diagnostics.py`).
+3. Add a payload with data for the workspace to `_PAYLOADS` in
+   `tests/test_plot_registry.py`, if the workspace is new. That test then
+   checks the new plot:
+   - the empty state
+   - PNG, SVG and CSV export
+   - no title inside the plot
+   - every CSV value is drawn
+4. Use `style_axes(ax, colors)` and `draw_placeholder(ax, message, colors)`,
+   not local theme constants.

@@ -81,15 +81,34 @@ Default emphasis after a successful fit:
 
 - `Predicted vs Reference`
 
+The center area is a set of named pages of plot panels. It follows the Plot
+Panel Policy in `viewer-workspace-ui-contract_v3.md`: every diagnostic can be
+maximized and exported as PNG, SVG and CSV.
+
+Required v3 pages, in this order:
+
+1. `Fit`
+   - `Predicted vs Reference` in the first slot
+   - `Residuals`
+   - target distribution
+   - latent scores
+2. `Spectral`
+   - regression coefficients
+   - loadings
+
+The `Fit` page is shown after a fit and when a saved run is opened. The page
+labels are not contract-frozen; their order and content are. New diagnostics
+add slots or pages and must not displace `Predicted vs Reference` from the
+first slot of the first page.
+
 ### Right summary / secondary diagnostics area
 
 Must contain:
 
 - fit summary
 - sample-set summary
-- secondary diagnostics selector or stacked views
 
-Required v3 secondary diagnostics:
+Required v3 secondary diagnostics, shown as panels on the center pages:
 
 - target distribution
 - latent scores
@@ -212,6 +231,8 @@ Required behavior:
   counts, the scores view must degrade to an explicit empty/placeholder state
   rather than plotting misaligned points
 - ROI selection should be possible or at least inspectable
+- the plot must label the scores as training scores, so that they are not
+  mistaken for cross-validated scores
 
 ### 3. Spectral diagnostics
 
@@ -342,7 +363,8 @@ This contract does not require:
 - per-pixel diagnostic plots as the primary modeling view
 - variable selection tooling
 - multi-target modeling in one workspace
-- editable plot compositions by end users
+- editable plot compositions by end users: users can maximize and export
+  panels, but cannot change which plot occupies which slot
 - advanced outlier dashboards
 
 These may be added later, but the v3 shell must remain simple and reliable.
@@ -357,3 +379,5 @@ v3 is satisfied when:
 - reopened `ModelRun`s render diagnostics without refit
 - ROI-grouped validation semantics remain explicit in the UI
 - fit readiness is visible before the user starts a background job
+- every diagnostic is a plot panel on the required pages and can be maximized
+  and exported as PNG, SVG and CSV

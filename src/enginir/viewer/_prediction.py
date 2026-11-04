@@ -44,6 +44,8 @@ from ._jobs import BackgroundWorker, BusyStatusWidget, start_background_job
 from ._state import ProjectState
 from ._theme import panel_colors, secondary_text_style
 from ..project._ids import now_iso
+from ._plot_panel import PlotColumn, PlotSpec, PlotTable, draw_placeholder, print_copy
+from ._plot_registry import register_plot
 from ._ui_helpers import maybe_tight_layout, style_axes
 
 logger = get_logger(__name__)
@@ -310,8 +312,51 @@ class PredictionRunDialog(QDialog):
         )
 
 
+#: Pixels of the prediction-map preview (subsampled with one step on both axes).
+_MAP_PREVIEW_PIXELS = 512 * 512
+
+
+def _preview_geometry(prediction: PredictionRun, preview: np.ndarray) -> dict[str, Any]:
+    """The subsampling step of a map preview and the full map shape, when known.
+
+    The step is the one :func:`~enginir.io.project_store.load_prediction_spatial_map_preview`
+    used; it is checked against the preview shape and falls back to 1.
+    """
+    from ..io.project_store import _preview_step
+
+    shape = prediction.artifact_refs.get("spatial_map_shape")
+    if shape is None:
+        shape = prediction.artifact_refs.get("spatial_shape")
+    if shape is None or np.ndim(preview) < 2:
+        return {}
+    full = tuple(int(n) for n in np.asarray(shape).tolist())
+    if len(full) < 2:
+        return {}
+    step = _preview_step(full, _MAP_PREVIEW_PIXELS)
+    expected = (-(-full[0] // step), -(-full[1] // step))
+    if tuple(np.shape(preview)[:2]) != expected:
+        logger.warning("Prediction '{}' preview shape {} does not match step {} of map {}; "
+                       "showing preview indices", prediction.prediction_run_id,
+                       np.shape(preview)[:2], step, full[:2])
+        return {"full_map_shape": full[:2]}
+    return {"map_step": step, "full_map_shape": full[:2]}
+
+
 class PredictionMapWidget(QWidget):
-    """Read-only spatial prediction map surface for the Predict workspace."""
+    """Read-only spatial prediction map surface for the Predict workspace.
+
+    A :class:`~enginir.viewer._plot_panel.PlotSource`: the viewer shows it in a
+    plot frame and puts :meth:`header_widgets` (output selector, pan, zoom,
+    reset view) into the frame header. Large maps are shown as a subsampled
+    preview; the axes, the hover readout and the CSV use the true frame and
+    row of each shown pixel (``map_step`` in the payload).
+    """
+
+    #: The header title changed (it carries the target unit).
+    title_changed = pyqtSignal(str)
+    #: The shown map changed: a payload for the prediction histogram, or ``None``.
+    displayed_map_changed = pyqtSignal(object)
+    plot_title = "Prediction Map"
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -323,38 +368,67 @@ class PredictionMapWidget(QWidget):
         self._last_empty_reason: str | None = None
         self._last_layout_size: tuple[int, int] | None = None
         self._current_display_map: np.ndarray | None = None
+        self._step = 1
         self._rendered_output_index = 0
-        self._placeholder_label = QLabel("")
-        self._placeholder_label.setStyleSheet(secondary_text_style())
         self._stats_label = QLabel("")
         self._stats_label.setStyleSheet(secondary_text_style())
         self._cursor_label = QLabel("")
         self._cursor_label.setStyleSheet(secondary_text_style())
-        self._output_label = QLabel("Output")
-        self._output_label.setStyleSheet(secondary_text_style())
         self._output_combo = QComboBox()
+        self._output_combo.setToolTip("Prediction output shown in the map")
         self._output_combo.currentIndexChanged.connect(self._on_output_changed)
-        self._output_label.setVisible(False)
         self._output_combo.setVisible(False)
+        # Drives pan and zoom from the plot header; the toolbar itself is not shown.
         self._toolbar = NavigationToolbar(self._canvas, self)
+        self._toolbar.hide()
+        self._pan_button = self._mode_button("Pan", "Pan the map (drag)", self._toolbar.pan)
+        self._zoom_button = self._mode_button("Zoom", "Zoom to a rectangle (drag)",
+                                              self._toolbar.zoom)
+        self._reset_button = QToolButton()
+        self._reset_button.setText("Reset View")
+        self._reset_button.setAutoRaise(True)
+        self._reset_button.setToolTip("Show the whole map")
+        self._reset_button.clicked.connect(self.reset_view)
         self._canvas.mpl_connect("motion_notify_event", self._on_motion)
+        self._canvas.mpl_connect("resize_event", self._on_canvas_resize)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-        output_layout = QHBoxLayout()
-        output_layout.setContentsMargins(0, 0, 0, 0)
-        output_layout.addWidget(self._output_label)
-        output_layout.addWidget(self._output_combo)
-        output_layout.addStretch(1)
-        layout.addWidget(self._toolbar)
-        layout.addLayout(output_layout)
-        layout.addWidget(self._canvas)
-        layout.addWidget(self._stats_label)
-        layout.addWidget(self._cursor_label)
-        layout.addWidget(self._placeholder_label)
+        layout.setSpacing(4)
+        layout.addWidget(self._canvas, 1)
+        info = QHBoxLayout()
+        info.setContentsMargins(6, 0, 6, 2)
+        info.addWidget(self._stats_label, 1)
+        info.addWidget(self._cursor_label)
+        layout.addLayout(info)
 
         self.clear()
+
+    def header_widgets(self) -> list[QWidget]:
+        """Controls for the plot header: output selector, pan, zoom, reset view."""
+        return [self._output_combo, self._pan_button, self._zoom_button, self._reset_button]
+
+    def _mode_button(self, text: str, tip: str, toggle: Any) -> QToolButton:
+        button = QToolButton()
+        button.setText(text)
+        button.setToolTip(tip)
+        button.setAutoRaise(True)
+        button.setCheckable(True)
+        button.clicked.connect(lambda _checked=False: (toggle(), self._sync_mode_buttons()))
+        return button
+
+    def _sync_mode_buttons(self) -> None:
+        mode = getattr(getattr(self._toolbar, "mode", None), "name", "")  # NONE, PAN or ZOOM
+        self._pan_button.setChecked(mode == "PAN")
+        self._zoom_button.setChecked(mode == "ZOOM")
+
+    def reset_view(self) -> None:
+        """Show the whole map again after pan or zoom."""
+        self._toolbar.home()
+
+    @property
+    def figure(self) -> Figure:
+        return self._fig
 
     def update_data(self, payload: dict[str, Any] | None, *, empty_reason: str = "") -> None:
         """Render one persisted spatial prediction map when available."""
@@ -386,39 +460,43 @@ class PredictionMapWidget(QWidget):
             return
 
         colors = panel_colors()
+        step = max(1, int(payload.get("map_step", 1)))
         self._fig.set_facecolor(colors["bg"])
         self._remove_colorbar()
         self._ax.clear()
         style_axes(self._ax)
+        # Each shown pixel covers ``step`` true frames and rows, starting at its index * step.
         image = self._ax.imshow(
             arr,
             cmap="viridis",
             origin="upper",
             aspect="auto",
             interpolation="nearest",
+            extent=(-0.5, arr.shape[1] * step - 0.5, arr.shape[0] * step - 0.5, -0.5),
         )
         self._current_display_map = arr
+        self._step = step
         self._rendered_output_index = output_index
         units = str(payload.get("target_unit", ""))
         unit_suffix = f" ({units})" if units else ""
-        self._ax.set_title(f"Prediction Map{unit_suffix}", color=colors["fg"], fontsize=9)
+        self._set_title(f"Prediction Map{unit_suffix}")
         self._ax.set_xlabel("Frame", color=colors["fg"])
         self._ax.set_ylabel("Row", color=colors["fg"])
         self._colorbar = self._fig.colorbar(image, ax=self._ax, fraction=0.046, pad=0.04)
         self._style_colorbar(unit_suffix=unit_suffix)
 
         finite = arr[np.isfinite(arr)]
+        preview = f" | preview every {step}th frame and row" if step > 1 else ""
         if finite.size == 0:
-            self._stats_label.setText("Map stats: no finite prediction values.")
+            self._stats_label.setText(f"Map stats: no finite prediction values.{preview}")
         else:
             self._stats_label.setText(
                 "Map stats: "
                 f"shape={arr.shape[0]} x {arr.shape[1]} | "
                 f"min={float(np.min(finite)):.4g} | "
                 f"mean={float(np.mean(finite)):.4g} | "
-                f"max={float(np.max(finite)):.4g}"
+                f"max={float(np.max(finite)):.4g}{preview}"
             )
-        self._placeholder_label.setText("")
         self._cursor_label.setText("")
         self._last_layout_size = maybe_tight_layout(
             self._fig,
@@ -427,8 +505,13 @@ class PredictionMapWidget(QWidget):
             last_size=self._last_layout_size,
         )
         self._canvas.draw_idle()
+        self._toolbar.update()
+        self._toolbar.push_current()  # the whole new map is the home view
         self._last_payload = payload
         self._last_empty_reason = empty_reason
+        self.displayed_map_changed.emit({
+            "values": arr, "target_unit": units, "output": self._output_name(),
+            "map_step": step, "provenance": self.plot_table_metadata()})
 
     def clear(self, *, empty_reason: str = "") -> None:
         """Show an empty prediction-map placeholder."""
@@ -439,15 +522,14 @@ class PredictionMapWidget(QWidget):
         self._remove_colorbar()
         self._ax.clear()
         self._current_display_map = None
-        self._output_label.setVisible(False)
         self._output_combo.setVisible(False)
         style_axes(self._ax)
-        self._ax.set_title("Prediction Map", color=colors["fg"], fontsize=9)
+        self._set_title("Prediction Map")
         self._ax.set_xlabel("Frame", color=colors["fg"])
         self._ax.set_ylabel("Row", color=colors["fg"])
+        draw_placeholder(self._ax, empty_reason or "No saved prediction results yet.", colors)
         self._stats_label.setText("")
         self._cursor_label.setText("")
-        self._placeholder_label.setText(empty_reason or "No saved prediction results yet.")
         self._last_layout_size = maybe_tight_layout(
             self._fig,
             self._canvas,
@@ -457,6 +539,51 @@ class PredictionMapWidget(QWidget):
         self._canvas.draw_idle()
         self._last_payload = None
         self._last_empty_reason = empty_reason
+        self.displayed_map_changed.emit(None)
+
+    # ------------------------------------------------------------------
+    # Plot source
+    # ------------------------------------------------------------------
+
+    def plot_table(self) -> PlotTable | None:
+        """The shown map as a row x frame matrix, labelled with the true rows and frames."""
+        arr = self._current_display_map
+        if arr is None:
+            return None
+        return PlotTable(matrix=arr, row_label="row", column_label="frame",
+                         row_index=np.arange(arr.shape[0]) * self._step,
+                         column_index=np.arange(arr.shape[1]) * self._step,
+                         metadata=self.plot_table_metadata())
+
+    def plot_table_metadata(self) -> dict[str, Any]:
+        payload = self._last_payload or {}
+        metadata: dict[str, Any] = {"output": self._output_name(),
+                                    "target_unit": str(payload.get("target_unit", ""))}
+        if self._step > 1:
+            metadata["preview_step"] = self._step
+            full_shape = payload.get("full_map_shape")
+            if full_shape is not None:
+                metadata["full_map_shape"] = (f"{int(full_shape[0])} frames x "
+                                              f"{int(full_shape[1])} rows")
+        return metadata
+
+    def print_figure(self) -> Figure:
+        """The current view in the print colors."""
+        return print_copy(self._fig)
+
+    def _output_name(self) -> str:
+        if self._output_combo.count() > 1:
+            return self._output_combo.currentText()
+        return "prediction"
+
+    def _set_title(self, title: str) -> None:
+        if title != self.plot_title:
+            self.plot_title = title
+            self.title_changed.emit(title)
+
+    def _on_canvas_resize(self, _event: Any) -> None:
+        self._last_layout_size = maybe_tight_layout(
+            self._fig, self._canvas, pad=1.0, last_size=self._last_layout_size)
 
     @staticmethod
     def _display_spatial_map(spatial_map: Any, *, output_index: int = 0) -> np.ndarray | None:
@@ -480,7 +607,6 @@ class PredictionMapWidget(QWidget):
         arr = np.asarray(spatial_map)
         n_outputs = int(arr.shape[-1]) if arr.ndim > 2 else 1
         show_selector = n_outputs > 1
-        self._output_label.setVisible(show_selector)
         self._output_combo.setVisible(show_selector)
         if not show_selector:
             return
@@ -504,18 +630,30 @@ class PredictionMapWidget(QWidget):
         self._last_payload = None
         self.update_data(payload, empty_reason=empty_reason)
 
+    def _pixel_at(self, x: float, y: float) -> tuple[int, int] | None:
+        """(row, column) of the shown pixel under data coordinates ``x``, ``y``."""
+        arr = self._current_display_map
+        if arr is None:
+            return None
+        column = int(np.floor((x + 0.5) / self._step))
+        row = int(np.floor((y + 0.5) / self._step))
+        if row < 0 or column < 0 or row >= arr.shape[0] or column >= arr.shape[1]:
+            return None
+        return row, column
+
     def _on_motion(self, event: Any) -> None:
         arr = self._current_display_map
         if arr is None or event.inaxes is not self._ax or event.xdata is None or event.ydata is None:
             self._cursor_label.setText("")
             return
-        frame = int(round(float(event.xdata)))
-        row = int(round(float(event.ydata)))
-        if row < 0 or frame < 0 or row >= arr.shape[0] or frame >= arr.shape[1]:
+        pixel = self._pixel_at(float(event.xdata), float(event.ydata))
+        if pixel is None:
             self._cursor_label.setText("")
             return
-        value = float(arr[row, frame])
-        self._cursor_label.setText(f"Frame {frame} | Row {row} | Value {value:.4g}")
+        row, column = pixel
+        value = float(arr[row, column])
+        self._cursor_label.setText(
+            f"Frame {column * self._step} | Row {row * self._step} | Value {value:.4g}")
 
     def _remove_colorbar(self) -> None:
         if self._colorbar is None:
@@ -542,6 +680,48 @@ class PredictionMapWidget(QWidget):
             return
         self._last_payload = None
         self.update_data(payload, empty_reason=empty_reason)
+
+
+def _histogram_render(fig: Figure, payload: Any, colors: Any) -> None:
+    ax = fig.add_subplot(111)
+    style_axes(ax, colors)
+    counts, edges = _prediction_histogram(payload)
+    if counts is None or edges is None:
+        draw_placeholder(ax, "No finite prediction values.", colors)
+        return
+    ax.stairs(counts, edges, fill=True, color=colors["accent"], alpha=0.85)
+    unit = str(payload.get("target_unit", ""))
+    ax.set_xlabel(f"Prediction ({unit})" if unit else "Prediction", color=colors["fg"])
+    ax.set_ylabel("Pixels", color=colors["fg"])
+
+
+def _histogram_table(payload: Any) -> PlotTable:
+    counts, edges = _prediction_histogram(payload)
+    if counts is None or edges is None:
+        return PlotTable()
+    unit = str(payload.get("target_unit", ""))
+    metadata = dict(payload.get("provenance", {}))
+    metadata["pixels"] = "shown map" + (
+        f", every {payload['map_step']}th frame and row" if payload.get("map_step", 1) > 1
+        else "")
+    return PlotTable(columns=(PlotColumn("bin_start", edges[:-1], unit),
+                              PlotColumn("bin_end", edges[1:], unit),
+                              PlotColumn("pixel_count", counts)), metadata=metadata)
+
+
+def _prediction_histogram(payload: Any) -> tuple[np.ndarray | None, np.ndarray | None]:
+    values = np.asarray(payload.get("values", []), dtype=float)
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return None, None
+    return np.histogram(finite, bins=50)
+
+
+#: Distribution of the shown prediction values; fed by
+#: :attr:`PredictionMapWidget.displayed_map_changed`.
+PREDICTION_HISTOGRAM = register_plot(PlotSpec(
+    "predict.histogram", "Prediction Distribution", _histogram_render, _histogram_table,
+    empty_text="No saved prediction results yet."))
 
 
 class PredictionView(QWidget):
@@ -844,6 +1024,25 @@ class PredictionView(QWidget):
             "clipping": clipping_text,
         }
 
+    def workspace_provenance(self) -> dict[str, str]:
+        """Provenance lines for exported prediction plots (Plot Panel Policy)."""
+        provenance = {"project_id": str(self.project_state.project_meta.get("project_id", ""))}
+        prediction = self._resolved_workspace_prediction_run()
+        if prediction is None:
+            return provenance
+        provenance.update(prediction_run_id=prediction.prediction_run_id,
+                          model_run_id=prediction.model_run_id,
+                          dataset_id=prediction.dataset_id,
+                          calibration_id=prediction.calibration_id,
+                          signal_domain_id=prediction.signal_domain_id)
+        calibration = self.project_state.calibrations.get(prediction.calibration_id)
+        if calibration is not None:
+            provenance["signal_unit"] = calibration.output_signal_unit
+        dataset = self.project_state.datasets.get(prediction.dataset_id)
+        if dataset is not None:
+            provenance["data_file"] = dataset.source_path
+        return provenance
+
     def workspace_visual_payload(self) -> dict[str, Any] | None:
         """Return one stable visual payload for the selected Predict workspace run.
 
@@ -879,9 +1078,11 @@ class PredictionView(QWidget):
         if self._cached_workspace_visual_token == base_token:
             return self._cached_workspace_visual_payload
         try:
-            payload["spatial_map"] = self.project_state.load_prediction_spatial_map_preview(
-                prediction.prediction_run_id
+            preview = self.project_state.load_prediction_spatial_map_preview(
+                prediction.prediction_run_id, max_pixels=_MAP_PREVIEW_PIXELS
             )
+            payload["spatial_map"] = preview
+            payload.update(_preview_geometry(prediction, preview))
         except (KeyError, ValueError, FileNotFoundError, OSError) as exc:
             logger.warning(
                 "Could not load prediction '{}' spatial-map preview: {}",

@@ -77,6 +77,13 @@ cursor:
      - the spectrum at the selected row, with a draggable band
      - bottom
 
+Every plot has a header with its title, a maximize button and a ⋯ menu that
+saves the current view as PNG or SVG, exports the plotted values as CSV, or
+copies the image. The Spatial Image and the Spectral Profile maximize within
+Explore. A docked plot floats over the whole window instead. The same
+button, a double-click on the header or ``Esc`` restores it. The CSV records
+the project, the data file, the signal unit and the frame, row or band shown.
+
 The controls set what the panels show:
 
 - **Signal**: raw counts, reflectance or absorbance. Without dark and white
@@ -108,10 +115,24 @@ Model shows the selected model and its diagnostics:
 
 - summary cards for target, sample set, model, components, cross-validation,
   ROI and pixel counts, R², RMSECV and bias
-- predicted vs reference, residuals, the distribution of reference values,
-  the scores of the first two latent variables, and the regression
-  coefficients or loadings (selectable)
+- the **Fit** page: predicted vs reference (with R², RMSECV and bias),
+  residuals, the distribution of reference values, and the training scores of
+  the first two latent variables
+- the **Spectral** page: the regression coefficients and the loadings of the
+  first latent variable
 - click a point to select its ROI
+
+Each plot has a header with its title. The maximize button, or a double-click
+on the header, makes the plot fill the page; the same button, a double-click
+or ``Esc`` restores it. The ⋯ menu saves the plot as PNG or SVG (300 dpi,
+light background) or copies it to the clipboard. **Export CSV** writes the
+plotted values. The CSV starts with ``#`` lines that record the project,
+model run, sample set, recipe, components and cross-validation it came from.
+
+**File > Export Plots...** saves every plot of the current workspace (PNG and
+CSV, named by plot) into one folder. That includes Model pages you have not
+opened. A maximized plot stays maximized the next time the viewer opens, and
+**View > Reset Layout** restores the default layout.
 
 The controls assign reference values (**Assign target**), build the sample
 set of all ROIs with a value (**Build sample set**) and fit PLS or PCR
@@ -130,8 +151,16 @@ model's signal: another instrument format, number of bands, calibration mode
 or signal unit. Wavelength values are metadata and are not compared. Models
 with MSC or EMSC apply the preprocessing state stored at training.
 
-The workspace shows the prediction map, the model, dataset and calibration
-used, the compatibility summary, and how many reflectance values were clipped.
+The workspace shows the prediction map, the distribution of the predicted
+values, the model, dataset and calibration used, the compatibility summary,
+and how many reflectance values were clipped.
+
+The map header has the output selector (for models with several targets),
+**Pan**, **Zoom** and **Reset View**. Large maps are shown as a preview that
+keeps every n-th frame and row. The axes, the hover readout and the exported
+CSV still give the true frame and row, and the CSV records the step. Map and
+distribution export like every other plot (PNG, SVG, CSV, copy) and maximize
+within the page.
 Prediction streams through the scan in bounded memory and reports its phase
 (loading, calibrating, preprocessing, predicting, writing).
 

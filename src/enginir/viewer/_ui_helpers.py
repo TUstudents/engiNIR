@@ -5,6 +5,7 @@ from __future__ import annotations
 import platform
 import subprocess
 import warnings
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -17,9 +18,12 @@ from ._theme import panel_colors
 logger = get_logger(__name__)
 
 
-def style_axes(ax: Any) -> None:
-    """Apply the shared enginir plot styling to one matplotlib axes."""
-    colors = panel_colors()
+def style_axes(ax: Any, colors: Mapping[str, str] | None = None) -> None:
+    """Apply the shared enginir plot styling to one matplotlib axes.
+
+    ``colors`` defaults to the current theme (:func:`panel_colors`).
+    """
+    colors = panel_colors() if colors is None else colors
     ax.set_facecolor(colors["ax_bg"])
     for spine in ax.spines.values():
         spine.set_color(colors["fg"])

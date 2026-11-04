@@ -1,5 +1,46 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Viewer plot panels: every plot (Explore, Model, Predict) has a header with
+  its title, a maximize button and an export menu. The menu saves the current
+  view as PNG or SVG (300 dpi, light print style) and exports the plotted
+  values as CSV. Each CSV starts with `#` provenance lines: project, data file
+  or dataset, model run, sample set, recipe, components, CV scheme, and the
+  frame/row/band shown.
+- Model diagnostics on two pages: **Fit** (predicted vs reference,
+  residuals, target distribution, training scores) and **Spectral**
+  (regression coefficients, loadings). Predicted vs reference now annotates
+  R², RMSECV and bias.
+- Prediction distribution plot under the prediction map, following the
+  selected output. The map header holds the output selector, Pan, Zoom and
+  Reset View.
+- **File > Export Plots...** writes every plot of the current workspace as
+  PNG and CSV into one folder.
+- The maximized plot of each workspace is remembered between sessions;
+  **View > Reset Layout** clears it.
+
+### Changed
+
+- The spectral-plot selector of the Model workspace is gone: coefficients
+  and loadings have their own plots.
+- The scores plot is labelled as training scores.
+- The RAW and Sensor Frame panels draw with pyqtgraph, and the histogram
+  sets its limits from the bins. A frame step with every Explore plot shown
+  takes about 39 ms instead of 73 ms on the benchmark machine. Their PNG/SVG
+  exports are still drawn with matplotlib.
+- Changing one Model diagnostic redraws only that plot: 46 ms instead of
+  121 ms on the benchmark machine. Building the diagnostics takes 230 ms
+  instead of 380 ms.
+
+### Fixed
+
+- Large prediction maps are shown as a subsampled preview, and their axes
+  and hover readout reported preview indices instead of the true frame and
+  row. Axes, hover and CSV now use the true indices.
+
 ## 1.0.1 (2026-10-20)
 
 ### Fixed

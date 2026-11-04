@@ -27,6 +27,10 @@ enginir.viewer
 ├── _inspector.py    ProjectInspector — selection-driven metadata surface
 ├── _panels.py       HistogramPanel, RAW panel (`DC3Panel`), Sensor Frame panel (`SensorPanel`),
 │                    SpatialProfilePanel, SpectrumPanel
+├── _plot_panel.py   PlotFrame/PlotPanel — plot header (title, maximize, PNG/SVG/CSV export)
+├── _plot_grid.py    PlotGrid/PlotPageWidget — plot pages with slots and in-place maximize
+├── _plot_registry.py  registry of the plot specs and pages
+├── _layout_settings.py  maximized plots in the user settings
 └── _viewer.py       HSIViewer(QMainWindow) — shell, menus, docks, log, child windows
 ```
 
@@ -35,8 +39,29 @@ Qt signals.  No panel holds its own copy of the data.  Preprocessing is
 computed inside `ViewerState.current_frame_image()` so every panel always
 displays the same processed signal.
 
-The central canvas has a `Spatial Image` header with a `Reset View`
-control that resets zoom and pan to the full image bounds.
+Every Explore plot is a plot frame (`_plot_panel.PlotFrame`). Its header
+carries the title, a maximize control and an export menu (PNG, SVG, CSV,
+copy). In the docks, the header is the dock's title bar and adds a close
+button.
+
+- **Spatial Image** and **Spectral Profile** maximize within the Explore page.
+- A **docked plot** maximizes by floating over the main window. Restoring it,
+  or closing it, puts it back in its dock.
+- The `Spatial Image` header also has the `Reset View` control, which resets
+  zoom and pan to the full image bounds.
+
+`File > Export Plots...` writes every plot of the current workspace that shows
+data as `<plot_id>.png` and `<plot_id>.csv` into one folder. The maximized
+plot of each workspace page is remembered in `plot_layout.json` in the config
+directory. `Reset Layout` clears it.
+
+Exports show the current view in the print colors. Each CSV holds the drawn
+values:
+
+- histogram bins
+- the RAW band and the sensor frame as matrices
+- the profile and the spectrum as columns
+- the false-colour image as one row per pixel
 
 ### Panel layout
 
@@ -129,21 +154,23 @@ frame** after the full preprocessing pipeline has been applied.
 
 ### RAW panel (internal class `DC3Panel`, left dock, bottom)
 
-Displays a raw cross-section of the cube at the selected band:
+Drawn with pyqtgraph, like the Sensor Frame, so that frame and band scrubbing
+only swaps the image or moves the crosshair. Exports redraw the shown view
+with matplotlib. Displays a raw cross-section of the cube at the selected band:
 `cube[:, :, band].T` — spatial rows on the Y-axis, scan frames on the
 X-axis.  Yellow crosshairs mark the active `(frame, row)`.
 
 Note: RAW always shows raw DN (no preprocessing) to provide a stable
 spatial navigation reference.
 
-- Updates on: `frame_changed` (vline only), `row_changed` (hline only),
-  `band_changed` (full rebuild)
+- Updates on: `frame_changed` and `row_changed` (crosshair only),
+  `band_changed` (new band image)
 - **Click** → emits `frame_pick(int)`, `row_pick(int)`
 
 ### Sensor Frame panel (internal class `SensorPanel`, right dock, top)
 
 Displays the processed current frame: `current_frame_image()` — height ×
-n_bands.  Cyan crosshairs mark the active `(row, band)`.
+n_bands.  Yellow crosshairs mark the active `(row, band)`; drawn with pyqtgraph.
 
 - Updates on: `frame_changed`, `units_changed` (full rebuild)
 - **Click** → emits `row_pick(int)`, `band_pick(int)`
@@ -263,10 +290,13 @@ Its primary center content is a diagnostics-first model page showing:
 
 - fit summary cards for active target, selected/default sample set, active
   model run, components, CV, ROI count, pixel count, `R²`, `RMSECV`, and bias
-- `Predicted vs Reference`, `Residuals`, and `Target Distribution`
-- `Scores (LV1 vs LV2)`
-- a spectral diagnostics plot controlled from the Model diagnostics side panel's
-  `Spectral plot` selector
+- the `Fit` page: `Predicted vs Reference` (with `R²`, `RMSECV` and bias),
+  `Residuals`, `Target Distribution` and `Training Scores (LV1 vs LV2)`
+- the `Spectral` page: `Regression Coefficients` and `Latent Loadings (LV1)`
+
+Every plot is a panel with a header. The header holds the title, a maximize
+control (also a header double-click; `Esc` restores) and an export menu with
+PNG, SVG, CSV and copy to the clipboard.
 
 When no fitted run is available yet, the readiness message remains visible
 above the empty diagnostics placeholders so the blocking condition is still
@@ -280,7 +310,6 @@ obvious.
 | **Assign target** | Assign the active target to one ROI |
 | **Build sample set** | Persist one v3 sample set from labeled ROIs using the active preprocessing recipe |
 | **Fit model** | Persist one `SignalDomainContract` and grouped v3 `ModelRun` |
-| **Spectral plot** | Switch the diagnostics spectral plot between regression coefficients and LV1 loadings in the Model diagnostics side panel |
 
 The Modeling section operates from project state. Sample sets are built from
 persisted ROIs plus `TargetAssignment`s, and model fitting uses ROI-grouped CV
@@ -299,7 +328,15 @@ Its primary center content is a dedicated prediction summary page showing:
 - current service state
 - result cards for prediction id, model run, dataset, calibration, and target
 - a compact compatibility summary derived from the saved signal-domain contract
-- the persisted prediction map surface
+- the persisted prediction map, in a plot frame whose header holds the
+  output selector, `Pan`, `Zoom` and `Reset View`
+- `Prediction Distribution`, the histogram of the shown map values, which
+  follows the selected output
+
+A large map is shown as a preview that keeps every n-th frame and row
+(`map_step` in the payload, the step of
+`load_prediction_spatial_map_preview`). The axes, the hover readout and the
+CSV use the true frame and row indices.
 
 ### Prediction group
 
@@ -564,7 +601,12 @@ See the [Logging user guide](user_guide/logging) for the full reference.
 
 ## 11. Extending the viewer
 
-To add a custom viewer surface, compose a normal Qt widget, connect it to
+To add a plot to a workspace, write a `PlotSpec` (`render`, `table`), register
+it and give it a slot on the workspace's pages. It then gets the header,
+maximize and export, and `tests/test_plot_registry.py` checks it. The steps
+are in `docs/viewer_architecture.md` under *Adding a new plot*.
+
+For a surface that is not a plot, compose a normal Qt widget, connect it to
 `ViewerState` / `ProjectState` signals, and dock it from `HSIViewer`.
 `_BasePanelWidget` is a private helper for the built-in matplotlib panels, not
 the public extension contract.

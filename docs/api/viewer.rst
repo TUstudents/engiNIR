@@ -139,11 +139,43 @@ Workspace surfaces
 .. autoclass:: enginir.viewer._prediction.PredictionMapWidget
    :no-members:
 
+Plot panels
+-----------
+
+.. automodule:: enginir.viewer._plot_panel
+   :no-members:
+
+.. autoclass:: enginir.viewer._plot_panel.PlotSpec
+   :no-members:
+
+.. autoclass:: enginir.viewer._plot_panel.PlotTable
+   :no-members:
+
+.. autoclass:: enginir.viewer._plot_panel.PlotFrame
+   :no-members:
+
+.. autoclass:: enginir.viewer._plot_panel.PlotPanel
+   :no-members:
+
+.. autofunction:: enginir.viewer._plot_panel.print_copy
+
+.. automodule:: enginir.viewer._plot_grid
+   :no-members:
+
+.. autoclass:: enginir.viewer._plot_grid.PlotGrid
+   :no-members:
+
+.. autoclass:: enginir.viewer._plot_grid.PlotPageWidget
+   :no-members:
+
+.. automodule:: enginir.viewer._plot_registry
+   :no-members:
+
 HSIViewer
 ---------
 
 .. autoclass:: enginir.viewer._viewer.HSIViewer
-   :members: show, export_csv
+   :members: show, export_csv, export_workspace_plots, workspace_plot_frames, reset_layout
 
 Project browser and inspector
 -----------------------------

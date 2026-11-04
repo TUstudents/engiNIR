@@ -477,7 +477,7 @@ def test_prediction_workspace_payload_cache_uses_artifact_version(qapp, project_
     monkeypatch.setattr(
         project_state,
         "load_prediction_spatial_map_preview",
-        lambda prediction_run_id: preview_payloads[prediction_run_id],
+        lambda prediction_run_id, **_kwargs: preview_payloads[prediction_run_id],
     )
     first = PredictionRun(
         prediction_run_id="prediction_1",
@@ -645,3 +645,117 @@ def test_prediction_view_rejects_incompatible_explicit_calibration(
     ]
     assert len(logs) == 1
     assert logs[0][0] == "Prediction failed during preflight: {}"
+
+
+def _subsampled_map_payload() -> dict:
+    frames, rows = np.meshgrid(np.arange(12), np.arange(5), indexing="ij")
+    spatial_map = np.stack([frames + 0.1 * rows, -frames.astype(float)], axis=-1)
+    return {"spatial_map": spatial_map.astype(np.float32), "target_unit": "%",
+            "output_names": ["moisture", "fat"], "map_step": 3, "full_map_shape": (36, 15)}
+
+
+def test_a_subsampled_map_shows_and_exports_true_frames_and_rows(qapp, tmp_path):
+    """The preview keeps every 3rd frame and row; axes, hover and CSV use true indices."""
+    import csv
+    import types
+
+    from enginir.viewer._plot_panel import PlotFrame
+    from enginir.viewer._prediction import PredictionMapWidget
+
+    widget = PredictionMapWidget()
+    frame = PlotFrame("predict.map", widget.plot_title, widget, widget,
+                      provenance=lambda: {"project_id": "p"})
+    frame.show()
+    payload = _subsampled_map_payload()
+    widget.update_data(payload)
+    assert frame.title == "Prediction Map (%)"
+    assert widget._ax.get_xlim()[1] == pytest.approx(12 * 3 - 0.5)
+
+    widget._on_motion(types.SimpleNamespace(inaxes=widget._ax, xdata=7.2, ydata=4.0))
+    assert widget._cursor_label.text().startswith("Frame 6 | Row 3 |")  # preview pixel (2, 1)
+
+    frame.export_csv(tmp_path / "map.csv")
+    lines = (tmp_path / "map.csv").read_text(encoding="utf-8").splitlines()
+    provenance = dict(line[2:].split(": ", 1) for line in lines if line.startswith("# "))
+    assert provenance["preview_step"] == "3"
+    assert provenance["full_map_shape"] == "36 frames x 15 rows"
+    assert provenance["output"] == "moisture"
+    header, *rows = list(csv.reader(line for line in lines if not line.startswith("# ")))
+    assert header == ["row\\frame", *(str(3 * i) for i in range(12))]
+    assert [row[0] for row in rows] == [str(3 * i) for i in range(5)]
+    np.testing.assert_allclose(np.array([row[1:] for row in rows], dtype=float),
+                               payload["spatial_map"][..., 0].T, rtol=1e-6)
+
+
+def test_header_controls_select_the_output_and_pan_zoom_and_reset_the_view(qapp):
+    from enginir.viewer._plot_panel import PlotPanel
+    from enginir.viewer._prediction import PREDICTION_HISTOGRAM, PredictionMapWidget
+
+    widget = PredictionMapWidget()
+    histogram = PlotPanel(PREDICTION_HISTOGRAM)
+    widget.displayed_map_changed.connect(histogram.update_data)
+    widget.resize(600, 400)
+    widget.show()
+    histogram.show()
+    payload = _subsampled_map_payload()
+    widget.update_data(payload)
+    combo, pan, zoom, reset = widget.header_widgets()
+
+    def histogram_total():
+        table = histogram.table()
+        assert table is not None
+        return int(np.sum(table.columns[2].values))
+
+    assert histogram_total() == 12 * 5
+    combo.setCurrentIndex(1)  # the histogram follows the selected output
+    np.testing.assert_allclose(widget._ax.images[0].get_array(), payload["spatial_map"][..., 1].T)
+    edges = histogram.table().columns[0].values  # type: ignore[union-attr]
+    assert edges.min() == pytest.approx(-11.0)
+
+    pan.click()
+    assert pan.isChecked() and not zoom.isChecked()
+    zoom.click()
+    assert zoom.isChecked() and not pan.isChecked()
+    zoom.click()
+    assert not zoom.isChecked()
+
+    full = widget._ax.get_xlim()
+    widget._ax.set_xlim(3.0, 9.0)  # as after zooming in
+    widget._toolbar.push_current()
+    reset.click()
+    assert widget._ax.get_xlim() == pytest.approx(full)
+
+
+def test_the_viewer_labels_a_stored_preview_with_the_loaders_step(tmp_path, monkeypatch):
+    """Preview pixel (i, j) is the stored map at frame i * map_step, row j * map_step."""
+    import types
+
+    from enginir.io.project_store import (
+        create_project,
+        finalize_prediction_run_artifacts,
+        initialize_prediction_run_artifacts,
+        load_prediction_spatial_map_preview,
+        open_prediction_run_artifact_writer,
+    )
+    from enginir.viewer import _prediction
+
+    path = str(tmp_path / "preview.h5")
+    map_shape = (23, 7)
+    y_pred = np.arange(23 * 7, dtype=np.float32)
+    create_project(path)
+    initialize_prediction_run_artifacts(path, "run", {"dataset_id": "d"},
+                                        y_pred_shape=y_pred.shape, spatial_map_shape=None)
+    with open_prediction_run_artifact_writer(path, "run") as writer:
+        writer.write_chunk(row_start=0, y_pred_chunk=y_pred)
+    finalize_prediction_run_artifacts(path, "run", {"spatial_map_shape": map_shape})
+
+    monkeypatch.setattr(_prediction, "_MAP_PREVIEW_PIXELS", 40)
+    preview = load_prediction_spatial_map_preview(path, "run", max_pixels=40)
+    run = types.SimpleNamespace(prediction_run_id="run",
+                                artifact_refs={"spatial_map_shape": np.array(map_shape)})
+    geometry = _prediction._preview_geometry(run, preview)  # type: ignore[arg-type]
+    step = geometry["map_step"]
+    assert step > 1 and geometry["full_map_shape"] == map_shape
+    full = y_pred.reshape(map_shape)
+    for i, j in ((0, 0), (1, 1), (preview.shape[0] - 1, preview.shape[1] - 1)):
+        assert preview[i, j] == full[i * step, j * step]

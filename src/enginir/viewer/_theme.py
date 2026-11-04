@@ -25,6 +25,7 @@ __all__ = [
     "is_dark",
     "load_preference",
     "panel_colors",
+    "print_colors",
     "secondary_text_style",
 ]
 
@@ -145,6 +146,12 @@ def _save_preference(dark: bool) -> None:
 def panel_colors() -> dict[str, str]:
     """Return synchronized plot/canvas colors for the current theme."""
     return dict(_PANEL_COLORS[_current_dark])
+
+
+def print_colors() -> dict[str, str]:
+    """Return the plot colors for exported images (light, whatever the screen theme)."""
+    return {"bg": "#ffffff", "ax_bg": "#ffffff", "fg": "#1a1a1a",
+            "accent": _PANEL_COLORS[False]["accent"]}
 
 
 def secondary_text_style() -> str:

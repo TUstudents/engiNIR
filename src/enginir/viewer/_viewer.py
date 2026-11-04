@@ -26,12 +26,11 @@ from PyQt6.QtWidgets import (
     QStackedWidget,
     QToolButton,
     QTabWidget,
-    QComboBox,
     QMenu,
     QMenuBar,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QActionGroup, QFont, QIcon, QCloseEvent, QStandardItemModel
+from PyQt6.QtGui import QAction, QActionGroup, QFont, QIcon, QCloseEvent, QKeySequence, QShortcut
 import importlib.resources
 
 from .._checks import log_and_raise
@@ -46,8 +45,11 @@ from ._inspector import ProjectInspector
 from ._jobs import BusyStatusWidget
 from ._loading import ViewerBusyContext
 from ._model_diagnostics import ModelDiagnosticsWidget
+from . import _layout_settings as layout_settings
+from ._plot_grid import PlotPage, PlotPageWidget, PlotSlot
+from ._plot_panel import LARGE_EXPORT_VALUES, PlotFrame, PlotPanel
 from ._modeling import AssignTargetValueDialog, ModelingView, NewROIDialog, TargetSelectionDialog
-from ._prediction import PredictionMapWidget, PredictionView
+from ._prediction import PREDICTION_HISTOGRAM, PredictionMapWidget, PredictionView
 from ._state import (
     DEFAULT_BLACK_LEVEL,
     DEFAULT_SOURCE_MODALITY,
@@ -56,6 +58,7 @@ from ._state import (
     ViewerState,
 )
 from ._panels import (
+    _PanelBase as _ExplorePanel,
     HistogramPanel,
     DC3Panel,
     SensorPanel,
@@ -70,6 +73,7 @@ _QtObject = TypeVar("_QtObject")
 _COMPACT_LEFT_DOCK_WIDTH = 260
 _CONTROLS_DOCK_TARGET_HEIGHT = 230
 _SPECTRUM_PANEL_HEIGHT = 220
+_UNLIMITED_HEIGHT = 16777215  # QWIDGETSIZE_MAX
 
 
 def _require_qt_object(value: _QtObject | None, context: str) -> _QtObject:
@@ -216,7 +220,6 @@ class HSIViewer(QMainWindow):
         self._workspace_refresh_pending = False
         self._bottom_dock_resize_pending = False
         self._controls_dock_height = _CONTROLS_DOCK_TARGET_HEIGHT
-        self._model_spectral_mode = "coefficients"
 
         if dark is not None:
             ref = dark.mean(axis=0) if dark.ndim == 3 else dark
@@ -264,30 +267,29 @@ class HSIViewer(QMainWindow):
         central_layout.setContentsMargins(0, 0, 0, 0)
         central_layout.setSpacing(0)
 
-        header = QWidget()
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(8, 6, 8, 6)
-        header_layout.setSpacing(8)
-        self._image_view_label = QLabel("Spatial Image")
+        self._canvas_frame = PlotFrame("explore.image", "Spatial Image", self._canvas,
+                                       self._canvas, provenance=self._explore_provenance)
         self._btn_reset_image_view = QToolButton()
         self._btn_reset_image_view.setText("Reset View")
+        self._btn_reset_image_view.setAutoRaise(True)
         self._btn_reset_image_view.clicked.connect(self._reset_image_view)
-        header_layout.addWidget(self._image_view_label)
-        header_layout.addStretch()
-        header_layout.addWidget(self._btn_reset_image_view)
+        self._canvas_frame.add_header_widget(self._btn_reset_image_view)
+        self._canvas_frame.maximize_toggled.connect(
+            lambda: self._toggle_explore_maximized("image"))
+        central_layout.addWidget(self._canvas_frame, 1)
 
-        central_layout.addWidget(header)
-        central_layout.addWidget(self._canvas, 1)
-
-        self._spectrum_panel = QGroupBox("Spectral Profile")
+        self._spectrum_panel = self._explore_frame(self._spectrum, "explore.spectrum")
         self._spectrum_panel.setObjectName("SpectrumPanelContainer")
-        self._spectrum_panel.setMinimumHeight(_SPECTRUM_PANEL_HEIGHT)
-        self._spectrum_panel.setMaximumHeight(_SPECTRUM_PANEL_HEIGHT)
-        spectrum_layout = QVBoxLayout(self._spectrum_panel)
-        spectrum_layout.setContentsMargins(8, 8, 8, 8)
-        spectrum_layout.setSpacing(6)
-        spectrum_layout.addWidget(self._spectrum)
+        self._spectrum_panel.maximize_toggled.connect(
+            lambda: self._toggle_explore_maximized("spectrum"))
         central_layout.addWidget(self._spectrum_panel)
+        self._spectrum_panel.setFixedHeight(_SPECTRUM_PANEL_HEIGHT)
+        self._explore_maximized: str | None = None
+        self._explore_escape = QShortcut(QKeySequence(Qt.Key.Key_Escape),
+                                         self._explore_content_page)
+        self._explore_escape.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._explore_escape.activated.connect(self._on_explore_escape)
+        self._explore_escape.setEnabled(False)
 
         self._spectrum_toggle_action = QAction("Spectral Profile", self)
         self._spectrum_toggle_action.setCheckable(True)
@@ -340,6 +342,12 @@ class HSIViewer(QMainWindow):
         self._replace_workspace_content_page(old_page, self._model_content_page)
         if self._model_diagnostics_widget is not None:
             self._model_diagnostics_widget.roi_selected.connect(self._on_canvas_roi_selected)
+            grid = self._model_diagnostics_widget.grid
+            saved = layout_settings.load_maximized().get("Model")
+            if saved in grid.plot_ids:
+                grid.maximize(saved)
+            grid.maximized_changed.connect(
+                lambda plot_id: layout_settings.save_maximized("Model", plot_id))
 
     def _ensure_predict_content_page(self) -> None:
         if self._predict_map_widget is not None:
@@ -347,6 +355,11 @@ class HSIViewer(QMainWindow):
         old_page = self._predict_content_page
         self._predict_content_page = self._build_predict_content_page()
         self._replace_workspace_content_page(old_page, self._predict_content_page)
+        saved = layout_settings.load_maximized().get("Predict")
+        if saved in self._predict_graph_panel.panels:
+            self._predict_graph_panel.maximize(saved)
+        self._predict_graph_panel.maximized_changed.connect(
+            lambda plot_id: layout_settings.save_maximized("Predict", plot_id))
 
     def _build_model_content_page(self) -> QWidget:
         page = QWidget()
@@ -358,13 +371,7 @@ class HSIViewer(QMainWindow):
         self._model_workspace_splitter = QSplitter(Qt.Orientation.Horizontal)
         self._model_workspace_splitter.setChildrenCollapsible(False)
 
-        self._model_graph_panel = QGroupBox("Diagnostic Graphs")
-        graph_layout = QVBoxLayout(self._model_graph_panel)
-        graph_layout.setContentsMargins(8, 8, 8, 8)
-        graph_layout.setSpacing(6)
         self._model_diagnostics_widget = ModelDiagnosticsWidget()
-        self._model_diagnostics_widget.set_spectral_mode(self._model_spectral_mode)
-        graph_layout.addWidget(self._model_diagnostics_widget, 1)
 
         self._model_text_panel = QWidget()
         self._model_text_panel.setObjectName("ModelDiagnosticsTextPanel")
@@ -408,26 +415,6 @@ class HSIViewer(QMainWindow):
         metrics_layout.addRow("RMSECV", self._model_metric_rmsecv_value)
         metrics_layout.addRow("Bias", self._model_metric_bias_value)
 
-        spectral_box = QGroupBox("Spectral Plot")
-        spectral_layout = QVBoxLayout(spectral_box)
-        spectral_layout.setContentsMargins(8, 8, 8, 8)
-        spectral_layout.setSpacing(4)
-        self._model_spectral_combo = QComboBox()
-        self._model_spectral_combo.addItem("Regression coefficients", "coefficients")
-        self._model_spectral_combo.addItem("Latent loadings (LV1)", "loadings")
-        self._model_spectral_combo.setToolTip(
-            "Choose what the bottom diagnostics spectral plot displays."
-        )
-        self._model_spectral_combo.setEnabled(False)
-        self._model_spectral_combo.currentIndexChanged.connect(
-            self._on_model_spectral_mode_changed
-        )
-        self._model_spectral_hint = QLabel("No coefficients or loadings are available yet.")
-        self._model_spectral_hint.setStyleSheet(secondary_text_style())
-        self._model_spectral_hint.setWordWrap(True)
-        spectral_layout.addWidget(self._model_spectral_combo)
-        spectral_layout.addWidget(self._model_spectral_hint)
-
         readiness_box = QGroupBox("Readiness")
         readiness_layout = QVBoxLayout(readiness_box)
         readiness_layout.setContentsMargins(8, 8, 8, 8)
@@ -441,11 +428,10 @@ class HSIViewer(QMainWindow):
         text_layout.addWidget(self._model_summary_service)
         text_layout.addWidget(summary_box)
         text_layout.addWidget(metrics_box)
-        text_layout.addWidget(spectral_box)
         text_layout.addWidget(readiness_box)
         text_layout.addStretch(1)
 
-        self._model_workspace_splitter.addWidget(self._model_graph_panel)
+        self._model_workspace_splitter.addWidget(self._model_diagnostics_widget)
         self._model_workspace_splitter.addWidget(self._model_text_panel)
         self._model_workspace_splitter.setStretchFactor(0, 5)
         self._model_workspace_splitter.setStretchFactor(1, 1)
@@ -467,12 +453,21 @@ class HSIViewer(QMainWindow):
         self._predict_workspace_splitter = QSplitter(Qt.Orientation.Horizontal)
         self._predict_workspace_splitter.setChildrenCollapsible(False)
 
-        self._predict_graph_panel = QGroupBox("Prediction Map")
-        predict_graph_layout = QVBoxLayout(self._predict_graph_panel)
-        predict_graph_layout.setContentsMargins(8, 8, 8, 8)
-        predict_graph_layout.setSpacing(6)
         self._predict_map_widget = PredictionMapWidget()
-        predict_graph_layout.addWidget(self._predict_map_widget, 1)
+        self._predict_map_frame = PlotFrame(
+            "predict.map", self._predict_map_widget.plot_title, self._predict_map_widget,
+            self._predict_map_widget, provenance=self._prediction_view.workspace_provenance)
+        for control in self._predict_map_widget.header_widgets():
+            self._predict_map_frame.add_header_widget(control)
+        self._predict_histogram = PlotPanel(PREDICTION_HISTOGRAM)
+        self._predict_map_widget.displayed_map_changed.connect(
+            lambda shown: self._predict_histogram.update_data(
+                shown, provenance=self._prediction_view.workspace_provenance()))
+        self._predict_graph_panel = PlotPageWidget(
+            PlotPage("Prediction", (PlotSlot("predict.map", 0, 0, row_span=2),
+                                    PlotSlot("predict.histogram", 2, 0))),
+            {"predict.map": self._predict_map_frame,
+             "predict.histogram": self._predict_histogram})
 
         self._predict_text_panel = QWidget()
         self._predict_text_panel.setObjectName("PredictionResultsTextPanel")
@@ -564,29 +559,26 @@ class HSIViewer(QMainWindow):
             Qt.Orientation.Vertical,
         )
         # Left docks - Inspector above collapsed Histogram/RAW utilities
-        self._hist_dock = QDockWidget("Histogram", self)
-        self._hist_dock.setObjectName("HistogramDock")
-        self._hist_dock.setWidget(self._hist)
+        self._dock_frames: dict[QDockWidget, PlotFrame] = {}
+        self._maximized_dock: QDockWidget | None = None
+        self._hist_dock = self._plot_dock("Histogram", "HistogramDock", self._hist,
+                                          "explore.histogram")
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._hist_dock)
         self.splitDockWidget(self._inspector_dock, self._hist_dock, Qt.Orientation.Vertical)
 
-        self._dc3_dock = QDockWidget("RAW", self)
-        self._dc3_dock.setObjectName("DC3Dock")
-        self._dc3_dock.setWidget(self._dc3)
+        self._dc3_dock = self._plot_dock("RAW", "DC3Dock", self._dc3, "explore.raw")
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._dc3_dock)
         self.splitDockWidget(self._hist_dock, self._dc3_dock, Qt.Orientation.Vertical)
         self._hist_dock.hide()
         self._dc3_dock.hide()
 
         # Right docks - Sensor Frame above Spatial Profile
-        self._sensor_dock = QDockWidget("Sensor Frame", self)
-        self._sensor_dock.setObjectName("SensorDock")
-        self._sensor_dock.setWidget(self._sensor)
+        self._sensor_dock = self._plot_dock("Sensor Frame", "SensorDock", self._sensor,
+                                            "explore.sensor")
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._sensor_dock)
 
-        self._spatial_dock = QDockWidget("Spatial Profile", self)
-        self._spatial_dock.setObjectName("SpatialProfileDock")
-        self._spatial_dock.setWidget(self._spatial)
+        self._spatial_dock = self._plot_dock("Spatial Profile", "SpatialProfileDock",
+                                             self._spatial, "explore.spatial")
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._spatial_dock)
         self.splitDockWidget(self._sensor_dock, self._spatial_dock, Qt.Orientation.Vertical)
 
@@ -596,6 +588,107 @@ class HSIViewer(QMainWindow):
             "spectrum": True,
         }
         self._explore_plot_visibility = dict(self._default_explore_plot_visibility)
+
+    # ------------------------------------------------------------------
+    # Explore plot frames (Plot Panel Policy)
+    # ------------------------------------------------------------------
+
+    def _explore_frame(self, panel: _ExplorePanel, plot_id: str) -> PlotFrame:
+        frame = PlotFrame(plot_id, panel.plot_title, panel, panel,
+                          provenance=self._explore_provenance)
+        return frame
+
+    def _plot_dock(self, title: str, object_name: str, panel: _ExplorePanel,
+                   plot_id: str) -> QDockWidget:
+        """A dock whose title bar is the plot header (title, maximize, export, close)."""
+        dock = QDockWidget(title, self)
+        dock.setObjectName(object_name)
+        frame = self._explore_frame(panel, plot_id)
+        dock.setWidget(frame)
+        header = frame.take_header()
+        frame.add_close_button(dock.hide)
+        dock.setTitleBarWidget(header)
+        frame.maximize_toggled.connect(lambda: self._toggle_dock_maximized(dock))
+        escape = QShortcut(QKeySequence(Qt.Key.Key_Escape), dock)
+        escape.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        escape.activated.connect(lambda: self._restore_dock(dock))
+        dock.visibilityChanged.connect(
+            lambda visible: None if visible else self._restore_dock(dock))
+        self._dock_frames[dock] = frame
+        return dock
+
+    def _explore_provenance(self) -> dict[str, str]:
+        meta = self.project_state.project_meta
+        provenance = {"project_id": str(meta.get("project_id", "none")),
+                      "data_file": self._cube_path or "none"}
+        for dataset in self.project_state.datasets.values():
+            if self._cube_path and os.path.abspath(dataset.source_path) == os.path.abspath(
+                    self._cube_path):
+                provenance["dataset_id"] = dataset.dataset_id
+                break
+        return provenance
+
+    def _toggle_dock_maximized(self, dock: QDockWidget) -> None:
+        """Float the dock over the main window, or put it back."""
+        if self._dock_frames[dock].is_maximized:
+            self._restore_dock(dock)
+            return
+        self._restore_maximized_plots()
+        dock.setFeatures(dock.features() | QDockWidget.DockWidgetFeature.DockWidgetFloatable)
+        dock.setFloating(True)
+        dock.setGeometry(self.geometry())
+        dock.raise_()
+        self._dock_frames[dock].set_maximized(True)
+        self._maximized_dock = dock
+
+    def _restore_dock(self, dock: QDockWidget) -> None:
+        frame = self._dock_frames[dock]
+        if not frame.is_maximized:
+            return
+        dock.setFloating(False)
+        frame.set_maximized(False)
+        self._maximized_dock = None
+
+    def _toggle_explore_maximized(self, which: str) -> None:
+        """Maximize the spatial image or the spectral profile within the Explore page."""
+        maximize = self._explore_maximized != which
+        self._restore_maximized_plots()
+        if maximize:
+            self._set_explore_maximized(which)
+
+    def _set_explore_maximized(self, which: str | None) -> None:
+        self._explore_maximized = which
+        self._apply_explore_page_layout()
+        layout_settings.save_maximized(
+            "Explore", None if which is None else f"explore.{which}")
+
+    def _restore_maximized_plots(self) -> None:
+        if self._maximized_dock is not None:
+            self._restore_dock(self._maximized_dock)
+        if self._explore_maximized is not None:
+            self._set_explore_maximized(None)
+
+    def _on_explore_escape(self) -> None:
+        if self._canvas.is_drawing_roi:
+            self._canvas.cancel_roi_draw_mode()
+        else:
+            self._restore_maximized_plots()
+
+    def _apply_explore_page_layout(self) -> None:
+        maximized = self._explore_maximized
+        self._canvas_frame.setVisible(maximized != "spectrum")
+        self._canvas_frame.set_maximized(maximized == "image")
+        self._spectrum_panel.set_maximized(maximized == "spectrum")
+        if maximized == "spectrum":
+            self._spectrum_panel.setMinimumHeight(0)
+            self._spectrum_panel.setMaximumHeight(_UNLIMITED_HEIGHT)
+        else:
+            self._spectrum_panel.setMinimumHeight(_SPECTRUM_PANEL_HEIGHT)
+            self._spectrum_panel.setMaximumHeight(_SPECTRUM_PANEL_HEIGHT)
+        explore = self._workspace_tabs.currentWidget() is self._eda_view
+        self._spectrum_panel.setVisible(
+            explore and self._explore_plot_visibility["spectrum"] and maximized != "image")
+        self._explore_escape.setEnabled(maximized is not None)
 
     @staticmethod
     def _configure_compact_left_dock(dock: QDockWidget) -> None:
@@ -774,6 +867,9 @@ class HSIViewer(QMainWindow):
         self._sensor_dock.visibilityChanged.connect(self._on_sensor_dock_visibility_changed)
         self._spatial_dock.visibilityChanged.connect(self._on_spatial_dock_visibility_changed)
 
+        saved = layout_settings.load_maximized().get("Explore", "")
+        if saved in ("explore.image", "explore.spectrum"):
+            self._explore_maximized = saved.removeprefix("explore.")
         self._sync_workspace_content_host()
 
     def _on_project_browser_selection_changed(self) -> None:
@@ -844,11 +940,12 @@ class HSIViewer(QMainWindow):
         if is_explore:
             self._sensor_dock.setVisible(self._explore_plot_visibility["sensor"])
             self._spatial_dock.setVisible(self._explore_plot_visibility["spatial"])
-            self._spectrum_panel.setVisible(self._explore_plot_visibility["spectrum"])
         else:
+            if self._maximized_dock is not None:  # a floating dock would cover Model/Predict
+                self._restore_dock(self._maximized_dock)
             self._sensor_dock.hide()
             self._spatial_dock.hide()
-            self._spectrum_panel.hide()
+        self._apply_explore_page_layout()
         _require_qt_object(
             self._sensor_dock.toggleViewAction(), "sensor dock toggle action"
         ).setEnabled(is_explore)
@@ -901,66 +998,11 @@ class HSIViewer(QMainWindow):
         self._set_busy_status_widget(
             self._model_summary_service, text=service_text, busy=service_busy
         )
-        diagnostics_payload = self._modeling_view.workspace_diagnostics_payload()
-        self._sync_model_spectral_options(diagnostics_payload)
-        model_diagnostics_widget.set_spectral_mode(self._model_spectral_mode)
         model_diagnostics_widget.update_data(
-            diagnostics_payload,
+            self._modeling_view.workspace_diagnostics_payload(),
             empty_reason=model_summary["readiness"],
+            provenance=self._modeling_view.workspace_diagnostics_provenance(),
         )
-
-    def _sync_model_spectral_options(self, payload: dict[str, object] | None) -> None:
-        has_coefficients = bool(
-            payload is not None and np.asarray(payload.get("coefficients", [])).size
-        )
-        has_loadings = bool(payload is not None and np.asarray(payload.get("loadings", [])).size)
-        self._set_model_spectral_option_enabled("coefficients", has_coefficients)
-        self._set_model_spectral_option_enabled("loadings", has_loadings)
-        any_available = has_coefficients or has_loadings
-        self._model_spectral_combo.setEnabled(any_available)
-        if any_available:
-            if not self._is_current_model_spectral_mode_available():
-                self._model_spectral_mode = "coefficients" if has_coefficients else "loadings"
-                index = self._model_spectral_combo.findData(self._model_spectral_mode)
-                if index >= 0:
-                    self._model_spectral_combo.setCurrentIndex(index)
-            self._model_spectral_hint.setText(self._model_spectral_hint_text())
-        else:
-            self._model_spectral_hint.setText("No coefficients or loadings are available yet.")
-
-    def _set_model_spectral_option_enabled(self, value: str, enabled: bool) -> None:
-        index = self._model_spectral_combo.findData(value)
-        if index < 0:
-            return
-        model = self._model_spectral_combo.model()
-        if not isinstance(model, QStandardItemModel):
-            return
-        item = model.item(index)
-        if item is not None:
-            item.setEnabled(enabled)
-
-    def _is_current_model_spectral_mode_available(self) -> bool:
-        index = self._model_spectral_combo.currentIndex()
-        if index < 0:
-            return False
-        model = self._model_spectral_combo.model()
-        if not isinstance(model, QStandardItemModel):
-            return False
-        item = model.item(index)
-        return bool(item is not None and item.isEnabled())
-
-    def _on_model_spectral_mode_changed(self, _index: int) -> None:
-        self._model_spectral_mode = str(
-            self._model_spectral_combo.currentData() or "coefficients"
-        )
-        self._model_spectral_hint.setText(self._model_spectral_hint_text())
-        if self._model_diagnostics_widget is not None:
-            self._model_diagnostics_widget.set_spectral_mode(self._model_spectral_mode)
-
-    def _model_spectral_hint_text(self) -> str:
-        if self._model_spectral_mode == "loadings":
-            return "Loadings show the first latent variable's spectral structure."
-        return "Coefficients show how each band contributes to the model prediction."
 
     def _refresh_prediction_workspace_content(self) -> None:
         self._ensure_predict_content_page()
@@ -1016,7 +1058,9 @@ class HSIViewer(QMainWindow):
 
     def _on_spectrum_panel_visibility_action(self, visible: bool) -> None:
         self._on_explore_plot_visibility_changed("spectrum", visible)
-        self._spectrum_panel.setVisible(visible)
+        if not visible and self._explore_maximized == "spectrum":
+            self._restore_maximized_plots()
+        self._apply_explore_page_layout()
 
     def _refresh_inspector_context(self) -> None:
         payload = self._selected_project_browser_payload()
@@ -1132,6 +1176,9 @@ class HSIViewer(QMainWindow):
 
         act = _add_required_action(m, "Export CSV...")
         act.triggered.connect(self._eda_view.export_csv_btn_clicked)
+        act = _add_required_action(m, "Export Plots...")
+        act.setToolTip("Save every plot of the current workspace as PNG and CSV")
+        act.triggered.connect(self._action_export_plots)
 
         m.addSeparator()
 
@@ -1357,8 +1404,84 @@ class HSIViewer(QMainWindow):
                     "Hyperspectral NIR spectroscopy library and viewer.")
         box.exec()
 
+    def workspace_plot_frames(self) -> list[PlotFrame]:
+        """The plots of the current workspace, including Model pages not shown yet."""
+        current = self._workspace_tabs.currentWidget()
+        if current is self._modeling_view:
+            self._ensure_model_content_page()
+            widget = self._model_diagnostics_widget
+            return [] if widget is None else list(widget.grid.all_panels().values())
+        if current is self._prediction_view:
+            self._ensure_predict_content_page()
+            return list(self._predict_graph_panel.panels.values())
+        return [self._canvas_frame, self._spectrum_panel, *self._dock_frames.values()]
+
+    def export_workspace_plots(self, folder: str | os.PathLike[str]) -> tuple[list[str], list[str]]:
+        """Write PNG and CSV of every plot of the current workspace that shows data.
+
+        Files are named by plot id (``model.pred_vs_ref.png``, ...) and
+        overwrite files of the same name. Returns the written file names and
+        the ids of the plots skipped because they show no data.
+        """
+        target = os.fspath(folder)
+        if not os.path.isdir(target):
+            log_and_raise("Export folder does not exist: {}", target)
+        written: list[str] = []
+        skipped: list[str] = []
+        for frame in self.workspace_plot_frames():
+            if frame.export_reason():
+                skipped.append(frame.plot_id)
+                continue
+            for suffix, export in ((".png", frame.export_image), (".csv", frame.export_csv)):
+                path = os.path.join(target, f"{frame.plot_id}{suffix}")
+                export(path)
+                written.append(os.path.basename(path))
+        logger.info("Exported {} plot files to {}; skipped without data: {}", len(written),
+                    target, skipped)
+        return written, skipped
+
+    def _action_export_plots(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Export plots to folder")
+        if not folder:
+            return
+        frames = [frame for frame in self.workspace_plot_frames() if not frame.export_reason()]
+        if not frames:
+            QMessageBox.information(self, "Export Plots", "No plot of this workspace shows data.")
+            return
+        n_values = sum(table.n_values for frame in frames
+                       if (table := frame.table()) is not None)
+        existing = [f"{frame.plot_id}{suffix}" for frame in frames for suffix in (".png", ".csv")
+                    if os.path.exists(os.path.join(folder, f"{frame.plot_id}{suffix}"))]
+        questions = []
+        if existing:
+            questions.append(f"{len(existing)} file(s) in this folder will be replaced.")
+        if n_values > LARGE_EXPORT_VALUES:
+            questions.append(f"The CSV files hold {n_values:,} values.")
+        if questions:
+            answer = QMessageBox.question(self, "Export Plots",
+                                          " ".join(questions) + " Export anyway?")
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        try:
+            written, skipped = self.export_workspace_plots(folder)
+        except (OSError, ValueError) as exc:
+            logger.error("Export of the workspace plots failed: {}", exc)
+            QMessageBox.warning(self, "Export failed", str(exc))
+            return
+        message = f"Wrote {len(written)} files to {folder}."
+        if skipped:
+            message += f"\n\nSkipped (no data): {', '.join(skipped)}"
+        QMessageBox.information(self, "Export Plots", message)
+
     def reset_layout(self) -> None:
-        """Restore default dock layout (positions, splits, visibility)."""
+        """Restore default dock layout (positions, splits, visibility) and plot layout."""
+        self._restore_maximized_plots()
+        if self._model_diagnostics_widget is not None:
+            for page in self._model_diagnostics_widget.grid.page_names:
+                self._model_diagnostics_widget.grid.restore_page(page)
+        if self._predict_map_widget is not None:
+            self._predict_graph_panel.restore()
+        layout_settings.clear()
         self._explore_plot_visibility = dict(self._default_explore_plot_visibility)
         self.restoreState(self._default_layout_state)
         self._sync_workspace_content_host()
@@ -1421,4 +1544,5 @@ class HSIViewer(QMainWindow):
             self._model_diagnostics_widget.restyle_theme()
         if self._predict_map_widget is not None:
             self._predict_map_widget.restyle_theme()
+            self._predict_histogram.restyle_theme()
         self._log_panel.restyle_theme()
