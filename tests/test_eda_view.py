@@ -386,8 +386,9 @@ def test_export_csv_uses_batched_roi_load_and_preserves_order(
 
     monkeypatch.setattr(
         "enginir.viewer._eda.save_csv",
-        lambda path, X, wavelengths, sample_names: captured.update(
-            {"path": path, "X": X, "wavelengths": wavelengths, "sample_names": sample_names}
+        lambda path, X, wavelengths, sample_names, columns: captured.update(
+            {"path": path, "X": X, "wavelengths": wavelengths, "sample_names": sample_names,
+             "columns": columns}
         ),
     )
     monkeypatch.setattr(
@@ -404,7 +405,9 @@ def test_export_csv_uses_batched_roi_load_and_preserves_order(
     ]
     np.testing.assert_allclose(captured["X"], np.vstack([spectra_a, spectra_b]).astype(np.float64))
     np.testing.assert_allclose(captured["wavelengths"], wl)
-    assert captured["sample_names"] == ["A", "A", "B", "B", "B"]
+    # The id identifies each row's ROI; the name is a label next to it.
+    assert captured["sample_names"] == ["roi_a", "roi_a", "roi_b", "roi_b", "roi_b"]
+    assert captured["columns"]["roi_name"] == ["A", "A", "B", "B", "B"]
     assert captured["path"] == out_path
 
 

@@ -37,8 +37,8 @@ Prediction
 Shared rules
 ------------
 
-The viewer and :class:`Project` resolve datasets and calibrations and build
-ROIs with these functions, so a project written from a script and one written
+The viewer and :class:`Project` resolve datasets and calibrations, build
+ROIs, and find the sample set and signal domain of a fit with these functions, so a project written from a script and one written
 in the viewer follow the same rules.
 
 .. autofunction:: enginir._workflow.resolve_dataset
@@ -50,6 +50,25 @@ in the viewer follow the same rules.
 .. autofunction:: enginir._workflow.resolve_prediction_calibration
 
 .. autofunction:: enginir._workflow.make_roi
+
+.. autofunction:: enginir._workflow.resolve_sample_set
+
+.. autofunction:: enginir._workflow.resolve_signal_domain
+
+.. autofunction:: enginir._workflow.recipe_id_for
+
+.. autofunction:: enginir._workflow.check_data_file_location
+
+.. autofunction:: enginir._workflow.data_file_labels
+
+.. autofunction:: enginir._workflow.read_header
+
+.. autofunction:: enginir._workflow.read_frames
+
+.. autofunction:: enginir._workflow.roi_grid
+
+.. autoclass:: enginir._workflow.GridCell
+   :no-members:
 
 Calibration defaults
 --------------------

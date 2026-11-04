@@ -280,15 +280,20 @@ def test_status_strip_and_canvas_click_track_cursor_state(qapp, cube_and_wavelen
     assert "Row: 3" in status
 
 
-def test_attach_dataset_path_propagates_unexpected_errors(qapp, cube_and_wavelengths, monkeypatch):
+def test_add_data_file_propagates_unexpected_errors(qapp, cube_and_wavelengths, monkeypatch,
+                                                    tmp_path):
+    """Expected file errors become a dialog; programming errors are not hidden in one."""
     from PyQt6.QtWidgets import QMessageBox
+
+    from enginir import Project
     from enginir.viewer._viewer import HSIViewer
 
     cube, wavelengths = cube_and_wavelengths
     viewer = HSIViewer(cube, wavelengths)
+    viewer.project_state.open_project(str(Project.create(tmp_path / "p.h5").path))
     criticals: list[str] = []
     monkeypatch.setattr(
-        "enginir.viewer._viewer.load_spectra",
+        "enginir.viewer._viewer.read_header",
         lambda path: (_ for _ in ()).throw(AttributeError("unexpected bug")),
     )
     monkeypatch.setattr(
@@ -296,7 +301,7 @@ def test_attach_dataset_path_propagates_unexpected_errors(qapp, cube_and_wavelen
     )
 
     with pytest.raises(AttributeError, match="unexpected bug"):
-        viewer._attach_dataset_path("/tmp/broken.eiff")
+        viewer.add_data_file("/tmp/broken.eiff")
 
     assert criticals == []
 
@@ -354,6 +359,7 @@ def test_project_browser_selection_syncs_inspector_and_canvas(qapp, cube_and_wav
     _create_reopenable_model_project(str(project_path), wavelengths[:4])
 
     viewer = HSIViewer(cube, wavelengths)
+    viewer._cube_path = "/data/train.eiff"  # the window shows the data file of the ROIs
     viewer.project_state.open_project(str(project_path))
     qapp.processEvents()
 

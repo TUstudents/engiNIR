@@ -56,6 +56,10 @@ The expected layout has wavelength values as column headers::
    sample_id | 1000.0 | 1002.0 | ... | 2500.0
    sample_1  |  0.42  |  0.41  | ... |  0.38
 
+Text columns between ``sample_id`` and the spectra (e.g. ``roi_name`` and
+``data_file`` in the viewer's ROI export) are read into
+``meta["sample_columns"]``; ``save_csv(..., columns={...})`` writes them.
+
 .. code-block:: python
 
    from enginir.io import load_csv, save_csv
@@ -234,7 +238,8 @@ model or prediction arrays stay on disk unless you pass
 ``load_project_store()`` is the raw reader: it checks the file structure and
 decodes values. To work with a project, open it with :class:`enginir.Project`,
 which validates every object and every reference and gives you datasets,
-ROIs, targets, models and predictions by name:
+ROIs, targets, models and predictions by name or by id (see
+:doc:`workflows`, Names and ids):
 
 .. code-block:: python
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TypeVar
+from typing import Any, TypeVar
 import os
 import time
 from functools import partial
@@ -10,6 +10,8 @@ from functools import partial
 import numpy as np
 from PyQt6.QtWidgets import (
     QApplication,
+    QComboBox,
+    QDialog,
     QMainWindow,
     QWidget,
     QDockWidget,
@@ -34,6 +36,8 @@ from PyQt6.QtGui import QAction, QActionGroup, QFont, QIcon, QCloseEvent, QKeySe
 import importlib.resources
 
 from .._checks import log_and_raise
+from .._workflow import read_header
+from ..project import CalibrationSpec, viewable_signal_units
 from .._logging import add_log_sink, get_logger, log_file_path, remove_log_sink
 from ..io import load_spectra
 
@@ -42,13 +46,17 @@ from ._attachment import confirm_project_dataset_binding
 from ._browser import ProjectBrowser
 from ..io import file_format
 from ._inspector import ProjectInspector
-from ._jobs import BusyStatusWidget
+from ._data_files import AddDataFileDialog
+from ._project_rois import ProjectRoisView
+from ._roi_table import RoiTableWidget
+from ._jobs import BusyStatusWidget, start_background_job
 from ._loading import ViewerBusyContext
 from ._model_diagnostics import ModelDiagnosticsWidget
 from . import _layout_settings as layout_settings
+from ._project_settings import load_last_data_file, save_last_data_file
 from ._plot_grid import PlotPage, PlotPageWidget, PlotSlot
 from ._plot_panel import LARGE_EXPORT_VALUES, PlotFrame, PlotPanel
-from ._modeling import AssignTargetValueDialog, ModelingView, NewROIDialog, TargetSelectionDialog
+from ._modeling import ModelingView, NewROIDialog, TargetSelectionDialog
 from ._prediction import PREDICTION_HISTOGRAM, PredictionMapWidget, PredictionView
 from ._state import (
     DEFAULT_BLACK_LEVEL,
@@ -74,6 +82,26 @@ _COMPACT_LEFT_DOCK_WIDTH = 260
 _CONTROLS_DOCK_TARGET_HEIGHT = 230
 _SPECTRUM_PANEL_HEIGHT = 220
 _UNLIMITED_HEIGHT = 16777215  # QWIDGETSIZE_MAX
+_SAVED_MESSAGE_MS = 8000
+_ADD_DATA_FILE = "__add_data_file__"
+
+
+def _calibration_view(calibration: CalibrationSpec | None,
+                      meta: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    """``ViewerState.load_dataset`` keywords and the signal unit for a data file's calibration."""
+    levels: dict[str, Any] = {
+        "black_level": float(meta.get("black_level", DEFAULT_BLACK_LEVEL)),
+        "white_level": float(meta.get("white_level", DEFAULT_WHITE_LEVEL)),
+    }
+    if calibration is None:
+        return levels, "DN"
+    if calibration.dark_ref_data is not None and calibration.white_ref_data is not None:
+        levels["dark_ref"] = np.asarray(calibration.dark_ref_data, dtype=np.float32)
+        levels["white_ref"] = np.asarray(calibration.white_ref_data, dtype=np.float32)
+    elif calibration.black_level is not None and calibration.white_level is not None:
+        levels["black_level"] = float(calibration.black_level)
+        levels["white_level"] = float(calibration.white_level)
+    return levels, calibration.output_signal_unit
 
 
 def _require_qt_object(value: _QtObject | None, context: str) -> _QtObject:
@@ -92,7 +120,6 @@ def _add_required_action(menu: QMenu, text: str) -> QAction:
 
 
 __all__ = [
-    "AssignTargetValueDialog",
     "HSIViewer",
     "LogPanel",
     "NewROIDialog",
@@ -262,13 +289,19 @@ class HSIViewer(QMainWindow):
 
         self._canvas = FalseColourCanvas()
         self._spectrum = SpectrumPanel(self.state)
-        self._explore_content_page = QWidget()
-        central_layout = QVBoxLayout(self._explore_content_page)
+        self._data_file_page = QWidget()
+        central_layout = QVBoxLayout(self._data_file_page)
         central_layout.setContentsMargins(0, 0, 0, 0)
         central_layout.setSpacing(0)
 
         self._canvas_frame = PlotFrame("explore.image", "Spatial Image", self._canvas,
                                        self._canvas, provenance=self._explore_provenance)
+        self._data_file_job: Any = None
+        self._data_file_combo = QComboBox()
+        self._data_file_combo.setToolTip("Data file of the project shown in the image")
+        self._data_file_combo.setMinimumWidth(180)
+        self._data_file_combo.activated.connect(self._on_data_file_chosen)
+        self._canvas_frame.add_header_widget(self._data_file_combo)
         self._btn_reset_image_view = QToolButton()
         self._btn_reset_image_view.setText("Reset View")
         self._btn_reset_image_view.setAutoRaise(True)
@@ -286,7 +319,7 @@ class HSIViewer(QMainWindow):
         self._spectrum_panel.setFixedHeight(_SPECTRUM_PANEL_HEIGHT)
         self._explore_maximized: str | None = None
         self._explore_escape = QShortcut(QKeySequence(Qt.Key.Key_Escape),
-                                         self._explore_content_page)
+                                         self._data_file_page)
         self._explore_escape.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self._explore_escape.activated.connect(self._on_explore_escape)
         self._explore_escape.setEnabled(False)
@@ -305,6 +338,13 @@ class HSIViewer(QMainWindow):
 
         self._workspace_content_stack = QStackedWidget()
         self._workspace_content_stack.setObjectName("WorkspaceContentStack")
+        # Explore: the shown data file, or all ROIs of the project (filled in later).
+        self._explore_tabs = QTabWidget()
+        self._explore_tabs.setDocumentMode(True)
+        self._explore_tabs.addTab(self._data_file_page, "Data file")
+        self._explore_content_page = self._explore_tabs
+        self._project_rois: ProjectRoisView | None = None
+        self._pending_roi_selection: str | None = None
         self._workspace_content_stack.addWidget(self._explore_content_page)
         self._workspace_content_stack.addWidget(self._model_content_page)
         self._workspace_content_stack.addWidget(self._predict_content_page)
@@ -582,6 +622,15 @@ class HSIViewer(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._spatial_dock)
         self.splitDockWidget(self._sensor_dock, self._spatial_dock, Qt.Orientation.Vertical)
 
+        # ROI table: target values of all ROIs; available in every workspace.
+        self._roi_table = RoiTableWidget(self.project_state)
+        self._roi_table.roi_selected.connect(self._on_canvas_roi_selected)
+        self._roi_table_dock = QDockWidget("ROI Table", self)
+        self._roi_table_dock.setObjectName("RoiTableDock")
+        self._roi_table_dock.setWidget(self._roi_table)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._roi_table_dock)
+        self._roi_table_dock.hide()
+
         self._default_explore_plot_visibility = {
             "sensor": True,
             "spatial": True,
@@ -802,7 +851,9 @@ class HSIViewer(QMainWindow):
 
         dataset_label = "none"
         if self._cube_path:
-            dataset_label = os.path.basename(self._cube_path)
+            shown = self._eda_view.shown_dataset_id()
+            dataset_label = (self.project_state.data_file_label(shown) if shown is not None
+                             else os.path.basename(self._cube_path))
 
         frame_label = "-" if not self.state.has_dataset else str(self.state.frame)
         row_label = "-" if not self.state.has_dataset else str(self.state.row)
@@ -867,15 +918,101 @@ class HSIViewer(QMainWindow):
         self._sensor_dock.visibilityChanged.connect(self._on_sensor_dock_visibility_changed)
         self._spatial_dock.visibilityChanged.connect(self._on_spatial_dock_visibility_changed)
 
+        self.project_state.project_loaded.connect(self._refresh_data_file_choices)
+        self.project_state.datasets_changed.connect(self._refresh_data_file_choices)
+        self._project_browser.itemDoubleClicked.connect(self._on_browser_item_activated)
+        self._eda_view.roi_table_requested.connect(self.show_roi_table)
+        self._project_rois = ProjectRoisView(
+            self.state, self.project_state,
+            current_target_id=lambda: (None if (target := self._modeling_view.current_target())
+                                       is None else target.target_id),
+            provenance=self._explore_provenance)
+        self._explore_tabs.addTab(self._project_rois, "Project ROIs")
+        self._project_rois.roi_selected.connect(self._on_canvas_roi_selected)
+        self._project_rois.roi_opened.connect(self.open_roi)
+        self._modeling_view.view_state_changed.connect(self._project_rois.current_target_changed)
+        self.project_state.rois_changed.connect(self._update_project_rois_tab)
+        self.project_state.project_loaded.connect(self._update_project_rois_tab)
+        self.project_state.project_loaded.connect(self._choose_explore_tab)
+        self._explore_tabs.currentChanged.connect(self._show_last_data_file)
+        self._update_project_rois_tab()
+        self._choose_explore_tab()
+        self._modeling_view.roi_table_requested.connect(self.show_roi_table)
+        self._refresh_data_file_choices()
         saved = layout_settings.load_maximized().get("Explore", "")
         if saved in ("explore.image", "explore.spectrum"):
             self._explore_maximized = saved.removeprefix("explore.")
         self._sync_workspace_content_host()
 
+    def show_project_rois(self) -> None:
+        """Show the Project ROIs tab of Explore."""
+        self._workspace_tabs.setCurrentWidget(self._eda_view)
+        if self._project_rois is not None:
+            self._explore_tabs.setCurrentWidget(self._project_rois)
+
+    def open_roi(self, roi_id: str) -> None:
+        """Show the data file of an ROI with the ROI selected (Data file tab)."""
+        roi = self.project_state.rois.get(roi_id)
+        if roi is None:
+            return
+        self._explore_tabs.setCurrentWidget(self._data_file_page)
+        if self._eda_view.shown_dataset_id() == roi.dataset_id:
+            self._canvas.select_roi(roi_id)
+            self._on_canvas_roi_selected(roi_id)
+            return
+        self._pending_roi_selection = roi_id
+        self.show_data_file(roi.dataset_id)
+
+    def _update_project_rois_tab(self, *_args: Any) -> None:
+        if self._project_rois is not None:
+            self._explore_tabs.setTabText(self._explore_tabs.indexOf(self._project_rois),
+                                          f"Project ROIs ({len(self.project_state.rois)})")
+
+    def _choose_explore_tab(self, *_args: Any) -> None:
+        """A project with ROIs and no data file shown opens on its ROIs (attachment contract)."""
+        if self._project_rois is not None and self.project_state.rois \
+                and not self.has_attached_dataset():
+            self._explore_tabs.setCurrentWidget(self._project_rois)
+        else:
+            self._show_last_data_file()
+
+    def _show_last_data_file(self, *_args: Any) -> None:
+        """Load the project's last shown data file when the Data file tab shows nothing.
+
+        The last file is user settings (by project id); a missing one is not
+        loaded, it stays marked "(not found)" in the list.
+        """
+        if self._explore_tabs.currentWidget() is not self._data_file_page \
+                or self.has_attached_dataset() or self._data_file_job is not None:
+            return
+        project_id = self.project_state.project_meta.get("project_id")
+        dataset_id = None if not project_id else load_last_data_file(str(project_id))
+        dataset = self.project_state.datasets.get(dataset_id or "")
+        if dataset_id is not None and dataset is not None \
+                and os.path.exists(dataset.source_path):
+            self.show_data_file(dataset_id)
+
+    def show_roi_table(self) -> None:
+        """Show the ROI table on the shown data file and the target selected in Model."""
+        self._roi_table.show_data_file(self._eda_view.shown_dataset_id())
+        target = self._modeling_view.current_target()
+        self._roi_table.focus_target(None if target is None else target.target_id)
+        was_hidden = self._roi_table_dock.isHidden()
+        self._roi_table_dock.show()
+        self._roi_table_dock.raise_()
+        if was_hidden and not self._roi_table_dock.isFloating():
+            # Next to the Explore docks it would get a few rows only.
+            self.resizeDocks([self._roi_table_dock], [max(360, self.height() // 2)],
+                             Qt.Orientation.Vertical)
+            self.resizeDocks([self._roi_table_dock], [460], Qt.Orientation.Horizontal)
+
     def _on_project_browser_selection_changed(self) -> None:
         payload = self._selected_project_browser_payload()
         if payload is not None and payload.get("kind") == "roi":
             self._canvas.select_roi(payload.get("id"))
+            self._roi_table.select_roi(str(payload.get("id")))
+            if self._project_rois is not None:
+                self._project_rois.select_roi(str(payload.get("id")))
         else:
             self._canvas.select_roi(None)
         if payload is not None and payload.get("kind") == "model_run":
@@ -1118,6 +1255,14 @@ class HSIViewer(QMainWindow):
             return payload
         return None
 
+    def edit_grid_defaults(self) -> bool:
+        """Options > ROI Grid Defaults: the geometry every new ROI grid starts with."""
+        from ._grid_settings import load_grid_defaults
+        from ._roi_grid import GridDefaultsDialog
+
+        return GridDefaultsDialog(load_grid_defaults(), parent=self).exec() \
+            == QDialog.DialogCode.Accepted
+
     def _selected_roi_id(self) -> str | None:
         payload = self._selected_project_browser_payload()
         if payload is None or payload.get("kind") != "roi":
@@ -1133,15 +1278,31 @@ class HSIViewer(QMainWindow):
         mb = _require_qt_object(self.menuBar(), "main menu bar")
         self._menu_file = _add_required_menu(mb, "File")
         self._menu_view = _add_required_menu(mb, "View")
+        self._menu_options = _add_required_menu(mb, "Options")
         self._menu_help = _add_required_menu(mb, "Help")
         self._populate_file_menu()
         self._populate_view_menu()
+        grid_defaults = QAction("ROI Grid Defaults...", self)
+        grid_defaults.triggered.connect(self.edit_grid_defaults)
+        self._menu_options.addAction(grid_defaults)
         self._populate_help_menu()
         self._default_layout_state = self.saveState()
         self._status_label = QLabel()
+        self._saved_label = QLabel()
+        self._saved_label.setObjectName("SavedMessage")
+        self._saved_clear = QTimer(self)
+        self._saved_clear.setSingleShot(True)
+        self._saved_clear.timeout.connect(self._saved_label.clear)
         status_bar = _require_qt_object(self.statusBar(), "main status bar")
         status_bar.addPermanentWidget(self._status_label, 1)
+        status_bar.addPermanentWidget(self._saved_label)
+        self.project_state.saved.connect(self._show_saved_message)
         self._update_status_strip()
+
+    def _show_saved_message(self, message: str) -> None:
+        """Confirm a project write in the status bar for a few seconds."""
+        self._saved_label.setText(f"✓ {message}")
+        self._saved_clear.start(_SAVED_MESSAGE_MS)
 
     def _viewer_busy_context(self, text: str) -> ViewerBusyContext:
         """Return a status-bar backed wait cursor context for blocking UI work."""
@@ -1158,6 +1319,10 @@ class HSIViewer(QMainWindow):
         act = _add_required_action(m, "Open Data...")
         act.setShortcut("Ctrl+O")
         act.triggered.connect(self._open_data)
+
+        act = _add_required_action(m, "Add Data File...")
+        act.setToolTip("Add a data file with its calibration to the open project")
+        act.triggered.connect(lambda: self.add_data_file())
 
         self._menu_open_recent = _add_required_menu(m, "Open Recent")
         self._menu_open_recent.aboutToShow.connect(self._populate_open_recent)
@@ -1201,8 +1366,9 @@ class HSIViewer(QMainWindow):
             self._open_data_path(path)
 
     def _open_data_path(self, path: str) -> None:
-        if self.project_state.project_path is not None and not self.has_attached_dataset():
-            self._attach_dataset_path(path)
+        if self.project_state.project_path is not None:
+            # A project window adds the file to its project (attachment contract).
+            self.add_data_file(path)
             return
         from enginir.viewer import open_viewer
 
@@ -1219,69 +1385,228 @@ class HSIViewer(QMainWindow):
             busy.end()
         self._track_child_viewer(child)
 
-    def _attach_dataset_path(
-        self,
-        path: str,
-        *,
-        dark: str | None = None,
-        white: str | None = None,
-    ) -> None:
-        busy = self._viewer_busy_context(f"Attaching dataset: {path}")
-        busy.begin()
+    # ------------------------------------------------------------------
+    # Data files of the project (attachment contract, Data Files Of A Project)
+    # ------------------------------------------------------------------
+
+    def add_data_file(self, path: str | None = None) -> str | None:
+        """Add a data file to the project with its calibration, then show it.
+
+        A file that is already registered is shown directly. Returns the
+        dataset id, or ``None`` when nothing was added.
+        """
+        if self.project_state.project_path is None:
+            QMessageBox.warning(self, "No project open",
+                                "Create or open a project before adding data files.")
+            return None
+        if path is None:
+            path, _ = QFileDialog.getOpenFileName(
+                self, "Add data file", "",
+                "Hyperspectral files (*.eiff *.hdr *.h5 *.hdf5 *.csv *.spa);;All files (*.*)")
+            if not path:
+                return None
+        registered = self._registered_dataset_id(path)
+        if registered is not None:
+            self.show_data_file(registered)
+            return registered
         try:
-            X, wavelengths, meta = load_spectra(str(path))
-            if X.ndim == 2:
-                X = X[:, np.newaxis, :]
-            normalized_path = os.path.abspath(str(path))
-
-            if self.project_state.project_path is not None:
-                if not confirm_project_dataset_binding(
-                    self,
-                    project_path=self.project_state.project_path,
-                    project_state=self.project_state,
-                    dataset_path=normalized_path,
-                    source_format=file_format(normalized_path),
-                    source_modality=str(meta.get("source_modality") or DEFAULT_SOURCE_MODALITY),
-                    cube_shape=(int(X.shape[0]), int(X.shape[1]), int(X.shape[2])),
-                    wavelengths=np.asarray(wavelengths, dtype=np.float64),
-                ):
-                    return
-
-            dark_ref = None
-            if dark is not None:
-                dark_X, _, _ = load_spectra(str(dark))
-                dark_ref = dark_X.mean(axis=0) if dark_X.ndim == 3 else dark_X
-
-            white_ref = None
-            if white is not None:
-                white_X, _, _ = load_spectra(str(white))
-                white_ref = white_X.mean(axis=0) if white_X.ndim == 3 else white_X
-
-            black_level = float(meta.get("black_level", DEFAULT_BLACK_LEVEL))
-            white_level = float(meta.get("white_level", DEFAULT_WHITE_LEVEL))
-            self.state.load_dataset(
-                X,
-                wavelengths,
-                meta,
-                    black_level=black_level,
-                white_level=white_level,
-                dark_ref=None if dark_ref is None else np.asarray(dark_ref, dtype=np.float32),
-                white_ref=None if white_ref is None else np.asarray(white_ref, dtype=np.float32),
-            )
-            self._cube_path = normalized_path
-            self._refresh_canvas_image()
-            self._eda_view.refresh_attachment_state()
-            self._eda_view.update_project_status()
-            self._update_status_strip()
-            from ._recent import add as _recent_add
-
-            _recent_add(str(path))
-        except (OSError, ValueError) as exc:
-            busy.end()
-            logger.error("Failed to attach dataset {}: {}", path, exc)
+            header = read_header(os.path.abspath(path))
+        except (OSError, ValueError, KeyError) as exc:
+            logger.error("Cannot read data file {}: {}", path, exc)
             QMessageBox.critical(self, "Cannot open file", str(exc))
-        finally:
+            return None
+        state = self.project_state
+        dialog = AddDataFileDialog(
+            path, header, state.datasets,
+            {dataset_id: calibration for dataset_id in state.datasets
+             if (calibration := state.active_calibration(dataset_id)) is not None},
+            parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted or dialog.request is None:
+            return None
+        request = dialog.request
+        try:
+            dataset_id = state.add_data_file(request.path, **request.add_dataset_kwargs())
+        except (OSError, ValueError, KeyError) as exc:
+            logger.error("Cannot add data file {}: {}", path, exc)
+            QMessageBox.critical(self, "Cannot add data file", str(exc))
+            return None
+        self.show_data_file(dataset_id)
+        return dataset_id
+
+    def show_data_file(self, dataset_id: str) -> None:
+        """Load a registered data file in the background and show it with its calibration."""
+        dataset = self.project_state.datasets.get(dataset_id)
+        if dataset is None:
+            log_and_raise("Unknown dataset '{}'", dataset_id, error=KeyError)
+        path = dataset.source_path
+        if not os.path.exists(path):
+            box = QMessageBox(QMessageBox.Icon.Warning, "Data file not found",
+                              f"{path} does not exist. Its ROIs, values and models stay "
+                              "usable; the image cannot be shown.\n\nIf the file was moved or "
+                              "renamed, locate it: it is accepted if its pixels equal the "
+                              "stored ROI pixels.", parent=self)
+            locate = box.addButton("Locate file...", QMessageBox.ButtonRole.AcceptRole)
+            box.addButton(QMessageBox.StandardButton.Cancel)
+            box.exec()
+            if box.clickedButton() is locate:
+                self.locate_data_file(dataset_id)
+            return
+        if self._data_file_job is not None:
+            return
+        busy = self._viewer_busy_context(f"Loading data file: {os.path.basename(path)}")
+        busy.begin()
+
+        def finished() -> None:
             busy.end()
+            self._data_file_job = None
+
+        self._data_file_job = start_background_job(
+            owner=self, fn=lambda: load_spectra(path),
+            on_success=lambda data: self._apply_data_file(dataset_id, data),
+            on_error=self._data_file_failed,
+            on_finished=finished)
+
+    def locate_data_file(self, dataset_id: str, path: str | None = None) -> bool:
+        """Point a moved data file at its new location, then show it.
+
+        Without ``path`` a file dialog asks for it. The file is accepted only
+        if it is the same data file (shape, wavelengths and the pixels of
+        every ROI); otherwise nothing changes.
+        """
+        dataset = self.project_state.datasets.get(dataset_id)
+        if dataset is None:
+            log_and_raise("Unknown dataset '{}'", dataset_id, error=KeyError)
+        if path is None:
+            name = os.path.basename(dataset.source_path)
+            path, _ = QFileDialog.getOpenFileName(
+                self, f"Locate {name}", os.path.dirname(dataset.source_path),
+                f"{name} (*{os.path.splitext(name)[1]});;All files (*)")
+            if not path:
+                return False
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            self.project_state.locate_data_file(dataset_id, path)
+        except (OSError, ValueError, KeyError) as exc:
+            logger.error("Data file not located at {}: {}", path, exc)
+            QMessageBox.warning(self, "Not this data file", str(exc))
+            return False
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.show_data_file(dataset_id)
+        return True
+
+    def _data_file_failed(self, message: str) -> None:
+        logger.error("Cannot load data file: {}", message)
+        QMessageBox.critical(self, "Cannot open file", message)
+
+    def wait_for_data_file(self, timeout_s: float = 30.0) -> None:
+        """Process events until a data file load has finished (for scripts and tests)."""
+        deadline = time.monotonic() + timeout_s
+        app = QApplication.instance()
+        while self._data_file_job is not None and time.monotonic() < deadline:
+            if app is not None:
+                app.processEvents()
+            time.sleep(0.005)
+
+    def _apply_data_file(self, dataset_id: str, data: Any) -> None:
+        dataset = self.project_state.datasets[dataset_id]
+        X = np.asarray(data.X)
+        if X.ndim == 2:
+            X = X[:, np.newaxis, :]
+        if not confirm_project_dataset_binding(
+            self,
+            project_path=str(self.project_state.project_path),
+            project_state=self.project_state,
+            dataset_path=dataset.source_path,
+            source_format=file_format(dataset.source_path),
+            source_modality=str(data.meta.get("source_modality") or DEFAULT_SOURCE_MODALITY),
+            cube_shape=(int(X.shape[0]), int(X.shape[1]), int(X.shape[2])),
+            wavelengths=np.asarray(data.wavelengths, dtype=np.float64),
+        ):
+            return
+        self.state.load_dataset(X, data.wavelengths, data.meta)
+        self._cube_path = os.path.abspath(dataset.source_path)
+        self.apply_shown_calibration()
+        self._refresh_canvas_image()
+        self._eda_view.refresh_roi_overlays()
+        self._eda_view.refresh_attachment_state()
+        self._eda_view.update_project_status()
+        self._update_status_strip()
+        self._refresh_data_file_choices()
+        if self._pending_roi_selection is not None:
+            pending, self._pending_roi_selection = self._pending_roi_selection, None
+            self._canvas.select_roi(pending)  # also when the browser already selects it
+            self._on_canvas_roi_selected(pending)
+        from ._recent import add as _recent_add
+
+        _recent_add(dataset.source_path)
+        project_id = self.project_state.project_meta.get("project_id")
+        if project_id:
+            save_last_data_file(str(project_id), dataset_id)
+        logger.info("Showing data file {} ({})", dataset.source_path, self.state.y_unit)
+
+    def apply_shown_calibration(self) -> None:
+        """Convert the shown data file with its stored calibration (references or levels).
+
+        The Explore signal stays the one the user chose when this file can
+        give it; otherwise (or before any choice) it is the calibration's
+        working signal. Only the signals the file can give are enabled.
+        """
+        dataset_id = self._eda_view.shown_dataset_id()
+        if dataset_id is None:
+            self._eda_view.set_signal_choices(viewable_signal_units(None))
+            return
+        calibration = self.project_state.active_calibration(dataset_id)
+        levels, unit = _calibration_view(calibration, self.state.meta)
+        allowed = viewable_signal_units(calibration)
+        if self._eda_view.chosen_signal in allowed:
+            unit = str(self._eda_view.chosen_signal)
+        self.state.set_calibration(**levels)
+        self.state.set_y_unit(unit)
+        self._eda_view.set_signal_choices(allowed)
+
+    def _registered_dataset_id(self, path: str) -> str | None:
+        target = os.path.normcase(os.path.abspath(path))
+        return next((dataset_id for dataset_id, dataset in self.project_state.datasets.items()
+                     if os.path.normcase(os.path.abspath(dataset.source_path)) == target), None)
+
+    def _refresh_data_file_choices(self, *_args) -> None:
+        combo = self._data_file_combo
+        combo.blockSignals(True)
+        combo.clear()
+        shown = self._eda_view.shown_dataset_id()
+        state = self.project_state
+        datasets = sorted(state.datasets.items(),
+                          key=lambda item: state.data_file_label(item[0]).lower())
+        for dataset_id, dataset in datasets:
+            name = state.data_file_label(dataset_id)
+            if not os.path.exists(dataset.source_path):
+                name += " (not found)"
+            combo.addItem(name, dataset_id)
+            combo.setItemData(combo.count() - 1, dataset.source_path,
+                              Qt.ItemDataRole.ToolTipRole)
+        if shown is None:
+            label = ("Data file: none" if not self._cube_path
+                     else f"{os.path.basename(self._cube_path)} (not in project)")
+            combo.insertItem(0, label, None)
+        combo.insertSeparator(combo.count())
+        combo.addItem("Add data file...", _ADD_DATA_FILE)
+        combo.setCurrentIndex(max(0, combo.findData(shown)) if shown is not None else 0)
+        combo.setEnabled(self.project_state.project_path is not None)
+        combo.blockSignals(False)
+
+    def _on_data_file_chosen(self, index: int) -> None:
+        choice = self._data_file_combo.itemData(index)
+        if choice == _ADD_DATA_FILE:
+            self._refresh_data_file_choices()  # back to the shown file until one is added
+            self.add_data_file()
+        elif isinstance(choice, str) and choice != self._eda_view.shown_dataset_id():
+            self.show_data_file(choice)
+
+    def _on_browser_item_activated(self, item: Any, _column: int = 0) -> None:
+        payload = item.data(0, Qt.ItemDataRole.UserRole)
+        if isinstance(payload, dict) and payload.get("kind") == "dataset":
+            self.show_data_file(str(payload.get("id")))
 
     def _refresh_canvas_image(self) -> None:
         """Rebuild the central false-color preview from the current viewer state."""
@@ -1321,6 +1646,7 @@ class HSIViewer(QMainWindow):
             self._dc3_dock,
             self._sensor_dock,
             self._spatial_dock,
+            self._roi_table_dock,
         ):
             action = _require_qt_object(
                 dock.toggleViewAction(), f"{dock.windowTitle()} toggle action"
@@ -1414,7 +1740,12 @@ class HSIViewer(QMainWindow):
         if current is self._prediction_view:
             self._ensure_predict_content_page()
             return list(self._predict_graph_panel.panels.values())
-        return [self._canvas_frame, self._spectrum_panel, *self._dock_frames.values()]
+        frames: list[PlotFrame] = [self._canvas_frame, self._spectrum_panel,
+                                   *self._dock_frames.values()]
+        if self._project_rois is not None:
+            frames += [self._project_rois.mosaic_frame, self._project_rois.means,
+                       self._project_rois.pixels]
+        return frames
 
     def export_workspace_plots(self, folder: str | os.PathLike[str]) -> tuple[list[str], list[str]]:
         """Write PNG and CSV of every plot of the current workspace that shows data.
@@ -1546,3 +1877,7 @@ class HSIViewer(QMainWindow):
             self._predict_map_widget.restyle_theme()
             self._predict_histogram.restyle_theme()
         self._log_panel.restyle_theme()
+        if self._project_rois is not None:
+            self._project_rois.mosaic.restyle_theme()
+            self._project_rois.means.restyle_theme()
+            self._project_rois.pixels.restyle_theme()

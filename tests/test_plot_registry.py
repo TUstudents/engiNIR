@@ -46,12 +46,30 @@ def _predict_payload() -> dict:
 
 
 #: A payload with data for every plot, by the workspace prefix of its id.
-_PAYLOADS = {"model": _model_payload, "predict": _predict_payload}
+def _explore_payload() -> dict:
+    from enginir.modeling import RoiSpectrumSummary
+
+    rng = np.random.default_rng(5)
+    wavelengths = np.linspace(1000.0, 1700.0, 9)
+    summaries = {}
+    for i in range(3):
+        base = rng.normal(0.3 + 0.1 * i, 0.01, 9).astype(np.float32)
+        summaries[f"roi-{i}"] = RoiSpectrumSummary(f"roi-{i}", base, base - 0.02, base,
+                                                   base + 0.02)
+    return {"wavelengths": wavelengths, "signal_label": "Absorbance",
+            "names": {k: f"T{i}" for i, k in enumerate(summaries)},
+            "means": {k: s.mean for k, s in summaries.items()},
+            "values": {"roi-0": 1.0, "roi-1": 3.0, "roi-2": None},
+            "value_label": "API (%)", "selected": summaries["roi-1"], "selected_name": "T1"}
+
+
+_PAYLOADS = {"model": _model_payload, "predict": _predict_payload, "explore": _explore_payload}
 
 
 def _registry():
     import enginir.viewer._model_diagnostics  # noqa: F401 (registers the Model plots)
     import enginir.viewer._prediction  # noqa: F401 (registers the Predict plots)
+    import enginir.viewer._project_rois  # noqa: F401 (registers the Project ROIs plots)
     from enginir.viewer._plot_registry import PLOT_SPECS, WORKSPACE_PAGES
 
     return PLOT_SPECS, WORKSPACE_PAGES
@@ -75,6 +93,7 @@ def _drawn_values(fig) -> np.ndarray:
     for ax in fig.axes:
         for collection in ax.collections:
             values.append(np.ravel(collection.get_offsets()))
+            values += [np.ravel(path.vertices) for path in collection.get_paths()]
             if collection.get_array() is not None:
                 values.append(np.ravel(collection.get_array()))
         for line in ax.lines:

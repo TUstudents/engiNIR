@@ -224,6 +224,36 @@ Required UI behavior:
 
 - all workspace controls may be enabled subject to their own local preconditions
 
+## Identity In The Viewer
+
+Stable ids are the only identity of project objects
+(`project-schema-contract_v3.md` §2–3); names are labels. In the viewer, the
+`enginir-viewer` tool and the `enginir.viewer` module:
+
+- every selection, link, write and export refers to objects by id: the
+  browser, the ROI table, the Project ROIs tab, the canvas, the Model plots,
+  the fit dialog and the Predict workspace carry ids, never names
+- the viewer never resolves a name to an object; it does not call the
+  name-based facade functions (`Project.roi`, `.target`, `.model`,
+  `set_value`, `fit`, `Dataset.add_roi`, …), which exist for scripts
+  (`headless-workflow-contract_v3.md`, Names and ids)
+- names are display text and may repeat; the viewer creates and stores ROIs
+  whose names repeat other ROIs' names without asking
+- a data file is shown by its file name; when several data files of the
+  project share a file name, each is shown as `file name (folder)`, with the
+  full path as tooltip. This label is used wherever a data file is shown: the
+  data file list, the ROI table, the Project ROIs tab, the fit dialog, the
+  browser and messages
+- where ROI names may repeat, each ROI is told apart by more than its name:
+  the ROI table shows its data file label, the mosaic groups ROIs by data
+  file, the browser shows the id (data file label as tooltip), the inspector
+  shows id and data file, and Model plots select ROIs by id
+- every export of ROI data carries the ROI id next to its name, including
+  Explore's ROI spectra export
+
+A test scans `enginir.viewer` and fails on calls of the name-based facade
+functions.
+
 ## Workspace Contracts
 
 Each workspace has:
@@ -239,25 +269,28 @@ right controls and views at the right phase.
 
 Purpose:
 
-- inspect the current dataset
+- inspect the data files of the project
 - choose signal/preprocessing/axis settings
-- create and review ROIs
+- create and review ROIs, including all ROIs stored in the project
 
 Primary task:
 
 - move from raw dataset context to validated ROI selection
 
-Primary content region:
+Primary content region, as two tabs:
 
-- spatial image
+1. `Data file`: the spatial image of the shown data file, with the ROI
+   rectangles of that data file only
+2. `Project ROIs`: all ROIs stored in the project, redrawn from the project
+   file without any data file (the ROI mosaic)
 
 Secondary content region:
 
-- sensor frame
-- spectral profile
-- spatial profile
-- histogram
-- DC3 / band slice
+- in `Data file`: sensor frame, spectral profile, spatial profile, histogram,
+  DC3 / band slice
+- in `Project ROIs`: the mean spectra of the shown ROIs and the pixel spectra
+  of the selected ROI, both in the current signal unit and preprocessing
+  preview, converted with each ROI's own stored references
 
 Required visual elements:
 
@@ -267,15 +300,39 @@ Required visual elements:
 - sensor-frame view
 - spatial profile
 - spectral profile
+- ROI mosaic: one tile per stored ROI, grouped by data file, with name and
+  current target value
+- ROI mean spectra coloured by the current target value
+- pixel spectra of the selected ROI
 
 Required controls:
 
 - project open/new
+- add data file (with its calibration) and choose the shown data file
 - signal unit selection
 - filtering/preprocessing preview controls
 - axis controls
-- ROI creation
+- ROI creation, single and as a grid (the grid dialog opens with the Options
+  defaults and shows the cells on the image, outside cells in red)
+- ROI table (target values)
 - ROI export
+
+Required behavior:
+
+- a project with ROIs opens on `Project ROIs`; that tab works in project-only
+  mode and with every data file missing
+- selecting an ROI in the mosaic, the ROI table, the browser or a Model plot
+  selects it everywhere; opening an ROI from the mosaic shows its data file in
+  `Data file` with the ROI highlighted
+- mosaic tiles and ROI spectra load off the UI thread; the first tiles appear
+  before all ROIs are read
+- the mosaic and the ROI spectra are plot panels (Plot Panel Policy)
+- the signal selection (DN, Reflectance, Absorbance) shows the signal in use
+  and enables only the signals the shown data file's calibration can give
+  (`dataset-calibration-contract_v3.md`, Signal units of a calibration); a
+  disabled signal says why. A signal the user chose is kept when another data
+  file is shown, as long as that file can give it; otherwise the file's
+  working signal is shown
 
 Required browser emphasis:
 
@@ -298,8 +355,7 @@ Purpose:
 
 - define targets
 - assign target values
-- build sample sets
-- fit models
+- fit models (the fit builds or reuses the sample set)
 
 Primary task:
 
@@ -325,9 +381,10 @@ Required visible information:
 Required controls:
 
 - target selection/creation
-- target assignment editing
-- build sample set
-- fit model
+- target assignment editing (the ROI table)
+- fit model: one dialog with target, signal unit, preprocessing, model,
+  components and cross-validation; it builds or reuses the sample set of all
+  ROIs with a value for the target, from all data files
 
 Required browser emphasis:
 
@@ -340,7 +397,8 @@ Required preconditions surfaced in UI before running:
 - project open
 - at least one ROI
 - selected target
-- enough labeled ROIs for the chosen validation strategy
+- enough labeled ROIs for the chosen validation strategy, with the count of
+  labeled ROIs per data file
 - compatible signal-domain/calibration context
 
 Forbidden controls in Model:
@@ -581,8 +639,7 @@ A test that iterates over all registered plots verifies this.
 
 The following actions are long-running service actions in v3:
 
-- build sample set
-- fit model
+- fit model (including building its sample set)
 - run prediction
 
 Required behavior:

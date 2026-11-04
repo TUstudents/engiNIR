@@ -53,3 +53,30 @@ def test_viewer_writes_projects_only_through_project():
                     found.setdefault(path.name, set()).update(used)
 
     assert found == {"_prediction.py": {"save_dataset_ref", "save_calibration_spec"}}
+
+
+def test_the_viewer_never_addresses_objects_by_name():
+    """Identity in the viewer: the name-based facade functions are for scripts. The viewer
+    reaches the library's Project as ``ProjectState.project``, ``_require_project(...)`` or a
+    local ``project``; none of those may call a name-based function or a name-keyed view."""
+    import ast
+    from pathlib import Path
+
+    by_name = {"roi", "target", "model", "dataset", "set_value", "fit", "add_target",
+               "add_rois", "rois", "targets", "models"}
+
+    def is_facade(receiver: ast.expr) -> bool:
+        if isinstance(receiver, ast.Name):
+            return receiver.id == "project"
+        if isinstance(receiver, ast.Attribute):
+            return receiver.attr == "project"
+        return (isinstance(receiver, ast.Call) and isinstance(receiver.func, ast.Attribute)
+                and receiver.func.attr == "_require_project")
+
+    viewer = Path(__file__).parents[1] / "src" / "enginir" / "viewer"
+    found = [f"{path.name}:{node.lineno} .{node.attr}"
+             for path in sorted(viewer.glob("*.py"))
+             for node in ast.walk(ast.parse(path.read_text()))
+             if isinstance(node, ast.Attribute) and node.attr in by_name
+             and is_facade(node.value)]
+    assert found == []

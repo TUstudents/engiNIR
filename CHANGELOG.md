@@ -21,9 +21,68 @@
   PNG and CSV into one folder.
 - The maximized plot of each workspace is remembered between sessions;
   **View > Reset Layout** clears it.
+- Lookups by id: `project.roi(roi_id=)`, `target(target_id=)`,
+  `model(model_run_id=)`, `dataset(dataset_id=)`; `set_value` and `fit` take
+  the objects as well as names.
+- `enginir._workflow.data_file_labels`: data files that share a file name are
+  shown with the folder that tells them apart.
+- `Model.refit()` fits a stored model again on exactly its sample set, recipe,
+  signal domain, hyperparameters and cross-validation, stores the new run, and
+  reports changed reference values and differing metrics.
+- `save_csv(columns=)` writes text columns next to `sample_id`; `load_csv`
+  returns them in `meta["sample_columns"]`.
+- Projects with ROIs from several data files (trays):
+  - **File > Add Data File...** adds a scan to the open project with its
+    calibration: dark/white references from files, from frame ranges of the
+    scan itself (`dark_frames`/`white_frames`), or the references of another
+    data file (`references_from`), or detector levels typed in the dialog
+    (`black_level`/`white_level`). The dialog plots the file's mean spectrum
+    in counts with the mean references (and their saturated share), the
+    other file's references or the detector levels; the data file and
+    calibration are stored together. The data file list switches between the project's
+    scans, and each shows only its own ROIs.
+  - **Add ROI grid** lays out a tray of equal ROIs by number, ROI size,
+    origin and spacing in pixels, with empty positions and a selectable name
+    pattern, drawn live on the image (outside cells red) and stored all or
+    none (`roi_grid`, `Dataset.add_rois`). Every grid starts from **Options >
+    ROI Grid Defaults** (built in: 5 x 1 ROIs of 180 x 110 px, origin 150, 64,
+    spacing 214, 10); **Make defaults** in the grid dialog keeps the current
+    values for new grids. Each ROI records its grid position and layout.
+  - The **ROI table** holds the values of every ROI for every target: type
+    with Enter to the next row, clear to remove (`set_value(..., None)`),
+    paste a column (checked first). It works without the data files.
+  - The **Project ROIs** tab draws every stored ROI from the project file
+    alone: a tile mosaic per data file, ROI mean spectra coloured by value,
+    and the pixel spread of the selected ROI, converted by the same function
+    as the fit. A project with ROIs opens on it.
+  - **Fit model** is one dialog: target, signal unit, preprocessing
+    (prefilled from Explore), model, components, validation, and the
+    labelled ROIs per data file. It reuses an equal stored sample set and
+    signal domain and stores new ones only with the fitted model.
+  - **Locate file...** finds a moved scan again, accepting it only if its
+    pixels equal the stored ROI pixels (`Dataset.locate`). The last shown
+    scan of each project is remembered in the user settings, and windows on
+    one project refresh each other.
 
 ### Changed
 
+- **Build sample set** is gone from the Model workspace; **Fit model**
+  builds or reuses the sample set.
+- Names of ROIs, targets and models are labels and may repeat; ids are the
+  only identity. The viewer works by id only. `Project.save_rois` checks ids,
+  not names; the name-based facade functions still refuse names they create
+  themselves. `project.rois`, `project.targets`, `project.models` and
+  `Dataset.rois` raise a `KeyError` listing the ids when names repeat.
+- Explore's ROI spectra export writes the ROI id as `sample_id`, with
+  `roi_name` and `data_file` columns.
+- **Add Data File** no longer asks for a signal unit for raw counts: the
+  project keeps the counts with their references or levels, and DN,
+  reflectance or absorbance are chosen in Explore and in **Fit model**. Only
+  floating-point files ask what they hold.
+- Explore enables only the signals the shown data file can give
+  (`enginir.project.viewable_signal_units`): DN only for raw counts without
+  calibration, no DN for already calibrated files. The chosen signal is kept
+  when another data file is shown.
 - The spectral-plot selector of the Model workspace is gone: coefficients
   and loadings have their own plots.
 - The scores plot is labelled as training scores.
@@ -37,6 +96,21 @@
 
 ### Fixed
 
+- The ROI grid no longer fails with "A ROI called … already exists" when scans
+  share a file name (e.g. `stream_hsi.h5` in several folders): names are
+  labels and may repeat.
+- Profile, histogram and prediction plots fit their margins again when the
+  tick labels change, not only when they are resized. A window that started
+  without a data file clipped the absorbance axis labels (1.2 showed as 2).
+- The Explore signal buttons now follow the signal in use. Showing a data
+  file set its signal while the button stayed on **Raw DN**.
+- Replacing a stored target value (`Project.set_value`, and editing a value in
+  the viewer) was refused as a "duplicate target assignment". A new value now
+  replaces the stored one.
+- Re-attaching a registered data file warned "wavelength axis differs" for the
+  same file. The project stores wavelengths as float32, and the file's float64
+  axis differs from it by about 1e-4 nm. Axes are now compared at the stored
+  precision.
 - Large prediction maps are shown as a subsampled preview, and their axes
   and hover readout reported preview indices instead of the true frame and
   row. Axes, hover and CSV now use the true indices.

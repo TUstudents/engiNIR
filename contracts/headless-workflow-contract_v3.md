@@ -121,21 +121,42 @@ and writes nothing they would reject.
   the dataset, with its reference values (`{target name: value}`)
 - `project.fit(target, *, recipe, model, name=None, cv="auto", **hyperparameters)`
   builds the sample set, fits and cross-validates, and returns a model handle
+- `model.refit(*, name=None)` fits the model again on its stored sample set,
+  recipe, signal domain, hyperparameters and cross-validation and stores the
+  new run (`sample-set-model-run-contract_v3.md`, Refitting a stored model)
 - `model.predict(path, *, dark=None, white=None)` predicts a dataset and
   returns a prediction handle
 - read access: `project.datasets`, `project.rois`, `project.targets`,
-  `project.models`, `project.predictions`, keyed by name (datasets by path);
+  `project.models`, `project.predictions`, keyed by name (datasets by path,
+  predictions by id). When names of a kind repeat, its name-keyed mapping is
+  an error listing the repeated names and their ids instead of silently
+  keeping one; `project.workspace` holds every collection keyed by id;
   handles expose their typed object (`.ref`) and the essentials (`model.metrics`,
   `model.diagnostics`, `prediction.map`, `prediction.y_pred`)
 
-### Names
+### Names and ids
 
-- users address ROIs, targets and models by name; every object keeps a
-  generated stable id, which is what the project file links by
-- names are unique per kind within a project; creating a second ROI, target
-  or model with an existing name is an error
-- projects written by earlier tools may hold duplicate names; opening them is
-  allowed, and looking up an ambiguous name is an error that lists the ids
+- every object has a generated stable id; ids are its only identity and what
+  the project file links by (`project-schema-contract_v3.md` §2–3). Names
+  are display labels: mutable, and they may repeat within a project, for
+  example ROIs from two data files with the same file name
+- addressing objects by name is a convenience of this facade (`Project`,
+  `Dataset`, `Model`) for scripts and interactive work. It is not a
+  reproducible reference: a renamed or reused name refers to another object
+- every facade function that takes a name also takes the object itself
+  (`TrainingROI`, `TargetDefinition`, `Model`) or its id as a keyword
+  (`roi_id=`, `target_id=`, `model_run_id=`). A string argument is always a
+  name and an id keyword always an id, so neither is taken for the other.
+  Scripts that must be reproducible use objects or ids
+- looking up a name that several objects share is an error that lists their
+  ids; it never picks one
+- the facade refuses a name it is asked to create when that name already
+  exists for that kind (`Dataset.add_roi`, `Dataset.add_rois`,
+  `Project.add_target`, `Project.fit(name=)`), so a script can find what it
+  created by name. The typed, id-based layer (`Project.save_*`) and the
+  viewer do not check names (`viewer-workspace-ui-contract_v3.md`,
+  Identity in the viewer)
+- the name-based calls released in 1.0 stay supported
 - `fit` names a model `"{model} {n} LV, {recipe summary}"` (e.g.
   `"PLS 2 LV, SNV"`) unless `name` is given, adding ` (2)`, ` (3)`, … when the
   name exists

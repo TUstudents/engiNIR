@@ -221,6 +221,22 @@ def transform_spectra_to_signal_domain(
     return signal
 
 
+def viewable_signal_units(calibration: CalibrationSpec | None) -> tuple[str, ...]:
+    """The signal units the stored spectra of ``calibration`` can be shown in.
+
+    Raw counts are always stored, so ``DN`` shows them as they are;
+    reflectance and absorbance are computed from them with the calibration's
+    references or detector levels at any time. ``raw_dn`` has neither, so it
+    gives counts only. Precalibrated data hold no counts.
+    ``None`` (no calibration yet) allows all three.
+    """
+    if calibration is None or calibration.mode == "dark_white_reference":
+        return ("DN", "Reflectance", "Absorbance")
+    if calibration.mode == "raw_dn":
+        return ("DN",)
+    return ("Reflectance", "Absorbance")
+
+
 def _can_produce(unit: str, required: str) -> bool:
     return unit == required or {unit, required} == {"Reflectance", "Absorbance"}
 
@@ -363,4 +379,5 @@ __all__ = [
     "check_calibration_signal_domain_compatibility",
     "check_signal_domain_compatibility",
     "transform_spectra_to_signal_domain",
+    "viewable_signal_units",
 ]

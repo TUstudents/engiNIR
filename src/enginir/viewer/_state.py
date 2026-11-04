@@ -6,17 +6,21 @@ in the panels; all derived data is computed here.
 
 from __future__ import annotations
 
+import os
+import weakref
 from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
 from ..io import file_format, load_spectra
 from .._workflow import (
     DEFAULT_BLACK_LEVEL,
     DEFAULT_WHITE_LEVEL,
+    Dataset,
     Project,
+    data_file_labels,
     resolve_dataset,
     resolve_prediction_calibration,
 )
@@ -37,6 +41,7 @@ from ..prediction import predict_with_model_run, preflight_prediction
 from .._checks import log_and_raise
 from .._logging import get_logger
 from ..io.project_store import as_roi_storage_array
+from ..project._ids import now_iso
 
 logger = get_logger(__name__)
 
@@ -85,6 +90,10 @@ def _load_prediction_metadata(data_path: str, *, loader_kwargs: dict[str, Any] |
     return load_spectra(data_path, **kwargs)
 
 
+#: Every live project mirror of this process, to refresh windows on the same project.
+_OPEN_STATES: weakref.WeakSet[ProjectState] = weakref.WeakSet()
+
+
 class ProjectState(QObject):
     """Qt adapter of :class:`enginir.Project` for the viewer.
 
@@ -108,6 +117,8 @@ class ProjectState(QObject):
     model_fitted = pyqtSignal(str)
     active_model_changed = pyqtSignal(str)
     prediction_completed = pyqtSignal(str)
+    #: A short message after a user-visible write, e.g. "ROI 'A01' saved to project".
+    saved = pyqtSignal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -125,9 +136,17 @@ class ProjectState(QObject):
         self.sample_sets: dict[str, SampleSet] = {}
         self.model_runs: dict[str, ModelRun] = {}
         self.predictions: dict[str, PredictionRun] = {}
+        #: Display label per dataset id: the file name, with its folder when names repeat.
+        self.data_file_labels: dict[str, str] = {}
         self._prediction_artifact_versions: dict[str, int] = {}
         self.model_registry: dict[str, Any] = {}
         self.active_model_name: str | None = None
+        # Another window's write to the same project re-reads it once, on the next event loop pass.
+        self._reload_timer = QTimer(self)
+        self._reload_timer.setSingleShot(True)
+        self._reload_timer.setInterval(0)
+        self._reload_timer.timeout.connect(self.reload)
+        _OPEN_STATES.add(self)
 
     # -- stale sample sets ---------------------------------------------------------
 
@@ -196,26 +215,102 @@ class ProjectState(QObject):
     def register_dataset(self, dataset: DatasetRef) -> None:
         """Persist a dataset reference."""
         self._require_project("register_dataset").save_dataset(dataset)
-        self._sync()
+        self._written()
         self.datasets_changed.emit()
+
+    def add_data_file(self, path: str, **calibration: Any) -> str:
+        """Register a data file with its calibration, or recalibrate a registered one.
+
+        ``calibration`` are the reference keywords of
+        :meth:`enginir.Project.add_dataset`. Returns the dataset id.
+        """
+        project = self._require_project("add_data_file")
+        known = set(self.datasets)
+        dataset_id = project.add_dataset(path, **calibration).ref.dataset_id
+        self._written()
+        self.datasets_changed.emit()
+        self.calibrations_changed.emit()
+        name = os.path.basename(str(path))
+        self.saved.emit(f"Data file '{name}' added to project" if dataset_id not in known
+                        else f"Calibration of '{name}' saved to project")
+        return dataset_id
+
+    def locate_data_file(self, dataset_id: str, path: str) -> None:
+        """Record the new location of a moved data file after checking its pixels.
+
+        See :meth:`enginir.Dataset.locate`; nothing is written if the file at
+        ``path`` is not this data file.
+        """
+        project = self._require_project("locate_data_file")
+        ref = self.datasets.get(dataset_id)
+        if ref is None:
+            log_and_raise("Unknown dataset '{}'", dataset_id, error=KeyError)
+        Dataset(project, ref).locate(path)
+        self._written()
+        self.datasets_changed.emit()
+        self.saved.emit(f"Data file '{os.path.basename(path)}' located")
+
+    def data_file_label(self, dataset_id: str) -> str:
+        """How a data file is shown: its file name, with the folder when file names repeat."""
+        return self.data_file_labels.get(dataset_id, dataset_id)
+
+    def active_calibration(self, dataset_id: str) -> CalibrationSpec | None:
+        """The active calibration of a registered dataset, if any."""
+        return self.calibrations.get(self.active_calibration_ids.get(dataset_id, ""))
 
     def set_active_calibration(self, calibration: CalibrationSpec) -> None:
         """Persist a calibration and make it its dataset's active one."""
         self._require_project("set_active_calibration").save_calibration(calibration)
-        self._sync()
+        self._written()
         self.calibrations_changed.emit()
 
     def define_target(self, target: TargetDefinition) -> None:
         """Persist a target definition."""
         self._require_project("define_target").save_target(target)
-        self._sync()
+        self._written()
         self.targets_changed.emit()
+        self.saved.emit(f"Target '{target.name}' saved to project")
 
     def assign_target_to_roi(self, assignment: TargetAssignment) -> None:
         """Persist one ROI/target assignment."""
         self._require_project("assign_target_to_roi").save_assignment(assignment)
-        self._sync()
+        self._written()
         self.target_assignments_changed.emit()
+        target = self.targets.get(assignment.target_id)
+        roi = self.rois.get(assignment.roi_id)
+        unit = f" {target.unit}" if target is not None and target.unit else ""
+        self.saved.emit(
+            f"{target.name if target is not None else assignment.target_id} = "
+            f"{assignment.value:g}{unit} saved for ROI "
+            f"'{roi.name if roi is not None else assignment.roi_id}'")
+
+    def set_roi_values(self, changes: list[tuple[str, str, float | None]]) -> None:
+        """Set or remove target values: ``(roi_id, target_id, value)``, ``None`` removes.
+
+        Every value is checked before any is written, so an invalid one leaves
+        the project unchanged.
+        """
+        project = self._require_project("set_roi_values")
+        now = now_iso()
+        assignments = [TargetAssignment(roi_id=roi_id, target_id=target_id, value=value,
+                                        assigned_at=now)
+                       for roi_id, target_id, value in changes if value is not None]
+        project.save_assignments(assignments)
+        for roi_id, target_id, value in changes:
+            if value is None:
+                project.remove_assignment(roi_id, target_id)
+        self._written()
+        self.target_assignments_changed.emit()
+        if len(changes) == 1:
+            roi_id, target_id, value = changes[0]
+            target, roi = self.targets.get(target_id), self.rois.get(roi_id)
+            target_name = target.name if target is not None else target_id
+            roi_name = roi.name if roi is not None else roi_id
+            unit = f" {target.unit}" if target is not None and target.unit else ""
+            self.saved.emit(f"{target_name} value removed for ROI '{roi_name}'" if value is None
+                            else f"{target_name} = {value:g}{unit} saved for ROI '{roi_name}'")
+        elif changes:
+            self.saved.emit(f"{len(changes)} target values saved to project")
 
     def add_roi(
         self,
@@ -228,9 +323,18 @@ class ProjectState(QObject):
         """Persist an ROI with its spectra."""
         self._require_project("add_roi").save_roi(roi, spectra, dark_ref_spectra=dark_ref_spectra,
                                                    white_ref_spectra=white_ref_spectra)
-        self._sync()
+        self._written()
         logger.info("Added ROI '{}' ({} pixels)", roi.name, roi.n_pixels)
         self.rois_changed.emit()
+        self.saved.emit(f"ROI '{roi.name}' saved to project ({roi.n_pixels} pixels)")
+
+    def add_rois(self, rois: list[Any]) -> None:
+        """Persist several ROIs (``(roi, spectra, refs)``) completely or not at all."""
+        self._require_project("add_rois").save_rois(rois)
+        self._written()
+        logger.info("Added {} ROIs", len(rois))
+        self.rois_changed.emit()
+        self.saved.emit(f"{len(rois)} ROIs saved to project")
 
     def register_recipe(self, recipe_id: str, recipe_dict: dict[str, Any]) -> None:
         """Persist a preprocessing recipe."""
@@ -238,19 +342,19 @@ class ProjectState(QObject):
         if not recipe_id:
             log_and_raise("recipe_id must be a non-empty string")
         self._require_project("register_recipe").save_recipe(recipe_id, recipe_dict)
-        self._sync()
+        self._written()
         self.recipes_changed.emit()
 
     def register_signal_domain(self, signal_domain: SignalDomainContract) -> None:
         """Persist a signal-domain contract."""
         self._require_project("register_signal_domain").save_signal_domain(signal_domain)
-        self._sync()
+        self._written()
         self.signal_domains_changed.emit()
 
     def create_sample_set(self, sample_set: SampleSet) -> None:
         """Persist a sample set."""
         self._require_project("create_sample_set").save_sample_set(sample_set)
-        self._sync()
+        self._written()
         self.sample_sets_changed.emit()
 
     def build_sample_set(
@@ -282,7 +386,7 @@ class ProjectState(QObject):
     def register_model_run(self, model_run: ModelRun) -> None:
         """Persist a model run."""
         self._require_project("register_model_run").save_model_run(model_run)
-        self._sync()
+        self._written()
         self.model_runs_changed.emit()
 
     def fit_model_run(
@@ -354,7 +458,7 @@ class ProjectState(QObject):
     def register_prediction_run(self, prediction: PredictionRun) -> None:
         """Persist a prediction run."""
         self._require_project("register_prediction_run").save_prediction_run(prediction)
-        self._sync()
+        self._written()
         self._bump_prediction_artifact_version(prediction.prediction_run_id)
         self.predictions_changed.emit()
 
@@ -410,8 +514,8 @@ class ProjectState(QObject):
         if not bool(getattr(prediction_result, "artifacts_persisted", False)):
             project.save_prediction_run(prediction)
         else:
-            project._reload()
-        self._sync()
+            project.reload()
+        self._written()
         self._bump_prediction_artifact_version(prediction.prediction_run_id)
         if dataset_is_new:
             self.datasets_changed.emit()
@@ -477,10 +581,13 @@ class ProjectState(QObject):
 
     def remove_roi(self, roi_id: str) -> None:
         """Delete an ROI and its assignments."""
+        removed = self.rois.get(roi_id)
         affected_sample_set_ids = self._require_project("remove_roi").remove_roi(roi_id)
-        self._sync()
+        self._written()
         logger.info("Removed ROI '{}'", roi_id)
         self.rois_changed.emit()
+        self.saved.emit(f"ROI '{removed.name if removed is not None else roi_id}' "
+                        "removed from project")
         self.target_assignments_changed.emit()
         if affected_sample_set_ids:
             self.sample_sets_changed.emit()
@@ -561,6 +668,27 @@ class ProjectState(QObject):
 
     # -- mirroring -------------------------------------------------------------------
 
+    def reload(self) -> None:
+        """Read the project file again and refresh every view (several windows on one project)."""
+        if self.project is None:
+            return
+        self.project.reload()
+        self._sync()
+        logger.info("Reloaded project {} after a write from another window", self.project_path)
+        self._emit_workspace_signals()
+
+    def _written(self) -> None:
+        """Mirror this project after a write and have other windows on it re-read it."""
+        self._sync()
+        path = self.project_path
+        if path is None:
+            return
+        for other in list(_OPEN_STATES):
+            if other is not self and other.project_path is not None \
+                    and os.path.normcase(os.path.abspath(other.project_path)) \
+                    == os.path.normcase(os.path.abspath(path)):
+                other._reload_timer.start()
+
     def _sync(self) -> None:
         """Mirror the collections of the open project."""
         if self.project is None:
@@ -578,6 +706,7 @@ class ProjectState(QObject):
         self.sample_sets = dict(ws.sample_sets)
         self.model_runs = dict(ws.model_runs)
         self.predictions = dict(ws.predictions)
+        self.data_file_labels = data_file_labels(self.datasets)
 
     def _apply_prediction_run(self, prediction: PredictionRun) -> None:
         """Show a prediction run that is not (yet) stored, e.g. in tests."""
@@ -827,6 +956,19 @@ class ViewerState(QObject):
         self.pixel_size_mm = float(mm)
         if self.x_spatial_unit == "mm":
             self.units_changed.emit()
+
+    def set_calibration(self, *, black_level: float, white_level: float,
+                        dark_ref: np.ndarray | None = None,
+                        white_ref: np.ndarray | None = None) -> None:
+        """Convert with these detector levels and references (one units_changed signal)."""
+        if not np.isfinite(float(black_level)) or not np.isfinite(float(white_level)):
+            log_and_raise("black_level and white_level must be finite")
+        self.black_level = float(black_level)
+        self.white_level = float(white_level)
+        self.dark_ref = None if dark_ref is None else self._prepare_ref(dark_ref, "dark_ref")
+        self.white_ref = None if white_ref is None else self._prepare_ref(white_ref, "white_ref")
+        self._image_cache = None
+        self.units_changed.emit()
 
     def set_dark_ref(self, ref: np.ndarray | None) -> None:
         if ref is not None:

@@ -66,8 +66,10 @@ def test_export_plots_writes_every_model_plot_including_unopened_pages(fitted_vi
 def test_export_plots_skips_plots_without_data_and_needs_a_folder(qapp, tmp_path):
     viewer = _viewer(qapp)
     written, skipped = viewer.export_workspace_plots(tmp_path)
-    # Histogram and RAW are hidden docks by default and have never drawn.
-    assert sorted(skipped) == ["explore.histogram", "explore.raw"]
+    # Histogram and RAW are hidden docks by default and have never drawn; there is
+    # no project, so the Project ROIs plots have nothing to show.
+    assert sorted(skipped) == ["explore.histogram", "explore.raw", "explore.roi_means",
+                               "explore.roi_mosaic", "explore.roi_pixels"]
     assert {"explore.image.png", "explore.spectrum.csv", "explore.sensor.png",
             "explore.spatial.csv"} <= set(written)
     with pytest.raises(ValueError, match="does not exist"):

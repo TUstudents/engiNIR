@@ -40,7 +40,7 @@ from __future__ import annotations
 import datetime as dt
 import os
 import uuid
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
@@ -393,6 +393,38 @@ def save_prediction_run(
                  compression)
 
 
+def relocate_dataset_ref(path: PathLike, dataset_id: str, source_path: str) -> None:
+    """Point a stored dataset at the new location of its data file.
+
+    Only ``source_path`` changes: the path is a location, not identity
+    (``project-schema-contract_v3.md`` §5). The caller verifies the file first
+    (:func:`enginir._workflow.check_data_file_location`).
+    """
+    if not str(source_path).strip():
+        log_and_raise("source_path must be a non-empty string")
+    with _open_project(path, writable=True) as f:
+        group = f["datasets"].get(dataset_id)
+        if not isinstance(group, h5py.Group):
+            log_and_raise("Unknown dataset '{}' in {}", dataset_id, path, error=KeyError)
+        previous = group.attrs.get("source_path")
+        group.attrs["source_path"] = str(source_path)
+    logger.info("Dataset '{}' moved from {} to {} in {}", dataset_id, previous, source_path, path)
+
+
+def remove_target_assignment(path: PathLike, target_id: str, roi_id: str) -> None:
+    """Delete the value of one target for one ROI; the ROI is then unlabeled for it.
+
+    Removing a value that does not exist is a no-op.
+    """
+    with _open_project(path, writable=True) as f:
+        assignments = f["target_assignments"].get(target_id)
+        if not isinstance(assignments, h5py.Group) or roi_id not in assignments:
+            return
+        del assignments[roi_id]
+    logger.info("Removed target assignment target='{}' roi='{}' from {}", target_id, roi_id,
+                path)
+
+
 def remove_roi_from_project(path: PathLike, roi_id: str) -> None:
     """Delete an ROI and all target values assigned to it."""
     with _open_project(path, writable=True) as f:
@@ -645,6 +677,30 @@ def load_roi_spectra_matrix(
             dataset.read_direct(matrix, dest_sel=np.s_[rows[key], :])
             start = rows[key].stop
     return matrix, rows
+
+
+def load_roi_band_images(
+    path: PathLike, rois: Mapping[str, Any], band_indices: Sequence[int]
+) -> dict[str, np.ndarray]:
+    """Read a few bands of each ROI's stored pixels as an image patch.
+
+    ``rois`` maps ROI ids to objects with ``spatial_bounds`` ``(f0, f1, r0,
+    r1)``; stored spectra are in frame x row order. Returns ``{roi_id: array
+    (frames, rows, len(band_indices))}`` in the stored dtype. Only the
+    requested bands are read from the file.
+    """
+    bands = [int(b) for b in band_indices]
+    order = sorted(set(bands))  # h5py reads increasing column indices
+    images: dict[str, np.ndarray] = {}
+    with _open_project(path) as f:
+        for roi_id, roi in rois.items():
+            f0, f1, r0, r1 = (int(v) for v in roi.spatial_bounds)
+            dataset = f[f"/rois/{roi_id}/spectra"]
+            if not isinstance(dataset, h5py.Dataset):
+                log_and_raise("ROI '{}' has no stored spectra", roi_id, error=KeyError)
+            picked = np.asarray(dataset[:, order])[:, [order.index(b) for b in bands]]
+            images[roi_id] = picked.reshape(f1 - f0 + 1, r1 - r0 + 1, len(bands))
+    return images
 
 
 def iter_roi_calibration_refs(
@@ -974,7 +1030,10 @@ __all__ = [
     "load_roi_spectra_batch",
     "load_roi_spectra_matrix",
     "open_prediction_run_artifact_writer",
+    "relocate_dataset_ref",
     "remove_roi_from_project",
+    "remove_target_assignment",
+    "load_roi_band_images",
     "save_calibration_spec",
     "save_dataset_ref",
     "save_model_run",

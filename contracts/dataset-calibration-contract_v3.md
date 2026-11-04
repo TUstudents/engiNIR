@@ -360,10 +360,58 @@ Required v3 rule:
 
 ## 2. Select calibration
 
-When the user chooses dark, white, and output signal unit, the system must create
-or update an explicit `CalibrationSpec` for that dataset.
+When the user chooses how a data file is calibrated (dark/white references,
+detector levels, or raw counts), the system must create or update an explicit
+`CalibrationSpec` for that dataset.
+
+Signal units of a calibration:
+
+- the project always stores the raw counts of every ROI with what converts
+  them: the ROI's reference snapshot, or the calibration's scalar
+  `black_level`/`white_level`. DN, reflectance and absorbance are views of
+  those counts, computed when needed, never a stored replacement
+- for `dark_white_reference`, `output_signal_unit` is the working signal: the
+  signal Explore starts with and the one `Project.fit` trains in when no other
+  is chosen. It is not asked when a data file is added; it is `Absorbance`.
+  Reflectance and absorbance can both be produced from the counts at any
+  time; the shown signal is chosen in Explore and in the fit dialog
+- for `raw_dn`, `output_signal_unit` is `DN`: without references or levels,
+  the counts give no other signal
+- for `precalibrated_import`, `output_signal_unit` states what the file holds
+  (`Reflectance` or `Absorbance`); this is the only case in which the UI asks
+  for it, and DN is unavailable because there are no counts
+- `viewable_signal_units` gives these signals per calibration; Explore offers
+  only them for the shown data file
 
 The active viewer state must reference that calibration spec.
+
+The calibration is chosen when a data file is added to a project
+(`project-dataset-attachment-contract_v3.md`, Adding a data file). The dark and
+white references of `dark_white_reference` come from one of these sources:
+
+- **another file**: averaged over all its frames, giving one reference
+  spectrum per row and band
+- **a frame range of the data file itself**, such as a white tile or
+  shutter-closed frames scanned in the same image: averaged over those frames
+- **another data file of the project**: its reference arrays are copied
+  into a new `CalibrationSpec` of the new dataset; calibrations stay
+  dataset-local
+
+Required behavior:
+
+- `dark_ref_source` and `white_ref_source` record the source, for example
+  `white.eiff` or `tray03.eiff frames 0-20`; for copied references they keep
+  the original source
+- before a reference is accepted, the UI shows its mean spectrum and the share
+  of saturated values
+- scalar `black_level`/`white_level` remain the fallback without references
+
+Replacing the active calibration of a data file that already has ROIs
+applies to ROIs drawn afterwards only:
+
+- existing ROIs keep the calibration and the reference snapshot they were
+  drawn with
+- the UI must say so before the change, with the number of affected ROIs
 
 ## 3. Draw ROIs
 
@@ -619,10 +667,15 @@ Decision:
 
 - `DatasetRef` and `CalibrationSpec` are persisted inside the project file
 
+Resolved:
+
+- a moved or renamed file is mapped back with `Locate file...`. It is
+  verified against the `DatasetRef` and the stored raw ROI pixels, then
+  `source_path` is updated (`project-dataset-attachment-contract_v3.md`).
+
 Still to specify:
 
 - whether any optional external cache or registry is allowed as a secondary optimization
-- how project-internal dataset records map to imported files that are later moved or renamed
 
 ### 3. Multiple calibration specs per dataset
 

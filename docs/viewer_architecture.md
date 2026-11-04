@@ -20,7 +20,7 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_recent.py` | MRU file list (`~/.config/enginir/recent.json`) |
 | `_eda.py` | `EDAView` — signal, preprocessing, project, and ROI controls |
 | `_attachment.py` | Project/dataset binding validation |
-| `_modeling.py` | `ModelingView` — target, sample set, and model fit workflows |
+| `_modeling.py` | `ModelingView` — target, target values (ROI table) and the fit dialog |
 | `_model_diagnostics.py` | Model workspace diagnostics surface |
 | `_prediction.py` | `PredictionView` and `PredictionMapWidget` |
 | `_browser.py` | Read-only workspace object tree |
@@ -28,11 +28,17 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_jobs.py` | `BackgroundWorker`, `_CallbackRelay`, `start_background_job`, `BusyStatusWidget` |
 | `_loading.py` | Shared wait-cursor/status/progress helpers for startup and open flows |
 | `_data_helpers.py` | Dataset-shape and spectral array helpers shared by viewer workflows |
+| `_project_rois.py` | `ProjectRoisView` (Explore's Project ROIs tab), `RoiMosaic` (stored ROI pixels as tiles, a `PlotSource`), specs `explore.roi_means`/`explore.roi_pixels` fed by `enginir.modeling.roi_spectrum_summaries`. Tiles arrive in background batches of 40 and are drawn incrementally with the stretch of the first batch, then re-stretched once together; target and value changes update the labels in place (coalesced), without a new layout |
+| `_roi_table.py` | `RoiTableModel`/`RoiTableWidget`: target values of all ROIs (one column per target), Enter-to-next-row editing, column paste, data file and missing-value filters |
+| `_roi_grid.py` | `RoiGridDialog`: a grid of equal ROIs by number, size, origin and spacing (`roi_grid`), empty-position buttons, a live preview on the canvas (outside cells red); `GridDefaultsDialog` (Options > ROI Grid Defaults) and the shared `GridGeometryForm` |
+| `_grid_settings.py` | `GridDefaults` every new grid starts with, in the user settings (`roi_grid.json`) |
+| `_data_files.py` | `AddDataFileDialog` and `DataFileRequest`: the calibration of a data file added to a project (reference files, frame ranges, shared references, levels, raw) |
 | `_ui_helpers.py` | Shared plot styling and figure-layout helpers |
 | `_plot_panel.py` | `PlotSpec`, `PlotTable`, `PlotPanel`: one plot with a header (title, maximize, PNG/SVG/CSV export) |
 | `_plot_grid.py` | `PlotGrid`, `PlotPage`, `PlotSlot`: paged plot grids with lazy pages and in-place maximize |
 | `_plot_registry.py` | Registry of all plots and of the plot pages of each workspace |
 | `_layout_settings.py` | Maximized plot per workspace in the user settings (`plot_layout.json`) |
+| `_project_settings.py` | Last shown data file per `project_id` in the user settings (`project_ui.json`) |
 
 ---
 
@@ -104,11 +110,25 @@ Runtime collections include:
 
 **Key methods:**
 - `new_project(path)`, `open_project(path)` — create/load HDF5 project
+- `reload()` — re-read the project; every write (`_written`) schedules it in the other `ProjectState`s of the process on the same project file, so several windows stay in step
+- `locate_data_file(dataset_id, path)` — `Dataset.locate`: accept a moved file only if its pixels equal the stored ROI pixels, then update `source_path`
 - `register_dataset(...)`, `set_active_calibration(...)`, `add_roi(...)`, `define_target(...)`, `assign_target_to_roi(...)` — store through `Project` + emit
 - `build_sample_set(...)`, `fit_model_run(...)`, `predict_dataset(...)` — high-level workflows
 - `ensure_model_run_artifact_refs(...)`, `ensure_prediction_artifact_refs(...)` — lazy-load heavy persisted arrays only when a workflow actually needs them
 
 ---
+
+## Identity
+
+The viewer refers to every project object by id: browser payloads, the ROI
+table rows, the Project ROIs tiles, canvas ROI items, Model plot selections
+and every write carry ids. It reaches the library's `Project` only through
+`ProjectState` and the typed, id-based methods (`save_*`, `remove_*`,
+`reload`); the name-based functions and name-keyed views (`Project.roi`,
+`.target`, `.model`, `set_value`, `fit`, `project.rois`, …) are for scripts,
+and `tests/test_headless_api.py::test_the_viewer_never_addresses_objects_by_name`
+fails if the viewer calls them. Names are display text and may repeat; data
+files are shown by `ProjectState.data_file_label(dataset_id)`.
 
 ## Signal wiring
 
@@ -163,7 +183,7 @@ Pattern: `_jobs.py:start_background_job(owner, fn, on_success, on_error, on_fini
 5. Starts thread
 6. Returns `(thread, worker, relay)` — caller must store all three
 
-**Used by:** `_modeling.py` (build sample set, fit model), `_prediction.py` (predict dataset), `_loading.py` (launcher startup jobs)
+**Used by:** `_modeling.py` (fit model), `_prediction.py` (predict dataset), `_loading.py` (launcher startup jobs)
 
 **Error contract:** `BackgroundWorker.run()` catches `Exception`, logs via `logger.error`, emits `failed(str)`. Callers show `QMessageBox` in `on_error` callback.
 

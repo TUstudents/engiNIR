@@ -9,6 +9,8 @@ current view (image, ROIs, crosshair) with matplotlib in the print colors.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 import pyqtgraph as pg
@@ -21,7 +23,7 @@ from pyqtgraph.graphicsItems.ViewBox.ViewBox import ViewBox
 from PyQt6.QtWidgets import QWidget, QVBoxLayout
 from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QKeyEvent
-from PyQt6.QtWidgets import QGraphicsSceneMouseEvent
+from PyQt6.QtWidgets import QGraphicsRectItem, QGraphicsSceneMouseEvent
 
 from .._checks import log_and_raise
 from .._logging import get_logger
@@ -101,6 +103,7 @@ class FalseColourCanvas(QWidget):
         self._interaction_mode = "navigate"
         self._roi_draw_start: tuple[int, int] | None = None
         self._roi_preview_item: pg.RectROI | None = None
+        self._grid_preview_items: list[Any] = []
         self._ignore_next_click = False
         self._selected_roi_id: str | None = None
 
@@ -216,6 +219,39 @@ class FalseColourCanvas(QWidget):
                 bounds=(f0, f1, r0, r1),
                 label=label,
             )
+
+    def set_grid_preview(self, cells: Sequence[Any], skipped: Sequence[Any],
+                         outside: Sequence[Any] = ()) -> None:
+        """Show planned ROI grid cells (with their names), empty cells (grey, dashed) and
+        cells outside the image (red)."""
+        self.clear_grid_preview()
+        for cell, color, style in [*((c, (0, 220, 255), Qt.PenStyle.SolidLine) for c in cells),
+                                   *((c, (140, 140, 140), Qt.PenStyle.DashLine)
+                                     for c in skipped),
+                                   *((c, (255, 70, 70), Qt.PenStyle.SolidLine)
+                                     for c in outside)]:
+            (f0, f1), (r0, r1) = cell.frames, cell.rows
+            rect = QGraphicsRectItem(f0, r0, f1 - f0 + 1, r1 - r0 + 1)
+            pen = pg.mkPen(color=color, width=1.2, style=style)
+            pen.setCosmetic(True)
+            rect.setPen(pen)
+            self._plot.addItem(rect)
+            self._grid_preview_items.append(rect)
+            if style == Qt.PenStyle.SolidLine:
+                text = pg.TextItem(text=cell.name, color=color, anchor=(0, 0))
+                text.setPos(f0, r0)
+                self._plot.addItem(text)
+                self._grid_preview_items.append(text)
+
+    def clear_grid_preview(self) -> None:
+        for item in self._grid_preview_items:
+            self._plot.removeItem(item)
+        self._grid_preview_items = []
+
+    @property
+    def grid_preview_count(self) -> int:
+        """Number of drawn grid preview items (cells and labels)."""
+        return len(self._grid_preview_items)
 
     def clear_roi_rects(self) -> None:
         """Remove all ROI overlays."""
