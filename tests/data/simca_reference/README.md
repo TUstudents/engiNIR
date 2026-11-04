@@ -25,7 +25,8 @@ tables below hold absorbance, so the comparison starts at these tables.
 | `pixels_test.csv` | 40 | 10 pixels of each test blend T01–T04, for prediction |
 
 Columns: `obs_id` (e.g. `B03_p17`: blend B03, pixel 17 of the ROI), `roi`
-(the blend), `conc`, then one column per band (`nm1100.0`, ...). Comma
+(the blend), `conc`, then one column per band, named by its wavelength in nm as a
+number (`1100`, `1106`, ..., `1694`). Comma
 separated, decimal point, 9 significant digits.
 
 Regenerate (only when the generator changes; the SIMCA exports below must
@@ -37,48 +38,76 @@ uv run python -m tests._simca_reference
 
 ## Building the models in SIMCA 18
 
-Import (`File > New`, regular project) `pixels.csv` and, for M4,
+Import (`File > New`, spectroscopic project) `pixels.csv` and, for M4,
 `roi_means.csv`:
 
 - first row: variable names; decimal symbol: point; separator: comma
 - `obs_id`: primary observation ID; `roi`: secondary observation ID
-- `conc`: Y; all `nm...` columns: X (spectral)
+- `conc`: Y; all wavelength columns: X; first row (the wavelengths): spectral ID
 
 Workset for every model:
 
 - scaling: X centred (Ctr), Y unit variance (UV)
-- cross-validation: as you normally do for samples: observations with the
-  same `roi` value in the same group, 7 cross-validation groups (M4: every
-  Nth observation, 7 groups)
-- fit 3 components with `Add` (M4: Autofit)
+- cross-validation (Model Options > CV-groups): M1–M3, M5: "assign
+  observations with the same value of `roi` to the same group", 7 groups;
+  M4: every 7th observation (default), 7 groups
 
-| Model | Table | Filter (Data > Spectral filters) |
-|---|---|---|
-| M1 | pixels | none |
-| M2 | pixels | SNV |
-| M3 | pixels | Derivatives: first, quadratic, 15 points, distance 1 |
-| M4 | roi_means | none, Autofit |
-| M5 | pixels | AsLS correction, smoothing factor 10000, asymmetry factor 0.001 |
+| Model | Table | Filter (Data > Spectral filters) | Components |
+|---|---|---|---|
+| M1 | pixels | none | 4, with `Add` four times |
+| M2 | pixels | SNV | 4, with `Add` four times |
+| M3 | pixels | Derivatives: first, quadratic, 15 points, distance 1 | 4, with `Add` four times |
+| M4 | roi_means | none | `Autofit`; note how many it chose |
+| M5 | pixels | AsLS correction, smoothing factor 10000, asymmetry factor 0.001 | 4, with `Add` four times |
 
-For M1–M3 and M5, add `pixels_test.csv` as prediction set.
+Use `Add`, not `Autofit`, for M1–M3 and M5 (also when SIMCA marks a
+component as not significant: M2's fourth component should get worse, which
+tests the significance rule). M4 tests Autofit itself. Below, *A* is the
+number of components of the model: 4, or the Autofit result for M4.
+
+For M1–M3 and M5, add `pixels_test.csv` as prediction set (Predict >
+Specify predictionset > from file). M4 has no prediction set.
 
 ## Exports
 
-Copy each list (select all, Ctrl+C) into a CSV file in `simca_exports/`,
-named `<model>_<list>.csv`, e.g. `M1_summary.csv`:
+Make the lists with `Home > Create > List`. In the dialog:
 
-| List | File suffix |
-|---|---|
-| CV-groups list (Model Options > CV-groups) | `cvgroups` |
-| Summary of fit list: R2X, R2X(cum), R2Y, R2Y(cum), Q2, Q2(cum), limit, significance | `summary` |
-| Scores t | `scores` |
-| Loadings p and weights w | `loadings` |
-| VIP | `vip` |
-| Coefficients, scaled and centred (CoeffCS) and unscaled (Coeff) | `coefficients` |
-| Observed, fitted and cross-validated Y (YVar, YPred, YPredCV), with RMSEE and RMSEcv | `y` |
-| T2Range with T2Crit(95 %) and T2Crit(99 %) | `t2` |
-| DModX normalised with DCrit, once weighted by modelling power (default) and once not | `dmodx` |
-| Prediction set: predicted Y, RMSEP, T2PS, DModXPS | `prediction` |
-| Filtered dataset (M2, M3, M5 only) | `filtered` |
+- data source (`Data` box): the model (e.g. `M1`); for the prediction list
+  `PS`
+- `Scale` and `Transform` unchecked (original units)
+- number format (Number format page): `Exponential`, precision `6`
+
+Add the series in the order given, then select the whole list (click the
+top-left corner), copy (Ctrl+C), paste into a text editor and save as
+`simca_exports/<model>_<list>.csv` (e.g. `M1_components.csv`). Tabs or
+commas both work; keep the header row and the observation/variable ID
+column.
+
+Lists for every model:
+
+| List | Data type | Series (component) | Rows |
+|---|---|---|---|
+| `components` | Function of component | R2X, R2Xcum, R2Y, R2Ycum, Q2, Q2cum, SSX, SSY, RMSEcv, Eig, SDt | 1 to *A* |
+| `observations` | Variables and scores | CVgroups; YVar (conc); YPred (*A*); YPredcv (*A*); t (1 … *A*, one series each); T2Range (1 to *A*); DModX (*A*); DModX (0) | workset observations |
+| `variables` | Observations and loadings | Xavg; Xws; w (1 … *A*); w* (1 … *A*); p (1 … *A*); CoeffCS (*A*); Coeff (*A*); VIP (*A*); MPowX (*A*) | X variables |
+| `errors` | Observations and loadings, select the Y variable `conc` | Yavg; Yws; RMSEE (*A*); RMSEcv (*A*); MBEE (*A*); MBEcv (*A*); for M1–M3, M5 also RMSEP (*A*), MBEP (*A*) | `conc` |
+| `prediction` (M1–M3, M5) | Variables and scores, data source PS | YVarPS (conc); YPredPS (*A*); tPS (1 … *A*); T2RangePS (1 to *A*); DModXPS (*A*); DModXPS+ (*A*) | prediction set observations |
+
+Not available as lists, please copy by hand:
+
+- `<model>_model.csv`: the component table of the model window
+  (double-click the model): R2X(cum), R2Y(cum), Q2(cum), limit and
+  significance per component.
+- `<model>_limits.txt`: the critical values shown in the plots at *A*
+  components: `T2Crit(95%)` and `T2Crit(99%)` (Home > Hotelling's T2Range,
+  components 1 to *A*), `D-Crit(0.05)` (Home > DModX, normalised), and
+  for M1–M3, M5 the D-Crit of DModXPS (Predict > DModX PS).
+- the DModX settings: the `DModX` series names show them, e.g. `(N)` for
+  normalised and `(M)` for weighted by modelling power. If your default is
+  weighted, please also export the DModX (*A*) and DModX (0) series once
+  unweighted (Model Options > Distance to the model, uncheck the
+  modelling-power weighting) as `<model>_dmodx_unweighted.csv`.
+- M2, M3, M5: the filtered dataset (the new dataset the filter created,
+  e.g. DS2): open it, select all, copy, save as `<model>_filtered.csv`.
 
 Please note the SIMCA version and build in `simca_exports/VERSION.txt`.

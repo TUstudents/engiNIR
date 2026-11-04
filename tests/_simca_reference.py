@@ -187,8 +187,12 @@ def tables(reference: Reference) -> dict[str, tuple[list[str], list[str], np.nda
 
 
 def band_names() -> list[str]:
-    """Column names of the bands, e.g. ``nm1100.0``."""
-    return [f"nm{w:.1f}" for w in WAVELENGTHS]
+    """Column names of the bands: the wavelength in nm as a number, e.g. ``1100``.
+
+    SIMCA's spectroscopic projects use the variable names as the spectral
+    axis, so they must be numeric.
+    """
+    return [f"{w:g}" for w in WAVELENGTHS]
 
 
 def write_tables(reference: Reference, directory: Path) -> None:
@@ -203,9 +207,11 @@ def write_tables(reference: Reference, directory: Path) -> None:
 
 
 def read_table(path: Path) -> tuple[list[str], list[str], np.ndarray, np.ndarray]:
-    """Read a table written by :func:`write_tables`."""
+    """Read a table written by :func:`write_tables` (its header must be the current one)."""
     with open(path, newline="", encoding="utf-8") as handle:
         rows = list(csv.reader(handle))
+    if rows[0] != ["obs_id", "roi", TARGET, *band_names()]:
+        raise ValueError(f"{path.name} has an outdated header; regenerate the tables")
     body = rows[1:]
     return ([r[0] for r in body], [r[1] for r in body], np.array([float(r[2]) for r in body]),
             np.array([[float(v) for v in r[3:]] for r in body], dtype=np.float32))
