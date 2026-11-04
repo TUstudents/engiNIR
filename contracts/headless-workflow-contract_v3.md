@@ -119,11 +119,18 @@ and writes nothing they would reject.
 - `project.add_target(name, *, unit)` defines a target
 - `dataset.add_roi(name, *, frames, rows, values=None)` stores an ROI cut from
   the dataset, with its reference values (`{target name: value}`)
-- `project.fit(target, *, recipe, model, name=None, cv="auto", **hyperparameters)`
-  builds the sample set, fits and cross-validates, and returns a model handle
+- `project.fit(target, *, recipe, model, name=None, cv=None, fit_spec=None,
+  **hyperparameters)` builds the sample set, fits and cross-validates, and
+  returns a model handle. `fit_spec` (a `FitSpec` or a mapping with the keys
+  of `sample-set-model-run-contract_v3.md` §7) gives full control; keys it
+  leaves out take their defaults. `cv` is the short form of the fold rule
+  (`"auto"`, an integer fold count, `"logo"`; `None` means `"auto"` unless a
+  `fit_spec` gives the folds) and is refused together with a `fit_spec`
+  that sets the folds. The complete specification is stored with
+  the run
 - `model.refit(*, name=None)` fits the model again on its stored sample set,
-  recipe, signal domain, hyperparameters and cross-validation and stores the
-  new run (`sample-set-model-run-contract_v3.md`, Refitting a stored model)
+  recipe, signal domain, hyperparameters and fit specification and stores
+  the new run (`sample-set-model-run-contract_v3.md`, Refitting a stored model)
 - `model.predict(path, *, dark=None, white=None)` predicts a dataset and
   returns a prediction handle
 - read access: `project.datasets`, `project.rois`, `project.targets`,
