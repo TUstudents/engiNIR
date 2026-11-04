@@ -1371,12 +1371,11 @@ class ModelingView(QWidget):
 
     @staticmethod
     def _validate_cv_preflight(*, n_roi_groups: int, cv: int | str) -> str | None:
-        if cv == "auto" and n_roi_groups < 2:
-            return "Automatic grouped validation requires at least 2 ROI groups in the selected sample set."
-        if cv == "logo" and n_roi_groups < 2:
-            return "Leave-one-ROI-out validation requires at least 2 ROI groups in the selected sample set."
-        if isinstance(cv, int) and n_roi_groups < cv:
-            return f"{cv}-fold grouped validation requires at least {cv} ROI groups in the selected sample set."
+        # Round-robin folds over fewer ROIs than requested folds hold out one
+        # ROI each (sample-set-model-run contract §4); only 2 ROIs are needed.
+        if n_roi_groups < 2:
+            return ("Cross-validation requires at least 2 ROIs in the selected sample set, "
+                    f"it has {n_roi_groups}.")
         return None
 
     def _validate_signal_domain_preflight(

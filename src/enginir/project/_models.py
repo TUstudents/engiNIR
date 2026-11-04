@@ -24,6 +24,8 @@ import numpy as np
 
 from enginir._checks import check_choice, check_integer, check_real, log_and_raise
 
+from ._fit_spec import FitSpec
+
 SIGNAL_UNITS = ("DN", "Reflectance", "Absorbance")
 CALIBRATION_MODES = ("raw_dn", "dark_white_reference", "precalibrated_import")
 MODEL_TYPES = ("PLS", "PCR")
@@ -728,6 +730,10 @@ class ModelRun(SerializableModel):
     name : str or None
         Display name (a label that may change); ``None`` for runs saved
         without one.
+    fit_spec : dict or None
+        The fit specification (:meth:`FitSpec.to_dict
+        <enginir.project.FitSpec.to_dict>`); ``None`` for legacy runs, see
+        :attr:`fit_specification`.
     """
 
     model_run_id: str
@@ -740,9 +746,12 @@ class ModelRun(SerializableModel):
     artifact_refs: dict[str, Any]
     created_at: str
     name: str | None = None
+    fit_spec: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         self.model_run_id = _text(self.model_run_id, "model_run_id")
+        if self.fit_spec is not None:
+            self.fit_spec = FitSpec.from_dict(self.fit_spec).to_dict()
         if self.name is not None:
             self.name = _text(self.name, "name")
         self.sample_set_id = _text(self.sample_set_id, "sample_set_id")
@@ -751,6 +760,13 @@ class ModelRun(SerializableModel):
         for name in ("hyperparameters", "cv_spec", "metrics", "artifact_refs"):
             setattr(self, name, _mapping(getattr(self, name), name))
         self.created_at = _timestamp(self.created_at, "created_at")
+
+    @property
+    def fit_specification(self) -> FitSpec:
+        """How the run was fitted: its stored specification, or the legacy one."""
+        if self.fit_spec is not None:
+            return FitSpec.from_dict(self.fit_spec)
+        return FitSpec.legacy(self.cv_spec.get("requested", "auto"))
 
 
 @dataclass(slots=True, eq=False)

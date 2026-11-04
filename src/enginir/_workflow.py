@@ -32,6 +32,7 @@ from .preprocessing import PreprocessingRecipe
 from .project import (
     CalibrationSpec,
     DatasetRef,
+    FitSpec,
     ModelRun,
     PredictionRun,
     SampleSet,
@@ -282,7 +283,8 @@ class Project:
         recipe: PreprocessingRecipe | Mapping[str, Any] | None = None,
         model: str = "PLS",
         name: str | None = None,
-        cv: int | str = "auto",
+        cv: int | str | None = None,
+        fit_spec: FitSpec | Mapping[str, Any] | None = None,
         **hyperparameters: Any,
     ) -> Model:
         """Fit and cross-validate a model of ``target`` on every ROI with a value for it.
@@ -298,8 +300,15 @@ class Project:
         name:
             Model name (default: e.g. ``"PLS 2 LV, SNV"``).
         cv:
-            Cross-validation over ROIs: ``"auto"``, a number of folds or
-            ``"logo"`` (leave one ROI out).
+            Cross-validation over ROIs, the short form of the fold rule:
+            ``"auto"`` (default: 7 round-robin folds), a number of
+            round-robin folds, or ``"logo"`` (leave one ROI out).
+        fit_spec:
+            Full control of the fit (:class:`~enginir.project.FitSpec` or a
+            mapping with the keys of ``sample-set-model-run-contract_v3.md``
+            §7), e.g. ``{"pixels": {"per_roi": 50, "seed": 1}}``; keys left
+            out take their defaults. Not combined with ``cv`` when it sets
+            the folds. The complete specification is stored with the model.
         **hyperparameters:
             Estimator parameters, e.g. ``n_components=2``.
 
@@ -327,7 +336,8 @@ class Project:
             target_assignments=ws.target_assignments, recipes=recipes,
             signal_domains={**ws.signal_domains, domain.signal_domain_id: domain},
             signal_domain_id=domain.signal_domain_id, model_type=model,
-            hyperparameters=hyperparameters, cv=cv, target_name=target_ref.name)
+            hyperparameters=hyperparameters, cv=cv, fit_spec=fit_spec,
+            target_name=target_ref.name)
         run = replace(result.model_run,
                       name=name or self.default_model_name(result.model_run, recipe_obj))
         validate_project_relationships(
@@ -832,10 +842,12 @@ class Model:
         """Fit this model again on exactly what it was fitted on, and store the new run.
 
         Uses the stored sample set (its ``roi_ids`` and preprocessing recipe),
-        signal domain, model type, hyperparameters and requested
-        cross-validation, not the ROIs that have values now. Folds depend only
-        on the sample set, so unchanged data give the same metrics; reference
-        values changed since the fit are reported. Refused when an ROI of the
+        signal domain, model type, hyperparameters and fit specification
+        (for a model stored without one, its legacy specification), not the
+        ROIs that have values now. Folds depend only on the sample set and
+        the pixel sample only on the seed and the ROI spectra, so unchanged
+        data give the same metrics; reference values changed since the fit
+        and a different pixel sample are reported. Refused when an ROI of the
         sample set was deleted.
 
         Parameters
@@ -859,16 +871,19 @@ class Model:
             logger.warning("Refitting model '{}': {} reference value(s) changed since it was "
                            "fitted (ROI ids {}); the metrics will differ", self.name,
                            len(changed), changed[:5])
-        requested = self.ref.cv_spec.get("requested", "auto")
-        cv: int | str = int(requested) if isinstance(requested, (int, np.integer)) \
-            else str(requested)
+        spec = self.ref.fit_specification
         result = fit_model_run(
             project_path=project.path, sample_set=sample_set, datasets=ws.datasets,
             calibrations=ws.calibrations, rois=ws.rois,
             target_assignments=ws.target_assignments, recipes=ws.recipes,
             signal_domains=ws.signal_domains, signal_domain_id=self.ref.signal_domain_id,
             model_type=self.ref.model_type, hyperparameters=dict(self.ref.hyperparameters),
-            cv=cv, target_name=self.target.name)
+            fit_spec=spec, target_name=self.target.name)
+        drawn = result.model_run.fit_specification.checksum
+        if spec.checksum and drawn != spec.checksum:
+            logger.warning("Refit of '{}' drew a different pixel sample than the model was "
+                           "fitted on (checksum {} instead of {}): the stored spectra of an ROI "
+                           "changed", self.name, drawn[:12], spec.checksum[:12])
         run = replace(result.model_run,
                       name=name or project.default_model_name(result.model_run, self.recipe))
         project.save_model_run(run)

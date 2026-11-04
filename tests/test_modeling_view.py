@@ -310,10 +310,11 @@ def test_a_failed_fit_stores_nothing(qapp, state_and_project, monkeypatch):
 
 
 def test_fit_model_group_validation_guard(qapp, state_and_project, monkeypatch):
+    """Cross-validation needs 2 ROIs; 7 folds over fewer ROIs hold out one ROI each."""
     from enginir.viewer._modeling import FitModelRunDialog, ModelingView
 
     state, project = state_and_project
-    _labelled_rois(state, project)
+    _labelled_rois(state, project, values=(3.2,))
     warnings: list[str] = []
     monkeypatch.setattr(
         QMessageBox, "warning", lambda *args, **kwargs: warnings.append(str(args[2]))
@@ -333,7 +334,7 @@ def test_fit_model_group_validation_guard(qapp, state_and_project, monkeypatch):
     view.fit_model_btn_clicked()
 
     assert warnings == [
-        "7-fold grouped validation requires at least 7 ROI groups in the selected sample set."
+        "Cross-validation requires at least 2 ROIs in the selected sample set, it has 1."
     ]
     assert project.sample_sets == {}, "a refused fit writes nothing"
 

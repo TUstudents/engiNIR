@@ -11,6 +11,7 @@ training and prediction. The normative specification is in
 ``contracts/*_v3.md`` and ``docs/workspace_domain_model.md``.
 """
 
+from ._fit_spec import FitSpec
 from ._models import (
     CalibrationSpec,
     DatasetRef,
@@ -35,6 +36,7 @@ from ._hydration import ProjectWorkspace, hydrate_project_store
 
 __all__ = [
     "CalibrationSpec",
+    "FitSpec",
     "CalibrationStats",
     "DatasetRef",
     "ModelRun",

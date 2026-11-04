@@ -679,6 +679,19 @@ def load_roi_spectra_matrix(
     return matrix, rows
 
 
+def load_roi_spectra_dtypes(path: PathLike, hdf5_keys: Iterable[str]) -> dict[str, np.dtype]:
+    """The stored dtype of each ROI spectra dataset, read from HDF5 metadata only."""
+    dtypes: dict[str, np.dtype] = {}
+    with h5py.File(path, "r") as f:
+        for key in (str(k) for k in hdf5_keys):
+            dataset = f.get(key)
+            if not isinstance(dataset, h5py.Dataset):
+                log_and_raise("ROI spectra dataset '{}' not found in {}", key, path,
+                              error=KeyError)
+            dtypes[key] = np.dtype(dataset.dtype)
+    return dtypes
+
+
 def load_roi_band_images(
     path: PathLike, rois: Mapping[str, Any], band_indices: Sequence[int]
 ) -> dict[str, np.ndarray]:
@@ -1028,6 +1041,7 @@ __all__ = [
     "load_project_store",
     "load_roi_spectra",
     "load_roi_spectra_batch",
+    "load_roi_spectra_dtypes",
     "load_roi_spectra_matrix",
     "open_prediction_run_artifact_writer",
     "relocate_dataset_ref",

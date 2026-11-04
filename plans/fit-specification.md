@@ -1,6 +1,6 @@
 # Plan: fit specification
 
-Status: Phase 0 written and reviewed, Phase R tables written; SIMCA exports pending (2026-11-04)
+Status: Phases 0–3 done, Phase R tables written; SIMCA exports pending (2026-11-04)
 
 ## Goal
 

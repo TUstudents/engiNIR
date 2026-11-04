@@ -18,6 +18,8 @@ Cross-validation
 ----------------
 
 .. autofunction:: enginir.validation.cross_validate
+.. autoclass:: enginir.validation.RoundRobinGroups
+   :members:
 .. autofunction:: enginir.validation.kennard_stone
 
 Aggregation

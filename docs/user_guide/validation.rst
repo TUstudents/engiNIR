@@ -149,11 +149,17 @@ in the same fold:
    # leave-one-group-out (most conservative; one ROI withheld per fold)
    results_logo = cross_validate(model, X, y, cv="logo", groups=groups)
 
+   # Round-robin: the i-th group (sorted labels) is held out in fold i mod 7,
+   # SIMCA's "every Nth" rule applied to groups; what model runs use.
+   from enginir.validation import RoundRobinGroups
+   results_rr = cross_validate(model, X, y, cv=RoundRobinGroups(7), groups=groups)
+
 Explicit integer ``cv`` uses ``GroupKFold(n_splits=cv)`` and therefore requires
 at least that many unique groups. ``GroupKFold`` assigns groups to folds by size
 and, among groups of equal size, by the order of their labels, so use labels
 whose order is reproducible (for example sample numbers, not random ids); model
-runs label each ROI with its position in the sample set. ``cv="loo"`` remains available for explicit
+runs label each ROI with its position in the sample set and use
+:class:`~enginir.validation.RoundRobinGroups`. ``cv="loo"`` remains available for explicit
 observation-level leave-one-out, but it ignores groups, logs that choice when
 groups are present, and is not the default.
 

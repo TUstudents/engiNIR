@@ -423,7 +423,7 @@ folds/
   @n_folds               requested fold count F (k = min(F, number of ROIs))
 pixels/
   @per_roi               "all" or the number of pixels drawn per ROI
-  @seed                  integer seed of the pixel sample, 0 <= seed < 2**64
+  @seed                  integer seed of the pixel sample, 0 <= seed < 2**63
   @checksum              SHA-256 (hex) of the drawn indices; "" for "all"
 exclusion/
   @method                none | dmodx

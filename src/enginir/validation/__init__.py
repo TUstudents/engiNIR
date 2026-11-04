@@ -15,6 +15,7 @@ Figures of merit
 from .cross_val import (
     DEFAULT_GROUPED_N_SPLITS,
     aggregate_regression_predictions,
+    RoundRobinGroups,
     cross_validate,
     kennard_stone,
 )
@@ -25,6 +26,7 @@ __all__ = [
     "DEFAULT_GROUPED_N_SPLITS",
     "aggregate_regression_predictions",
     "bias",
+    "RoundRobinGroups",
     "cross_validate",
     "hotelling_t2",
     "kennard_stone",

@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Fit specification: every new model run stores how it was fitted
+  (`fit_spec`: fold rule, pixel sample, exclusion settings), and
+  `model.refit()` repeats it exactly. `project.fit(..., fit_spec=...)` gives
+  full control; `enginir.project.FitSpec` is the typed form.
+- Pixel sample: `fit_spec={"pixels": {"per_roi": n, "seed": s}}` draws the
+  same number of pixels from every ROI, so every ROI has the same weight.
+  The draw depends only on the seed and each ROI's spectra (not on ids,
+  order or the NumPy version); a refit reports a different sample.
+- `enginir.validation.RoundRobinGroups`: grouped folds dealt round-robin, the
+  i-th group in fold i mod k (SIMCA's "every Nth" rule for groups).
+
+### Changed
+
+- Model runs deal ROIs round-robin to the folds (`cv="auto"`: 7 folds, the
+  ROI at position i of the sample set in fold i mod 7) instead of
+  `GroupKFold`. Cross-validated metrics of new fits can differ from fits made
+  before on the same data; stored models keep their folds when refitted.
+- An integer `cv` larger than the number of ROIs now leaves one ROI out
+  instead of being refused; the viewer needs only 2 ROIs.
+
 ## 1.1.0 (2026-11-04)
 
 ### Added

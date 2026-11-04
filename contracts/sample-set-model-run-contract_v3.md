@@ -302,7 +302,7 @@ spectra and values, new ids) gives the same numbers.
 | `folds/rule` | `round_robin`, `leave_one_roi_out`, `group_kfold` | `round_robin` |
 | `folds/n_folds` | integer ≥ 2, the requested *F* | `7` |
 | `pixels/per_roi` | `all`, or an integer from 1 to the pixel count of the smallest ROI of the sample set | `all` |
-| `pixels/seed` | integer, 0 ≤ seed < 2⁶⁴ | `0` |
+| `pixels/seed` | integer, 0 ≤ seed < 2⁶³ (a signed 64-bit HDF5 attribute) | `0` |
 | `pixels/checksum` | SHA-256 (hex) of the drawn pixel indices (§7.1), written at fit time; empty string for `all` | – |
 | `exclusion/method` | `none`, `dmodx` | `none` |
 | `exclusion/level` | probability of the DCrit limit, 0.5 < level < 1 | `0.99` |
@@ -418,8 +418,10 @@ A run without `fit_spec` is a legacy run. Reading and refitting it uses:
 - folds from `cv_spec/requested`, with each ROI labelled by its position in
   the sample set's `roi_ids`: `"auto"` → scikit-learn `GroupKFold(7)`
   (without shuffling), or `LeaveOneGroupOut` with fewer than 7 ROIs; an
-  integer *F* → `GroupKFold(F)`, refused with fewer than *F* ROIs;
-  `"logo"` → `LeaveOneGroupOut`
+  integer *F* → `GroupKFold(F)`; `"logo"` → `LeaveOneGroupOut`. The fold
+  rule `group_kfold` uses `LeaveOneGroupOut` whenever there are fewer ROIs
+  than *F*; a stored legacy run with an integer *F* always has at least *F*
+  ROIs, because fewer were refused when it was fitted
 - all pixels, no exclusion
 - the stored `hyperparameters/scale` (absent means `true`): `true` scales X
   and Y (PLS, standard deviation with N − 1) or X (PCR, scikit-learn

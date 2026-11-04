@@ -94,6 +94,18 @@ which follows the true contents 1 to 9::
    Model('PLS 2 LV, SNV', rmsecv=0.642, r2=0.94, bias=0.0944)
    [1.7 2.6 3.7 4.4 5.4 6.3 7.4 8.4]
 
+``project.fit`` deals the ROIs round-robin to 7 folds (``cv=5`` for five,
+``cv="logo"`` to leave one ROI out). ``fit_spec`` gives full control and is
+stored with the model, so ``model.refit()`` repeats it exactly. To give
+every ROI the same weight, draw the same number of pixels from each; the
+draw depends only on the seed and each ROI's spectra:
+
+.. code-block:: python
+
+   model = project.fit("API content", recipe=PreprocessingRecipe(snv=True),
+                       n_components=2, fit_spec={"pixels": {"per_roi": 40, "seed": 1}})
+   model.ref.fit_specification      # FitSpec(fold_rule='round_robin', ...)
+
 Reopen the project later with ``Project.open("tablets.h5")``; datasets are
 available by path and ROIs, targets and models by name, e.g.
 ``project.model("PLS 2 LV, SNV").diagnostics``.

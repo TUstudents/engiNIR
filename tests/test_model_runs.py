@@ -23,6 +23,7 @@ from enginir.io.project_store import (
 
 )
 from enginir.models import PLSRegression
+from enginir.validation import RoundRobinGroups
 from enginir.modeling._service import _StatelessRecipePredictor
 from enginir.preprocessing._pipeline import (
     fitted_preprocessing_state,
@@ -442,7 +443,7 @@ def test_fit_model_run_uses_roi_aggregated_primary_metrics(tmp_path, monkeypatch
 
     def _fake_cross_validate(estimator, X, y, cv, groups, scoring=None, return_train_score=False):
         del estimator, X, scoring, return_train_score
-        assert cv == "auto"
+        assert isinstance(cv, RoundRobinGroups) and cv.n_splits == 7  # cv="auto"
         # One label per ROI: its position in the sample set's roi_ids.
         np.testing.assert_array_equal(groups, [0, 0, 1, 1])
         np.testing.assert_array_equal(y, np.array([1.0, 1.0, 2.0, 2.0], dtype=np.float32))
@@ -522,7 +523,7 @@ def test_fit_model_run_preprocesses_stateless_recipe_once_before_cv(tmp_path, mo
 
     def _fake_cross_validate(estimator, X, y, cv, groups, scoring=None, return_train_score=False):
         del y, scoring, return_train_score
-        assert cv == "auto"
+        assert isinstance(cv, RoundRobinGroups) and cv.n_splits == 7  # cv="auto"
         assert isinstance(estimator, PLSRegression)
         assert estimator.n_components == 1
         assert X is transformed
@@ -585,7 +586,7 @@ def test_build_sample_set_loads_all_roi_spectra_with_one_project_open(tmp_path):
 def test_fit_model_run_rejects_cross_validation_that_ignores_roi_groups(tmp_path):
     from enginir.modeling import fit_model_run
 
-    with pytest.raises(ValueError, match="cv must be one of"):
+    with pytest.raises(ValueError, match="cv must be 'auto', 'logo' or a number of folds"):
         fit_model_run(
             project_path=str(tmp_path / "unused.h5"),
             sample_set=None,  # type: ignore[arg-type]

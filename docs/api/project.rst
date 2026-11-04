@@ -97,6 +97,15 @@ ModelRun
 .. autoclass:: enginir.project.ModelRun
    :members:
 
+FitSpec
+-------
+
+.. autoclass:: enginir.project.FitSpec
+   :members:
+
+The stored form and its rules are in ``sample-set-model-run-contract_v3.md``
+§7 and :doc:`/hdf5_format` (``fit_spec/``).
+
 PredictionRun
 -------------
 
