@@ -40,6 +40,42 @@ One call per step:
    * - Predict a new scan
      - ``model.predict(path)``, then ``prediction.map`` or ``prediction.y_pred``
 
+References need not be separate files. ``dark_frames=(first, last)`` and
+``white_frames=(first, last)`` average frames of the same file (a white tile
+or shutter-closed frames scanned in the tray), and ``references_from=path``
+reuses the references of another registered scan, so one session needs one
+reference set:
+
+.. code-block:: python
+
+   tray1 = project.add_dataset("tray1.eiff", dark_frames=(0, 9), white_frames=(990, 999))
+   tray2 = project.add_dataset("tray2.eiff", references_from="tray1.eiff")
+
+``project.set_value(roi, target, value)`` sets or replaces a reference value;
+``value=None`` removes it.
+
+A tray of samples becomes one ROI per cell with :func:`~enginir._workflow.roi_grid`
+and ``dataset.add_rois``, all stored or none:
+
+.. code-block:: python
+
+   from enginir._workflow import roi_grid
+
+   # 4 x 8 wells: ROIs of 40 x 36 pixels, 10 pixels apart, the first at frame 15, row 20
+   cells = roi_grid(n_rows=4, n_columns=8, size=(40, 36), origin=(15, 20),
+                    spacing=(10, 10), skip=[(3, 7)],
+                    name_pattern="{file}-{row}{column:02d}", file="tray1")
+   tray1.add_rois(cells)
+
+A scan that was moved or renamed is pointed at its new place with
+``dataset.locate(new_path)``. The file is accepted only if it is the same
+scan (format, shape, wavelengths, and the stored pixels of every ROI);
+otherwise nothing changes:
+
+.. code-block:: python
+
+   project.dataset("tray1.eiff").locate("archive/2026-11/tray1.eiff")
+
 Calibrations, sample sets, signal domains and provenance are created for you,
 reused when identical, and validated before anything is written. Cross-
 validation keeps the pixels of one ROI together; metrics are per ROI.
@@ -66,6 +102,40 @@ The layers below :class:`~enginir.Project` (:mod:`enginir.project`,
 :mod:`enginir.modeling`, :mod:`enginir.prediction`) remain available for
 advanced use. The project file layout is in :doc:`/hdf5_format`, the objects
 and their rules in :doc:`/workspace_domain_model`.
+
+Names and ids
+-------------
+
+Names are labels: they can change, and a project made in the viewer may
+repeat them (ROIs from scans that share a file name). Addressing by name is a
+convenience; a name that several objects share is an error listing their ids,
+never a guess. Every object has a stable id, and scripts that must give the
+same result later use the objects or their ids:
+
+.. code-block:: python
+
+   roi = project.roi(roi_id="6f2c…")              # or project.roi("tray03-B04")
+   api = project.target(target_id="91ab…")
+   project.set_value(roi, api, 4.2)               # objects instead of names
+   model = project.fit(api, n_components=3)
+   same = project.model(model_run_id=model.ref.model_run_id)
+
+A stored model can be fitted again on exactly its own data: ``model.refit()``
+uses its sample set (the ROI ids), preprocessing, signal, model settings and
+validation, not the ROIs that have values today, and stores the result as a
+new model. Unchanged data give the same metrics; changed reference values and
+differing metrics are reported in the log:
+
+.. code-block:: python
+
+   again = project.model(model_run_id=model.ref.model_run_id).refit()
+   again.metrics["rmsecv"] == model.metrics["rmsecv"]   # True for unchanged data
+
+``project.rois``, ``project.targets`` and ``project.models`` are keyed by
+name and refuse repeated names; ``project.workspace`` holds every collection
+keyed by id. Functions that create objects by name (``add_roi``,
+``add_rois``, ``add_target``, ``fit(name=...)``) refuse a name that exists, so
+a script finds what it made.
 
 Function mode
 -------------

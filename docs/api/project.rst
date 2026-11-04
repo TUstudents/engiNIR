@@ -128,6 +128,8 @@ Signal domain
 
 .. autofunction:: enginir.project.check_calibration_signal_domain_compatibility
 
+.. autofunction:: enginir.project.viewable_signal_units
+
 .. autoclass:: enginir.project.CalibrationStats
    :members:
 

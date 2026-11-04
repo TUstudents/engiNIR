@@ -46,7 +46,7 @@ from ._theme import panel_colors, secondary_text_style
 from ..project._ids import now_iso
 from ._plot_panel import PlotColumn, PlotSpec, PlotTable, draw_placeholder, print_copy
 from ._plot_registry import register_plot
-from ._ui_helpers import maybe_tight_layout, style_axes
+from ._ui_helpers import LayoutState, maybe_tight_layout, style_axes
 
 logger = get_logger(__name__)
 
@@ -366,7 +366,7 @@ class PredictionMapWidget(QWidget):
         self._colorbar: Colorbar | None = None
         self._last_payload: dict[str, Any] | None = None
         self._last_empty_reason: str | None = None
-        self._last_layout_size: tuple[int, int] | None = None
+        self._last_layout_size: LayoutState | None = None
         self._current_display_map: np.ndarray | None = None
         self._step = 1
         self._rendered_output_index = 0

@@ -11,8 +11,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from collections.abc import Mapping
-from dataclasses import replace
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
@@ -21,7 +21,7 @@ from ._checks import log_and_raise
 from ._logging import get_logger
 from .io import file_format, load_spectra
 from .io import project_store as store
-from .modeling import build_sample_set, fit_model_run
+from .modeling import fit_model_run, plan_sample_set
 from .prediction import (
     PredictionResult,
     build_dataset_ref_from_spectral_data,
@@ -46,9 +46,12 @@ from .project._ids import new_id, now_iso
 
 logger = get_logger(__name__)
 
-__all__ = ["DEFAULT_BLACK_LEVEL", "DEFAULT_WHITE_LEVEL", "Dataset", "Model", "Prediction",
-           "Project", "make_calibration", "make_roi", "resolve_calibration", "resolve_dataset",
-           "resolve_prediction_calibration"]
+__all__ = ["DEFAULT_BLACK_LEVEL", "DEFAULT_WHITE_LEVEL", "Dataset", "GridCell", "Model",
+           "Prediction", "Project", "check_data_file_location", "data_file_labels",
+           "make_calibration", "make_roi", "read_frames", "read_header",
+           "recipe_id_for", "resolve_calibration", "resolve_dataset",
+           "resolve_prediction_calibration", "resolve_sample_set", "resolve_signal_domain",
+           "roi_grid"]
 
 #: Dark and white detector levels of EVK cameras, used when a dataset is
 #: calibrated to reflectance or absorbance without reference spectra.
@@ -62,9 +65,13 @@ _FRAME_FORMATS = ("eiff", "hdf5")
 class Project:
     """A project file and the workflow on it.
 
-    Create one with :meth:`create` or :meth:`open`. ROIs, targets and models
-    are addressed by name, datasets by file path; every object also keeps a
-    stable id, which links the objects in the file.
+    Create one with :meth:`create` or :meth:`open`. Every object has a
+    stable id, its only identity and what links the objects in the file.
+    Names are labels and may repeat. For convenience, ROIs, targets and
+    models can be addressed by name and datasets by file path; reproducible
+    scripts pass the objects themselves or look them up by id
+    (``project.roi(roi_id=...)``), because a renamed or reused name refers
+    to another object.
 
     Examples
     --------
@@ -109,44 +116,74 @@ class Project:
 
     @property
     def rois(self) -> dict[str, TrainingROI]:
-        """ROIs by name."""
-        return {roi.name: roi for roi in self.workspace.rois.values()}
+        """ROIs by name; an error if names repeat (``workspace.rois`` is by id)."""
+        return _by_name(self.workspace.rois.values(), "ROI", "roi_id")
 
     @property
     def targets(self) -> dict[str, TargetDefinition]:
-        """Targets by name."""
-        return {target.name: target for target in self.workspace.targets.values()}
+        """Targets by name; an error if names repeat (``workspace.targets`` is by id)."""
+        return _by_name(self.workspace.targets.values(), "target", "target_id")
 
     @property
     def models(self) -> dict[str, Model]:
-        """Models by name."""
-        return {self._model_name(run): Model(self, run) for run in self.workspace.model_runs.values()}
+        """Models by name; an error if names repeat (``workspace.model_runs`` is by id)."""
+        runs = _by_name(self.workspace.model_runs.values(), "model", "model_run_id",
+                        key=self._model_name)
+        return {name: Model(self, run) for name, run in runs.items()}
 
     @property
     def predictions(self) -> dict[str, Prediction]:
         """Predictions by id."""
         return {run_id: Prediction(self, run) for run_id, run in self.workspace.predictions.items()}
 
-    def roi(self, name: str) -> TrainingROI:
-        """Return the ROI called ``name``."""
-        return _one_named(self.workspace.rois.values(), name, "ROI")
+    def roi(self, name: str | None = None, *, roi_id: str | None = None) -> TrainingROI:
+        """Return the ROI called ``name``, or the ROI with ``roi_id``.
 
-    def target(self, name: str) -> TargetDefinition:
-        """Return the target called ``name``."""
-        return _one_named(self.workspace.targets.values(), name, "target")
+        A name several ROIs share is an error listing their ids; the id is
+        the reproducible reference.
+        """
+        if _by_id_or_name(name, roi_id, "ROI"):
+            return _with_id(self.workspace.rois, roi_id, "ROI")
+        return _one_named(self.workspace.rois.values(), str(name), "ROI")
 
-    def model(self, name: str) -> Model:
-        """Return the model called ``name``."""
+    def target(self, name: str | None = None, *,
+               target_id: str | None = None) -> TargetDefinition:
+        """Return the target called ``name``, or the target with ``target_id``."""
+        if _by_id_or_name(name, target_id, "target"):
+            return _with_id(self.workspace.targets, target_id, "target")
+        return _one_named(self.workspace.targets.values(), str(name), "target")
+
+    def model(self, name: str | None = None, *, model_run_id: str | None = None) -> Model:
+        """Return the model called ``name``, or the model with ``model_run_id``."""
+        if _by_id_or_name(name, model_run_id, "model"):
+            return Model(self, _with_id(self.workspace.model_runs, model_run_id, "model"))
         runs = [run for run in self.workspace.model_runs.values()
                 if self._model_name(run) == name]
-        return Model(self, _only(runs, name, "model", id_field="model_run_id"))
+        return Model(self, _only(runs, str(name), "model", id_field="model_run_id"))
 
-    def dataset(self, path: str | os.PathLike[str]) -> Dataset:
-        """Return the dataset registered for the file ``path``."""
-        ref = self._dataset_ref(os.path.abspath(os.fspath(path)))
+    def dataset(self, path: str | os.PathLike[str] | None = None, *,
+                dataset_id: str | None = None) -> Dataset:
+        """Return the dataset registered for the file ``path``, or the one with ``dataset_id``."""
+        if (path is None) == (dataset_id is None):
+            log_and_raise("Give the dataset's path or its dataset_id, not both or neither",
+                          error=TypeError)
+        if dataset_id is not None:
+            return Dataset(self, _with_id(self.workspace.datasets, dataset_id, "dataset"))
+        ref = self._dataset_ref(os.path.abspath(os.fspath(str(path))))
         if ref is None:
             log_and_raise("No dataset is registered for {}", path, error=KeyError)
         return Dataset(self, ref)
+
+    def _roi_of(self, roi: str | TrainingROI) -> TrainingROI:
+        """``roi`` itself when it is an ROI of this project, else the ROI with that name."""
+        if isinstance(roi, TrainingROI):
+            return _with_id(self.workspace.rois, roi.roi_id, "ROI")
+        return self.roi(roi)
+
+    def _target_of(self, target: str | TargetDefinition) -> TargetDefinition:
+        if isinstance(target, TargetDefinition):
+            return _with_id(self.workspace.targets, target.target_id, "target")
+        return self.target(target)
 
     # -- writing ---------------------------------------------------------------
 
@@ -157,6 +194,11 @@ class Project:
         dark: str | os.PathLike[str] | np.ndarray | None = None,
         white: str | os.PathLike[str] | np.ndarray | None = None,
         unit: str = "Absorbance",
+        dark_frames: tuple[int, int] | None = None,
+        white_frames: tuple[int, int] | None = None,
+        references_from: str | os.PathLike[str] | None = None,
+        black_level: float | None = None,
+        white_level: float | None = None,
     ) -> Dataset:
         """Register a data file with its calibration.
 
@@ -175,13 +217,35 @@ class Project:
             Signal to work with: ``"Absorbance"``, ``"Reflectance"`` or
             ``"DN"`` (raw counts). Floating-point files are taken as already
             calibrated in this unit.
+        dark_frames, white_frames:
+            Inclusive ``(first, last)`` frames of this file to average into
+            the dark or white reference instead of ``dark``/``white``, e.g. a
+            white tile or shutter-closed frames scanned in the same image.
+            Each can be combined with a reference file for the other one.
+        references_from:
+            A registered data file whose dark and white references this file
+            uses too (one reference set for a session). Its arrays are copied
+            into this file's own calibration. Not combined with the other
+            reference arguments.
+        black_level, white_level:
+            Detector levels for raw counts calibrated without references,
+            instead of the file's metadata or the defaults. Not combined with
+            references; ``white_level`` must exceed ``black_level``.
 
         Returns
         -------
         Dataset
+
+        Notes
+        -----
+        The dataset and its calibration are validated completely before
+        either is written. Re-registering a file with another calibration
+        makes that the active one; ROIs drawn before keep theirs.
         """
         dataset, calibration, new_dataset, new_calibration = self._resolve_dataset(
-            path, dark=dark, white=white, unit=unit)
+            path, dark=dark, white=white, unit=unit, dark_frames=dark_frames,
+            white_frames=white_frames, references_from=references_from,
+            black_level=black_level, white_level=white_level)
         self._write_dataset(dataset, calibration, new_dataset, new_calibration)
         return Dataset(self, self.workspace.datasets[dataset.dataset_id])
 
@@ -196,16 +260,24 @@ class Project:
         self.save_target(target)
         return target
 
-    def set_value(self, roi: str, target: str, value: float) -> None:
-        """Set (or replace) the reference value of ``target`` for ``roi``."""
-        roi_ref, target_ref = self.roi(roi), self.target(target)
+    def set_value(self, roi: str | TrainingROI, target: str | TargetDefinition,
+                  value: float | None) -> None:
+        """Set (or replace) the reference value of ``target`` for ``roi``; ``None`` removes it.
+
+        ``roi`` and ``target`` are names or the objects themselves
+        (reproducible: e.g. ``project.roi(roi_id=...)``).
+        """
+        roi_ref, target_ref = self._roi_of(roi), self._target_of(target)
+        if value is None:
+            self.remove_assignment(roi_ref.roi_id, target_ref.target_id)
+            return
         assignment = TargetAssignment(roi_id=roi_ref.roi_id, target_id=target_ref.target_id,
                                       value=value, assigned_at=now_iso())
         self.save_assignment(assignment)
 
     def fit(
         self,
-        target: str,
+        target: str | TargetDefinition,
         *,
         recipe: PreprocessingRecipe | Mapping[str, Any] | None = None,
         model: str = "PLS",
@@ -218,7 +290,7 @@ class Project:
         Parameters
         ----------
         target:
-            Target name.
+            Target name, or the :class:`~enginir.project.TargetDefinition`.
         recipe:
             Preprocessing (default: none).
         model:
@@ -236,20 +308,19 @@ class Project:
         Model
         """
         ws = self.workspace
-        target_ref = self.target(target)
+        target_ref = self._target_of(target)
         recipe_obj = _as_recipe(recipe)
         recipe_id, recipe_dict = _recipe_id(recipe_obj), recipe_obj.to_dict()
         if name is not None:
             self._require_new_name(ws.model_runs.values(), name, "model", key=self._model_name)
         recipes = {**ws.recipes, recipe_id: recipe_dict}
 
-        built = build_sample_set(project_path=self.path, rois=ws.rois,
-                                 target_assignments=ws.target_assignments,
-                                 target_id=target_ref.target_id,
-                                 preprocessing_recipe_id=recipe_id)
-        sample_set = _existing(ws.sample_sets.values(), built.sample_set, _same_sample_set)
-        domain = self._training_signal_domain(sample_set)
-        domain = _existing(ws.signal_domains.values(), domain, _same_signal_domain)
+        # The fit reads the spectra; the sample set itself needs none.
+        sample_set, _new = resolve_sample_set(
+            rois=ws.rois, target_assignments=ws.target_assignments,
+            target_id=target_ref.target_id, recipe_id=recipe_id, sample_sets=ws.sample_sets)
+        domain = resolve_signal_domain(self._training_signal_domain(sample_set),
+                                       ws.signal_domains)
         result = fit_model_run(
             project_path=self.path, sample_set=sample_set, datasets=ws.datasets,
             calibrations=ws.calibrations, rois=ws.rois,
@@ -300,6 +371,17 @@ class Project:
         store.save_target_definition(self.path, target.target_id, target.to_dict())
         self.workspace.targets[target.target_id] = target
 
+    def save_assignments(self, assignments: Sequence[TargetAssignment]) -> None:
+        """Store several reference values; all are validated before any is written."""
+        self._validate(target_assignments=list(assignments))
+        for assignment in assignments:
+            self.save_assignment(assignment)
+
+    def remove_assignment(self, roi_id: str, target_id: str) -> None:
+        """Delete the reference value of ``target_id`` for ``roi_id`` (it becomes missing)."""
+        store.remove_target_assignment(self.path, target_id, roi_id)
+        self.workspace.target_assignments.pop((roi_id, target_id), None)
+
     def save_assignment(self, assignment: TargetAssignment) -> None:
         """Store (or replace) the reference value of one target for one ROI."""
         self._validate(target_assignments=[assignment])
@@ -316,6 +398,39 @@ class Project:
                                 dark_ref_spectra=dark_ref_spectra,
                                 white_ref_spectra=white_ref_spectra)
         self.workspace.rois[roi.roi_id] = roi
+
+    def save_rois(self, rois: Sequence[tuple[TrainingROI, np.ndarray, tuple[np.ndarray,
+                                                                        np.ndarray] | None]],
+                  assignments: Sequence[TargetAssignment] = ()) -> None:
+        """Store several ROIs (with spectra and reference snapshots) completely or not at all.
+
+        Every ROI and assignment is validated before anything is written; ROI
+        ids must be new and differ from each other. Names are labels and are
+        not checked (headless-workflow contract, Names and ids). If a write
+        fails, the ROIs already written are removed again (ROI/target
+        contract, ROI grid).
+        """
+        ws = self.workspace
+        ids = [roi.roi_id for roi, _spectra, _refs in rois]
+        repeated = sorted({roi_id for roi_id in ids if ids.count(roi_id) > 1 or roi_id in ws.rois})
+        if repeated:
+            log_and_raise("ROI ids already exist or repeat within the batch: {}", repeated)
+        self._validate(rois={roi.roi_id: roi for roi, _spectra, _refs in rois},
+                       target_assignments=list(assignments))
+        written: list[str] = []
+        try:
+            for roi, spectra, refs in rois:
+                self.save_roi(roi, spectra, dark_ref_spectra=refs[0] if refs else None,
+                              white_ref_spectra=refs[1] if refs else None)
+                written.append(roi.roi_id)
+            for assignment in assignments:
+                self.save_assignment(assignment)
+        except Exception as exc:
+            logger.error("Writing {} ROIs failed after {}: {}; removing them again", len(rois),
+                         len(written), exc)
+            for roi_id in written:
+                self.remove_roi(roi_id)
+            raise
 
     def save_recipe(self, recipe_id: str, recipe: PreprocessingRecipe | Mapping[str, Any]) -> None:
         """Store a preprocessing recipe under ``recipe_id``."""
@@ -403,7 +518,11 @@ class Project:
             allow_stale_sample_set_rois=True)
         for key, value in objects.items():
             if key in ("target_assignments",):
-                graph[key] = list(ws.target_assignments.values()) + list(value)
+                # A new value of a (roi, target) pair replaces the stored one: updating
+                # a value is the documented editing model (roi-target contract).
+                merged = dict(ws.target_assignments)
+                merged.update({(a.roi_id, a.target_id): a for a in value})
+                graph[key] = list(merged.values())
             elif isinstance(value, dict) and key != "active_calibration_ids":
                 graph[key] = {**graph[key], **value}
             else:
@@ -411,6 +530,10 @@ class Project:
         validate_project_relationships(**graph)
 
     # -- internals -------------------------------------------------------------
+
+    def reload(self) -> None:
+        """Read the project file again, e.g. after another window wrote to it."""
+        self._reload()
 
     def _reload(self, store_contents: dict[str, Any] | None = None) -> None:
         if store_contents is None:
@@ -421,19 +544,68 @@ class Project:
         return next((ref for ref in self.workspace.datasets.values()
                      if _same_path(ref.source_path, abs_path)), None)
 
-    def _resolve_dataset(self, path, *, dark, white, unit):
+    def _resolve_dataset(self, path, *, dark, white, unit, dark_frames=None, white_frames=None,
+                         references_from=None, black_level=None, white_level=None):
         """Return ``(dataset, calibration, dataset_is_new, calibration_is_new)``, writing nothing."""
         ws = self.workspace
-        data = _read_header(_native_path(path))
+        levels_given = black_level is not None or white_level is not None
+        if levels_given and any(value is not None for value in (
+                dark, white, dark_frames, white_frames, references_from)):
+            log_and_raise("Detector levels calibrate without references; do not combine "
+                          "black_level/white_level with dark/white references")
+        abs_path = _native_path(path)
+        data = read_header(abs_path)
         dataset, new_dataset = resolve_dataset(ws.datasets, path, data)
+        sensor = dataset.cube_shape[1:]
+        if references_from is not None:
+            if any(value is not None for value in (dark, white, dark_frames, white_frames)):
+                log_and_raise("references_from takes both references from another data file; "
+                              "do not combine it with dark, white or reference frames")
+            references = self._references_of(references_from, sensor)
+        else:
+            references = tuple(
+                self._one_reference(abs_path, file, frames, sensor, dataset.cube_shape[0], label)
+                for file, frames, label in ((dark, dark_frames, "dark"),
+                                            (white, white_frames, "white")))
+        (dark_ref, dark_source), (white_ref, white_source) = references
         candidate = make_calibration(
             dataset, unit=unit, precalibrated=np.dtype(data.X.dtype).kind == "f",
-            dark=None if dark is None else _reference(dark, dataset.cube_shape[1:], "dark"),
-            white=None if white is None else _reference(white, dataset.cube_shape[1:], "white"),
-            dark_source=_source(dark), white_source=_source(white),
-            black_level=data.meta.get("black_level"), white_level=data.meta.get("white_level"))
+            dark=dark_ref, white=white_ref, dark_source=dark_source, white_source=white_source,
+            black_level=data.meta.get("black_level") if black_level is None else black_level,
+            white_level=data.meta.get("white_level") if white_level is None else white_level)
+        if candidate.black_level is not None and candidate.white_level is not None \
+                and not candidate.white_level > candidate.black_level:
+            log_and_raise("The white level ({:g}) must be above the black level ({:g})",
+                          candidate.white_level, candidate.black_level)
         calibration, new_calibration = resolve_calibration(dataset, ws.calibrations, candidate)
         return dataset, calibration, new_dataset, new_calibration
+
+    @staticmethod
+    def _one_reference(abs_path, file, frames, sensor, n_frames, label):
+        """``(reference, source)`` of a dark or white reference from a file or this file's frames."""
+        if file is not None and frames is not None:
+            log_and_raise("Give the {} reference as a file or as frames, not both", label, depth=2)
+        if frames is not None:
+            first, last = _frame_range(frames, n_frames, label)
+            reference = read_frames(abs_path, first, last).mean(axis=0)
+            return (_reference(reference, sensor, label),
+                    f"{abs_path} frames {first}-{last}")
+        if file is None:
+            return None, None
+        return _reference(file, sensor, label), _source(file)
+
+    def _references_of(self, path, sensor):
+        """The dark and white references of another registered data file, with their sources."""
+        shared = self.dataset(path)
+        source, calibration = shared.ref, shared.calibration
+        if calibration.dark_ref_data is None or calibration.white_ref_data is None:
+            log_and_raise("{} has no dark and white reference spectra to share",
+                          source.source_path, depth=2)
+        origin = f"references of {source.source_path}"
+        return ((_reference(calibration.dark_ref_data, sensor, "dark"),
+                 calibration.dark_ref_source or origin),
+                (_reference(calibration.white_ref_data, sensor, "white"),
+                 calibration.white_ref_source or origin))
 
     def _write_dataset(self, dataset, calibration, new_dataset, new_calibration) -> None:
         if new_dataset:
@@ -510,9 +682,9 @@ class Dataset:
 
     @property
     def rois(self) -> dict[str, TrainingROI]:
-        """The ROIs of this dataset by name."""
-        return {roi.name: roi for roi in self.project.workspace.rois.values()
-                if roi.dataset_id == self.ref.dataset_id}
+        """The ROIs of this dataset by name; an error if names repeat."""
+        return _by_name([roi for roi in self.project.workspace.rois.values()
+                         if roi.dataset_id == self.ref.dataset_id], "ROI", "roi_id")
 
     def add_roi(self, name: str, *, frames: tuple[int, int], rows: tuple[int, int],
                 values: Mapping[str, float] | None = None) -> TrainingROI:
@@ -521,7 +693,9 @@ class Dataset:
         Parameters
         ----------
         name:
-            ROI name, unique in the project.
+            ROI name. This function refuses a name the project already has,
+            so a script can find the ROI by it again; ROIs stored otherwise
+            (e.g. by the viewer) may repeat names.
         frames, rows:
             Inclusive ``(first, last)`` index ranges.
         values:
@@ -538,7 +712,7 @@ class Dataset:
         first, last = _index_range(frames, n_frames, "frames")
         roi, spectra, refs = make_roi(self.ref, self.calibration, name=name,
                                       frames=(first, last), rows=rows,
-                                      pixels=_read_frames(self.path, first, last))
+                                      pixels=read_frames(self.path, first, last))
         created_at = roi.created_at
         assignments = [TargetAssignment(roi_id=roi.roi_id, target_id=target.target_id,
                                         value=float(values[target_name]), assigned_at=created_at)
@@ -553,6 +727,62 @@ class Dataset:
         for assignment in assignments:
             project.save_assignment(assignment)
         return roi
+
+    def locate(self, path: str | os.PathLike[str]) -> Dataset:
+        """Record that this data file now lives at ``path`` (it was moved or renamed).
+
+        The file must be this data file: same format, shape, modality and
+        wavelengths, and for every ROI its pixels at the ROI's bounds equal
+        the stored raw pixels (:func:`check_data_file_location`). Only
+        ``source_path`` changes; nothing is written if the check fails.
+
+        Returns
+        -------
+        Dataset
+            This dataset at its new location.
+        """
+        project, ws = self.project, self.project.workspace
+        abs_path = _native_path(path)
+        other = project._dataset_ref(abs_path)
+        if other is not None and other.dataset_id != self.ref.dataset_id:
+            log_and_raise("{} is already registered as another data file of the project",
+                          abs_path)
+        rois = [roi for roi in ws.rois.values() if roi.dataset_id == self.ref.dataset_id]
+        check_data_file_location(project.path, self.ref, rois, abs_path)
+        store.relocate_dataset_ref(project.path, self.ref.dataset_id, abs_path)
+        self.ref = replace(self.ref, source_path=abs_path)
+        ws.datasets[self.ref.dataset_id] = self.ref
+        return self
+
+    def add_rois(self, cells: Sequence[GridCell]) -> list[TrainingROI]:
+        """Store the cells of an ROI grid (see :func:`roi_grid`), all or none.
+
+        Like :meth:`add_roi`, refuses names the project already has.
+
+        Returns
+        -------
+        list of TrainingROI
+            In the order of ``cells``.
+        """
+        if not cells:
+            log_and_raise("An ROI grid needs at least one cell")
+        names = [cell.name for cell in cells]
+        for name in names:
+            self.project._require_new_name(self.project.workspace.rois.values(), name, "ROI")
+        if len(set(names)) != len(names):
+            log_and_raise("ROI names repeat within the grid: {}",
+                          sorted({name for name in names if names.count(name) > 1}))
+        n_frames = self.ref.cube_shape[0]
+        first = min(_index_range(cell.frames, n_frames, "frames")[0] for cell in cells)
+        last = max(_index_range(cell.frames, n_frames, "frames")[1] for cell in cells)
+        pixels = read_frames(self.path, first, last)
+        built = [make_roi(self.ref, self.calibration, name=cell.name, frames=cell.frames,
+                          rows=cell.rows, pixels=pixels[cell.frames[0] - first:
+                                                        cell.frames[1] - first + 1],
+                          grid_cell=cell)
+                 for cell in cells]
+        self.project.save_rois(built)
+        return [roi for roi, _spectra, _refs in built]
 
 
 class Model:
@@ -597,6 +827,72 @@ class Model:
         refs = store.load_model_run_artifact_refs(self.project.path, self.ref.model_run_id,
                                                   keys=("cv_outputs", "diagnostics"))
         return {**refs.get("diagnostics", {}), **refs.get("cv_outputs", {})}
+
+    def refit(self, *, name: str | None = None) -> Model:
+        """Fit this model again on exactly what it was fitted on, and store the new run.
+
+        Uses the stored sample set (its ``roi_ids`` and preprocessing recipe),
+        signal domain, model type, hyperparameters and requested
+        cross-validation, not the ROIs that have values now. Folds depend only
+        on the sample set, so unchanged data give the same metrics; reference
+        values changed since the fit are reported. Refused when an ROI of the
+        sample set was deleted.
+
+        Parameters
+        ----------
+        name:
+            Name of the new model (default: the usual name with ``(2)``, ...).
+
+        Returns
+        -------
+        Model
+            The new model; compare ``refitted.metrics`` with ``self.metrics``.
+        """
+        project, ws = self.project, self.project.workspace
+        sample_set = ws.sample_sets[self.ref.sample_set_id]
+        project.require_current_sample_set(sample_set.sample_set_id, action="refit the model")
+        if name is not None:
+            project._require_new_name(ws.model_runs.values(), name, "model",
+                                      key=project._model_name)
+        changed = self._changed_values(sample_set)
+        if changed:
+            logger.warning("Refitting model '{}': {} reference value(s) changed since it was "
+                           "fitted (ROI ids {}); the metrics will differ", self.name,
+                           len(changed), changed[:5])
+        requested = self.ref.cv_spec.get("requested", "auto")
+        cv: int | str = int(requested) if isinstance(requested, (int, np.integer)) \
+            else str(requested)
+        result = fit_model_run(
+            project_path=project.path, sample_set=sample_set, datasets=ws.datasets,
+            calibrations=ws.calibrations, rois=ws.rois,
+            target_assignments=ws.target_assignments, recipes=ws.recipes,
+            signal_domains=ws.signal_domains, signal_domain_id=self.ref.signal_domain_id,
+            model_type=self.ref.model_type, hyperparameters=dict(self.ref.hyperparameters),
+            cv=cv, target_name=self.target.name)
+        run = replace(result.model_run,
+                      name=name or project.default_model_name(result.model_run, self.recipe))
+        project.save_model_run(run)
+        refitted = Model(project, project.workspace.model_runs[run.model_run_id])
+        differences = _metric_differences(self.metrics, refitted.metrics)
+        if differences:
+            logger.warning("Refit of '{}' differs in {}", self.name, differences)
+        else:
+            logger.info("Refit of '{}' reproduced its metrics as '{}'", self.name, refitted.name)
+        return refitted
+
+    def _changed_values(self, sample_set: SampleSet) -> list[str]:
+        """Ids of ROIs whose current reference value differs from the one the model used."""
+        stored = self.diagnostics
+        if "roi_ids" not in stored or "y_true_roi" not in stored:
+            return []
+        assignments = self.project.workspace.target_assignments
+        changed = []
+        for roi_id, used in zip(np.asarray(stored["roi_ids"]).astype(str),
+                                np.asarray(stored["y_true_roi"], dtype=float).reshape(-1)):
+            now = assignments.get((roi_id, sample_set.target_id))
+            if now is None or not np.isclose(now.value, used, rtol=1e-9, atol=1e-12):
+                changed.append(str(roi_id))
+        return changed
 
     def predict(self, path: str | os.PathLike[str], *,
                 dark: str | os.PathLike[str] | np.ndarray | None = None,
@@ -664,21 +960,289 @@ class Prediction:
 # -- helpers -------------------------------------------------------------------
 
 
-def _read_header(path: str):
-    """Load only the metadata of image files that allow it, otherwise the whole file."""
+def read_header(path: str):
+    """Return a file's :class:`~enginir.io.SpectralData` without its pixels where possible.
+
+    EIFF and HDF5 files are read header-only: ``cube_shape``, wavelengths,
+    metadata and the pixel dtype are known, ``X`` holds no frames. Other
+    formats are read completely.
+    """
     if file_format(path) in _FRAME_FORMATS:
         return load_spectra(path, header_only=True)
     return load_spectra(path)
 
 
-def _read_frames(path: str, first: int, last: int) -> np.ndarray:
-    """Frames ``first..last`` as ``(frames, height, n_bands)`` in the file's dtype."""
+def read_frames(path: str, first: int, last: int) -> np.ndarray:
+    """Return frames ``first..last`` (inclusive) as ``(frames, height, n_bands)``.
+
+    EIFF and HDF5 files read only those frames; other formats are read
+    completely and sliced. Values keep the file's dtype; point-spectrum files
+    get a height of 1.
+    """
     if file_format(path) in _FRAME_FORMATS:
         X = load_spectra(path, frames=slice(first, last + 1)).X
     else:
         X = load_spectra(path).X[first:last + 1]
     X = np.asarray(X)
     return X[:, np.newaxis, :] if X.ndim == 2 else X
+
+
+#: Longest folder part of a data file label before it is shortened in the middle.
+_LABEL_FOLDER_CHARS = 40
+
+
+def data_file_labels(datasets: Mapping[str, DatasetRef]) -> dict[str, str]:
+    """A short, unique display label per dataset id (viewer identity rule).
+
+    A data file is labelled by its file name. When several data files share
+    a file name, each gets the folder that tells it apart, e.g.
+    ``stream_hsi.h5 (API 10% - nozzle 0.6 mm)``: the parent folder, or more
+    of the path where parent folders repeat too. Long folders are shortened
+    in the middle unless that would make two labels equal. Labels are for
+    display only; datasets are identified by id.
+    """
+    paths = {dataset_id: _native_path(ref.source_path).replace("\\", "/").split("/")
+             if ref.source_path else [dataset_id] for dataset_id, ref in datasets.items()}
+    by_name: dict[str, list[str]] = {}
+    for dataset_id, parts in paths.items():
+        by_name.setdefault(parts[-1].lower(), []).append(dataset_id)
+    labels: dict[str, str] = {}
+    for ids in by_name.values():
+        if len(ids) == 1:
+            labels[ids[0]] = paths[ids[0]][-1]
+            continue
+        depth = 1  # folders above the file needed to tell this group apart
+        while depth < max(len(paths[i]) - 1 for i in ids) and len(
+                {"/".join(paths[i][-1 - depth:-1]) for i in ids}) < len(ids):
+            depth += 1
+        folders = {i: "/".join(paths[i][-1 - depth:-1]) for i in ids}
+        short = {i: _shorten_middle(folder, _LABEL_FOLDER_CHARS) for i, folder in folders.items()}
+        if len(set(short.values())) < len(ids):
+            short = folders
+        for i in ids:
+            labels[i] = f"{paths[i][-1]} ({short[i]})" if short[i] else paths[i][-1]
+    return labels
+
+
+def _shorten_middle(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    keep = limit - 1
+    return f"{text[:keep - keep // 2]}…{text[-(keep // 2):]}"
+
+
+def check_data_file_location(
+    project_path: str | os.PathLike[str],
+    dataset: DatasetRef,
+    rois: Iterable[TrainingROI],
+    path: str | os.PathLike[str],
+) -> None:
+    """Check that the file at ``path`` is the data file of ``dataset``; raise ``ValueError`` if not.
+
+    The file must have the registered format, shape, modality (if the file
+    states one) and wavelength axis, and for every ROI of ``rois`` its pixels
+    at the ROI's ``spatial_bounds`` must equal the raw pixels stored in the
+    project. Reads only the frames the ROIs cover; writes nothing.
+    """
+    abs_path = _native_path(path)
+    if not os.path.isfile(abs_path):
+        log_and_raise("{} does not exist", abs_path)
+    header = read_header(abs_path)
+    checks = [("format", file_format(abs_path), dataset.source_format),
+              ("shape", tuple(int(n) for n in header.cube_shape), tuple(dataset.cube_shape))]
+    if header.meta.get("source_modality"):
+        checks.append(("modality", header.meta["source_modality"], dataset.source_modality))
+    for label, now, then in checks:
+        if now != then:
+            log_and_raise("{} is not this data file: it has {} {!r}, the data file has {!r}",
+                          abs_path, label, now, then)
+    wavelengths = np.asarray(header.wavelengths, dtype=np.float32)
+    if wavelengths.shape != np.shape(dataset.wavelengths) or not np.allclose(
+            wavelengths, np.asarray(dataset.wavelengths, dtype=np.float32), atol=1e-6, rtol=0.0):
+        log_and_raise("{} is not this data file: its wavelengths differ", abs_path)
+    rois = list(rois)
+    if not rois:
+        logger.warning("Data file {} has no ROIs; only its format, shape and wavelengths "
+                       "were compared", abs_path)
+        return
+    first = min(roi.spatial_bounds[0] for roi in rois)
+    last = max(roi.spatial_bounds[1] for roi in rois)
+    pixels = read_frames(abs_path, first, last)
+    n_bands = dataset.cube_shape[2]
+    for roi in rois:
+        f0, f1, r0, r1 = roi.spatial_bounds
+        found = store.as_roi_storage_array(
+            pixels[f0 - first:f1 - first + 1, r0:r1 + 1].reshape(-1, n_bands))
+        stored = store.load_roi_spectra(project_path, f"/rois/{roi.roi_id}/spectra")
+        if found.shape != stored.shape or not np.array_equal(found, stored):
+            log_and_raise("{} is not this data file: the pixels of ROI '{}' differ from the "
+                          "stored ones", abs_path, roi.name)
+    logger.info("{} matches data file '{}' ({} ROIs compared)", abs_path, dataset.dataset_id,
+                len(rois))
+
+
+@dataclass(frozen=True)
+class GridCell:
+    """One cell of an ROI grid: its grid position, pixel ranges and ROI name."""
+
+    row: int
+    column: int
+    frames: tuple[int, int]
+    rows: tuple[int, int]
+    name: str
+    #: How the grid was laid out, recorded in the ROI's provenance.
+    grid: str = ""
+
+    @property
+    def position(self) -> str:
+        """The cell's place in the tray, e.g. ``B4``."""
+        return f"{_row_letters(self.row)}{self.column + 1}"
+
+
+def roi_grid(
+    *,
+    n_rows: int,
+    n_columns: int,
+    size: tuple[int, int],
+    origin: tuple[int, int] = (0, 0),
+    spacing: tuple[int, int] = (0, 0),
+    skip: Iterable[tuple[int, int]] = (),
+    order: str = "rows",
+    name_pattern: str = "{row}{column:02d}",
+    file: str = "",
+    image_size: tuple[int, int] | None = None,
+) -> list[GridCell]:
+    """Lay out a grid of equal ROIs (a tray of samples) in pixels.
+
+    ``x`` runs along frames (the image's horizontal, scan axis) and ``y``
+    along rows (across the sensor). Columns step along ``x``, rows along
+    ``y``. Cell ``(r, c)`` covers frames ``origin_x + c * (width + spacing_x)``
+    onwards for ``width`` frames, and rows ``origin_y + r * (height +
+    spacing_y)`` onwards for ``height`` rows.
+
+    Parameters
+    ----------
+    n_rows, n_columns:
+        Grid size.
+    size:
+        ``(width, height)`` of every ROI, in frames and rows.
+    origin:
+        ``(x, y)`` of the first ROI's top-left pixel (frame, row).
+    spacing:
+        ``(x, y)`` gap between neighbouring ROIs; ``0`` makes them touch.
+    skip:
+        ``(row, column)`` positions (0-based) without a sample.
+    order:
+        ``"rows"`` (row by row) or ``"columns"``: the order of the cells and
+        of ``{n}``.
+    name_pattern:
+        Format string with ``{row}`` (``A``, ``B``, ..., ``AA``),
+        ``{column}`` (1-based), ``{n}`` (1-based running number in ``order``)
+        and ``{file}``.
+    file:
+        Value of ``{file}``, e.g. the data file's name without extension.
+    image_size:
+        ``(n_frames, height)`` of the image; every created cell must lie
+        inside it.
+
+    Returns
+    -------
+    list of GridCell
+    """
+    n_rows, n_columns = int(n_rows), int(n_columns)
+    width, height = (int(v) for v in size)
+    x0, y0 = (int(v) for v in origin)
+    gap_x, gap_y = (int(v) for v in spacing)
+    if n_rows < 1 or n_columns < 1:
+        log_and_raise("An ROI grid needs at least one row and column, got {} x {}", n_rows,
+                      n_columns)
+    if width < 1 or height < 1:
+        log_and_raise("ROIs need a size of at least 1 x 1 pixel, got {} x {}", width, height)
+    if x0 < 0 or y0 < 0:
+        log_and_raise("The grid origin must not be negative, got ({}, {})", x0, y0)
+    if gap_x < 0 or gap_y < 0:
+        log_and_raise("The spacing must not be negative (ROIs would overlap), got ({}, {})",
+                      gap_x, gap_y)
+    if order not in ("rows", "columns"):
+        log_and_raise("order must be 'rows' or 'columns', got {!r}", order)
+    grid = (f"{n_rows} x {n_columns}, size {width} x {height}, origin ({x0}, {y0}), "
+            f"spacing ({gap_x}, {gap_y})")
+    skipped = {(int(r), int(c)) for r, c in skip}
+    positions = [(r, c) for r in range(n_rows) for c in range(n_columns)]
+    if order == "columns":
+        positions.sort(key=lambda rc: (rc[1], rc[0]))
+    cells: list[GridCell] = []
+    for r, c in positions:
+        if (r, c) in skipped:
+            continue
+        f0, r0 = x0 + c * (width + gap_x), y0 + r * (height + gap_y)
+        try:
+            name = name_pattern.format(row=_row_letters(r), column=c + 1, n=len(cells) + 1,
+                                       file=file)
+        except (KeyError, IndexError, ValueError) as exc:
+            log_and_raise("Name pattern {!r} is not valid: {}", name_pattern, exc, cause=exc)
+        cell = GridCell(row=r, column=c, frames=(f0, f0 + width - 1),
+                        rows=(r0, r0 + height - 1), name=name, grid=grid)
+        if image_size is not None and (cell.frames[1] >= image_size[0]
+                                       or cell.rows[1] >= image_size[1]):
+            log_and_raise("ROI {} ({}) lies outside the image of {} frames x {} rows",
+                          cell.position, name, image_size[0], image_size[1])
+        cells.append(cell)
+    names = [cell.name for cell in cells]
+    if len(set(names)) != len(names):
+        log_and_raise("Name pattern {!r} gives repeated names; use {{row}} and {{column}} or "
+                      "{{n}}", name_pattern)
+    return cells
+
+
+def _row_letters(index: int) -> str:
+    letters = ""
+    index += 1
+    while index:
+        index, remainder = divmod(index - 1, 26)
+        letters = chr(ord("A") + remainder) + letters
+    return letters
+
+
+def recipe_id_for(recipe: PreprocessingRecipe | Mapping[str, Any] | None) -> str:
+    """The content-derived id of a preprocessing recipe: the same steps give the same id."""
+    return _recipe_id(_as_recipe(recipe))
+
+
+def resolve_signal_domain(candidate: SignalDomainContract,
+                          signal_domains: Mapping[str, SignalDomainContract]
+                          ) -> SignalDomainContract:
+    """Return the stored signal domain with the content of ``candidate``, or ``candidate``.
+
+    Refitting with the same data and signal unit reuses the stored contract
+    instead of adding an equal one with a new id.
+    """
+    return _existing(signal_domains.values(), candidate, _same_signal_domain)
+
+
+def resolve_sample_set(
+    *,
+    rois: Mapping[str, TrainingROI],
+    target_assignments: Mapping[tuple[str, str], TargetAssignment],
+    target_id: str,
+    recipe_id: str,
+    sample_sets: Mapping[str, SampleSet],
+) -> tuple[SampleSet, bool]:
+    """The sample set of every ROI with a value for ``target_id``, and whether it is new.
+
+    A stored sample set with the same ROIs, target and recipe is reused;
+    otherwise a new one is returned (not yet stored). No spectra are read.
+
+    Raises
+    ------
+    ValueError
+        If no ROI has a value for the target, or the labelled ROIs have
+        different wavelength axes (see :func:`enginir.modeling.plan_sample_set`).
+    """
+    planned = plan_sample_set(rois=dict(rois), target_assignments=dict(target_assignments),
+                              target_id=target_id, preprocessing_recipe_id=recipe_id)
+    stored = _existing(sample_sets.values(), planned, _same_sample_set)
+    return stored, stored is planned
 
 
 def resolve_dataset(
@@ -814,6 +1378,7 @@ def make_roi(
     pixels: np.ndarray,
     preview_recipe: PreprocessingRecipe | None = None,
     created_at: str | None = None,
+    grid_cell: GridCell | None = None,
 ) -> tuple[TrainingROI, np.ndarray, tuple[np.ndarray, np.ndarray] | None]:
     """Build an ROI of ``dataset`` from its frames ``pixels`` ``(frames, height, n_bands)``.
 
@@ -822,7 +1387,8 @@ def make_roi(
     ``(n_pixels, n_bands)`` in the file's dtype and, for calibrations with
     reference spectra, the matching dark and white reference pixels.
     ``preview_recipe`` records the preprocessing shown while the ROI was
-    drawn.
+    drawn; ``grid_cell`` records the grid position and layout of an ROI made
+    by :func:`roi_grid`.
     """
     n_frames, height, n_bands = dataset.cube_shape
     f0, f1 = _index_range(frames, n_frames, "frames")
@@ -848,7 +1414,9 @@ def make_roi(
                     "calibration_id": calibration.calibration_id,
                     "signal_unit": calibration.output_signal_unit,
                     "preview_recipe_summary": _recipe_label(recipe) if preview_recipe else "none",
-                    "created_at": created_at, **(recipe.to_dict() if preview_recipe else {})},
+                    "created_at": created_at, **(recipe.to_dict() if preview_recipe else {}),
+                    **({"grid_position": grid_cell.position, "grid": grid_cell.grid}
+                       if grid_cell is not None else {})},
     )
     return roi, spectra, refs
 
@@ -866,6 +1434,14 @@ def _same_path(left: str, right: str) -> bool:
 def _source(reference) -> str | None:
     return None if reference is None or isinstance(reference, np.ndarray) \
         else os.path.abspath(os.fspath(reference))
+
+
+def _frame_range(frames: tuple[int, int], n_frames: int, label: str) -> tuple[int, int]:
+    first, last = (int(frames[0]), int(frames[1]))
+    if not 0 <= first <= last < n_frames:
+        log_and_raise("The {} reference frames {}..{} are outside the file's {} frames", label,
+                      first, last, n_frames, depth=3)
+    return first, last
 
 
 def _reference(source, sensor_shape: tuple[int, ...], label: str) -> np.ndarray:
@@ -928,6 +1504,37 @@ def _existing(objects, candidate, same):
     return next((obj for obj in objects if same(obj, candidate)), candidate)
 
 
+def _by_id_or_name(name: object, object_id: str | None, kind: str) -> bool:
+    """Whether a lookup is by id; exactly one of name and id must be given."""
+    if (name is None) == (object_id is None):
+        log_and_raise("Give the {}'s name or its id, not both or neither", kind,
+                      error=TypeError, depth=3)
+    return object_id is not None
+
+
+def _with_id(objects: Mapping[str, Any], object_id: str | None, kind: str):
+    if object_id not in objects:
+        log_and_raise("No {} with id '{}'", kind, object_id, error=KeyError, depth=3)
+    return objects[str(object_id)]
+
+
+def _by_name(objects, kind: str, id_field: str, key=lambda obj: obj.name) -> dict[str, Any]:
+    """Objects by name; refuses repeated names instead of silently keeping one of them."""
+    named: dict[str, Any] = {}
+    repeated: dict[str, list[str]] = {}
+    for obj in objects:
+        name = key(obj)
+        if name in named:
+            repeated.setdefault(name, [getattr(named[name], id_field)]).append(
+                getattr(obj, id_field))
+        named[name] = obj
+    if repeated:
+        log_and_raise("{} names repeat ({}); use the objects by id instead (project.workspace)",
+                      kind, "; ".join(f"'{name}': {ids}" for name, ids in repeated.items()),
+                      error=KeyError, depth=3)
+    return named
+
+
 def _one_named(objects, name: str, kind: str):
     id_field = {"ROI": "roi_id", "target": "target_id"}[kind]
     return _only([obj for obj in objects if obj.name == name], name, kind, id_field=id_field)
@@ -941,6 +1548,18 @@ def _only(matches: list, name: str, kind: str, *, id_field: str):
                       kind, name, [getattr(obj, id_field) for obj in matches], error=KeyError,
                       depth=3)
     return matches[0]
+
+
+def _metric_differences(before: Mapping[str, Any], after: Mapping[str, Any]) -> dict[str, Any]:
+    """Numeric metrics that differ between two model runs: ``{name: (before, after)}``."""
+    differences: dict[str, Any] = {}
+    for key, value in before.items():
+        other = after.get(key)
+        if isinstance(value, (int, float, np.number)) and not isinstance(value, bool):
+            if not isinstance(other, (int, float, np.number)) or not np.isclose(
+                    float(value), float(other), rtol=1e-6, atol=1e-12, equal_nan=True):
+                differences[key] = (value, other)
+    return differences
 
 
 def _summary(metrics: Mapping[str, Any]) -> str:

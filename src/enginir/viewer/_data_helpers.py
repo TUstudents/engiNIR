@@ -16,9 +16,13 @@ def wavelength_axes_match(left: np.ndarray, right: np.ndarray) -> bool:
 
     Non-1-D or non-finite arrays are treated as incompatible axes instead of
     raising because callers use this helper as a compatibility predicate.
+
+    Both axes are compared at the precision a project stores them in
+    (float32): a file's float64 axis and its stored copy differ by up to
+    about 1e-4 nm near 1700 nm, which is rounding, not a different axis.
     """
-    left_arr = np.asarray(left, dtype=np.float64)
-    right_arr = np.asarray(right, dtype=np.float64)
+    left_arr = np.asarray(left, dtype=np.float32).astype(np.float64)
+    right_arr = np.asarray(right, dtype=np.float32).astype(np.float64)
     if left_arr.ndim != 1 or right_arr.ndim != 1:
         logger.warning(
             "Wavelength axis compatibility check expected 1-D arrays, got {} and {}",

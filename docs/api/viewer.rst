@@ -61,10 +61,12 @@ It mirrors the project's collections, keyed by stable id (``datasets``,
 ``active_calibration_ids``, ``calibrations``, ``rois``, ``targets``,
 ``target_assignments``, ``recipes``, ``signal_domains``, ``sample_sets``,
 ``model_runs``, ``predictions``), stores every change through the project
-and emits a signal for it. It holds no workflow rule of its own.
+and emits a signal for it. It holds no workflow rule of its own. When one
+window writes, every other window of the process on the same project
+re-reads it (``reload``) on the next event-loop pass.
 
 .. autoclass:: enginir.viewer.ProjectState
-   :members: new_project, open_project, register_dataset, set_active_calibration, define_target, assign_target_to_roi, add_roi, register_recipe, register_signal_domain, create_sample_set, build_sample_set, register_model_run, fit_model_run, register_prediction_run, predict_dataset, remove_roi, get_target_assignment
+   :members: new_project, open_project, reload, locate_data_file, register_dataset, set_active_calibration, define_target, assign_target_to_roi, add_roi, register_recipe, register_signal_domain, create_sample_set, build_sample_set, register_model_run, fit_model_run, register_prediction_run, predict_dataset, remove_roi, get_target_assignment
    :exclude-members: staticMetaObject, project_loaded, datasets_changed, calibrations_changed, rois_changed, targets_changed, target_assignments_changed, recipes_changed, signal_domains_changed, sample_sets_changed, model_runs_changed, predictions_changed, model_fitted, active_model_changed, prediction_completed
 
 EDA view
@@ -91,11 +93,8 @@ Modeling view
 .. autoclass:: enginir.viewer._modeling.TargetSelectionDialog
    :members: target_name, target_unit, selected_target_id, creates_target
 
-.. autoclass:: enginir.viewer._modeling.AssignTargetValueDialog
-   :members: roi_id, value
-
 .. autoclass:: enginir.viewer._modeling.FitModelRunDialog
-   :members: sample_set_id, model_type, n_components, signal_unit, cv
+   :members: target_id, recipe, set_recipe, model_type, n_components, signal_unit, cv
 
 Prediction view
 ---------------
@@ -175,7 +174,65 @@ HSIViewer
 ---------
 
 .. autoclass:: enginir.viewer._viewer.HSIViewer
-   :members: show, export_csv, export_workspace_plots, workspace_plot_frames, reset_layout
+   :members: show, export_csv, export_workspace_plots, workspace_plot_frames, reset_layout,
+             add_data_file, show_data_file, wait_for_data_file, apply_shown_calibration,
+             locate_data_file, show_roi_table, show_project_rois, open_roi
+
+Data files
+----------
+
+.. automodule:: enginir.viewer._data_files
+   :no-members:
+
+.. autoclass:: enginir.viewer._data_files.AddDataFileDialog
+   :no-members:
+
+.. autoclass:: enginir.viewer._data_files.DataFileRequest
+   :members: add_dataset_kwargs
+
+Project ROIs
+------------
+
+.. automodule:: enginir.viewer._project_rois
+   :no-members:
+
+.. autoclass:: enginir.viewer._project_rois.ProjectRoisView
+   :no-members:
+
+.. autoclass:: enginir.viewer._project_rois.RoiMosaic
+   :no-members:
+
+.. autofunction:: enginir.viewer._project_rois.mosaic_layout
+
+ROI table
+---------
+
+.. automodule:: enginir.viewer._roi_table
+   :no-members:
+
+.. autoclass:: enginir.viewer._roi_table.RoiTableWidget
+   :members: show_data_file, focus_target, select_roi, paste_clipboard
+
+.. autofunction:: enginir.viewer._roi_table.parse_value
+
+ROI grid
+--------
+
+.. automodule:: enginir.viewer._roi_grid
+   :no-members:
+
+.. autoclass:: enginir.viewer._roi_grid.RoiGridDialog
+   :members: set_values, set_grid, toggle_cell, redraw_preview, make_defaults
+
+.. autoclass:: enginir.viewer._roi_grid.GridDefaultsDialog
+   :no-members:
+
+.. autoclass:: enginir.viewer._grid_settings.GridDefaults
+   :no-members:
+
+.. autofunction:: enginir.viewer._grid_settings.load_grid_defaults
+
+.. autofunction:: enginir.viewer._grid_settings.save_grid_defaults
 
 Project browser and inspector
 -----------------------------

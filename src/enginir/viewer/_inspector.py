@@ -182,6 +182,7 @@ class ProjectInspector(QWidget):
                 [
                     f"ID: {roi.roi_id}",
                     f"Name: {roi.name or 'unnamed'}",
+                    f"Data file: {self.project_state.data_file_label(roi.dataset_id)}",
                     f"Dataset: {roi.dataset_id}",
                     f"Calibration: {roi.calibration_id}",
                     f"Pixels: {roi.n_pixels}",
@@ -320,7 +321,7 @@ class ProjectInspector(QWidget):
             "\n".join(
                 [
                     f"Target: {target.name if target is not None else target_id}",
-                    f"ROI: {roi.name if roi is not None and roi.name else roi_id}",
+                    f"ROI: {roi.name if roi is not None and roi.name else roi_id} [{roi_id}]",
                     f"Value: {assignment.value:.4g}",
                     f"Assigned at: {assignment.assigned_at}",
                 ]

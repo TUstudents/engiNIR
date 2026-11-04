@@ -173,7 +173,9 @@ Allowed `missing_value_policy` values in v3:
 Required invariants:
 
 - target identity is stable inside the project
-- target `name` is user-facing and should be unique within one project
+- target `name` is a user-facing label; identity is `target_id`. The UI offers
+  the existing targets by name, so a new target does not repeat a name by
+  accident, but a repeated name is a label, not an error
 - target definitions are project-owned objects, not implicit table columns
 
 v3 scope:
@@ -252,6 +254,34 @@ v3 rule:
 - project-only mode may inspect existing ROIs, but must not create new ones
 - newly created ROIs must not be derived from placeholder viewer state
 
+### ROI grid
+
+Many samples in one data file (a tray) may be created as a grid:
+
+- the grid is explicit geometry in image pixels: the number of rows and
+  columns, the ROI size (width along frames, height along rows), the origin
+  (frame and row of the first ROI's top-left pixel) and the spacing between
+  neighbouring ROIs; all ROIs of a grid have the same size and never overlap
+- the user also chooses the empty positions and a name pattern (selectable
+  presets or a custom pattern) and the order
+- every created ROI lies inside the image; positions marked empty may lie
+  outside it
+- a new grid starts from the user's defaults (Options > ROI Grid Defaults,
+  kept in the user settings; built in: 5 columns x 1 row, ROI 180 x 110,
+  origin 150, 64, spacing 214, 10); changes in the grid dialog apply to that
+  grid only, unless the user makes them the defaults from the dialog
+  (`Make defaults`)
+- each ROI's provenance records its grid position (e.g. `B4`) and the grid
+  geometry
+- every cell becomes one `TrainingROI` with its own raw spectra, reference
+  snapshot and provenance, exactly as a single ROI
+- the grid is validated completely before anything is written, and written
+  completely or not at all; a failure leaves no ROI of the grid behind
+- names are labels and may repeat ROIs of other data files, for example when
+  several data files share a file name; the default pattern starts with the
+  data file name. Only names repeated within one grid are refused, because
+  such a pattern cannot tell its own cells apart
+
 ## 2. Define target
 
 When the user creates a new response variable such as `moisture` or `protein`,
@@ -267,6 +297,8 @@ Examples:
 When the user edits target values for an ROI:
 
 - one `TargetAssignment` is created or updated per `(roi_id, target_id)`
+- removing a value deletes the `TargetAssignment` of that pair; the ROI is
+  then unlabeled for that target, which is different from any stored value
 
 Examples:
 
@@ -296,8 +328,16 @@ v3 rule:
 
 ## 5. Review and edit targets
 
-The UI may expose one target at a time for editing or many targets in a grid.
-That is a UI decision.
+The viewer edits target values in an ROI table:
+
+- one row per ROI, showing its data file, name and pixel count
+- one column per target definition
+- an empty cell is a missing assignment, never zero
+- typing a value creates or updates the assignment when the cell is left;
+  clearing a cell removes it
+- pasting a column of values fills consecutive rows; values that are not
+  finite numbers are refused and nothing of that paste is written
+- the table works in project-only mode, without any data file
 
 The contract requirement is:
 
@@ -459,13 +499,13 @@ Out of scope for v3:
 Decision:
 
 - the domain model is multi-target
-- the v3 UI edits one selected target at a time
+- the v3 UI edits all targets in the ROI table, one column per target
+  (Workflow Semantics §5)
 
 Out of scope for v3:
 
-- multi-column target editing
-- simultaneous side-by-side editing of many targets
-- a dedicated multi-target spreadsheet editor
+- importing target values from external files (CSV, spreadsheets)
+- undo of target edits
 
 ### 3. Sample-unit interaction
 
@@ -494,3 +534,6 @@ This contract is implemented correctly when:
 - unlabeled ROIs remain valid project objects but are excluded from modeling for targets they do not have
 - targets are represented by explicit definitions and assignments, never by a
   single anonymous `y_value`
+- target values of all targets can be edited, removed and pasted in the ROI
+  table, also without any data file
+- an ROI grid is written completely or not at all

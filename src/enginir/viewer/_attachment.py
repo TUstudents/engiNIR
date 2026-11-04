@@ -32,7 +32,11 @@ def confirm_project_dataset_binding(
 ) -> bool:
     """Return ``True`` when a project may be attached to the given dataset context.
 
-    A missing dataset path means project-only mode and is always allowed.
+    Validation is per data file (attachment contract): the attached file is
+    compared with its own registration in the project, if it has one. A file
+    that is not registered yet is a new data file of the project, and ROIs of
+    other data files are never a mismatch. A missing dataset path means
+    project-only mode and is always allowed.
     """
     if not dataset_path:
         return True
@@ -57,9 +61,9 @@ def confirm_project_dataset_binding(
     )
     result = QMessageBox.warning(
         parent,
-        "Dataset mismatch",
-        "The attached dataset does not match one or more ROI-backed project datasets.\n"
-        "Overlays may not align with the current image.\n"
+        "Data file changed",
+        f"'{os.path.basename(dataset_path)}' no longer matches the data file registered in "
+        "this project, so its ROIs may not line up with the image.\n"
         "Open anyway?\n\n" + "\n".join(f"- {detail}" for detail in mismatches),
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
     )
@@ -82,7 +86,7 @@ def _collect_binding_mismatches(
     cube_shape: tuple[int, int, int] | None,
     wavelengths: np.ndarray | None,
 ) -> list[str]:
-    """Compare every ROI-backed dataset of the project with the dataset being attached."""
+    """Compare the attached file with the project dataset registered at its path."""
     if project_state is not None:
         rois, datasets = project_state.rois, project_state.datasets
     else:
@@ -92,34 +96,30 @@ def _collect_binding_mismatches(
         rois, datasets = workspace.rois, workspace.datasets
 
     attached_path = os.path.abspath(dataset_path)
+    dataset = next((dataset for dataset in datasets.values()
+                    if dataset.source_path
+                    and os.path.abspath(dataset.source_path) == attached_path), None)
+    if dataset is None:
+        return []  # a new data file of the project
     mismatches: list[str] = []
-    compared: set[str] = set()
-    for roi in rois.values():
-        if os.path.abspath(roi.source_file) != attached_path:
-            mismatches.append(f"ROI '{roi.roi_id}' was drawn from '{roi.source_file}', "
-                              f"not '{attached_path}'.")
-            continue
-        dataset = datasets.get(roi.dataset_id)
-        if dataset is None or roi.dataset_id in compared:
-            continue
-        compared.add(roi.dataset_id)
-        label = f"ROI-backed dataset '{dataset.dataset_id}'"
-        if os.path.abspath(dataset.source_path) != attached_path:
-            mismatches.append(f"{label} points to '{os.path.abspath(dataset.source_path)}', "
-                              f"not '{attached_path}'.")
-            continue
-        if source_format and dataset.source_format != source_format:
-            mismatches.append(f"{label} expects source_format={dataset.source_format!r}, "
-                              f"got {source_format!r}.")
-        if source_modality and dataset.source_modality != source_modality:
-            mismatches.append(f"{label} expects source_modality={dataset.source_modality!r}, "
-                              f"got {source_modality!r}.")
-        if cube_shape is not None and dataset.cube_shape != tuple(int(n) for n in cube_shape):
-            mismatches.append(f"{label} expects cube_shape={dataset.cube_shape!r}, "
-                              f"got {tuple(int(n) for n in cube_shape)!r}.")
-        if wavelengths is not None and not wavelength_axes_match(dataset.wavelengths,
-                                                                 wavelengths):
-            mismatches.append(f"{label} wavelength axis does not match the attached dataset.")
+    if source_format and dataset.source_format != source_format:
+        mismatches.append(f"format: registered {dataset.source_format!r}, "
+                          f"file {source_format!r}")
+    if source_modality and dataset.source_modality != source_modality:
+        mismatches.append(f"modality: registered {dataset.source_modality!r}, "
+                          f"file {source_modality!r}")
+    if cube_shape is not None and dataset.cube_shape != tuple(int(n) for n in cube_shape):
+        mismatches.append(f"shape (frames, rows, bands): registered {dataset.cube_shape}, "
+                          f"file {tuple(int(n) for n in cube_shape)}")
+    if wavelengths is not None and not wavelength_axes_match(dataset.wavelengths, wavelengths):
+        mismatches.append("wavelength axis differs")
+    if mismatches:
+        names = sorted(roi.name or roi.roi_id for roi in rois.values()
+                       if roi.dataset_id == dataset.dataset_id)
+        if names:
+            shown = ", ".join(f"'{name}'" for name in names[:5])
+            more = f" and {len(names) - 5} more" if len(names) > 5 else ""
+            mismatches.append(f"ROIs drawn from it: {shown}{more}")
     return mismatches
 
 

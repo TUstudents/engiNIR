@@ -62,10 +62,15 @@ Required meanings:
 Must contain:
 
 - target selection / definition entry point
-- target assignment entry point
-- sample-set build entry point
-- fit-model entry point
-- fit preflight / readiness state
+- target assignment entry point (the ROI table)
+- fit-model entry point: one dialog with target, signal unit, preprocessing,
+  model, components and CV. It builds or reuses the sample set (all ROIs with
+  a value for the target, from all data files), so there is no separate
+  sample-set build step. The preprocessing defaults to the Explore preview,
+  but is shown and chosen in the dialog, never taken silently.
+- fit preflight / readiness state, including the number of labeled ROIs per
+  data file and the ROIs left out (for example by a different wavelength
+  axis)
 - fit hyperparameters and CV controls
 
 ### Center primary diagnostics area
@@ -125,7 +130,7 @@ The `Model` workspace must display the following current-run summary fields:
 - number of components
 - CV specification
 - signal-domain / preprocessing context
-- ROI count
+- ROI count, and the number of data files they come from
 - pixel count
 - readiness state
 

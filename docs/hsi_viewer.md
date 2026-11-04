@@ -270,9 +270,14 @@ The ROI creation flow is centred on `Spatial Image`:
 4. save the ROI and immediately show it as an overlay
 5. auto-select the new ROI in the canvas, project browser, and inspector
 
-Target assignment remains a separate modeling action.
+Target values are typed afterwards in the ROI table (`_roi_table.RoiTableWidget`),
+or in the ROI dialog for the selected target.
 
-This means ROI labels are display-only and do not need to be unique.
+This means ROI labels are display-only and do not need to be unique: the
+viewer refers to ROIs, targets, models and data files by id only
+(`viewer-workspace-ui-contract_v3.md`, Identity in the viewer). Data files are
+shown with `enginir._workflow.data_file_labels`: the file name, plus the
+folder that tells repeated file names apart.
 Viewer-generated `target_id`, `sample_set_id`, and `model_run_id` values also
 use canonical UUID strings unless a caller provides explicit ids.
 
@@ -307,13 +312,15 @@ obvious.
 | Control | Action |
 |---|---|
 | **Target...** | Select one existing target or define a new target |
-| **Assign target** | Assign the active target to one ROI |
-| **Build sample set** | Persist one v3 sample set from labeled ROIs using the active preprocessing recipe |
-| **Fit model** | Persist one `SignalDomainContract` and grouped v3 `ModelRun` |
+| **Target values...** | Open the ROI table on the selected target: type, clear or paste the values of all ROIs |
+| **Fit model** | One dialog: target, signal unit, preprocessing (prefilled from the Explore preview), model, components, validation, and the labelled ROIs per data file; stores the grouped v3 `ModelRun` |
 
-The Modeling section operates from project state. Sample sets are built from
-persisted ROIs plus `TargetAssignment`s, and model fitting uses ROI-grouped CV
-with ROI-level primary reporting.
+The Modeling section operates from project state. The fit dialog finds the
+sample set of all ROIs with a value for the target (`resolve_sample_set`,
+the rule `Project.fit` uses): an equal stored sample set, recipe and
+`SignalDomainContract` are reused, new ones are stored only together with
+the fitted model. A refused or failed fit writes nothing. Model fitting uses
+ROI-grouped CV with ROI-level primary reporting.
 
 ### Predict workspace
 
@@ -492,7 +499,42 @@ runs.
 7. Repeat for each ROI.
 8. Each ROI is written immediately with a stable `roi_id`, the current
    dataset/calibration references, and raw spectra. If a target value is
-   provided, it is persisted separately as a `TargetAssignment`.
+   provided, it is persisted separately as a `TargetAssignment`. The status
+   bar confirms every write (`ProjectState.saved`).
+
+Explore's central area has two tabs: **Data file** (the image and its plots)
+and **Project ROIs** (`_project_rois.ProjectRoisView`). The second tab reads
+stored ROI pixels with `project_store.load_roi_band_images`, and ROI spectra
+with `modeling.roi_spectrum_summaries`. The latter converts each ROI with
+`modeling.roi_to_signal_domain`, the function the fit uses. On the benchmark
+project (10 trays, 400 ROIs of 2,000 pixels) the first tile appears 0.7 s
+after the window and all 400 within about 4 s, with the event loop free
+between batches.
+
+**Add ROI grid** (`EDAView.open_roi_grid_dialog`, `_roi_grid.RoiGridDialog`)
+lays out equal ROIs by number, size, origin and spacing with
+`enginir._workflow.roi_grid`, starting from **Options > ROI Grid Defaults**
+(`_grid_settings.GridDefaults`, user settings) every time.
+It previews them on the canvas (`FalseColourCanvas.set_grid_preview`) and
+stores them through `ProjectState.add_rois` → `Project.save_rois`, all or none.
+
+A project may hold ROIs from several data files. The canvas draws only the
+ROIs whose `dataset_id` is the project dataset of the shown file
+(`EDAView.refresh_roi_overlays`, `EDAView.shown_dataset_id`). Attach
+validation is per data file: an unregistered file is a new data file, and only
+a registered file that no longer matches its `DatasetRef` raises the warning
+gate (`_attachment.confirm_project_dataset_binding`).
+
+A data file whose `source_path` no longer exists is listed as "(not found)".
+Showing it offers **Locate file...** (`HSIViewer.locate_data_file` →
+`ProjectState.locate_data_file` → `Dataset.locate`). The chosen file must pass
+`enginir._workflow.check_data_file_location`: same format, shape, modality and
+wavelengths, and for every ROI the file's pixels at its `spatial_bounds`
+equal the stored raw pixels. Only then `project_store.relocate_dataset_ref`
+updates `source_path`. The last shown data file is kept per `project_id` in
+the user settings (`_project_settings.py`) and loaded when the Data file tab
+shows nothing. A write in one window makes the other windows of the process
+on the same project re-read it (`ProjectState.reload`).
 
 ```python
 # Inspect the canonical v3 project graph later
@@ -542,6 +584,15 @@ viewer.export_csv('data/roi_train.csv')
 ---
 
 ## 9. Dark / white reference loading
+
+In a project, references belong to each data file. **Add Data File...**
+(`HSIViewer.add_data_file`, dialog `_data_files.AddDataFileDialog`) takes
+them from reference files, from a frame range of the data file, or from
+another data file of the project, and writes the file and its calibration
+through `Project.add_dataset`. Showing a data file (`HSIViewer.show_data_file`,
+loaded in the background) restores its calibration into `ViewerState`
+(`set_calibration`, then the signal unit). The startup options below remain
+for a quick look without a project.
 
 Pass reference files at launch time:
 

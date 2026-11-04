@@ -61,12 +61,14 @@ def test_workflow_fits_predicts_and_reopens_identically(tmp_path):
                                   prediction.map)
 
 
-def test_names_are_unique_and_ambiguous_lookups_fail(tmp_path):
-    from enginir.io.project_store import save_target_definition
+def test_the_facade_refuses_names_it_creates_itself(tmp_path):
+    from enginir._workflow import roi_grid
 
     project, scan = _labelled_project(tmp_path)
     with pytest.raises(ValueError, match="ROI called 's0' already exists"):
         scan.add_roi("s0", frames=(0, 0), rows=(0, 0))
+    with pytest.raises(ValueError, match="ROI called 's1' already exists"):
+        scan.add_rois(roi_grid(n_rows=1, n_columns=2, size=(1, 1), name_pattern="s{n}"))
     with pytest.raises(ValueError, match="target called 'API' already exists"):
         project.add_target("API", unit="%")
 
@@ -76,12 +78,74 @@ def test_names_are_unique_and_ambiguous_lookups_fail(tmp_path):
     with pytest.raises(ValueError, match="model called 'PLS 1 LV, raw' already exists"):
         project.fit("API", n_components=1, name="PLS 1 LV, raw")
 
-    # A file written by another tool may repeat a name: opening works, the lookup refuses.
-    save_target_definition(project.path, "other_id", {
-        "name": "API", "unit": "%", "value_type": "float", "missing_value_policy": "allowed",
-        "created_at": "2026-01-01T00:00:00"})
-    with pytest.raises(KeyError, match="2 targets share the name 'API'"):
-        Project.open(project.path).target("API")
+
+def _with_repeated_names(tmp_path):
+    """The labelled project plus a second scan whose ROIs repeat the names s0..s5,
+    stored through the typed, id-based layer as the viewer does."""
+    from enginir._workflow import make_roi, read_frames
+
+    project, scan = _labelled_project(tmp_path)
+    other = project.add_dataset(_scan(tmp_path / "other.h5", offset=40.0))
+    pixels = read_frames(other.path, 0, N_SAMPLES * FRAMES_PER_SAMPLE - 1)
+    built = [make_roi(other.ref, other.calibration, name=f"s{i}",
+                      frames=(FRAMES_PER_SAMPLE * i, FRAMES_PER_SAMPLE * (i + 1) - 1),
+                      rows=(0, HEIGHT - 1),
+                      pixels=pixels[FRAMES_PER_SAMPLE * i:FRAMES_PER_SAMPLE * (i + 1)])
+             for i in range(N_SAMPLES)]
+    project.save_rois(built)
+    return project, scan, other, [roi for roi, _spectra, _refs in built]
+
+
+def test_names_are_labels_and_may_repeat(tmp_path):
+    project, scan, other, repeated = _with_repeated_names(tmp_path)
+    reopened = Project.open(project.path)
+    assert len(reopened.workspace.rois) == 2 * N_SAMPLES  # both s0..s5 sets are stored
+
+    # A shared name is never resolved to one of them, and name-keyed views refuse.
+    with pytest.raises(KeyError, match="2 ROIs share the name 's0'"):
+        reopened.roi("s0")
+    with pytest.raises(KeyError, match="ROI names repeat"):
+        _ = reopened.rois
+    assert set(reopened.dataset(other.path).rois) == {f"s{i}" for i in range(N_SAMPLES)}
+
+    # Ids and objects are the reproducible references.
+    s0_other = reopened.roi(roi_id=repeated[0].roi_id)
+    assert s0_other.dataset_id == other.ref.dataset_id
+    api = reopened.target(target_id=project.target("API").target_id)
+    for i, roi in enumerate(repeated):
+        reopened.set_value(reopened.roi(roi_id=roi.roi_id), api, float(CONTENT[i]))
+    model = reopened.fit(api, n_components=1)
+    sample_set = reopened.workspace.sample_sets[model.ref.sample_set_id]
+    assert len(sample_set.roi_ids) == 2 * N_SAMPLES
+    assert reopened.model(model_run_id=model.ref.model_run_id).name == model.name
+    assert reopened.dataset(dataset_id=other.ref.dataset_id).path == other.path
+
+
+def test_id_lookups_are_strict(tmp_path):
+    project, scan = _labelled_project(tmp_path)
+    with pytest.raises(TypeError, match="not both or neither"):
+        project.roi()
+    with pytest.raises(TypeError, match="not both or neither"):
+        project.roi("s0", roi_id=project.roi("s0").roi_id)
+    with pytest.raises(KeyError, match="No ROI with id 's0'"):
+        project.roi(roi_id="s0")  # a name is never taken for an id
+    (tmp_path / "b").mkdir()
+    elsewhere, _scan_b = _labelled_project(tmp_path / "b")
+    with pytest.raises(KeyError, match="No ROI with id"):
+        project.set_value(elsewhere.roi("s0"), "API", 1.0)  # an ROI of another project
+
+
+def test_typed_writes_check_ids_not_names(tmp_path):
+    from enginir._workflow import make_roi, read_frames
+
+    project, scan = _labelled_project(tmp_path)
+    pixels = read_frames(scan.path, 0, 0)
+    roi, spectra, refs = make_roi(scan.ref, scan.calibration, name="s0", frames=(0, 0),
+                                  rows=(0, 0), pixels=pixels)
+    with pytest.raises(ValueError, match="ROI ids already exist or repeat"):
+        project.save_rois([(roi, spectra, refs), (roi, spectra, refs)])
+    project.save_rois([(roi, spectra, refs)])  # "s0" exists already: a label, accepted
+    assert sum(r.name == "s0" for r in project.workspace.rois.values()) == 2
 
 
 def test_a_registered_file_is_reused_and_a_changed_one_refused(tmp_path):
@@ -212,3 +276,54 @@ def test_prediction_is_refused_before_an_incompatible_file_is_registered(tmp_pat
     with pytest.raises(ValueError, match="n_bands"):
         model.predict(path)
     assert _counts(project) == before
+
+
+def _warnings_during(action):
+    from loguru import logger
+
+    messages: list[str] = []
+    sink_id = logger.add(lambda message: messages.append(str(message)), level="WARNING")
+    try:
+        result = action()
+    finally:
+        logger.remove(sink_id)
+    return result, messages
+
+
+def test_refit_reproduces_a_model_from_its_stored_sample_set(tmp_path):
+    project, scan = _labelled_project(tmp_path)
+    model = project.fit("API", recipe=PreprocessingRecipe(snv=True), n_components=2, cv=3)
+    # A value added later changes what fit() would use, not what refit() uses.
+    scan.add_roi("late", frames=(0, 1), rows=(0, 1), values={"API": 9.0})
+
+    refitted, warnings = _warnings_during(model.refit)
+    assert warnings == []
+    assert refitted.ref.model_run_id != model.ref.model_run_id
+    assert refitted.name == "PLS 2 LV, SNV (2)"
+    for key in ("sample_set_id", "signal_domain_id", "model_type", "hyperparameters"):
+        assert getattr(refitted.ref, key) == getattr(model.ref, key)
+    assert refitted.ref.cv_spec["requested"] == 3
+    for key in ("rmsecv", "r2", "bias", "pixel_rmsecv", "n_rois"):
+        assert refitted.metrics[key] == pytest.approx(model.metrics[key], rel=1e-9)
+    assert project.fit("API", recipe=PreprocessingRecipe(snv=True), n_components=2,
+                       cv=3).metrics["n_rois"] == N_SAMPLES + 1
+
+    reopened = Project.open(project.path)
+    again = reopened.model(model_run_id=model.ref.model_run_id).refit(name="check")
+    assert again.metrics["rmsecv"] == pytest.approx(model.metrics["rmsecv"], rel=1e-9)
+
+
+def test_refit_reports_changed_values_and_refuses_deleted_rois(tmp_path):
+    project, scan = _labelled_project(tmp_path)
+    model = project.fit("API", n_components=1, cv="logo")
+    project.set_value("s2", "API", 7.5)
+    refitted, warnings = _warnings_during(model.refit)
+    assert any("1 reference value(s) changed" in w for w in warnings)
+    assert any("differs in" in w and "rmsecv" in w for w in warnings)
+    assert refitted.metrics["rmsecv"] != pytest.approx(model.metrics["rmsecv"])
+    with pytest.raises(ValueError, match="model called 'PLS 1 LV, raw' already exists"):
+        model.refit(name="PLS 1 LV, raw")
+
+    project.remove_roi(project.roi("s0").roi_id)
+    with pytest.raises(ValueError, match="Cannot refit the model: sample set .* lists deleted"):
+        model.refit()

@@ -395,6 +395,10 @@ def _load_project_store_into_viewer(
     ):
         log_and_raise("Project attachment cancelled due to source mismatch")
     viewer.project_state.open_project(project_path, store=store)
+    if viewer.state.dark_ref is None and viewer.state.white_ref is None:
+        # A registered data file is shown with its stored calibration; references
+        # given at startup take precedence (drawing then asks before replacing it).
+        viewer.apply_shown_calibration()
     viewer._update_status_strip()
     from ._recent import add as _recent_add
 

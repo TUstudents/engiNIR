@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,10 @@ def load_csv(
         sample_1,    0.42,   0.41, ...,   0.38
         sample_2,    0.51,   0.50, ...,   0.47
 
+    Further columns between the sample column and the spectra whose header is
+    not a number (e.g. ``roi_name``, ``data_file`` written by
+    :func:`save_csv`) are kept as text in ``meta["sample_columns"]``.
+
     Parameters
     ----------
     path:
@@ -54,7 +59,8 @@ def load_csv(
     SpectralData
         ``X`` of shape ``(n_samples, n_wavelengths)`` (float64), the header
         values as ``wavelengths``, and ``meta`` with the common keys (see
-        :class:`~enginir.io.SpectralData`) plus ``"sample_names"``.
+        :class:`~enginir.io.SpectralData`) plus ``"sample_names"`` and
+        ``"sample_columns"`` (``{header: values}``, possibly empty).
 
     Raises
     ------
@@ -89,6 +95,11 @@ def load_csv(
         sample_names = [str(name) for name in table[column]]
         table = table.drop(columns=[column])
 
+    sample_columns: dict[str, list[str]] = {}
+    while table.shape[1] and not _is_number(table.columns[0]):
+        header = str(table.columns[0])
+        sample_columns[header] = [str(value) for value in table[table.columns[0]]]
+        table = table.drop(columns=[table.columns[0]])
     if table.shape[1] == 0:
         log_and_raise("{} contains no spectral columns", path)
     try:
@@ -102,6 +113,7 @@ def load_csv(
 
     meta = base_meta(path, "csv", x_units)
     meta["sample_names"] = sample_names
+    meta["sample_columns"] = sample_columns
     logger.info("Loaded CSV: shape {} from {}", X.shape, path)
     return SpectralData(X, wavelengths, meta)
 
@@ -111,6 +123,7 @@ def save_csv(
     X: np.ndarray,
     wavelengths: np.ndarray,
     sample_names: list[str] | None = None,
+    columns: Mapping[str, Sequence[str]] | None = None,
 ) -> None:
     """Write spectra to a CSV file readable by :func:`load_csv`.
 
@@ -124,6 +137,10 @@ def save_csv(
         Spectral axis, shape ``(n_wavelengths,)``; written as the header row.
     sample_names:
         Optional sample identifiers, written as a first ``sample_id`` column.
+    columns:
+        Optional text columns ``{header: values}`` written after it, e.g. a
+        label next to an id; :func:`load_csv` returns them in
+        ``meta["sample_columns"]``. Headers must not be numbers.
     """
     X = np.asarray(X)
     wavelengths = np.asarray(wavelengths)
@@ -140,6 +157,12 @@ def save_csv(
                 "sample_names has {} entries but X has {} rows", len(sample_names), X.shape[0]
             )
         table.insert(0, "sample_id", sample_names)
+    for position, (header, values) in enumerate((columns or {}).items(),
+                                                 start=0 if sample_names is None else 1):
+        if _is_number(header) or len(values) != X.shape[0]:
+            log_and_raise("Column {!r} needs a non-numeric header and {} values, got {}",
+                          header, X.shape[0], len(values))
+        table.insert(position, str(header), list(values))
     table.to_csv(Path(path), index=False)
     logger.info("Saved CSV: shape {} to {}", X.shape, path)
 

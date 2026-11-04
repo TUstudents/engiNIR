@@ -250,6 +250,20 @@ v3 reporting decision:
 - primary validation metrics are computed from one aggregated prediction per held-out ROI
 - pixel-level prediction distributions remain secondary diagnostics only
 
+## 6. Refitting a stored model
+
+A stored model run can be fitted again on exactly what it was fitted on:
+
+- the refit uses the run's sample set (its `roi_ids` and preprocessing
+  recipe), signal domain, model type, hyperparameters and requested
+  cross-validation, never the set of ROIs that have values now
+- it is refused when an ROI of the sample set was deleted
+- because folds depend only on the sample set, unchanged ROIs and values give
+  the same metrics; reference values that changed since the fit are
+  reported, and differing metrics are reported
+- the refit is stored as a new model run of the same sample set and signal
+  domain; the original run is never changed
+
 ## Weighting Rule
 
 v3 must not silently bias the fit toward larger ROIs without an explicit decision.

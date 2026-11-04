@@ -29,7 +29,7 @@ from .._logging import get_logger
 from ._plot_panel import PlotColumn, PlotTable, print_copy
 from ._state import ViewerState
 from ._theme import panel_colors, print_colors
-from ._ui_helpers import maybe_tight_layout, style_axes
+from ._ui_helpers import LayoutState, maybe_tight_layout, style_axes
 
 logger = get_logger(__name__)
 
@@ -123,7 +123,7 @@ class _BasePanelWidget(_PanelBase):
         self._fig = Figure(figsize=(4, 3), facecolor=panel_colors()["bg"])
         self._canvas = FigureCanvas(self._fig)
         self._ax = self._fig.add_subplot(111)
-        self._last_layout_size: tuple[int, int] | None = None
+        self._last_layout_size: LayoutState | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
