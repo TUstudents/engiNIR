@@ -77,5 +77,10 @@ venv = ".venv"
 testpaths = ["tests"]
 addopts = "--disable-plugin-autoload -p timeout"
 # A test that blocks (e.g. on a modal Qt dialog) fails with a traceback instead of
-# hanging the run.
+# hanging the run. The thread method works while the main thread is blocked in
+# Qt or C code, where the signal method's handler never runs: it prints the
+# stack of every thread and ends the run.
 timeout = 60
+timeout_method = "thread"
+# Also dump every thread's stack (faulthandler) when a test runs this long.
+faulthandler_timeout = 90
