@@ -22,7 +22,11 @@ def test_the_committed_simca_tables_equal_the_spectra_engiNIR_fits_on(computed, 
     assert rois == want_rois
     np.testing.assert_allclose(y, want_y, rtol=1e-9, atol=0)
     assert X.dtype == want_X.dtype == np.float32
-    np.testing.assert_array_equal(X, want_X)  # 9 significant digits are exact for float32
+    # 9 significant digits are exact for float32, but the conversion to
+    # absorbance (vectorised log10) may round the last bit differently on
+    # another CPU or NumPy build: allow a few float32 rounding steps, far below
+    # what any SIMCA comparison resolves (~1e-5).
+    np.testing.assert_allclose(X, want_X, rtol=1e-6, atol=0)
 
 
 def test_the_pixel_draw_depends_only_on_the_seed_and_the_roi_spectra():
