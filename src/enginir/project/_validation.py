@@ -8,6 +8,7 @@ from typing import Any, NoReturn
 from enginir._checks import log_and_raise
 from enginir._logging import get_logger
 
+from ._fit_spec import FitSpec, fold_groups_problem
 from ._models import (
     CalibrationSpec,
     DatasetRef,
@@ -114,6 +115,13 @@ def validate_project_relationships(
                  "sample_set_id")
         _require(model_run.signal_domain_id, signal_domains, "ModelRun", model_run.model_run_id,
                  "signal_domain_id")
+        if model_run.fit_spec is not None:
+            spec = FitSpec.from_dict(model_run.fit_spec)
+            sample_set = sample_sets[model_run.sample_set_id]
+            problem = fold_groups_problem(spec.groups, spec.group_by, len(sample_set.roi_ids))
+            if problem is not None:
+                _fail("ModelRun '{}': fit_spec/folds/groups is not well-formed: {}",
+                      model_run.model_run_id, problem)
     for prediction in predictions.values():
         owner = prediction.prediction_run_id
         _require(prediction.dataset_id, datasets, "PredictionRun", owner, "dataset_id")

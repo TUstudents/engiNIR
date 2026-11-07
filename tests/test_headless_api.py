@@ -62,7 +62,7 @@ def test_the_viewer_never_addresses_objects_by_name():
     import ast
     from pathlib import Path
 
-    by_name = {"roi", "target", "model", "dataset", "set_value", "fit", "add_target",
+    by_name = {"roi", "target", "model", "dataset", "set_value", "set_sample", "fit", "add_target",
                "add_rois", "rois", "targets", "models"}
 
     def is_facade(receiver: ast.expr) -> bool:

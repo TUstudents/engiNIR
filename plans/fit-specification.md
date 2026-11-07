@@ -1,6 +1,6 @@
 # Plan: fit specification
 
-Status: Phases 0–3 done, Phase R tables written; SIMCA exports pending (2026-11-04)
+Status: Phases 0–3, R and S done (2026-11-07); Phases 4–7 open
 
 ## Goal
 
@@ -22,7 +22,9 @@ second plan built on this one (see Follow-up).
 ## Decisions taken (2026-11-04)
 
 - One ROI is one cross-validation group (the "sample" of SIMCA). No
-  sample label above the ROI.
+  sample label above the ROI. *Superseded 2026-11-07 by Phase S:* ROIs
+  may be grouped into samples; the ROI stays the smallest unit that is
+  never split.
 - Folds: ROI at position *i* of the sample set's `roi_ids` goes to fold
   *i* mod *k*, with *k* = min(7, number of ROIs). With fewer than 7 ROIs
   this is leave-one-ROI-out. This is SIMCA's "every Nth" applied to groups.
@@ -160,16 +162,86 @@ Exports from SIMCA per model (copy as CSV from the lists):
 - for the prediction set: predicted Y, RMSEP, T2PS, DModXPS
 - for M2, M3, M5: the filtered dataset (shows SNV, edge handling, AsLS)
 
-Tests (`tests/test_simca_reference.py`): each comparison is skipped with a
-reason until the engiNIR feature exists, and switched on by the phase that
-adds it (scaling: Phase 4; DModX: Phase 5; the rest: follow-up plan).
-Tolerances are stated per quantity; signs of components are aligned before
-comparing. The undocumented points (DModX factor *v*, AsLS iterations,
-scaling inside CV rounds) are decided by these exports.
+The SIMCA exports are a one-off verification and are not committed
+(decided 2026-11-04; `simca_exports/` is git-ignored). The repository keeps
+the input tables, the export scripts, and the findings below; engiNIR's own
+tests check the confirmed formulas without SIMCA output, so a new SIMCA
+version can be re-verified by rerunning the scripts. The undocumented points
+(DModX factor *v*, AsLS iterations, scaling inside CV rounds) were decided
+by these exports.
 
 Steps: generate data and project, export the tables (engiNIR side, done by
-the agent); build M1–M5 and export (done by the user in SIMCA 18); commit
-the exports and the tests.
+the agent); build M1–M5 and export (done by the user in SIMCA 18); compare
+and record the findings (done).
+
+The SIMCA side is scripted (`simca_export.py`, SIMCA's Python API): it
+builds M1–M5 with 4 components (M4 Autofit) and exports at full precision.
+CV groups cannot be set from Python; the script imports the pixels
+interleaved so that SIMCA's default every-7th groups equal the round-robin
+ROI folds. `simca_export_active.py` exports models configured by hand (CV
+dialog).
+
+#### Findings from the exports (SIMCA 18.1, M1–M5, 2026-11-04)
+
+Matched to float32 precision (relative difference about 1e-7) by engiNIR
+or by the formula given:
+
+- PLS fit: scores, X weights, loadings, unscaled coefficients, fitted Y,
+  VIP, R2X, R2Y; RMSEE = √(SS_res / (N − 1 − A))
+- T2Range; T2Crit = A(N − 1)/(N − A) · F(level; A, N − A)
+- DModX normalised, unweighted and MPow-weighted, with
+  v = √(N / (N − A − A₀)) exactly as in contract §7.2 `dmodx-1`
+- DCrit (normalised) with the DF_obs/DF_mod rule of §7.2; absolute DCrit
+  = normalised DCrit × the unweighted s₀
+- MPowX = max(0, 1 − SV_k / SV0_k), SV_k = √(Σᵢ eᵢₖ² / (N − A − A₀)),
+  SV0_k = √(Σᵢ xᵢₖ² / (N − 1)) (centred); clipping at 0 shows only for
+  N = 14
+- filters: SNV = engiNIR `SNV`; derivative = engiNIR `SavitzkyGolay(15, 2,
+  1)` on the interior, SIMCA sets the first and last 7 bands missing and
+  drops them from the model (K = 86); AsLS = Eilers AsLS (second
+  differences, λ 10000, p 0.001, 10 iterations), corrected = spectrum −
+  baseline
+
+- prediction set: YPredPS, RMSEP (with N), tPS, T2RangePS; DModXPS
+  normalised = √(Σₖ (MPowₖ eₖ)² / (K − A)) / s₀ (weighted s₀), without
+  the factor v of the workset DModX. SIMCA applies a model's filter to the
+  prediction set by itself
+- a filtered model is built from the filtered dataset (X) and the
+  unfiltered one (Y), observations matched by ID
+- all five models agree within 1e-5 relative (most quantities about 1e-7),
+  M2, M3 and M5 also after engiNIR's SNV, `SavitzkyGolay` (interior) and
+  the reference AsLS
+
+Different (needs a decision):
+
+- **Cross-validation.** SIMCA validates component by component on the
+  full model's deflated residuals: centring once on all data; for
+  component *a*, E and f are the full model's residuals after *a* − 1
+  components; each fold fits one NIPALS component on the training rows
+  and predicts the held-out rows' f. Q2ₐ = 1 − PRESSₐ / SS(f), Q2cum =
+  1 − Π PRESSₐ/SSₐ, YPredcv = ȳ + Σₐ held-out predictions, RMSEcv =
+  √(PRESS / N). Reproduced exactly. engiNIR refits all *a* components per
+  fold (stricter: SIMCA's deflation uses a model that saw the held-out
+  rows), so its Q2 and RMSECV differ (M1, A = 4: RMSECV 0.0216 vs 0.0245).
+- **Grouped CV assignment** (hand-configured exports, 2026-11-07, 140
+  pixels, 14 ROIs of 10):
+  - by an observation ID (`roi`): one CV group per value, i.e. leave one
+    ROI out; the number of groups cannot be set
+  - by a variable (`conc`) with G groups: the observations are sorted by
+    the value (stable: ties keep data order) and cut into G consecutive
+    blocks of N/G observations (140/7 = 20, 140/5 = 28; rounding for
+    uneven N/G not seen). Reproduced for all 140 pixels with G = 7 and
+    G = 5. With G = 7 every block is two neighbouring ROIs; with G = 5 the
+    ROIs B03, B06, B09 and B12 are split across two groups, i.e. pixels of
+    one sample end up on both sides of a fold (leakage)
+  - neighbouring concentrations in one group leave the lowest and highest
+    concentrations to be predicted by extrapolation; round-robin
+    (SIMCA's default every-Nth on data in concentration order) spreads
+    them over all groups
+  - engiNIR's `round_robin` equals SIMCA's default every-Nth grouping;
+    `leave_one_roi_out` equals grouping by the ROI ID. Decided
+    2026-11-07: SIMCA's value-sorted blocks are not offered (leakage,
+    extrapolation); stated in contract §4 and the validation user guide
 
 ### Phase 1: `FitSpec` and persistence
 Typed `FitSpec` in `project/_models.py` (validated, `to_dict`/`from_dict`),
@@ -204,6 +276,107 @@ against hand-computed F quantiles; an injected bright pixel is excluded;
 exclusion never sees test-fold pixels (fault injection: exclusion on all
 pixels must change the test).
 
+### Phase S: sample groups (decided and done 2026-11-07)
+
+**Why.** Folds are built from single ROIs. When several ROIs come from one
+physical sample (three regions of the same blend or tablet), holding out
+one of them while its siblings stay in training leaks the sample, and the
+cross-validated error is too optimistic. The independent unit is then the
+sample, not the ROI. SIMCA gives this by grouping by an ID (leave one
+sample out) or, when the counts happen to line up, by grouping by the
+concentration; engiNIR has no rule for it (worked example in the
+conversation of 2026-11-07: 5 levels × 3 ROIs).
+
+**What.** A fold groups key in the fit specification:
+
+| `folds/group_by` | Group | Use |
+|---|---|---|
+| `roi` (default) | each ROI | ROIs are independent samples (today's behaviour) |
+| `sample` | ROIs with the same sample label; an ROI without a label is its own group | several ROIs per physical sample |
+| `target` | ROIs with the same value of the sample set's target | one sample per concentration level, no labels needed |
+
+Folds are then built from groups with the existing rules: round-robin over
+groups (group at position *j* → fold *j* mod *k*, *k* = min(*F*, number of
+groups)) or leave one group out. An ROI is never split; a group is never
+split.
+
+Group order (decides round-robin membership):
+
+- `roi` and `sample`: by the position of the group's first ROI in the
+  sample set's `roi_ids`, as today
+- `target`: by the target value, ascending; round-robin then deals the
+  levels like venetian blinds (lowest level to fold 0, next to fold 1, …),
+  so every fold spans the concentration range. This equals SIMCA's
+  default every-Nth on ROI means in concentration order
+
+Equal target values: exact equality of the stored float64 values
+(−0.0 equals 0.0; values that only print alike form two groups).
+
+**Sample labels.** A mutable, optional ROI attribute `sample` (string,
+like the ROI name a label, not an identity). Set in the viewer's ROI table
+(new "Sample" column, through the typed `Project.save_roi_sample(roi_id,
+label)`) and by `project.set_sample(roi, label)`; only that writer changes
+the label, re-saving an ROI never does. Labels do not change stored objects'
+content rules: an ROI's spectra and id are untouched.
+
+**Reproducibility.** The fit stores the group of every ROI as used
+(`fit_spec/folds/groups`: one integer group index per ROI in sample-set
+order; a fit output like the checksum, refused in a request). `Model.refit()` uses the stored groups and warns, like the
+pixel checksum, when the current labels or target values would group
+differently.
+
+**Names.** `leave_one_roi_out` becomes `leave_one_group_out` (with
+`group_by = roi` it is the same rule). Fit specifications are not released
+yet (CHANGELOG: Unreleased), so the rename needs no reader for old
+values; legacy runs (§7.3) keep their own mapping.
+
+**Unchanged.** Pixel drawing per ROI; metrics reported per ROI (ROI
+means); DModX exclusion inside folds; `SampleSet` fields `grouping_unit =
+roi` and `validation_unit = roi` keep their meaning "smallest unit never
+split" (contract text to say so). Per-sample reporting is out of scope.
+
+**Weighting.** A sample with more ROIs carries more pixels and more
+held-out ROI means; this is accepted and stated (equal pixels per ROI, not
+per sample). Equal weight per sample would need drawing per sample: not
+in this phase.
+
+**Blocking conditions.** Fewer than 2 groups; `group_by = target` with a
+missing target value (already blocked by sample-set rules); `sample`
+grouping where no ROI has a label (warn: equals `roi`, not blocked).
+
+**SIMCA comparison** (5 levels × 3 ROIs, stated in the user guide):
+
+| engiNIR | SIMCA |
+|---|---|
+| `group_by = sample`, leave one group out | grouping by an ID holding the sample name |
+| `group_by = target`, leave one group out | grouping by `conc` when N/G equals the pixels per level (here G = 5) |
+| `group_by = target`, round-robin *F* | no equivalent; never splits a level |
+
+**Steps.**
+
+1. Contract changes with an independent review agent (as in Phase 0):
+   sample-set-model-run §4 and §7 (`group_by`, group order, stored
+   groups, rename), roi-target (the `sample` attribute, its mutability),
+   project-schema (ROI attribute, `fit_spec/folds/group_by`,
+   `fit_spec/folds/groups`), headless-workflow (`set_sample`, refit
+   warning); `docs/hdf5_format.md`; ledger gap G23.
+2. Persistence: ROI `sample` attribute (optional; older files read as no
+   label), `FitSpec.group_by` and stored groups; round trip.
+3. Fold building: `_splitter` over groups; `RoundRobinGroups` reused on
+   group labels; leave-one-group-out.
+4. Refit: stored groups used, warning on drift.
+5. Viewer: "Sample" column in the ROI table; "Group folds by" in the
+   Fitting section (Phase 6).
+6. Docs: user guide (when to group by sample; the 5 × 3 example; the SIMCA
+   table above), API reference, CHANGELOG.
+
+**Tests.** Membership for 5 levels × 3 ROIs under each `group_by` and
+rule (no group split, levels spread for `target` round-robin);
+unlabelled ROIs form their own groups; a sibling ROI is never on both
+sides of a fold (fault injection: `group_by` ignored must fail);
+refit reproduces metrics with changed labels and warns; old project files
+without labels open unchanged.
+
 ### Phase 6: viewer
 The fit dialog gets a "Fitting" section: folds, pixels per ROI (spin box,
 maximum = smallest ROI of the plan), seed, X and Y scaling, pixel
@@ -223,10 +396,13 @@ four gates.
    *n* pixels. Accept that (simple), or replace excluded pixels with
    unused pixels of the same ROI that pass the DModX limit (keeps every ROI
    at *n*).
-3. **DModX weighting.** SIMCA weights residuals by the modelling power by
-   default; the correction factor *v* is not defined in the help. Use the
-   unweighted normalised DModX now and add the weighted form when a SIMCA
-   export confirms *v*, or wait for the export.
+3. **DModX weighting.** Settled by the SIMCA exports (Phase R): *v* =
+   √(N/(N − A − A₀)) is confirmed, and both the unweighted and the
+   MPow-weighted forms are reproduced. Remaining choice for Phase 5: which
+   one engiNIR uses by default (SIMCA's default is weighted).
+4. **Sample groups (Phase S).** Settled: labels are an optional ROI
+   attribute written only by `save_roi_sample`; `target` grouping works with
+   both fold rules.
 
 ## Follow-up plan: SIMCA statistics and filters
 

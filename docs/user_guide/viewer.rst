@@ -199,7 +199,13 @@ opened. A maximized plot stays maximized the next time the viewer opens, and
 Reference values are typed in the **ROI table**, opened from **Target
 values...** in Model, from **ROI table** in Explore, or from the View menu:
 
-- One row per ROI (data file, name, pixel count) and one column per target.
+- One row per ROI (data file, name, pixel count, sample) and one column per
+  target.
+- **Sample** names the physical sample an ROI was taken from. Give the same
+  label to ROIs from one sample (for example three regions of one tablet),
+  so that a fit can hold them out together. Labels are text; surrounding
+  spaces are removed and an empty cell means the ROI is its own sample.
+  **Ctrl+V** pastes a column of labels.
 - It opens on the shown data file and the target selected in Model. The
   filters choose a data file, or only ROIs that still lack a value.
 - Type a value and press **Enter**: it is stored at once and the next row
@@ -216,13 +222,15 @@ values...** in Model, from **ROI table** in Explore, or from the View menu:
 **Fit model** opens one dialog with everything the fit needs: the target,
 the signal unit, the preprocessing (it starts from the Explore preview, but
 what the dialog shows is what the model is trained with), PLS or PCR, the
-number of components and the validation. Below, the dialog counts per data
+number of components, the validation and which ROIs are held out together
+(**Hold out together**: each ROI, ROIs with the same **Sample** label, or
+ROIs with the same target value). Below, the dialog counts per data
 file how many ROIs have a value for the target and says why a fit cannot run
 yet; **OK** is enabled only when it can. The model uses all ROIs with a
 value, from all data files. Fitting again with the same target, ROIs and
 preprocessing reuses the stored sample set; the sample set and preprocessing
 are stored only together with a fitted model. Cross-validation keeps the
-pixels of one ROI together, and
+pixels of one ROI together (and, if chosen, the ROIs of one sample), and
 reported metrics are per ROI: held-out pixel predictions are averaged per ROI
 before RMSECV, R², bias, RPD and RPIQ are computed. Until a model can be
 fitted, the readiness message says what is missing.

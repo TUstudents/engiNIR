@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -34,6 +35,7 @@ from .._workflow import recipe_id_for, resolve_sample_set, resolve_signal_domain
 from ..preprocessing import PreprocessingRecipe
 from ..project import check_signal_domain_compatibility
 from ..project import (
+    FitSpec,
     ModelRun,
     SampleSet,
     SignalDomainContract,
@@ -347,10 +349,20 @@ class FitModelRunDialog(QDialog):
         layout.addRow("Components:", self._components_spin)
 
         self._cv_combo = QComboBox()
-        self._cv_combo.addItem("Auto grouped (7 folds or leave-one-ROI-out)", "auto")
-        self._cv_combo.addItem("Leave-one-ROI-out", "logo")
+        self._cv_combo.addItem("Auto (7 round-robin folds, or leave one out)", "auto")
+        self._cv_combo.addItem("Leave one out", "logo")
         self._cv_combo.addItem("7 folds", 7)
         layout.addRow("Validation:", self._cv_combo)
+
+        self._group_by_combo = QComboBox()
+        self._group_by_combo.addItem("Each ROI", "roi")
+        self._group_by_combo.addItem("ROIs with the same Sample label", "sample")
+        self._group_by_combo.addItem("ROIs with the same target value", "target")
+        self._group_by_combo.setToolTip(
+            "Which ROIs a validation fold holds out together. Choose the Sample label when "
+            "several ROIs come from one physical sample (set it in the ROI table), so that "
+            "no sample is on both sides of a fold.")
+        layout.addRow("Hold out together:", self._group_by_combo)
 
         self._readiness_label = QLabel("")
         self._readiness_label.setWordWrap(True)
@@ -434,6 +446,11 @@ class FitModelRunDialog(QDialog):
     def cv(self) -> int | str:
         """Return the selected grouped-validation policy."""
         return self._cv_combo.currentData()
+
+    @property
+    def group_by(self) -> str:
+        """Return which ROIs are held out together: ``"roi"``, ``"sample"`` or ``"target"``."""
+        return str(self._group_by_combo.currentData())
 
 
 class ModelingView(QWidget):
@@ -676,6 +693,15 @@ class ModelingView(QWidget):
 
         from ..modeling import fit_model_run as fit_project_model_run
 
+        # Fold groups other than single ROIs go into the fit specification,
+        # which then also carries the fold rule (cv and a fit_spec that sets
+        # the folds are not combined).
+        cv: int | str | None = dlg.cv
+        fit_spec: FitSpec | None = None
+        if dlg.group_by != "roi":
+            fit_spec = replace(FitSpec.from_cv(dlg.cv), group_by=dlg.group_by)
+            cv = None
+
         def job():
             return fit_project_model_run(
                 project_path=project_path,
@@ -689,7 +715,8 @@ class ModelingView(QWidget):
                 signal_domain_id=signal_domain.signal_domain_id,
                 model_type=dlg.model_type,
                 hyperparameters={"n_components": dlg.n_components},
-                cv=dlg.cv,
+                cv=cv,
+                fit_spec=fit_spec,
                 target_name=target_name,
             )
 
@@ -1221,7 +1248,7 @@ class ModelingView(QWidget):
                     if n_roi_groups < 2:
                         details.append("Grouped validation unavailable")
                     elif n_roi_groups < 7:
-                        details.append("Auto validation will use leave-one-ROI-out")
+                        details.append("Auto validation will leave one ROI out at a time")
                     signal_domain_error = self._validate_signal_domain_preflight(
                         sample_set=sample_set,
                         required_signal_unit=str(self.state.y_unit_effective),

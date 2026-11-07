@@ -14,6 +14,12 @@
   order or the NumPy version); a refit reports a different sample.
 - `enginir.validation.RoundRobinGroups`: grouped folds dealt round-robin, the
   i-th group in fold i mod k (SIMCA's "every Nth" rule for groups).
+- Sample groups: ROIs can carry a sample label (`project.set_sample(roi,
+  label)`, the **Sample** column of the viewer's ROI table), and
+  `fit_spec={"folds": {"group_by": "sample"}}` holds the ROIs of one physical
+  sample out together; `"target"` groups ROIs with the same reference value.
+  The fit stores the groups it used, so a refit repeats its folds and warns
+  when labels changed. The viewer's fit dialog has **Hold out together**.
 
 ### Changed
 
@@ -23,6 +29,9 @@
   before on the same data; stored models keep their folds when refitted.
 - An integer `cv` larger than the number of ROIs now leaves one ROI out
   instead of being refused; the viewer needs only 2 ROIs.
+- The fold rule `leave_one_roi_out` of the (unreleased) fit specification is
+  now `leave_one_group_out`; with the default grouping it still leaves one
+  ROI out. `cv_spec/n_groups` counts fold groups (the ROIs, by default).
 
 ## 1.1.0 (2026-11-04)
 

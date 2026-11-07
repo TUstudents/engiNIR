@@ -210,6 +210,10 @@ scientific content. Writers enforce, per object:
   error, except for the mutable label fields (`TrainingROI.name`,
   `TargetDefinition.name`, `ModelRun.name`), which may change freely without
   affecting identity; `ModelRun.name` is optional
+- `TrainingROI.sample` (optional) is also a label, but it is set, changed or
+  removed only by its own writer (`save_roi_sample`), in place; re-saving an
+  ROI never changes or removes it (a re-save whose `sample` differs from the
+  stored one is changed content)
 - changed scientific content requires a new id
 
 Explicit exceptions, each already governed by its own contract rule:
@@ -280,6 +284,10 @@ v3 coverage invariant:
 
 - `ModelRun.sample_set_id -> SampleSet.sample_set_id`
 - `ModelRun.signal_domain_id -> SignalDomainContract.signal_domain_id`
+- `ModelRun.fit_spec/folds/groups` has one entry per ROI of its sample set's
+  `roi_ids`, and its values are well-formed fold-group indices
+  (`sample-set-model-run-contract_v3.md` §7); a run that breaks this is
+  rejected when the project is read
 
 v3 note:
 
@@ -394,6 +402,7 @@ project.h5
 |   +-- @dataset_id
 |   +-- @calibration_id
 |   +-- @name
+|   +-- @sample              optional sample label (mutable)
 |   +-- @source_file
 |   +-- @n_pixels
 |   +-- @created_at
@@ -742,8 +751,9 @@ Resolved for v3:
   (`RoundRobinGroups`, `GroupKFold` or `LeaveOneGroupOut`), the requested
   strategy, the fold and group counts, and the frozen
   grouping/validation/reporting semantics
-- `fit_spec` persists what was requested: fold rule, pixel sample (count,
-  seed, checksum) and DModX exclusion
+- `fit_spec` persists what was requested: fold rule and fold groups (with
+  the group index of every ROI as used), pixel sample (count, seed,
+  checksum) and DModX exclusion
   (`sample-set-model-run-contract_v3.md` §7); a run without it is a legacy
   run with the defined legacy specification
 - scaling of X and Y is a constructor argument of the backend and lives in
@@ -762,6 +772,8 @@ Resolved for v3:
   scientific content requires a new id
 - calibration replacement, target-assignment value updates, and prediction
   staging are the documented overwrite-in-place exceptions
+- an ROI's `sample` label is a label-only change: it is set, changed or
+  removed in place by `save_roi_sample`, never the ROI's other content
 - no object is append-only in v3; history/version timelines remain out of
   scope
 
@@ -780,6 +792,10 @@ Resolved for v3:
   and `y_scaling` hyperparameters, or ignores the fit specification), and it
   cannot rename such a run: it would save the run without its `fit_spec`,
   which the content-immutability rule (§5) refuses as changed content
+- the ROI `sample` attribute is added within v3 without a schema-version
+  change: an engiNIR before 1.2 ignores it with a warning (its folds are
+  per ROI); re-saving such an ROI there is refused as changed content, as
+  above
 
 ## Acceptance Criteria
 

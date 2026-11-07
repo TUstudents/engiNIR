@@ -163,6 +163,16 @@ runs label each ROI with its position in the sample set and use
 observation-level leave-one-out, but it ignores groups, logs that choice when
 groups are present, and is not the default.
 
+Coming from SIMCA: round-robin folds give the same partition as SIMCA's
+default "every Nth observation" groups when SIMCA's observations are ROI
+means (on pixels in ROI order, SIMCA's rule puts pixels of every ROI into
+every group), and ``cv="logo"`` the same as grouping by an observation ID
+such as the ROI name. SIMCA's grouping by
+a variable (for example the concentration) has no equivalent on purpose:
+SIMCA sorts the observations by the value and cuts them into equal blocks,
+which can split the spectra of one sample across folds and leaves the
+lowest and highest concentrations to be predicted by extrapolation.
+
 The metrics in ``results`` are computed over pixels. For ROI-based data the
 primary figures of merit are ROI-level: average the out-of-fold predictions per
 group first, then compute the metrics on one value per ROI. This is how model

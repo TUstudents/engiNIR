@@ -55,11 +55,11 @@ def _uneven_project(tmp_path, n_rois=9):
 
 
 def test_a_specification_round_trips_and_partial_mappings_take_the_defaults():
-    spec = FitSpec(fold_rule="leave_one_roi_out", pixels_per_roi=12, seed=5)
+    spec = FitSpec(fold_rule="leave_one_group_out", pixels_per_roi=12, seed=5)
     assert FitSpec.from_dict(spec.to_dict()) == spec
     assert FitSpec.from_dict({"pixels": {"per_roi": 3}}) == FitSpec(pixels_per_roi=3)
     assert FitSpec().to_dict()["pixels"]["per_roi"] == "all"
-    assert FitSpec.from_cv("logo").fold_rule == "leave_one_roi_out"
+    assert FitSpec.from_cv("logo").fold_rule == "leave_one_group_out"
     assert FitSpec.from_cv(4) == FitSpec(n_folds=4)
 
 
@@ -96,7 +96,7 @@ def test_every_key_is_stored_and_reopens_unchanged(tmp_path):
 def test_cv_and_a_fit_spec_with_folds_are_refused_together(tmp_path):
     project = _uneven_project(tmp_path)
     with pytest.raises(ValueError, match="either as cv"):
-        project.fit("API", n_components=1, cv=3, fit_spec={"folds": {"rule": "leave_one_roi_out"}})
+        project.fit("API", n_components=1, cv=3, fit_spec={"folds": {"rule": "leave_one_group_out"}})
     model = project.fit("API", n_components=1, cv=3, fit_spec={"pixels": {"per_roi": 4}})
     spec = model.ref.fit_specification
     assert (spec.fold_rule, spec.n_folds, spec.pixels_per_roi) == ("round_robin", 3, 4)

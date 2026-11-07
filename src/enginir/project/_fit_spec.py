@@ -19,7 +19,8 @@ from .._logging import get_logger
 
 logger = get_logger(__name__)
 
-FOLD_RULES = ("round_robin", "leave_one_roi_out", "group_kfold")
+FOLD_RULES = ("round_robin", "leave_one_group_out", "group_kfold")
+GROUP_BY = ("roi", "sample", "target")
 EXCLUSION_METHODS = ("none", "dmodx")
 DMODX_FORMULAS = ("dmodx-1",)
 ALL_PIXELS = "all"
@@ -27,7 +28,7 @@ DEFAULT_N_FOLDS = 7
 _SEED_LIMIT = 2**63
 
 _KEYS = {
-    "folds": ("rule", "n_folds"),
+    "folds": ("rule", "n_folds", "group_by", "groups"),
     "pixels": ("per_roi", "seed", "checksum"),
     "exclusion": ("method", "level", "rounds", "max_fraction", "formula"),
 }
@@ -40,11 +41,18 @@ class FitSpec:
     Attributes
     ----------
     fold_rule : str
-        ``"round_robin"`` (the ROI at position *i* of the sample set is held
-        out in fold *i* mod *k*, *k* = min(``n_folds``, number of ROIs)),
-        ``"leave_one_roi_out"``, or ``"group_kfold"`` (legacy runs only).
+        ``"round_robin"`` (the fold group at position *j* is held out in fold
+        *j* mod *k*, *k* = min(``n_folds``, number of groups)),
+        ``"leave_one_group_out"``, or ``"group_kfold"`` (legacy runs only).
     n_folds : int
         Requested number of folds *F*, at least 2.
+    group_by : str
+        Which ROIs are held out together: ``"roi"`` (each ROI alone),
+        ``"sample"`` (ROIs with the same sample label) or ``"target"`` (ROIs
+        with the same target value).
+    groups : tuple of int
+        Fold-group index of every ROI of the sample set (in ``roi_ids``
+        order), set by the fit; empty before the fit.
     pixels_per_roi : int or None
         Pixels drawn from every ROI; ``None`` uses all pixels.
     seed : int
@@ -60,6 +68,8 @@ class FitSpec:
 
     fold_rule: str = "round_robin"
     n_folds: int = DEFAULT_N_FOLDS
+    group_by: str = "roi"
+    groups: tuple[int, ...] = ()
     pixels_per_roi: int | None = None
     seed: int = 0
     checksum: str = ""
@@ -72,6 +82,16 @@ class FitSpec:
     def __post_init__(self) -> None:
         _check_choice(self.fold_rule, "folds/rule", FOLD_RULES)
         _check_int(self.n_folds, "folds/n_folds", minimum=2)
+        _check_choice(self.group_by, "folds/group_by", GROUP_BY)
+        if self.fold_rule == "group_kfold" and self.group_by != "roi":
+            log_and_raise("folds/rule group_kfold works only with folds/group_by roi, got {!r}",
+                          self.group_by)
+        groups = np.asarray(self.groups)
+        if groups.ndim != 1 or (groups.size and groups.dtype.kind not in "iu"):
+            log_and_raise("folds/groups must be a list of integers, got {!r}", self.groups)
+        if groups.size and int(groups.min()) < 0:
+            log_and_raise("folds/groups must not be negative, got {!r}", self.groups)
+        object.__setattr__(self, "groups", tuple(int(g) for g in groups))
         if self.pixels_per_roi is not None:
             _check_int(self.pixels_per_roi, "pixels/per_roi", minimum=1)
         _check_int(self.seed, "pixels/seed", minimum=0)
@@ -106,7 +126,7 @@ class FitSpec:
         if cv is None or (isinstance(cv, str) and cv == "auto"):
             return cls()
         if isinstance(cv, str) and cv == "logo":
-            return cls(fold_rule="leave_one_roi_out")
+            return cls(fold_rule="leave_one_group_out")
         if isinstance(cv, (int, np.integer)) and not isinstance(cv, bool):
             return cls(n_folds=int(cv))
         log_and_raise("cv must be 'auto', 'logo' or a number of folds, got {!r}", cv)
@@ -122,7 +142,7 @@ class FitSpec:
         if requested is None or requested == "auto":
             return cls(fold_rule="group_kfold")
         if requested == "logo":
-            return cls(fold_rule="leave_one_roi_out")
+            return cls(fold_rule="leave_one_group_out")
         if isinstance(requested, (int, np.integer)) and not isinstance(requested, bool):
             return cls(fold_rule="group_kfold", n_folds=int(requested))
         log_and_raise("A legacy model run has an unknown cv_spec/requested value {!r}", requested)
@@ -163,7 +183,9 @@ class FitSpec:
     def to_dict(self) -> dict[str, dict[str, Any]]:
         """The stored form: every key of contract §7, also those without effect."""
         return {
-            "folds": {"rule": self.fold_rule, "n_folds": self.n_folds},
+            "folds": {"rule": self.fold_rule, "n_folds": self.n_folds,
+                      "group_by": self.group_by,
+                      "groups": np.asarray(self.groups, dtype=np.int64)},
             "pixels": {"per_roi": ALL_PIXELS if self.pixels_per_roi is None
                        else self.pixels_per_roi,
                        "seed": self.seed, "checksum": self.checksum},
@@ -177,14 +199,41 @@ class FitSpec:
         """A copy with the checksum of the drawn pixels."""
         return replace(self, checksum=checksum)
 
+    def with_groups(self, groups: Any) -> FitSpec:
+        """A copy with the fold-group index of every ROI, as used by the fit."""
+        return replace(self, groups=tuple(int(g) for g in groups))
+
     @property
     def sets_folds(self) -> bool:
         """``True`` if the folds differ from the default round-robin over 7 folds."""
-        return (self.fold_rule, self.n_folds) != ("round_robin", DEFAULT_N_FOLDS)
+        return ((self.fold_rule, self.n_folds, self.group_by)
+                != ("round_robin", DEFAULT_N_FOLDS, "roi"))
+
+
+def fold_groups_problem(groups: Any, group_by: str, n_rois: int) -> str | None:
+    """Why ``groups`` are not well-formed fold groups of ``n_rois`` ROIs, or ``None`` (§7).
+
+    Well-formed: one entry per ROI, values exactly 0 .. G - 1 with every index
+    used; 0 .. R - 1 for ``group_by = "roi"``; for ``"roi"`` and ``"sample"``
+    the indices first appear in increasing order.
+    """
+    values = [int(g) for g in groups]
+    if len(values) != n_rois:
+        return "it has {} entries for {} ROIs".format(len(values), n_rois)
+    if sorted(set(values)) != list(range(len(set(values)))):
+        return "its values are not 0 .. G - 1 with every index used"
+    if group_by == "roi" and values != list(range(n_rois)):
+        return "group_by roi needs the groups 0 .. R - 1"
+    if group_by in ("roi", "sample"):
+        first = list(dict.fromkeys(values))
+        if first != sorted(first):
+            return "its groups do not first appear in increasing order"
+    return None
 
 
 _FIELD = {
     ("folds", "rule"): "fold_rule", ("folds", "n_folds"): "n_folds",
+    ("folds", "group_by"): "group_by", ("folds", "groups"): "groups",
     ("pixels", "per_roi"): "pixels_per_roi", ("pixels", "seed"): "seed",
     ("pixels", "checksum"): "checksum",
     ("exclusion", "method"): "exclusion", ("exclusion", "level"): "exclusion_level",
@@ -221,4 +270,5 @@ def _check_float(value: Any, name: str) -> float:
     return float(value)
 
 
-__all__ = ["ALL_PIXELS", "DMODX_FORMULAS", "EXCLUSION_METHODS", "FOLD_RULES", "FitSpec"]
+__all__ = ["ALL_PIXELS", "DMODX_FORMULAS", "EXCLUSION_METHODS", "FOLD_RULES", "GROUP_BY",
+           "FitSpec", "fold_groups_problem"]

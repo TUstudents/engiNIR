@@ -106,6 +106,43 @@ draw depends only on the seed and each ROI's spectra:
                        n_components=2, fit_spec={"pixels": {"per_roi": 40, "seed": 1}})
    model.ref.fit_specification      # FitSpec(fold_rule='round_robin', ...)
 
+When several ROIs come from one physical sample, for example three regions
+of the same tablet, holding out one of them while the others stay in
+training leaks that sample into its own validation, and RMSECV comes out too
+low. Give the ROIs of one sample the same label and hold them out together;
+``group_by="target"`` groups ROIs with the same reference value instead,
+without labels:
+
+.. code-block:: python
+
+   for roi in ("T1 a", "T1 b", "T1 c"):
+       project.set_sample(roi, "tablet 1")
+   model = project.fit("API content", n_components=2,
+                       fit_spec={"folds": {"rule": "leave_one_group_out",
+                                           "group_by": "sample"}})
+
+The groups the fit used are stored with the model, so ``model.refit()``
+repeats the same folds even after labels are edited (it warns when the
+current labels would group differently). With five concentration levels of
+three ROIs each, the options compare with SIMCA's CV-groups dialog like this:
+
+.. list-table::
+   :header-rows: 1
+
+   * - engiNIR
+     - Folds
+     - SIMCA
+   * - default (``group_by="roi"``, 7 round-robin folds)
+     - single ROIs; replicates of a level stay in training
+     - every Nth observation, on ROI means
+   * - ``group_by="sample"`` or ``"target"``, ``leave_one_group_out``
+     - one blend (all its ROIs) per fold
+     - grouping by a sample-name ID; grouping by concentration only when the
+       blocks happen to match the levels
+   * - ``group_by="target"``, round-robin
+     - whole levels, spread over the range (A C E | B D for 2 folds)
+     - no equivalent
+
 Reopen the project later with ``Project.open("tablets.h5")``; datasets are
 available by path and ROIs, targets and models by name, e.g.
 ``project.model("PLS 2 LV, SNV").diagnostics``.

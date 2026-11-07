@@ -67,7 +67,8 @@ and writes nothing they would reject.
 - `create_project` initializes an empty v3 workspace
 - `load_project_store` is the canonical metadata-first reader
 - object writers persist first-class objects (`save_dataset_ref`,
-  `save_calibration_spec`, `save_training_roi`, `save_target_definition`,
+  `save_calibration_spec`, `save_training_roi`, `save_roi_sample`,
+  `save_target_definition`,
   `save_target_assignment`, `save_preprocessing_recipe`,
   `save_signal_domain_contract`, `save_sample_set`, `save_model_run`,
   `save_prediction_run`)
@@ -131,6 +132,15 @@ and writes nothing they would reject.
 - `model.refit(*, name=None)` fits the model again on its stored sample set,
   recipe, signal domain, hyperparameters and fit specification and stores
   the new run (`sample-set-model-run-contract_v3.md`, Refitting a stored model)
+- `project.set_sample(roi, label)` sets the sample label of an ROI (name or
+  object); `None` or an empty or blank text removes it
+  (`roi-target-contract_v3.md`). The typed, id-based form is
+  `project.save_roi_sample(roi_id, label)`; the viewer's `ProjectState`
+  writes labels only through it. `project.fit(..., fit_spec={"folds":
+  {"group_by": "sample"}})` holds the ROIs of one sample out together
+  (`sample-set-model-run-contract_v3.md` §4.1); `model.refit()` uses the
+  groups stored with the run and warns when current labels or values would
+  group differently
 - `model.predict(path, *, dark=None, white=None)` predicts a dataset and
   returns a prediction handle
 - read access: `project.datasets`, `project.rois`, `project.targets`,

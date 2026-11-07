@@ -357,7 +357,29 @@ def save_training_roi(
                           spectra.shape, dark.shape, white.shape)
         payload["calibration_refs"] = {"dark": dark, "white": white}
     _save_object(path, "rois", roi_id, payload, "TrainingROI", compression,
-                 mutable_fields=frozenset({"name"}))
+                 mutable_fields=frozenset({"name"}))  # sample: only save_roi_sample
+
+
+def save_roi_sample(path: PathLike, roi_id: str, sample: str | None) -> None:
+    """Set the sample label of a stored ROI in place; ``None`` removes it.
+
+    The label is the only field written: the ROI's identity, spectra and
+    other fields are never touched (roi-target contract, ``sample``).
+    """
+    if sample is not None and (not isinstance(sample, str) or sample != sample.strip()
+                               or not sample):
+        log_and_raise("A stored sample label must be non-empty text without surrounding "
+                      "spaces, got {!r}", sample)
+    with _open_project(path, writable=True) as f:
+        group = f["rois"].get(roi_id)
+        if not isinstance(group, h5py.Group):
+            log_and_raise("No ROI '{}' in {}", roi_id, path, error=KeyError)
+        if sample is None:
+            if "sample" in group.attrs:
+                del group.attrs["sample"]
+        else:
+            group.attrs["sample"] = sample
+    logger.info("Set the sample label of ROI '{}' to {!r} in {}", roi_id, sample, path)
 
 
 def save_sample_set(
@@ -1053,6 +1075,7 @@ __all__ = [
     "save_model_run",
     "save_prediction_run",
     "save_preprocessing_recipe",
+    "save_roi_sample",
     "save_sample_set",
     "save_signal_domain_contract",
     "save_target_assignment",

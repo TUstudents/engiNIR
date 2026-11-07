@@ -143,7 +143,7 @@ def hydrate_project_store(
     }
     rois = {
         roi_id: _build(TrainingROI, f"/rois/{roi_id}", payload, {"roi_id": roi_id},
-                       ignored={"spectra", "calibration_refs"})
+                       ignored={"spectra", "calibration_refs"}, optional=("sample",))
         for roi_id, payload in store.get("rois", {}).items()
     }
     recipes = {
@@ -272,7 +272,7 @@ _WRITABLE_MODELS: dict[str, type] = {
 _WRITE_OPTIONS: dict[str, dict[str, Any]] = {
     "DatasetRef": {"ignored": {"calibrations", "active_calibration_id"}},
     "CalibrationSpec": {"optional": _CALIBRATION_REFERENCE_FIELDS},
-    "TrainingROI": {"ignored": {"spectra", "calibration_refs"}},
+    "TrainingROI": {"ignored": {"spectra", "calibration_refs"}, "optional": ("sample",)},
     "ModelRun": {"optional": ("name", "fit_spec")},
 }
 

@@ -22,6 +22,7 @@ from ._logging import get_logger
 from .io import file_format, load_spectra
 from .io import project_store as store
 from .modeling import fit_model_run, plan_sample_set
+from .modeling._service import fold_groups
 from .prediction import (
     PredictionResult,
     build_dataset_ref_from_spectral_data,
@@ -44,6 +45,7 @@ from .project import (
     validate_project_relationships,
 )
 from .project._ids import new_id, now_iso
+from .project._models import sample_label
 
 logger = get_logger(__name__)
 
@@ -261,6 +263,15 @@ class Project:
         self.save_target(target)
         return target
 
+    def set_sample(self, roi: str | TrainingROI, label: str | None) -> None:
+        """Set the sample label of ``roi`` (name or object); ``None`` or blank text removes it.
+
+        ROIs with equal labels are one physical sample: with
+        ``fit_spec={"folds": {"group_by": "sample"}}`` they are held out
+        together. The label never changes the ROI itself.
+        """
+        self.save_roi_sample(self._roi_of(roi).roi_id, label)
+
     def set_value(self, roi: str | TrainingROI, target: str | TargetDefinition,
                   value: float | None) -> None:
         """Set (or replace) the reference value of ``target`` for ``roi``; ``None`` removes it.
@@ -306,9 +317,12 @@ class Project:
         fit_spec:
             Full control of the fit (:class:`~enginir.project.FitSpec` or a
             mapping with the keys of ``sample-set-model-run-contract_v3.md``
-            §7), e.g. ``{"pixels": {"per_roi": 50, "seed": 1}}``; keys left
-            out take their defaults. Not combined with ``cv`` when it sets
-            the folds. The complete specification is stored with the model.
+            §7), e.g. ``{"pixels": {"per_roi": 50, "seed": 1}}`` or
+            ``{"folds": {"group_by": "sample"}}`` (hold the ROIs of one sample
+            out together, see :meth:`set_sample`); keys left out take their
+            defaults. Not combined with ``cv`` when it sets the folds;
+            ``folds/groups`` is written by the fit and refused here. The
+            complete specification is stored with the model.
         **hyperparameters:
             Estimator parameters, e.g. ``n_components=2``.
 
@@ -317,6 +331,9 @@ class Project:
         Model
         """
         ws = self.workspace
+        if fit_spec is not None and FitSpec.coerce(fit_spec).groups:
+            log_and_raise("fit_spec folds/groups is written by the fit; leave it out and choose "
+                          "folds/group_by instead")
         target_ref = self._target_of(target)
         recipe_obj = _as_recipe(recipe)
         recipe_id, recipe_dict = _recipe_id(recipe_obj), recipe_obj.to_dict()
@@ -408,6 +425,13 @@ class Project:
                                 dark_ref_spectra=dark_ref_spectra,
                                 white_ref_spectra=white_ref_spectra)
         self.workspace.rois[roi.roi_id] = roi
+
+    def save_roi_sample(self, roi_id: str, sample: str | None) -> None:
+        """Set (or, with ``None`` or blank text, remove) the sample label of a stored ROI."""
+        roi = _with_id(self.workspace.rois, roi_id, "ROI")
+        label = sample_label(sample)
+        store.save_roi_sample(self.path, roi_id, label)
+        self.workspace.rois[roi_id] = replace(roi, sample=label)
 
     def save_rois(self, rois: Sequence[tuple[TrainingROI, np.ndarray, tuple[np.ndarray,
                                                                         np.ndarray] | None]],
@@ -872,6 +896,7 @@ class Model:
                            "fitted (ROI ids {}); the metrics will differ", self.name,
                            len(changed), changed[:5])
         spec = self.ref.fit_specification
+        self._warn_on_group_drift(spec, sample_set)
         result = fit_model_run(
             project_path=project.path, sample_set=sample_set, datasets=ws.datasets,
             calibrations=ws.calibrations, rois=ws.rois,
@@ -894,6 +919,25 @@ class Model:
         else:
             logger.info("Refit of '{}' reproduced its metrics as '{}'", self.name, refitted.name)
         return refitted
+
+    def _warn_on_group_drift(self, spec: FitSpec, sample_set: SampleSet) -> None:
+        """Warn when current sample labels or values would group the ROIs differently.
+
+        The refit keeps the stored groups (sample-set-model-run contract §6).
+        """
+        if not spec.groups:
+            return
+        ws = self.project.workspace
+        try:
+            now = fold_groups(spec.group_by, sample_set, ws.rois, ws.target_assignments)
+        except (KeyError, ValueError) as exc:
+            logger.warning("Refit of '{}' keeps its stored fold groups; the current ones cannot "
+                           "be built: {}", self.name, exc)
+            return
+        if not np.array_equal(now, np.asarray(spec.groups)):
+            logger.warning("Refit of '{}' keeps its stored fold groups (by {}); the current "
+                           "{} would group the ROIs differently", self.name, spec.group_by,
+                           "sample labels" if spec.group_by == "sample" else "target values")
 
     def _changed_values(self, sample_set: SampleSet) -> list[str]:
         """Ids of ROIs whose current reference value differs from the one the model used."""

@@ -244,6 +244,8 @@ accepted when it equals the path id and rejected when it contradicts it. An
 ├── @dataset_id
 ├── @calibration_id
 ├── @name                   mutable display label
+├── @sample                 optional sample label (mutable); ROIs with equal
+│                           labels are one physical sample for fold groups
 ├── @source_file
 ├── @n_pixels
 ├── @created_at
@@ -405,7 +407,7 @@ only centres (`sample-set-model-run-contract_v3.md` §7.3).
 @n_splits                number of CV folds actually run
 @requested               the requested strategy: "auto", "logo", an integer fold count,
                          or "fit_spec" when the folds came from a fit specification
-@n_groups                number of ROI groups
+@n_groups                number of fold groups G (= number of ROIs with group_by roi)
 @grouping_unit           roi
 @validation_unit         roi
 @reporting_level         roi
@@ -419,8 +421,13 @@ runs before engiNIR 1.2, which read as the legacy specification (§7.3).
 
 ```text
 folds/
-  @rule                  round_robin | leave_one_roi_out | group_kfold
-  @n_folds               requested fold count F (k = min(F, number of ROIs))
+  @rule                  round_robin | leave_one_group_out | group_kfold
+  @n_folds               requested fold count F (k = min(F, number of fold groups))
+  @group_by              roi | sample | target
+  groups                 int64, one per ROI in sample-set roi_ids order: index of
+                         its fold group in group order, as used by the fit;
+                         exactly 0 .. G-1, each used (attribute, or a dataset
+                         for large sample sets)
 pixels/
   @per_roi               "all" or the number of pixels drawn per ROI
   @seed                  integer seed of the pixel sample, 0 <= seed < 2**63

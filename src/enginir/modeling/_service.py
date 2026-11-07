@@ -47,7 +47,7 @@ from ..project import (
     check_signal_domain_compatibility,
     transform_spectra_to_signal_domain,
 )
-from ..project._fit_spec import FitSpec
+from ..project._fit_spec import FitSpec, fold_groups_problem
 from ..project._ids import new_id, now_iso
 from ..project._models import SAMPLE_SET_SEMANTICS
 from ._pixels import draw_pixels, roi_digest, sample_checksum
@@ -356,6 +356,13 @@ def fit_model_run(
         log_and_raise("Unknown signal domain '{}'", signal_domain_id)
     signal_domain = signal_domains[signal_domain_id]
     _check_fit_spec_feasible(spec, sample_set, rois)
+    groups = _resolved_groups(spec, sample_set, rois, target_assignments)
+    n_fold_groups = int(np.unique(groups).size)
+    if n_fold_groups < 2:
+        log_and_raise("Cross-validation needs at least 2 fold groups; grouping the {} ROIs of "
+                      "sample set '{}' by {} gives {}", len(sample_set.roi_ids),
+                      sample_set.sample_set_id, spec.group_by, n_fold_groups)
+    spec = spec.with_groups(groups)
 
     data = build_sample_set(
         project_path=project_path,
@@ -393,14 +400,15 @@ def fit_model_run(
         cv_estimator = _ESTIMATORS[model_type](**hyperparameters)
         X_cv = apply_preprocessing_recipe(X_signal, recipe=recipe, wavelengths=data.wavelengths)
         del X_signal  # only the preprocessed matrix is needed from here on
-    # ROI ids are random, so the splitter gets each ROI's position in the
-    # sample set instead: folds follow the recorded ROI order and are the same
-    # whenever the analysis is repeated.
+    # ROI ids are random, so the splitter gets each ROI's fold-group index
+    # (its position in the sample set with group_by "roi") instead: folds
+    # follow the recorded ROI order or target values and are the same
+    # whenever the analysis is repeated (contract §4.1).
     roi_ids_present, roi_index = np.unique(data.groups, return_inverse=True)
-    position = {roi_id: i for i, roi_id in enumerate(sample_set.roi_ids)}
-    cv_groups = np.array([position[roi_id] for roi_id in roi_ids_present])[roi_index]
+    group_of = {roi_id: int(groups[i]) for i, roi_id in enumerate(sample_set.roi_ids)}
+    cv_groups = np.array([group_of[roi_id] for roi_id in roi_ids_present])[roi_index]
     cv_result = cross_validate(cv_estimator, X_cv, data.y,
-                               cv=_splitter(spec, roi_ids_present.size), groups=cv_groups)
+                               cv=_splitter(spec, n_fold_groups), groups=cv_groups)
     pixel_y_pred = np.asarray(cv_result["y_pred"], dtype=_WORKING_DTYPE)
     roi_ids, roi_y_true, roi_y_pred = aggregate_regression_predictions(
         data.y, pixel_y_pred, data.groups, aggregation=sample_set.roi_aggregation
@@ -426,7 +434,7 @@ def fit_model_run(
         cv_spec={
             **cv_result["cv_scheme"],
             "requested": requested,
-            "n_groups": int(roi_ids.size),
+            "n_groups": n_fold_groups,
             **{key: SAMPLE_SET_SEMANTICS[key] for key in
                ("grouping_unit", "validation_unit", "reporting_level", "roi_aggregation")},
         },
@@ -516,11 +524,75 @@ def _check_fit_spec_feasible(spec: FitSpec, sample_set: SampleSet,
                           smallest.n_pixels)
 
 
-def _splitter(spec: FitSpec, n_rois: int) -> Any:
-    """The cross-validation splitter of the fold rule (contract §4, §7.3)."""
+def fold_groups(group_by: str, sample_set: SampleSet, rois: dict[str, TrainingROI],
+                target_assignments: dict[tuple[str, str], TargetAssignment]) -> np.ndarray:
+    """Fold-group index of every ROI of ``sample_set``, in ``roi_ids`` order (contract §4.1).
+
+    ``"roi"``: every ROI is its own group, in sample-set order. ``"sample"``:
+    ROIs with the same sample label form one group (an ROI without a label is
+    its own group), ordered by the position of the group's first ROI.
+    ``"target"``: ROIs with the same stored value of the sample set's target
+    form one group, ordered by value. Only equality of labels and the
+    positions or values decide the groups, never the label text.
+    """
+    roi_ids = list(sample_set.roi_ids)
+    if group_by == "roi":
+        return np.arange(len(roi_ids), dtype=np.int64)
+    if group_by == "sample":
+        keys: list[Any] = []
+        for roi_id in roi_ids:
+            roi = rois.get(roi_id)
+            label = roi.sample if roi is not None else None
+            keys.append(("sample", label) if label is not None else ("roi", roi_id))
+        first: dict[Any, int] = {}
+        for key in keys:
+            first.setdefault(key, len(first))
+        return np.array([first[key] for key in keys], dtype=np.int64)
+    if group_by == "target":
+        values = []
+        for roi_id in roi_ids:
+            assignment = target_assignments.get((roi_id, sample_set.target_id))
+            if assignment is None:
+                log_and_raise("ROI '{}' has no value for target '{}'; it cannot be grouped by "
+                              "target", roi_id, sample_set.target_id)
+            values.append(float(assignment.value))
+        levels = sorted(set(values))
+        index = {value: j for j, value in enumerate(levels)}
+        return np.array([index[value] for value in values], dtype=np.int64)
+    log_and_raise("Unknown fold grouping {!r}", group_by)
+
+
+def _resolved_groups(spec: FitSpec, sample_set: SampleSet, rois: dict[str, TrainingROI],
+                     target_assignments: dict[tuple[str, str], TargetAssignment]) -> np.ndarray:
+    """The groups the fit uses: those of ``spec`` (a refit), or computed from ``group_by``."""
+    n_rois = len(sample_set.roi_ids)
+    if spec.groups:
+        problem = fold_groups_problem(spec.groups, spec.group_by, n_rois)
+        if problem is not None:
+            log_and_raise("folds/groups of the fit specification cannot be used for sample set "
+                          "'{}': {}", sample_set.sample_set_id, problem)
+        return np.asarray(spec.groups, dtype=np.int64)
+    if spec.group_by == "sample":
+        labels = [rois[roi_id].sample for roi_id in sample_set.roi_ids if roi_id in rois]
+        present = sorted({label for label in labels if label is not None})
+        if not present:
+            logger.warning("Folds grouped by sample, but no ROI of sample set '{}' has a sample "
+                           "label: every ROI is its own group", sample_set.sample_set_id)
+        folded: dict[str, list[str]] = {}
+        for label in present:
+            folded.setdefault(label.casefold(), []).append(label)
+        alike = [names for names in folded.values() if len(names) > 1]
+        if alike:
+            logger.warning("Sample labels that differ only in case form separate groups: {}; "
+                           "if they are one sample, give them the same label", alike)
+    return fold_groups(spec.group_by, sample_set, rois, target_assignments)
+
+
+def _splitter(spec: FitSpec, n_groups: int) -> Any:
+    """The cross-validation splitter of the fold rule over fold groups (contract §4, §7.3)."""
     if spec.fold_rule == "round_robin":
         return RoundRobinGroups(spec.n_folds)
-    if spec.fold_rule == "leave_one_roi_out" or n_rois < spec.n_folds:
+    if spec.fold_rule == "leave_one_group_out" or n_groups < spec.n_folds:
         return "logo"
     return GroupKFold(n_splits=spec.n_folds)  # legacy runs (contract §7.3)
 

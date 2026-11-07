@@ -314,7 +314,7 @@ Required controls:
 - axis controls
 - ROI creation, single and as a grid (the grid dialog opens with the Options
   defaults and shows the cells on the image, outside cells in red)
-- ROI table (target values)
+- ROI table (sample labels and target values)
 - ROI export
 
 Required behavior:
@@ -381,10 +381,12 @@ Required visible information:
 Required controls:
 
 - target selection/creation
-- target assignment editing (the ROI table)
+- target assignment and sample label editing (the ROI table)
 - fit model: one dialog with target, signal unit, preprocessing, model,
-  components and cross-validation; it builds or reuses the sample set of all
-  ROIs with a value for the target, from all data files
+  components, cross-validation and which ROIs are held out together (each
+  ROI, same sample label, same target value;
+  `sample-set-model-run-contract_v3.md` §4.1); it builds or reuses the
+  sample set of all ROIs with a value for the target, from all data files
 
 Required browser emphasis:
 

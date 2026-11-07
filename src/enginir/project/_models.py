@@ -356,6 +356,22 @@ class CalibrationSpec(SerializableModel):
 # ---------------------------------------------------------------------------
 
 
+def sample_label(value: Any) -> str | None:
+    """A sample label as stored: text without surrounding spaces, ``None`` when empty.
+
+    Labels are compared as exact strings (roi-target contract, ``sample``).
+    """
+    if value is None:
+        return None
+    if isinstance(value, bytes):
+        value = value.decode()
+    if not isinstance(value, str):
+        log_and_raise("A sample label must be text, got {}", type(value).__name__, depth=2,
+                      error=TypeError)
+    value = value.strip()
+    return value or None
+
+
 @dataclass(slots=True, eq=False)
 class TrainingROI(SerializableModel):
     """Region of interest whose pixel spectra are stored in the project file.
@@ -382,6 +398,10 @@ class TrainingROI(SerializableModel):
         Capture context with at least ``dataset_id`` and ``calibration_id``
         (matching the ROI), ``signal_unit``, ``preview_recipe_summary`` and
         ``created_at``.
+    sample : str or None
+        Label of the physical sample the ROI was taken from (may be changed);
+        ROIs with equal labels are held out together when folds are grouped
+        by sample. ``None`` (default): the ROI is its own sample.
     """
 
     roi_id: str
@@ -394,9 +414,11 @@ class TrainingROI(SerializableModel):
     source_file: str
     created_at: str
     provenance: dict[str, Any]
+    sample: str | None = None
 
     def __post_init__(self) -> None:
         self.roi_id = _text(self.roi_id, "roi_id")
+        self.sample = sample_label(self.sample)
         self.dataset_id = _text(self.dataset_id, "dataset_id")
         self.calibration_id = _text(self.calibration_id, "calibration_id")
         self.name = _text(self.name, "name")

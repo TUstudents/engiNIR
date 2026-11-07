@@ -262,7 +262,7 @@ def test_a_fit_stores_its_sample_set_and_a_refit_reuses_it(qapp, state_and_proje
     (sample_set,) = project.sample_sets.values()
     assert sample_set.roi_ids == ["roi_1", "roi_2"] and sample_set.target_id == "target_1"
     assert sample_set.preprocessing_recipe_id == recipe_id_for(state.recipe)
-    assert captured[0]["cv"] == "auto"
+    assert captured[0]["cv"] == "auto" and captured[0]["fit_spec"] is None
     assert view._service_status.label.text() == "Service: model model_1"
 
     _wait_until(qapp, lambda: view._job_thread is None)
@@ -283,6 +283,32 @@ def test_a_fit_stores_its_sample_set_and_a_refit_reuses_it(qapp, state_and_proje
     assert project.sample_sets[project.model_runs["model_3"].sample_set_id] \
         .preprocessing_recipe_id == snv_id
     assert snv_id in captured[2]["recipes"]  # the fit was trained with the chosen recipe
+
+
+def test_holding_out_samples_together_reaches_the_fit_as_its_fold_groups(
+        qapp, state_and_project, monkeypatch):
+    """"Hold out together: Sample label" with "Leave one out" fits with group_by sample."""
+    from enginir.viewer._modeling import FitModelRunDialog, ModelingView
+
+    state, project = state_and_project
+    _labelled_rois(state, project)
+
+    def fake_exec(self):
+        self._signal_unit_combo.setCurrentIndex(self._signal_unit_combo.findText("Reflectance"))
+        self._cv_combo.setCurrentIndex(self._cv_combo.findData("logo"))
+        self._group_by_combo.setCurrentIndex(self._group_by_combo.findData("sample"))
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(FitModelRunDialog, "exec", fake_exec)
+    captured: list[dict[str, object]] = []
+    monkeypatch.setattr("enginir.modeling.fit_model_run", _fake_fit(captured))
+    view = ModelingView(state, project)
+    view._selected_target_id = "target_1"
+    view.fit_model_btn_clicked()
+    _wait_until(qapp, lambda: "model_1" in project.model_runs)
+    spec = captured[0]["fit_spec"]
+    assert captured[0]["cv"] is None
+    assert (spec.group_by, spec.fold_rule) == ("sample", "leave_one_group_out")
 
 
 def test_a_failed_fit_stores_nothing(qapp, state_and_project, monkeypatch):
