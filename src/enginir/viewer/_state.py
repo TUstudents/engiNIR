@@ -1109,9 +1109,20 @@ class ViewerState(QObject):
         return denom
 
     def _apply_preprocessing(self, img: np.ndarray) -> np.ndarray:
-        """Apply the current recipe to one frame, fitting MSC/EMSC on that frame."""
-        for _, transformer in self.recipe.build_steps(self.wavelengths):
+        """Apply the current recipe to one frame, fitting MSC/EMSC on that frame.
+
+        Bands a Savitzky-Golay filter drops (``sg_edges="drop"``) are returned
+        as NaN (missing), so band indices stay those of the data file.
+        """
+        n_bands = img.shape[1]
+        for _, transformer in self.recipe.build_steps(self.wavelengths,
+                                                      signal_unit=self.y_unit):
             img = np.asarray(transformer.fit_transform(img), dtype=_WORKING_DTYPE)
+        trim = self.recipe.sg_trim
+        if trim and img.shape[1] != n_bands:
+            padded = np.full((img.shape[0], n_bands), np.nan, dtype=_WORKING_DTYPE)
+            padded[:, trim:n_bands - trim] = img
+            img = padded
         return img
 
     def current_frame_image(self) -> np.ndarray:

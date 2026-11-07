@@ -93,12 +93,17 @@ The controls set what the panels show:
   calibrated file has no DN. Your choice is kept when you show another data
   file that can give it.
 - **Filtering**: Savitzky-Golay smoothing, first or second derivative, with
-  window and polynomial order.
+  window and polynomial order. As in SIMCA, the first and last half-window
+  bands have no full window and are left out: they are blank in the spectrum
+  and the sensor frame, and the model uses the remaining bands.
 - **Normalization**: SNV, MSC, EMSC and detrending, combinable.
 - **Axis**: wavelength or band index; pixels or millimetres.
 
 Processing is always applied in the same order as in model training: signal
 conversion, then filtering, then normalization (SNV, MSC, EMSC, detrend).
+AsLS baseline correction, which comes before filtering, is available in
+scripts only (:class:`~enginir.preprocessing.PreprocessingRecipe`); a model
+fitted with it shows "AsLS" in its name, and **Fit again...** keeps it.
 
 To record training data:
 

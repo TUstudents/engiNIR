@@ -1,4 +1,4 @@
-"""Baseline-removal and smoothing transformers: Detrend and Smoother."""
+"""Baseline-removal and smoothing transformers: AsLSBaseline, Detrend and Smoother."""
 
 from __future__ import annotations
 
@@ -23,6 +23,157 @@ logger = get_logger(__name__)
 
 _SMOOTHER_METHODS = ("moving_average", "whittaker")
 _WHITTAKER_BLOCK_ROWS = 1024  # rows solved per float64 block
+_ASLS_BLOCK_ROWS = 4096  # spectra solved together, in float64
+_ASLS_DIRECTIONS = ("up", "down")
+
+
+def _second_difference_bands(n: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Main, first and second sub-diagonals of DᵀD for the second difference D (n points).
+
+    ``sub1[i]`` is entry ``(i, i - 1)`` and ``sub2[i]`` entry ``(i, i - 2)``
+    (zero where undefined).
+    """
+    if n < 8:  # few bands: the edge rows overlap, take the bands of the dense product
+        D = np.diff(np.eye(n), n=2, axis=0)
+        dtd = D.T @ D
+        return np.diag(dtd).copy(), np.r_[0.0, np.diag(dtd, -1)], np.r_[0.0, 0.0, np.diag(dtd, -2)]
+    main = np.full(n, 6.0)
+    main[[0, -1]], main[[1, -2]] = 1.0, 5.0
+    sub1 = np.full(n, -4.0)
+    sub1[0], sub1[[1, -1]] = 0.0, -2.0
+    sub2 = np.ones(n)
+    sub2[:2] = 0.0
+    return main, sub1, sub2
+
+
+def _solve_pentadiagonal(diag: np.ndarray, sub1: np.ndarray, sub2: np.ndarray,
+                         rhs: np.ndarray) -> np.ndarray:
+    """Solve symmetric positive-definite pentadiagonal systems by LDLᵀ, one per column.
+
+    ``diag`` and ``rhs`` are ``(n, columns)`` (band-major, so that every step
+    reads contiguous rows); ``sub1``/``sub2`` (shared by all systems) are the
+    first and second sub-diagonals as in :func:`_second_difference_bands`.
+    O(n) per system, vectorized over the systems.
+    """
+    n = diag.shape[0]
+    d = np.empty_like(diag)
+    l1 = np.zeros_like(diag)
+    l2 = np.zeros_like(diag)
+    y = np.empty_like(rhs)
+    for i in range(n):
+        value = diag[i].copy()
+        right = rhs[i].copy()
+        if i >= 2:
+            np.divide(sub2[i], d[i - 2], out=l2[i])
+            value -= l2[i] * l2[i] * d[i - 2]
+            right -= l2[i] * y[i - 2]
+        if i >= 1:
+            coupling = sub1[i] - l2[i] * d[i - 2] * l1[i - 1] if i >= 2 else sub1[i]
+            np.divide(coupling, d[i - 1], out=l1[i])
+            value -= l1[i] * l1[i] * d[i - 1]
+            right -= l1[i] * y[i - 1]
+        d[i] = value
+        y[i] = right
+    x = y
+    x /= d
+    for i in range(n - 2, -1, -1):
+        x[i] -= l1[i + 1] * x[i + 1]
+        if i + 2 < n:
+            x[i] -= l2[i + 2] * x[i + 2]
+    return x
+
+
+class AsLSBaseline(TransformerMixin, EnginirEstimator):
+    """Asymmetric least-squares (AsLS) baseline correction.
+
+    For every spectrum z a smooth baseline b is fitted by minimizing
+    Σ wᵢ (zᵢ − bᵢ)² + λ Σ (Δ²b)ᵢ, where Δ² is the second difference. The
+    weights start at 1 and are then set from the previous baseline:
+    with ``direction="up"`` (peaks point up, e.g. absorbance) wᵢ = p where
+    zᵢ > bᵢ and 1 − p otherwise, so the baseline lies under the spectrum;
+    with ``direction="down"`` (absorption bands are dips, e.g. reflectance)
+    the step is AsLS of −z, negated (wᵢ = p where zᵢ < bᵢ, 1 − p otherwise),
+    and the baseline lies over the spectrum. The transform returns z − b.
+    Exactly ``n_iter`` solves are done; the solver works in float64.
+
+    Parameters
+    ----------
+    lam:
+        Stiffness λ of the baseline, positive. Default ``1e4``. A camera
+        with more bands needs a larger λ for the same baseline (roughly with
+        the fourth power of the band count); check the baseline in a plot.
+    p:
+        Asymmetry, ``0 < p < 0.5``. Default ``0.001``.
+    n_iter:
+        Number of weighted solves, ``>= 1``. Default ``10``.
+    direction:
+        ``"up"`` (default) or ``"down"``, see above.
+
+    References
+    ----------
+    P. H. C. Eilers, H. F. M. Boelens, "Baseline correction with asymmetric
+    least squares smoothing", Leiden University Medical Centre report (2005).
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> x = np.linspace(0, 1, 200)
+    >>> z = 0.5 + x + np.exp(-((x - 0.5) / 0.02) ** 2)
+    >>> corrected = AsLSBaseline(lam=1e5).fit_transform(z[None, :])
+    >>> bool(abs(corrected[0, 0]) < 0.05 and corrected[0, 100] > 0.9)
+    True
+    """
+
+    def __init__(self, lam: float = 1e4, p: float = 0.001, n_iter: int = 10,
+                 direction: str = "up") -> None:
+        self.lam = lam
+        self.p = p
+        self.n_iter = n_iter
+        self.direction = direction
+
+    def fit(self, X: np.ndarray, y: object = None) -> AsLSBaseline:
+        """Return ``self`` unchanged; the baseline is fitted per spectrum in ``transform``."""
+        return self
+
+    def transform(self, X: np.ndarray) -> np.ndarray:
+        """Subtract the AsLS baseline of every spectrum (row) of ``X``.
+
+        Parameters
+        ----------
+        X:
+            Spectra, shape ``(n_samples, n_wavelengths)``.
+
+        Returns
+        -------
+        numpy.ndarray
+            Baseline-corrected spectra, same shape and floating dtype as ``X``.
+        """
+        lam = check_real(self.lam, "lam", positive=True)
+        p = check_real(self.p, "p")
+        if not 0.0 < p < 0.5:
+            log_and_raise("p must be between 0 and 0.5, got {}", p)
+        n_iter = check_integer(self.n_iter, "n_iter", minimum=1)
+        check_choice(self.direction, "direction", _ASLS_DIRECTIONS)
+        X = as_float_matrix(X, "X")
+        n = X.shape[1]
+        if n < 3:
+            log_and_raise("AsLS needs at least 3 wavelengths, got {}", n)
+        main, sub1, sub2 = _second_difference_bands(n)
+        sub1, sub2 = lam * sub1, lam * sub2
+        sign = 1.0 if self.direction == "up" else -1.0
+        out = np.empty_like(X)
+        stiffness = lam * main[:, None]
+        for start in range(0, X.shape[0], _ASLS_BLOCK_ROWS):
+            # band-major float64 block: one system per column
+            z = np.ascontiguousarray(X[start:start + _ASLS_BLOCK_ROWS].T, dtype=np.float64)
+            weights = np.ones_like(z)
+            baseline = z
+            for iteration in range(n_iter):
+                baseline = _solve_pentadiagonal(weights + stiffness, sub1, sub2, weights * z)
+                if iteration < n_iter - 1:
+                    weights = np.where(sign * (z - baseline) > 0, p, 1.0 - p)
+            out[start:start + z.shape[1]] = (z - baseline).T
+        return out
 
 
 class Detrend(TransformerMixin, EnginirEstimator):
@@ -209,4 +360,4 @@ class Smoother(TransformerMixin, EnginirEstimator):
         return out
 
 
-__all__ = ["Detrend", "Smoother"]
+__all__ = ["AsLSBaseline", "Detrend", "Smoother"]

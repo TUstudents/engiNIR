@@ -5,7 +5,7 @@ All preprocessing classes follow the scikit-learn transformer API
 (``fit`` / ``transform`` / ``fit_transform``) and can be composed in a
 ``sklearn.pipeline.Pipeline``.
 
-For sample-wise transforms (SNV, SavitzkyGolay, Detrend, Smoother) the
+For sample-wise transforms (SNV, SavitzkyGolay, AsLSBaseline, Detrend, Smoother) the
 ``fit`` step is a no-op: the same transform is applied to any new data
 without re-fitting.  MSC and EMSC store a reference spectrum during ``fit``
 and use it during ``transform``.
@@ -126,8 +126,65 @@ Savitzky-Golay assumes evenly spaced bands. Derivatives are per band by
 default; pass the band spacing as ``delta`` (e.g. in nm) to express them per
 unit wavelength.
 
+The first and last ``window_length // 2`` bands have no full window. The
+transformer extrapolates them by default (``edges="interp"``, same shape as
+the input); ``edges="drop"`` leaves them out, as SIMCA does:
+
+.. code-block:: python
+
+   d1 = SavitzkyGolay(window_length=15, polyorder=2, deriv=1, edges="drop")
+   d1.fit_transform(X).shape   # (n_samples, n_bands - 14)
+
+Recipes drop the edges by default (``sg_edges="drop"``, below): the
+extrapolated bands are the least reliable, and a model built in SIMCA from the
+same spectra then has the same bands (SIMCA sets them to missing and leaves
+them out, e.g. 86 of 100 bands for a 15-point window). The interior is the
+same with both settings.
+
 Baseline Correction
 -------------------
+
+AsLS
+~~~~
+
+:class:`~enginir.preprocessing.AsLSBaseline` (asymmetric least squares,
+Eilers and Boelens) fits a smooth baseline under each spectrum and subtracts
+it. The baseline b minimizes Σ wᵢ (zᵢ − bᵢ)² + λ Σ ((Δ²b)ᵢ)², where Δ² is the
+second difference; points above the baseline get the small weight p, points
+below it 1 − p, so the baseline follows the lower envelope and the peaks
+stay. Ten weighted solves are done by default.
+
+.. code-block:: python
+
+   from enginir.preprocessing import AsLSBaseline
+
+   asls = AsLSBaseline(lam=1e4, p=0.001)                  # absorbance: peaks up
+   X_corrected = asls.fit_transform(X)
+   AsLSBaseline(lam=1e4, p=0.001, direction="down")      # reflectance: bands are dips
+
+``lam`` sets the stiffness of the baseline: small values follow broad bands
+too, large values give an almost straight line. It depends on the number of
+bands (roughly with its fourth power, so a camera with twice the bands needs
+about 16 times the λ for the same baseline); ``p`` sets how strongly points
+above the baseline are ignored. Choose both by looking at the baseline of a
+few spectra:
+
+.. code-block:: python
+
+   import matplotlib.pyplot as plt
+
+   for lam in (1e2, 1e4, 1e6):
+       corrected = AsLSBaseline(lam=lam, p=0.001).fit_transform(X[:1])
+       plt.plot(wl, X[0] - corrected[0], label=f"λ = {lam:g}")   # the baseline
+   plt.plot(wl, X[0], "k", linewidth=0.8)
+   plt.legend()
+
+In a recipe, AsLS is the first step and is chosen in scripts only (the viewer
+shows and keeps it, but has no controls for it). Its direction comes from the
+model's signal unit: as is for absorbance, flipped for reflectance and raw
+counts (DN), where absorption bands are dips. The defaults, λ = 10000 and
+p = 0.001, are those verified against SIMCA 18 exports (SIMCA's Python API
+defaults to p = 0.01).
 
 Detrend
 ~~~~~~~
@@ -182,7 +239,7 @@ used standalone to save and restore pipeline settings:
    d = recipe.to_dict()
    # {"filter": "sg_d1", "sg_window": 11, "sg_polyorder": 2,
    #  "snv": True, "msc": False, "emsc": False,
-   #  "detrend": False, "detrend_order": 1}
+   #  "detrend": False, "detrend_order": 1, "sg_edges": "drop"}
 
    # Round-trip from dict (unknown keys are logged and discarded)
    recipe2 = PreprocessingRecipe.from_dict(d)
@@ -196,10 +253,35 @@ integer greater than or equal to 3, ``sg_polyorder`` must be at least 1 and
 less than ``sg_window``, and ``detrend_order`` must be non-negative.
 ``build_steps`` rejects a ``sg_window`` longer than the spectrum instead of
 shrinking it, so the filter that runs is always the one the recipe states.
-Persisted project recipes contain all eight fields shown above. Missing fields
-are rejected rather than reconstructed from Python defaults; unknown fields
-are logged and discarded. The recipe id is supplied by its
-``/recipes/{recipe_id}`` project path.
+Persisted project recipes contain the eight fields ``filter`` to
+``detrend_order``. Missing fields are rejected rather than reconstructed
+from Python defaults; unknown fields are logged and discarded. The recipe id
+is supplied by its ``/recipes/{recipe_id}`` project path.
+
+Steps are applied in a fixed order: AsLS, Savitzky-Golay, SNV, MSC, EMSC,
+Detrend. Two groups of fields are written only when they change what the
+recipe does, so recipes stored before keep their ids:
+
+- ``sg_edges="drop"`` (the default of new recipes with a Savitzky-Golay
+  filter) leaves out the edge bands; a stored recipe without the field
+  extrapolates them (``"interp"``), and refitting it gives the same model as
+  before. A recipe given as a dict is the stored form, so a dict without
+  ``sg_edges`` keeps the edges. With ``"drop"`` the preprocessed spectra,
+  the model's coefficients and loadings and its stored wavelengths use the
+  shorter axis (:meth:`~enginir.preprocessing.PreprocessingRecipe.output_wavelengths`);
+  the scans to predict keep all their bands.
+- ``asls=True`` with ``asls_lambda``, ``asls_p`` and ``asls_iterations``
+  adds AsLS baseline correction:
+
+.. code-block:: python
+
+   recipe = PreprocessingRecipe(asls=True, asls_lambda=1e4, asls_p=0.001,
+                                filter="sg_d1", sg_window=15, snv=True)
+   recipe.output_wavelengths(wl)      # wl without its first and last 7 bands
+   project.fit("API", recipe=recipe, n_components=3)
+
+Projects with these fields need this version of engiNIR or later: an older
+version would discard them and replay a different recipe.
 
 Pipeline example
 ----------------

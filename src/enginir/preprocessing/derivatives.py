@@ -7,10 +7,19 @@ from scipy.signal import savgol_filter
 from .._estimator import EnginirEstimator
 from sklearn.base import TransformerMixin
 
-from enginir._checks import as_float_matrix, check_integer, check_real, log_and_raise
+from enginir._checks import (
+    as_float_matrix,
+    check_choice,
+    check_integer,
+    check_real,
+    log_and_raise,
+)
 from enginir._logging import get_logger
 
 logger = get_logger(__name__)
+
+#: Edge handling of :class:`SavitzkyGolay`.
+SG_EDGES = ("interp", "drop")
 
 
 class SavitzkyGolay(TransformerMixin, EnginirEstimator):
@@ -20,8 +29,11 @@ class SavitzkyGolay(TransformerMixin, EnginirEstimator):
     window of ``window_length`` consecutive wavelengths, and the value (or
     derivative) of that polynomial at the window centre replaces the centre
     point. The filter is applied to every spectrum independently using
-    :func:`scipy.signal.savgol_filter` with its default ``mode="interp"``
-    edge handling.
+    :func:`scipy.signal.savgol_filter`. The first and last
+    ``window_length // 2`` points have no full window: ``edges="interp"``
+    (default) extrapolates them with the polynomial of the first and last
+    window, ``edges="drop"`` leaves them out (as SIMCA does), so the output
+    has ``2 * (window_length // 2)`` fewer wavelengths.
 
     Parameters
     ----------
@@ -39,6 +51,8 @@ class SavitzkyGolay(TransformerMixin, EnginirEstimator):
         unit of ``delta``: the default ``1.0`` gives derivatives per band;
         passing the wavelength step in nm gives derivatives per nm. Ignored
         when ``deriv == 0``.
+    edges:
+        ``"interp"`` (default, same shape as the input) or ``"drop"``.
 
     References
     ----------
@@ -61,11 +75,13 @@ class SavitzkyGolay(TransformerMixin, EnginirEstimator):
         polyorder: int = 2,
         deriv: int = 1,
         delta: float = 1.0,
+        edges: str = "interp",
     ) -> None:
         self.window_length = window_length
         self.polyorder = polyorder
         self.deriv = deriv
         self.delta = delta
+        self.edges = edges
 
     def fit(self, X: np.ndarray, y: object = None) -> SavitzkyGolay:
         """Return ``self`` unchanged; the filter has no fitted state."""
@@ -82,8 +98,9 @@ class SavitzkyGolay(TransformerMixin, EnginirEstimator):
         Returns
         -------
         numpy.ndarray
-            Smoothed spectra or derivatives with the same shape and floating
-            dtype as ``X``.
+            Smoothed spectra or derivatives with the floating dtype of ``X``;
+            the same shape, or ``2 * (window_length // 2)`` fewer columns with
+            ``edges="drop"``.
 
         Raises
         ------
@@ -96,6 +113,7 @@ class SavitzkyGolay(TransformerMixin, EnginirEstimator):
         polyorder = check_integer(self.polyorder, "polyorder", minimum=0)
         deriv = check_integer(self.deriv, "deriv", minimum=0)
         delta = check_real(self.delta, "delta", positive=True)
+        check_choice(self.edges, "edges", SG_EDGES)
         if window_length % 2 == 0:
             log_and_raise("window_length must be odd, got {}", window_length)
         if window_length > X.shape[1]:
@@ -122,7 +140,10 @@ class SavitzkyGolay(TransformerMixin, EnginirEstimator):
             delta=delta,
             axis=1,
         )
+        if self.edges == "drop":
+            half = window_length // 2
+            filtered = filtered[:, half:X.shape[1] - half]
         return np.asarray(filtered, dtype=X.dtype)
 
 
-__all__ = ["SavitzkyGolay"]
+__all__ = ["SG_EDGES", "SavitzkyGolay"]

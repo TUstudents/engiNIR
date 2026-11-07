@@ -173,6 +173,18 @@ For each included ROI:
 - apply the selected preprocessing recipe after the required signal-domain conversion
 - append each pixel spectrum to `X`
 
+A recipe without MSC or EMSC acts on each spectrum alone and is applied
+once before cross-validation. A recipe with MSC or EMSC is fitted and
+applied inside every fold (all its steps, through the fold pipeline);
+either way the result equals applying the whole recipe per fold. AsLS
+takes its direction from the signal domain's signal unit
+(`project-schema-contract_v3.md` §4). A recipe with `sg_edges = drop` gives
+`X` the recipe's output axis (fewer bands than the signal domain); the
+model's coefficients, loadings, projection data (`x_mean`, `x_std`,
+`rotations`, `loadings`), MSC/EMSC state and the stored wavelengths of
+`prediction_model` and `diagnostics` use that axis, and K in §7.2 and §7.5
+is its band count.
+
 Memory-aware v3 rules:
 
 - multi-ROI sample-set construction should use one batched/single-file-open

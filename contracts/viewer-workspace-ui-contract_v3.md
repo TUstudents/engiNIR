@@ -395,7 +395,15 @@ Required controls:
   for the target, from all data files
 - **Fit again...** opens the fit dialog with every choice of the selected
   model (target, preprocessing, model, components, scaling, folds, pixel
-  sample, exclusion), e.g. to fit with another number of components
+  sample, exclusion), e.g. to fit with another number of components; the
+  stored recipe's AsLS fields and `sg_edges` are kept (the dialog has no
+  controls for them and cannot add AsLS; a recipe with AsLS is labelled
+  "AsLS")
+- Savitzky-Golay in the fit dialog and in Explore drops the edge bands
+  (`sg_edges = drop`, the default of new recipes); in the Explore preview
+  of preprocessed spectra (spectrum, sensor frame, histogram) the dropped
+  bands are missing (blank), so band indices stay those of the data file;
+  the Project ROIs spectra are drawn on the recipe's output axis
 - the inspector shows how a model run was fitted: folds and fold groups,
   pixel sample, scaling, exclusion settings, excluded pixels per ROI,
   flagged ROIs and DCrit

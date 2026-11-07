@@ -517,8 +517,8 @@ def test_fit_model_run_preprocesses_stateless_recipe_once_before_cv(tmp_path, mo
     ).astype(np.float32)
     preprocess_calls: list[np.ndarray] = []
 
-    def _fake_apply_preprocessing_recipe(X, *, recipe, wavelengths):
-        del recipe, wavelengths
+    def _fake_apply_preprocessing_recipe(X, *, recipe, wavelengths, signal_unit=None):
+        del recipe, wavelengths, signal_unit
         preprocess_calls.append(np.asarray(X))
         return transformed
 

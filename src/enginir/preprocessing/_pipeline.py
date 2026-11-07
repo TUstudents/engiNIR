@@ -31,12 +31,15 @@ def make_model_pipeline(
     recipe: PreprocessingRecipe,
     wavelengths: np.ndarray,
     estimator: Any,
+    signal_unit: str | None = None,
 ) -> Pipeline:
     """Return an unfitted pipeline of the recipe steps followed by ``estimator``.
 
-    The estimator is the final step, named ``"model"``.
+    The estimator is the final step, named ``"model"``. ``signal_unit`` is
+    passed to :meth:`PreprocessingRecipe.build_steps` (required with AsLS).
     """
-    return Pipeline([*recipe.build_steps(wavelengths), ("model", estimator)])
+    return Pipeline([*recipe.build_steps(wavelengths, signal_unit=signal_unit),
+                     ("model", estimator)])
 
 
 def apply_preprocessing_recipe(
@@ -44,14 +47,17 @@ def apply_preprocessing_recipe(
     *,
     recipe: PreprocessingRecipe,
     wavelengths: np.ndarray,
+    signal_unit: str | None = None,
 ) -> np.ndarray:
     """Fit and apply every recipe step to ``X`` in ``float32``.
 
     Only leakage-free for cross-validation when ``recipe.requires_fitting`` is
     ``False``; MSC and EMSC must otherwise be fitted inside each training fold.
+    The result has the recipe's output bands
+    (:meth:`PreprocessingRecipe.output_wavelengths`).
     """
     X_out = np.asarray(X, dtype=_WORKING_DTYPE)
-    for _, transformer in recipe.build_steps(wavelengths):
+    for _, transformer in recipe.build_steps(wavelengths, signal_unit=signal_unit):
         X_out = np.asarray(transformer.fit_transform(X_out), dtype=_WORKING_DTYPE)
     return X_out
 

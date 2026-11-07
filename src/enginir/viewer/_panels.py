@@ -47,6 +47,12 @@ __all__ = [
 # ------------------------------------------------------------------
 
 
+
+def _finite_histogram(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """256-bin histogram of the finite values (bands a recipe drops are NaN)."""
+    finite = values[np.isfinite(values)]
+    return np.histogram(finite if finite.size else np.zeros(1), bins=256)
+
 class _PanelBase(QWidget):
     """Shared behaviour of the Explore panels: header title, CSV provenance, deferral.
 
@@ -348,7 +354,7 @@ class HistogramPanel(_BasePanelWidget):
             self._show_empty("No dataset attached")
             return
         colors = panel_colors()
-        counts, edges = np.histogram(self._state.current_frame_image(), bins=256)
+        counts, edges = _finite_histogram(self._state.current_frame_image())
         self._ax.clear()
         self._style_ax()
         # One filled step artist, updated in place on every frame change (a bar per bin
@@ -369,7 +375,7 @@ class HistogramPanel(_BasePanelWidget):
             self._build()
             return
         colors = panel_colors()
-        counts, edges = np.histogram(self._state.current_frame_image(), bins=256)
+        counts, edges = _finite_histogram(self._state.current_frame_image())
         self._stairs.set_data(counts, edges)
         unit = self._state.y_unit_effective
         self._ax.set_xlabel(unit, color=colors["fg"], fontsize=8)

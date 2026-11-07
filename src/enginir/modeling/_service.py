@@ -392,19 +392,22 @@ def fit_model_run(
                                      signal_domain)
 
     recipe = PreprocessingRecipe.from_dict(recipes[sample_set.preprocessing_recipe_id])
+    signal_unit = signal_domain.required_signal_unit  # AsLS direction (schema contract §4)
+    model_wavelengths = recipe.output_wavelengths(data.wavelengths)
     hyperparameters = _with_default_scaling(model_type, dict(hyperparameters or {}))
     # Stateless recipes are applied once; MSC/EMSC must be fitted inside each fold.
     if recipe.requires_fitting:
         X_cv = X_signal
     else:
-        X_cv = apply_preprocessing_recipe(X_signal, recipe=recipe, wavelengths=data.wavelengths)
+        X_cv = apply_preprocessing_recipe(X_signal, recipe=recipe, wavelengths=data.wavelengths,
+                                          signal_unit=signal_unit)
         del X_signal  # only the preprocessed matrix is needed from here on
 
     def model_with(params: dict[str, Any]) -> Any:
         estimator = _ESTIMATORS[model_type](**params)
         if recipe.requires_fitting:
             return make_model_pipeline(recipe=recipe, wavelengths=data.wavelengths,
-                                       estimator=estimator)
+                                       estimator=estimator, signal_unit=signal_unit)
         return estimator
     # ROI ids are random, so the splitter gets each ROI's fold-group index
     # (its position in the sample set with group_by "roi") instead: folds
@@ -446,7 +449,7 @@ def fit_model_run(
     exclusion: DModXExclusion | None = None
     if recipe.requires_fitting:
         predictor: Any = make_model_pipeline(recipe=recipe, wavelengths=data.wavelengths,
-                                             estimator=estimator)
+                                             estimator=estimator, signal_unit=signal_unit)
         if spec.exclusion == "dmodx":
             exclusion = _excluding(predictor, spec, roi_index).fit(X_cv, data.y)
             predictor = exclusion.estimator_
@@ -459,7 +462,8 @@ def fit_model_run(
             estimator = exclusion.estimator_
         else:
             estimator.fit(X_cv, data.y)
-        predictor = _StatelessRecipePredictor(recipe.build_steps(data.wavelengths), estimator)
+        predictor = _StatelessRecipePredictor(
+            recipe.build_steps(data.wavelengths, signal_unit=signal_unit), estimator)
     n_excluded = 0 if exclusion is None else int(exclusion.excluded_.sum())
     kept = (np.ones(X_cv.shape[0], dtype=bool) if exclusion is None
             else ~np.asarray(exclusion.excluded_))
@@ -510,14 +514,14 @@ def fit_model_run(
         artifact_refs={
             "prediction_model": {
                 "model_type": type(estimator).__name__,
-                "wavelengths": data.wavelengths.astype(_WORKING_DTYPE),
+                "wavelengths": model_wavelengths.astype(_WORKING_DTYPE),
                 "target_names": [target_name or sample_set.target_id],
                 "coef_": np.asarray(estimator.coef_, dtype=_WORKING_DTYPE),
                 "intercept_": np.atleast_1d(np.asarray(estimator.intercept_, _WORKING_DTYPE)),
                 **_preprocessing_state_entry(predictor, recipe),
                 **projection,
             },
-            "diagnostics": {**_diagnostics_artifact(estimator, data.wavelengths), **training},
+            "diagnostics": {**_diagnostics_artifact(estimator, model_wavelengths), **training},
             "component_curve": curve,
             "cv_outputs": {"roi_ids": roi_ids, "y_true_roi": roi_y_true,
                            "y_pred_roi": roi_y_pred},
@@ -947,7 +951,7 @@ def roi_spectrum_summaries(
     if not signal:
         return summaries, skipped
     wavelengths = np.asarray(next(iter(by_id.values())).wavelengths)
-    steps = recipe.build_steps(wavelengths)
+    steps = recipe.build_steps(wavelengths, signal_unit=signal_unit)
     # Fit the steps in order on the ROI means: stateless steps ignore it, MSC/EMSC
     # learn their reference from it.
     fitted = np.stack([values.mean(axis=0) for values in signal.values()]).astype(_WORKING_DTYPE)

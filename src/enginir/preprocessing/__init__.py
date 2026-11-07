@@ -10,19 +10,20 @@ Scatter correction
 Smoothing and derivatives
     :class:`SavitzkyGolay`, :class:`Smoother`
 Baseline removal
-    :class:`Detrend`
+    :class:`AsLSBaseline`, :class:`Detrend`
 Serializable pipelines
     :class:`PreprocessingRecipe` describes a preprocessing pipeline as a value
     object that is stored in project files and rebuilt for model fitting and
     prediction.
 """
 
-from .baseline import Detrend, Smoother
+from .baseline import AsLSBaseline, Detrend, Smoother
 from .derivatives import SavitzkyGolay
 from .recipe import PreprocessingRecipe
 from .scatter import EMSC, MSC, SNV
 
 __all__ = [
+    "AsLSBaseline",
     "Detrend",
     "EMSC",
     "MSC",

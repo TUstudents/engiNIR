@@ -186,8 +186,12 @@ and writes nothing they would reject.
   viewer do not check names (`viewer-workspace-ui-contract_v3.md`,
   Identity in the viewer)
 - the name-based calls released in 1.0 stay supported
+- `recipe` is a `PreprocessingRecipe` or a mapping; a mapping is the
+  persisted form (`project-schema-contract_v3.md` §4), where an absent
+  `sg_edges` means `interp` and an absent `asls` means no AsLS
 - `fit` names a model `"{model} {n} LV, {recipe summary}"` (e.g.
-  `"PLS 2 LV, SNV"`) unless `name` is given, adding ` (2)`, ` (3)`, … when the
+  `"PLS 2 LV, SNV"`; the summary names AsLS and marks a Savitzky-Golay
+  filter that keeps its edges) unless `name` is given, adding ` (2)`, ` (3)`, … when the
   name exists
 
 ### Derived objects

@@ -173,7 +173,7 @@ A persisted preprocessing recipe is an executable scientific value object.
 Its stable `recipe_id` is the `{recipe_id}` path component under `/recipes`;
 the id is not duplicated inside the recipe payload.
 
-Every persisted recipe requires exactly these current fields:
+Every persisted recipe requires these eight fields:
 
 - `filter`: one of `none`, `sg_smooth`, `sg_d1`, or `sg_d2`
 - `sg_window`: odd integer greater than or equal to 3
@@ -186,10 +186,73 @@ Every persisted recipe requires exactly these current fields:
 
 All eight fields are required even when a switch is false or `filter` is
 `none`. Python defaults are construction conveniences, not missing-field
-defaults for persisted projects. The execution order is Savitzky-Golay,
-SNV, MSC, EMSC, then detrending for the enabled steps.
+defaults for persisted projects.
 
-Recipe timestamps and arbitrary additional recipe parameters are not part of
+Two groups of optional fields were added by the release that introduced
+SIMCA preprocessing (planned 1.3). They are written only when they change
+what the recipe executes, so every recipe stored before keeps its content
+and its id:
+
+- `sg_edges`: `drop` or `interp`, how a Savitzky-Golay filter treats the
+  first and last ⌊`sg_window`/2⌋ bands. `drop` removes them (the spectra get
+  K − 2⌊`sg_window`/2⌋ bands, as in SIMCA); `interp` keeps them, extrapolated
+  by the polynomial of the first and last window. Written only when `filter`
+  is a Savitzky-Golay filter and the value is `drop`; a stored recipe without
+  the field means `interp`. New recipe objects default to `drop`; a recipe
+  given as a mapping is the persisted form, where an absent field means
+  `interp`. Without a Savitzky-Golay filter the field has no effect: it is
+  normalized to `drop` (the default) and not written, so `from_dict` yields
+  `interp` only for a Savitzky-Golay recipe without the field.
+- `asls` (boolean), `asls_lambda` (positive real), `asls_p` (real,
+  0 < p < 0.5), `asls_iterations` (integer ≥ 1): asymmetric least-squares
+  baseline correction. Written, all four, only when `asls` is true; a stored
+  recipe without them means `asls = false`. With `asls` false the other
+  three have no effect and are normalized to their defaults (10000, 0.001,
+  10). `asls_lambda` and `asls_p` are finite and normalized to float
+  (float64 attributes), `asls_iterations` to int, before the id is computed,
+  so `10000` and `10000.0` give the same recipe and id.
+
+Reading: an explicit `sg_edges = interp` equals an absent field; `sg_edges`
+without a Savitzky-Golay filter and AsLS parameters with `asls = false` are
+accepted and normalized; an `sg_edges` value other than `drop` or `interp`
+is rejected; `asls = true` with any of the three parameters missing is a
+missing-field error, never filled from defaults. "The same content" below
+compares the normalized stored recipe with the normalized new one.
+
+The execution order is AsLS, Savitzky-Golay, SNV, MSC, EMSC, then
+detrending for the enabled steps. AsLS fits, for every spectrum z, the
+baseline b that minimizes Σᵢ wᵢ(zᵢ − bᵢ)² + λ Σᵢ ((Δ²b)ᵢ)², i.e. solves
+(W + λDᵀD) b = W z, with Δ² (D) the second difference over the band index
+(unit spacing; wavelength values are not used) and weights from the
+previous solve (start: all 1). Exactly `asls_iterations` solves are done
+(no early stop); the step returns z − b. When the signal unit is
+`Absorbance` (peaks point up, the baseline lies under the spectrum) the
+weights are p where zᵢ > bᵢ and 1 − p otherwise; for `Reflectance` and `DN`
+(absorption bands are dips, the baseline lies over the spectrum) the step
+is AsLS of −z, negated: weights p where zᵢ < bᵢ and 1 − p otherwise. A
+recipe with AsLS cannot be applied without a signal unit. The signal unit
+is the model's (its signal domain), so fitting and prediction use the same
+direction. λ is applied as given, not rescaled with the band count; the
+stiffness grows roughly with K⁴, so a camera with more bands needs a larger
+λ. AsLS runs on the full input axis (before Savitzky-Golay); input and
+output are float32, the solver works in float64. AsLS and Savitzky-Golay
+act on each spectrum alone (stateless).
+
+A recipe with `sg_edges = drop` changes the number of bands: its output
+axis is the input axis without the dropped bands (`output_wavelengths`).
+Later steps (MSC and EMSC references, Detrend), the model (coefficients,
+loadings, `x_mean`, `x_std`, `rotations`, stored `wavelengths` of
+`prediction_model` and `diagnostics`), K in the DModX, s0, DCrit and DModXPS
+formulas (as SIMCA's K = 86 of 100 bands for a 15-point window),
+preprocessed ROI spectrum summaries and plots, and prediction use the
+output axis; the signal domain keeps the input bands.
+
+Projects with these fields need the release that introduced them or later:
+an older version would discard them as unknown fields and replay a
+different recipe (with `drop` its band check fails; without, AsLS would be
+skipped silently).
+
+Recipe timestamps and other additional recipe parameters are not part of
 the v3 recipe schema. They follow the project extra-field policy: warn and
 discard. A future executable parameter requires a new explicit contract rather
 than being silently retained.
@@ -434,6 +497,7 @@ project.h5
 |   +-- @emsc
 |   +-- @detrend
 |   +-- @detrend_order
+|   +-- @sg_edges, @asls, @asls_lambda, @asls_p, @asls_iterations (optional, §4)
 |
 +-- /signal_domains/{signal_domain_id}/
 |   +-- signal-domain fields / attrs

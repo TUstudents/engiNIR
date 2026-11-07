@@ -674,7 +674,8 @@ class ProjectRoisView(QWidget):
     def _payload_base(self) -> dict[str, Any]:
         rois = self.project_state.rois
         first = next(iter(self._summaries), None)
-        wavelengths = rois[first].wavelengths if first in rois else np.array([])
+        wavelengths = (self.state.recipe.output_wavelengths(rois[first].wavelengths)
+                       if first in rois else np.array([]))
         return {"wavelengths": np.asarray(wavelengths), "signal_label":
                 getattr(self, "_signal_label", ""),
                 "names": {roi_id: rois[roi_id].name for roi_id in self._summaries

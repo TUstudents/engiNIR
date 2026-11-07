@@ -290,7 +290,18 @@ def save_preprocessing_recipe(
     recipe_id = str(recipe_id).strip()
     if not recipe_id:
         log_and_raise("recipe_id must be a non-empty string")
-    payload = PreprocessingRecipe.from_dict(recipe_dict, location=f"/recipes/{recipe_id}").to_dict()
+    location = f"/recipes/{recipe_id}"
+    payload = PreprocessingRecipe.from_dict(recipe_dict, location=location).to_dict()
+    with _open_project(path) as f:
+        existing = f["recipes"].get(recipe_id)
+        stored = read_mapping(existing) if isinstance(existing, h5py.Group) else None
+    if stored is not None:
+        # Compare normalized content (project-schema contract §4): a stored recipe
+        # that spells out a default (e.g. sg_edges = "interp") is the same recipe.
+        if PreprocessingRecipe.from_dict(stored, location=location).to_dict() == payload:
+            return
+        log_and_raise("Refusing to overwrite PreprocessingRecipe '{}' with different content; "
+                      "stable ids are immutable, use a new id", recipe_id)
     _save_object(path, "recipes", recipe_id, payload, "PreprocessingRecipe", compression)
 
 

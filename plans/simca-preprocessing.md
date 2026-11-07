@@ -1,6 +1,6 @@
 # Plan: SIMCA preprocessing (AsLS baseline correction, Savitzky-Golay without edges)
 
-Status: decided (2026-11-07), not started
+Status: implemented (2026-11-07, branch feature/weekend-plans); DN treated like reflectance (to be confirmed by the user)
 
 ## Goal
 

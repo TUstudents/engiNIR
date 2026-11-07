@@ -1652,8 +1652,10 @@ def _recipe_id(recipe: PreprocessingRecipe) -> str:
 
 
 def _recipe_label(recipe: PreprocessingRecipe) -> str:
-    steps = [{"sg_smooth": "SG", "sg_d1": "SG 1st der.", "sg_d2": "SG 2nd der."}[recipe.filter]
-             ] if recipe.filter != "none" else []
+    steps = ["AsLS"] if recipe.asls else []
+    if recipe.filter != "none":
+        sg = {"sg_smooth": "SG", "sg_d1": "SG 1st der.", "sg_d2": "SG 2nd der."}[recipe.filter]
+        steps.append(sg if recipe.sg_edges == "drop" else f"{sg} (edges kept)")
     steps += [label for label, on in (("SNV", recipe.snv), ("MSC", recipe.msc),
                                       ("EMSC", recipe.emsc), ("detrend", recipe.detrend)) if on]
     return " + ".join(steps) or "raw"

@@ -276,7 +276,9 @@ def preflight_prediction(
     n_chunks = max(1, -(-n_frames // chunk_size))
 
     wavelengths = np.asarray(signal_domain.wavelengths, dtype=_WORKING_DTYPE)
-    steps = recipe.build_steps(wavelengths)
+    steps = recipe.build_steps(wavelengths, signal_unit=signal_domain.required_signal_unit)
+    # The model sees the recipe's output bands (fewer with sg_edges="drop").
+    model_bands = int(recipe.output_wavelengths(wavelengths).shape[0])
     predictor = model_registry.get(model_run.model_run_id)
     model_blob = None
     if predictor is not None and prefer_saved_model:
@@ -296,17 +298,17 @@ def preflight_prediction(
         _check_recipe_aware(predictor, steps, model_run.model_run_id)
     else:
         model_blob = load_model_run_prediction_artifact(project_path, model_run.model_run_id)
-        _check_model_blob(model_blob, signal_domain.n_bands, model_run.model_run_id)
+        _check_model_blob(model_blob, model_bands, model_run.model_run_id)
         if recipe.requires_fitting:
             steps = restore_fitted_preprocessing_steps(
                 steps, recipe=recipe, state=model_blob.get("preprocessing_state")
             )
             for name, transformer in steps:
-                n_features = getattr(transformer, "n_features_in_", signal_domain.n_bands)
-                if n_features != signal_domain.n_bands:
+                n_features = getattr(transformer, "n_features_in_", model_bands)
+                if n_features != model_bands:
                     log_and_raise("Saved {} state of model run '{}' has {} bands, the model "
                                   "needs {}", name.upper(), model_run.model_run_id, n_features,
-                                  signal_domain.n_bands)
+                                  model_bands)
     logger.info("Prediction preflight: {} chunks of {} frames, cube shape {}", n_chunks,
                 chunk_size, dataset.cube_shape)
     return PredictionPreflight(
@@ -347,6 +349,10 @@ def _check_model_blob(blob: dict[str, Any], n_bands: int, model_run_id: str) -> 
     if len(coef_shape) not in (1, 2) or coef_shape[0] != n_bands:
         log_and_raise("Saved prediction model of model run '{}' has coefficients of shape {} "
                       "for {} bands", model_run_id, coef_shape, n_bands, depth=2)
+    for key in ("x_mean", "x_std"):  # projection data (applicability diagnostics)
+        if key in blob and np.size(blob[key]) != n_bands:
+            log_and_raise("Saved prediction model of model run '{}' has {} of {} bands for {} "
+                          "bands", model_run_id, key, np.size(blob[key]), n_bands, depth=2)
 
 
 def predict_with_model_run(

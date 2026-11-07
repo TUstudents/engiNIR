@@ -22,6 +22,9 @@ Derivatives
 Baseline Correction
 -------------------
 
+.. autoclass:: enginir.preprocessing.AsLSBaseline
+   :members: fit, transform
+
 .. autoclass:: enginir.preprocessing.Detrend
    :members: fit, transform
 
@@ -32,5 +35,5 @@ Recipe
 ------
 
 .. autoclass:: enginir.preprocessing.PreprocessingRecipe
-   :members: to_dict, from_dict
+   :members: to_dict, from_dict, build_steps, output_wavelengths, sg_trim, asls_direction, describe
    :member-order: bysource

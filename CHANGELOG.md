@@ -26,6 +26,12 @@
   `.provenance`.
 - Viewer: **Layer** selector in the Predict map (Prediction, DModX, T²) with
   the pixels above the limit marked, and the applicability summary.
+- AsLS baseline correction (asymmetric least squares, as in SIMCA):
+  `enginir.preprocessing.AsLSBaseline` and `PreprocessingRecipe(asls=True,
+  asls_lambda=..., asls_p=..., asls_iterations=...)`, first in the recipe
+  order, as is in absorbance and flipped in reflectance and DN. Scripts
+  only; the viewer shows and keeps it.
+- `SavitzkyGolay(edges="drop")` and `PreprocessingRecipe.output_wavelengths`.
 
 ### Changed
 
@@ -41,6 +47,17 @@
   listed in `project.predictions` as `StoredPrediction`.
 - `ProjectState.register_prediction_run` and `finalize_prediction_result`
   were removed; `predict_dataset` no longer takes `return_arrays`.
+- **Breaking:** Savitzky-Golay in recipes drops the first and last
+  `sg_window // 2` bands (`sg_edges="drop"`, the new default, as SIMCA does):
+  new models with a Savitzky-Golay filter have fewer bands (their
+  coefficients, loadings and stored wavelengths use the shorter axis) and
+  slightly different numbers. Stored recipes keep their ids and keep
+  extrapolating the edges (`"interp"`), so stored models refit unchanged;
+  `PreprocessingRecipe(..., sg_edges="interp")` keeps the old behaviour. A
+  recipe given as a dict is the stored form (without `sg_edges` it keeps the
+  edges). Projects with the new recipe fields need this version or later.
+- `PreprocessingRecipe.build_steps`, `make_model_pipeline` and
+  `apply_preprocessing_recipe` take `signal_unit` (required with AsLS).
 
 ## 1.2.0 (2026-11-07)
 

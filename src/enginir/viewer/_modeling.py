@@ -335,6 +335,13 @@ class FitModelRunDialog(QDialog):
         for widget in (self._snv, self._msc, self._emsc, self._detrend, self._detrend_order):
             scatter_row.addWidget(widget)
         layout.addRow("Normalization:", scatter_row)
+        # AsLS and the Savitzky-Golay edge handling have no controls here (scripts
+        # only); a preset recipe keeps them (viewer contract, Fit again).
+        self._kept_recipe = recipe
+        self._asls_label = QLabel("")
+        self._asls_label.setStyleSheet(secondary_text_style())
+        layout.addRow("", self._asls_label)
+        self._show_kept_recipe()
         self._filter_combo.currentIndexChanged.connect(self._update_enabled)
         self._detrend.toggled.connect(self._update_enabled)
         self._update_enabled()
@@ -551,11 +558,25 @@ class FitModelRunDialog(QDialog):
     @property
     def recipe(self) -> PreprocessingRecipe:
         """The chosen preprocessing (raises ``ValueError`` if it is not valid)."""
+        kept = self._kept_recipe
         return PreprocessingRecipe(
             filter=str(self._filter_combo.currentData()), sg_window=self._window_spin.value(),
             sg_polyorder=self._poly_spin.value(), snv=self._snv.isChecked(),
             msc=self._msc.isChecked(), emsc=self._emsc.isChecked(),
-            detrend=self._detrend.isChecked(), detrend_order=self._detrend_order.value())
+            detrend=self._detrend.isChecked(), detrend_order=self._detrend_order.value(),
+            sg_edges=kept.sg_edges, asls=kept.asls, asls_lambda=kept.asls_lambda,
+            asls_p=kept.asls_p, asls_iterations=kept.asls_iterations)
+
+    def _show_kept_recipe(self) -> None:
+        kept = self._kept_recipe
+        notes = []
+        if kept.asls:
+            notes.append(f"AsLS baseline correction first (λ={kept.asls_lambda:g}, "
+                         f"p={kept.asls_p:g}), kept from the recipe")
+        if kept.filter != "none" and kept.sg_edges == "interp":
+            notes.append("Savitzky-Golay edges kept (extrapolated), as in the recipe")
+        self._asls_label.setText("; ".join(notes))
+        self._asls_label.setVisible(bool(notes))
 
     def set_recipe(self, recipe: PreprocessingRecipe) -> None:
         """Choose a preprocessing (for scripts and tests)."""
@@ -566,6 +587,8 @@ class FitModelRunDialog(QDialog):
                            (self._emsc, recipe.emsc), (self._detrend, recipe.detrend)):
             box.setChecked(value)
         self._detrend_order.setValue(recipe.detrend_order)
+        self._kept_recipe = recipe
+        self._show_kept_recipe()
 
     @property
     def model_type(self) -> str:

@@ -295,12 +295,27 @@ logged and ignored.
 ├── @msc
 ├── @emsc
 ├── @detrend
-└── @detrend_order
+├── @detrend_order
+├── @sg_edges            optional: "drop" (only with a Savitzky-Golay filter)
+├── @asls                optional: true (with the three below)
+├── @asls_lambda
+├── @asls_p
+└── @asls_iterations
 ```
 
 Recipes are replayed during sample-set building, model fitting, and prediction.
-The path component `{recipe_id}` is the stable identity. All eight fields are
-required, including disabled switches. Unknown fields are logged and discarded
+The path component `{recipe_id}` is the stable identity. The first eight
+fields are required, including disabled switches. The optional fields (1.3)
+are written only when they change the recipe: no `@sg_edges` means the
+Savitzky-Golay edges are extrapolated (`interp`), no `@asls` means no AsLS
+baseline correction, so recipes stored before keep their ids
+(`project-schema-contract_v3.md` §4). With `@sg_edges = "drop"` the
+preprocessed spectra have 2⌊`sg_window`/2⌋ fewer bands: the model run's
+arrays over bands (`prediction_model`: `wavelengths`, `coef_`, `x_mean`,
+`x_std`, `rotations`, `loadings`, MSC/EMSC state; `diagnostics`:
+`wavelengths`, loadings, coefficients, VIP) use that shorter axis (the
+"model bands" below). `@asls_lambda` and `@asls_p` are float64,
+`@asls_iterations` an integer. Unknown fields are logged and discarded
 rather than treated as executable parameters.
 Recipe content is immutable under one `{recipe_id}`: re-saving identical
 content is allowed, while changed executable content requires a new id.
