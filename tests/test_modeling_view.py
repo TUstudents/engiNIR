@@ -495,3 +495,68 @@ def test_reopened_model_run_renders_every_diagnostic_and_selects_rois(qapp, tmp_
     px, py = scores_ax.transData.transform((x, y))
     scores_panel._on_canvas_click(types.SimpleNamespace(inaxes=scores_ax, x=px, y=py))
     assert selected == [str(payload["roi_ids"][1])]
+
+
+def test_auto_components_choose_by_a_rule(qapp, state_and_project):
+    from enginir.viewer._modeling import FitModelRunDialog, ModelingView
+
+    state, project = state_and_project
+    _labelled_rois(state, project)
+    view = ModelingView(state, project)
+    dialog = FitModelRunDialog([("target_1", "moisture")], default_target_id="target_1",
+                               recipe=state.recipe, default_signal_unit="Reflectance",
+                               readiness=view.fit_readiness)
+    assert not dialog._rule_combo.isEnabled()
+    dialog._auto_check.setChecked(True)
+    dialog._rule_combo.setCurrentIndex(dialog._rule_combo.findData("q2_limit"))
+    dialog._max_spin.setValue(5)
+    assert dialog.n_components == "auto" and not dialog._components_spin.isEnabled()
+    assert dialog.hyperparameters["n_components"] == "auto"
+    spec = dialog.fit_spec
+    assert (spec.components_rule, spec.components_max) == ("q2_limit", 5)
+
+
+def test_fit_again_presets_the_dialog_from_the_selected_model(tmp_path):
+    """Every choice of a stored model comes back in the dialog, so OK refits it unchanged."""
+    from enginir.viewer._app import ensure_app
+    from enginir.viewer._modeling import FitModelRunDialog
+    from tests.test_exclusion import _project_with_an_odd_pixel
+
+    ensure_app()
+    project = _project_with_an_odd_pixel(tmp_path)
+    model = project.fit("API", n_components=3, x_scaling="pareto", cv="logo", fit_spec=None)
+    dialog = FitModelRunDialog([("t", "API")], default_target_id="t",
+                               recipe=__import__("enginir").PreprocessingRecipe(),
+                               default_signal_unit="Absorbance",
+                               readiness=lambda _t: ("", True))
+    dialog.apply_model_run(model.ref)
+    assert dialog.n_components == 3 and dialog.model_type == "PLS"
+    assert dialog.hyperparameters == {"n_components": 3, "x_scaling": "pareto",
+                                      "y_scaling": "uv"}
+    assert dialog.cv == "logo"
+
+    excluded = project.fit("API", n_components=2, fit_spec={
+        "pixels": {"per_roi": 6, "seed": 4}, "exclusion": {"method": "dmodx", "rounds": 2}})
+    dialog.apply_model_run(excluded.ref)
+    spec = dialog.fit_spec
+    assert (spec.pixels_per_roi, spec.seed, spec.exclusion, spec.exclusion_rounds) == (
+        6, 4, "dmodx", 2)
+
+
+def test_the_diagnostics_payload_carries_the_curve_and_the_training_distances(tmp_path):
+    from enginir.viewer._modeling import _component_payload
+    from tests.test_exclusion import _project_with_an_odd_pixel
+
+    project = _project_with_an_odd_pixel(tmp_path)
+    model = project.fit("API", n_components=2)
+    from enginir.io.project_store import load_model_run_artifact_refs
+
+    refs = load_model_run_artifact_refs(project.path, model.ref.model_run_id)
+    artifact = {**refs["prediction_model"], **refs["diagnostics"],
+                "component_curve": refs["component_curve"]}
+    payload = _component_payload(model.ref, artifact)
+    assert payload["n_components"] == 2 and "rmsecv" in payload["component_curve"]
+    assert payload["loadings_matrix"].shape[1] == 2
+    assert payload["dmodx_pixels"].shape == payload["t2_pixels"].shape == (96,)
+    assert {"t2_crit_2_099", "dcrit_099"} <= set(payload)
+    assert "rmsee" in payload["fit_statistics"]

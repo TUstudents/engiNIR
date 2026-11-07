@@ -383,7 +383,9 @@ Required controls:
 - target selection/creation
 - target assignment and sample label editing (the ROI table)
 - fit model: one dialog with target, signal unit, preprocessing, model,
-  components, cross-validation and which ROIs are held out together (each
+  components (a number, or **Auto** with a rule and a maximum:
+  `sample-set-model-run-contract_v3.md` §7.4), cross-validation and which
+  ROIs are held out together (each
   ROI, same sample label, same target value;
   `sample-set-model-run-contract_v3.md` §4.1), and a Fitting group: pixels
   per ROI with seed (at most the smallest ROI with a value), X and Y scaling
@@ -391,6 +393,9 @@ Required controls:
   largest share per ROI and unweighted or modelling-power weighted
   residuals (§7); it builds or reuses the sample set of all ROIs with a value
   for the target, from all data files
+- **Fit again...** opens the fit dialog with every choice of the selected
+  model (target, preprocessing, model, components, scaling, folds, pixel
+  sample, exclusion), e.g. to fit with another number of components
 - the inspector shows how a model run was fitted: folds and fold groups,
   pixel sample, scaling, exclusion settings, excluded pixels per ROI,
   flagged ROIs and DCrit

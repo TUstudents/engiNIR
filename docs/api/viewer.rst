@@ -95,7 +95,7 @@ Modeling view
 
 .. autoclass:: enginir.viewer._modeling.FitModelRunDialog
    :members: target_id, recipe, set_recipe, model_type, n_components, signal_unit, cv,
-      group_by, hyperparameters, fit_spec
+      group_by, hyperparameters, fit_spec, apply_model_run
 
 Inspector
 ---------

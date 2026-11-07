@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Choosing the number of components: every PLS and PCR model stores its
+  component curve (RMSECV with standard error, Q², Q²(cum), R²X, R²Y against
+  the number of components, computed with the model's folds), and
+  `project.fit(..., n_components="auto")` chooses the number by a rule
+  (`one_se` by default, `min_rmsecv`, `q2_limit`); `model.component_curve`,
+  `enginir.validation.choose_components`, `PLSRegression/PCR.predict_components`.
+- Fit statistics and training diagnostics of every model: RMSEE and adjusted
+  R² (per pixel and per ROI), CoeffCS, Hotelling T² and DModX of every
+  training pixel with their limits.
+- Viewer: Components and Distance pages, T² ellipses in the score plot,
+  loadings of the first three components, CoeffCS; **Auto** components in
+  the fit dialog; **Fit again...** with the selected model's settings.
+
+### Changed
+
+- PCR computes its principal components with a full SVD (reproducible);
+  results can differ from earlier fits in the last digits.
+
 ## 1.2.0 (2026-11-07)
 
 ### Added

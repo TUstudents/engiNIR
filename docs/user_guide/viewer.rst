@@ -177,11 +177,20 @@ Model shows the selected model and its diagnostics:
 
 - summary cards for target, sample set, model, components, cross-validation,
   ROI and pixel counts, R², RMSECV and bias
-- the **Fit** page: predicted vs reference (with R², RMSECV and bias),
-  residuals, the distribution of reference values, and the training scores of
-  the first two latent variables
-- the **Spectral** page: the regression coefficients and the loadings of the
-  first latent variable
+- the **Fit** page: predicted vs reference (with R², RMSECV, bias, and RMSEE
+  and adjusted R²), residuals, the distribution of reference values, and the
+  training scores of the first two latent variables with the Hotelling T²
+  ellipses (0.95 dotted, 0.99 dashed)
+- the **Spectral** page: the regression coefficients, the scaled
+  coefficients (CoeffCS) and the loadings of the first three latent variables,
+  to see which components are concentration and which are physics (scatter,
+  particle size)
+- the **Components** page: RMSECV (with its standard error) and R²Y, Q², R²X
+  against the number of components, with the model's number and each rule's
+  suggestion; **Fit again...** opens the fit dialog with the model's settings
+  to try another number
+- the **Distance** page: the distance to the model (DModX) and Hotelling T²
+  of the training pixels, with their 0.99 limits and the share above them
 - click a point to select its ROI
 
 Each plot has a header with its title. The maximize button, or a double-click
@@ -224,7 +233,9 @@ the signal unit, the preprocessing (it starts from the Explore preview, but
 what the dialog shows is what the model is trained with), PLS or PCR, the
 number of components, the validation and which ROIs are held out together
 (**Hold out together**: each ROI, ROIs with the same **Sample** label, or
-ROIs with the same target value). The **Fitting** group sets how the
+ROIs with the same target value). **Components** takes a number, or **Auto**
+to choose it from the component curve by a rule (one SE by default). The
+**Fitting** group sets how the
 model is fitted: the same number of pixels from every ROI (at most the
 smallest ROI, with a seed so the draw repeats), the scaling of X and Y, and
 leaving out outlying pixels by DModX (level, one or two rounds, at most a

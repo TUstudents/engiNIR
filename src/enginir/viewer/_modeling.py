@@ -349,7 +349,25 @@ class FitModelRunDialog(QDialog):
         self._components_spin = QSpinBox()
         self._components_spin.setRange(1, 128)
         self._components_spin.setValue(6)
-        layout.addRow("Components:", self._components_spin)
+        self._auto_check = QCheckBox("Auto")
+        self._auto_check.setToolTip(
+            "Choose the number from the component curve (RMSECV and Q² against the number "
+            "of components) by the rule; the curve is shown on the Components page.")
+        self._rule_combo = QComboBox()
+        for label, value in (("one SE (recommended)", "one_se"),
+                             ("lowest RMSECV", "min_rmsecv"), ("Q² limit", "q2_limit")):
+            self._rule_combo.addItem(label, value)
+        self._max_spin = QSpinBox()
+        self._max_spin.setRange(0, 128)
+        self._max_spin.setSpecialValueText("default")
+        self._max_spin.setPrefix("max ")
+        components_row = QHBoxLayout()
+        for widget in (self._components_spin, self._auto_check, self._rule_combo,
+                       self._max_spin):
+            components_row.addWidget(widget)
+        layout.addRow("Components:", components_row)
+        self._auto_check.toggled.connect(self._update_components)
+        self._update_components()
 
         self._cv_combo = QComboBox()
         self._cv_combo.addItem("Auto (7 round-robin folds, or leave one out)", "auto")
@@ -379,6 +397,41 @@ class FitModelRunDialog(QDialog):
         self._buttons.rejected.connect(self.reject)
         layout.addRow(self._buttons)
         self._update_readiness()
+
+    def _update_components(self, *_args: Any) -> None:
+        auto = self._auto_check.isChecked()
+        self._components_spin.setEnabled(not auto)
+        self._rule_combo.setEnabled(auto)
+        self._max_spin.setEnabled(auto)
+
+    def apply_model_run(self, model_run: ModelRun) -> None:
+        """Preset every choice from a stored model run (for "Fit again...")."""
+        self._model_type_combo.setCurrentText(model_run.model_type)
+        hyper = model_run.hyperparameters
+        self._components_spin.setValue(int(hyper.get("n_components", 6)))
+        self._auto_check.setChecked(False)
+        for combo, key in ((self._x_scaling_combo, "x_scaling"),
+                           (self._y_scaling_combo, "y_scaling")):
+            if key in hyper and combo.findData(hyper[key]) >= 0:
+                combo.setCurrentIndex(combo.findData(hyper[key]))
+        spec = model_run.fit_specification
+        cv: int | str = ("logo" if spec.fold_rule == "leave_one_group_out"
+                         else "auto" if spec.n_folds == 7 else spec.n_folds)
+        if self._cv_combo.findData(cv) < 0:
+            self._cv_combo.addItem(f"{cv} folds", cv)
+        self._cv_combo.setCurrentIndex(self._cv_combo.findData(cv))
+        self._group_by_combo.setCurrentIndex(max(0, self._group_by_combo.findData(spec.group_by)))
+        self._draw_check.setChecked(spec.pixels_per_roi is not None)
+        if spec.pixels_per_roi is not None:
+            self._pixels_spin.setValue(spec.pixels_per_roi)
+            self._seed_spin.setValue(spec.seed)
+        self._exclude_check.setChecked(spec.exclusion == "dmodx")
+        self._level_spin.setValue(spec.exclusion_level)
+        self._rounds_spin.setValue(spec.exclusion_rounds)
+        self._share_spin.setValue(round(spec.exclusion_max_fraction * 100))
+        self._formula_combo.setCurrentIndex(max(0, self._formula_combo.findData(
+            spec.exclusion_formula)))
+        self._update_fitting()
 
     def _fitting_group(self) -> QGroupBox:
         """Pixel sample, scaling and DModX exclusion (sample-set-model-run contract §7)."""
@@ -520,9 +573,9 @@ class FitModelRunDialog(QDialog):
         return self._model_type_combo.currentText()
 
     @property
-    def n_components(self) -> int:
-        """Return the requested latent component count."""
-        return int(self._components_spin.value())
+    def n_components(self) -> int | str:
+        """The number of components, or ``"auto"`` to choose it from the component curve."""
+        return "auto" if self._auto_check.isChecked() else int(self._components_spin.value())
 
     @property
     def signal_unit(self) -> str:
@@ -553,10 +606,13 @@ class FitModelRunDialog(QDialog):
         """The fit specification of the choices, or ``None`` for the defaults (then ``cv``)."""
         draw = self._draw_check.isChecked()
         exclude = self._exclude_check.isChecked()
-        if self.group_by == "roi" and not draw and not exclude:
+        auto = self._auto_check.isChecked()
+        if self.group_by == "roi" and not draw and not exclude and not auto:
             return None
         return replace(
             FitSpec.from_cv(self.cv),
+            components_rule=str(self._rule_combo.currentData()) if auto else "fixed",
+            components_max=(self._max_spin.value() or None) if auto else None,
             group_by=self.group_by,
             pixels_per_roi=self._pixels_spin.value() if draw else None,
             seed=self._seed_spin.value() if draw else 0,
@@ -566,6 +622,42 @@ class FitModelRunDialog(QDialog):
             exclusion_max_fraction=self._share_spin.value() / 100.0,
             exclusion_formula=str(self._formula_combo.currentData()),
         )
+
+
+def _component_payload(model_run: ModelRun, artifact: dict[str, Any]) -> dict[str, Any]:
+    """Curve, loadings of the first components, CoeffCS and training distances (§7.4, §7.5).
+
+    Presentation only: every value comes from the stored run.
+    """
+    payload: dict[str, Any] = {"n_components": model_run.hyperparameters.get("n_components"),
+                               "fit_statistics": {key: model_run.metrics[key] for key in
+                                                  ("rmsee", "r2_adj", "pixel_rmsee")
+                                                  if key in model_run.metrics}}
+    curve = artifact.get("component_curve")
+    if isinstance(curve, dict) and "rmsecv" in curve:
+        payload["component_curve"] = curve
+    loadings = artifact.get("x_loadings_", artifact.get("loadings_"))
+    if loadings is not None:
+        matrix = np.asarray(loadings, dtype=np.float32)
+        if matrix.ndim == 2:
+            payload["loadings_matrix"] = matrix[:, :3]
+    coef_cs = artifact.get("coef_cs")
+    if coef_cs is not None:
+        values = np.asarray(coef_cs, dtype=np.float32).squeeze()
+        if values.ndim == 1:
+            payload["coef_cs"] = values
+    scores = artifact.get("x_scores_", artifact.get("scores_"))
+    if scores is not None:
+        matrix = np.asarray(scores, dtype=np.float64)
+        if matrix.ndim == 2 and matrix.shape[0] > 1 and matrix.shape[1] >= 2:
+            payload["score_variances"] = matrix[:, :2].var(axis=0, ddof=1)
+    for key in ("t2", "dmodx"):
+        if artifact.get(key) is not None:
+            payload[f"{key}_pixels"] = np.asarray(artifact[key], dtype=np.float32)
+    for key in ("t2_crit_099", "t2_crit_2_095", "t2_crit_2_099", "dcrit_099"):
+        if artifact.get(key) is not None:
+            payload[key] = float(np.asarray(artifact[key]))
+    return payload
 
 
 class ModelingView(QWidget):
@@ -672,8 +764,16 @@ class ModelingView(QWidget):
         self._btn_fit_model = QToolButton()
         self._btn_fit_model.setText("Fit model")
         configure_action(self._btn_fit_model)
-        self._btn_fit_model.clicked.connect(self.fit_model_btn_clicked)
+        self._btn_fit_model.clicked.connect(lambda: self.fit_model_btn_clicked())
         action_grid.addWidget(self._btn_fit_model, 3, 1)
+
+        self._btn_fit_again = QToolButton()
+        self._btn_fit_again.setText("Fit again...")
+        self._btn_fit_again.setToolTip("Open the fit dialog with the selected model's settings, "
+                                       "e.g. to fit with another number of components")
+        configure_action(self._btn_fit_again)
+        self._btn_fit_again.clicked.connect(self.fit_again_btn_clicked)
+        action_grid.addWidget(self._btn_fit_again, 3, 0)
 
         self._service_status = BusyStatusWidget(idle_text="Service: idle", parent=self)
         self._service_status.setMaximumWidth(272)
@@ -753,7 +853,15 @@ class ModelingView(QWidget):
             return
         self.roi_table_requested.emit()
 
-    def fit_model_btn_clicked(self) -> None:
+    def fit_again_btn_clicked(self) -> None:
+        """Open the fit dialog with the selected model's settings (e.g. other components)."""
+        model_run = self._resolved_workspace_model_run()
+        if model_run is None:
+            QMessageBox.information(self, "No model", "Select a fitted model first.")
+            return
+        self.fit_model_btn_clicked(preset=model_run)
+
+    def fit_model_btn_clicked(self, preset: ModelRun | None = None) -> None:
         if self._job_thread is not None:
             return
         state = self.project_state
@@ -764,17 +872,25 @@ class ModelingView(QWidget):
             QMessageBox.information(self, "No target", "Define a target and its values first.")
             return
         current = self.current_target()
+        preset_sample_set = (None if preset is None
+                             else state.sample_sets.get(preset.sample_set_id))
+        preset_recipe = (None if preset_sample_set is None else state.recipes.get(
+            preset_sample_set.preprocessing_recipe_id))
         dlg = FitModelRunDialog(
             [(target_id, target.name if not target.unit else f"{target.name} ({target.unit})")
              for target_id, target in sorted(state.targets.items(),
                                              key=lambda item: item[1].name.lower())],
-            default_target_id=None if current is None else current.target_id,
-            recipe=self.state.recipe,
+            default_target_id=(preset_sample_set.target_id if preset_sample_set is not None
+                               else None if current is None else current.target_id),
+            recipe=(PreprocessingRecipe.from_dict(preset_recipe) if preset_recipe is not None
+                    else self.state.recipe),
             default_signal_unit=self.state.y_unit,
             readiness=self.fit_readiness,
             smallest_roi=self._smallest_labelled_roi,
             parent=self,
         )
+        if preset is not None:
+            dlg.apply_model_run(preset)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         self._selected_target_id = dlg.target_id
@@ -1148,6 +1264,7 @@ class ModelingView(QWidget):
                 spectral_axis = np.asarray(wavelengths, dtype=np.float32).squeeze()
                 if spectral_axis.ndim == 1:
                     payload["spectral_axis"] = spectral_axis
+            payload.update(_component_payload(model_run, artifact))
         self._cached_workspace_diagnostics_token = token
         self._cached_workspace_diagnostics_payload = payload
         return payload
@@ -1188,7 +1305,7 @@ class ModelingView(QWidget):
             artifact_refs = load_model_run_artifact_refs(
                 project_path,
                 model_run.model_run_id,
-                keys=("prediction_model", "diagnostics"),
+                keys=("prediction_model", "diagnostics", "component_curve"),
             )
         except Exception as exc:
             logger.warning(
@@ -1204,6 +1321,9 @@ class ModelingView(QWidget):
             artifact.update(prediction_model)
         if isinstance(diagnostics, dict):
             artifact.update(diagnostics)
+        curve = artifact_refs.get("component_curve")
+        if isinstance(curve, dict) and curve:
+            artifact["component_curve"] = curve
         if not artifact:
             return None
         self._cached_diagnostics_model_key = cache_key

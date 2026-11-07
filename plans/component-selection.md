@@ -1,6 +1,6 @@
 # Plan: choosing the number of components
 
-Status: decided (2026-11-07), not started
+Status: done (2026-11-07) on branch feature/weekend-plans; Phase R pending one real data set from the user
 
 ## Goal
 

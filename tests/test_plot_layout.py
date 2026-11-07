@@ -55,7 +55,8 @@ def test_export_plots_writes_every_model_plot_including_unopened_pages(fitted_vi
     out.mkdir()
     written, skipped = fitted_viewer.export_workspace_plots(out)
     plots = ("model.pred_vs_ref", "model.residuals", "model.target_distribution",
-             "model.scores", "model.coefficients", "model.loadings")
+             "model.scores", "model.coefficients", "model.loadings", "model.coef_cs",
+             "model.components", "model.r2_q2", "model.dmodx", "model.t2")
     assert sorted(written) == sorted(f"{p}{s}" for p in plots for s in (".png", ".csv"))
     assert skipped == []
     assert grid.current_page == "Fit", "exporting does not switch the page"

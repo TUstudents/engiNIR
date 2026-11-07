@@ -96,10 +96,23 @@ Required v3 pages, in this order:
    - `Predicted vs Reference` in the first slot
    - `Residuals`
    - target distribution
-   - latent scores
+   - latent scores, with the Hotelling T² ellipses at 0.95 and 0.99 of the
+     first two components (engiNIR 1.3 and later)
 2. `Spectral`
    - regression coefficients
-   - loadings
+   - scaled coefficients (CoeffCS, 1.3 and later)
+   - loadings of the first (up to) three components
+3. `Components` (1.3 and later; `sample-set-model-run-contract_v3.md` §7.4)
+   - RMSECV with its standard error against the number of components, the
+     model's number and every rule's suggestion marked
+   - R²Y(cum), Q²(cum) and R²X(cum) against the number of components
+4. `Distance` (1.3 and later; §7.5)
+   - the training pixels' normalised DModX with DCrit (0.99) and the share
+     above it
+   - their Hotelling T² with T²Crit (0.99) and the share above it
+
+Runs fitted before engiNIR 1.3 show "refit" placeholders on the new pages.
+The fit summary shows RMSEE and R²adj when the run has them.
 
 The `Fit` page is shown after a fit and when a saved run is opened. The page
 labels are not contract-frozen; their order and content are. New diagnostics

@@ -60,6 +60,60 @@ dealt like venetian blinds, so every fold spans the range. The groups a fit
 used are stored with it: a refit repeats them even after labels are edited,
 and warns when the current labels would group differently.
 
+Choosing the number of components
+---------------------------------
+
+Every PLS and PCR model stores its **component curve**: for 1, 2, … up to
+15 components (fewer with few samples), the cross-validated RMSECV with its
+standard error, Q²(cum), R²Y(cum) and R²X(cum), computed with the model's own
+folds. R²Y always rises with more components; RMSECV and Q² improve, level off
+and then get worse once components fit noise. The gap between R² and Q² shows
+where that starts.
+
+``n_components="auto"`` chooses the number by a rule and stores it, so a refit
+repeats it:
+
+.. code-block:: python
+
+   model = project.fit("API content", recipe=PreprocessingRecipe(snv=True),
+                       n_components="auto")              # rule: one SE
+   model.ref.hyperparameters["n_components"]               # the chosen number
+   curve = model.component_curve                           # the arrays, and every
+   curve["suggested_one_se"], curve["suggested_min_rmsecv"], curve["suggested_q2_limit"]
+
+The rules (``fit_spec={"components": {"rule": ..., "max": ...}}``):
+
+- ``one_se`` (default): the smallest number whose RMSECV is within one standard
+  error of the lowest. It picks the simplest model that is not clearly worse
+  than the best, and stops before a long flat tail of the curve.
+- ``min_rmsecv``: the lowest RMSECV. It tends to take too many components,
+  because the curve is noisy near its minimum.
+- ``q2_limit``: add components while each one's Q² exceeds 0.05 (0 with more
+  than 100 samples), SIMCA's Autofit rule; it stops earliest.
+
+A few things to keep in mind:
+
+- The number follows the independent sources of variation in the spectra,
+  not the target: a three-component blend has two free concentrations, and
+  scatter (particle size, surface roughness) adds more. The first components
+  of raw spectra are often concentration and scatter; the loadings on the
+  **Spectral** page show which is which.
+- Preprocessing changes the number: SNV or a derivative removes scatter
+  before the model sees it. Compare preprocessings each at its own suggested
+  number, not at a fixed one.
+- With pixels, the independent samples are the ROIs (or samples), not the
+  pixels. Keep the number well below the number of samples, and keep the
+  folds grouped: otherwise extra components learn each ROI's peculiarities and
+  RMSECV keeps falling.
+- R² above 0.95 is a statement about the fit, not about prediction; an RMSECV
+  far below the reference method's own error means overfitting.
+
+engiNIR refits every fold with all components, so its Q² is stricter than
+SIMCA's (see the comparison below). Every model also stores RMSEE and the
+adjusted R² (per pixel as SIMCA computes them, and per ROI), the scaled
+coefficients (CoeffCS), and the Hotelling T² and distance to the model of
+every training pixel with their 0.99 limits.
+
 Pixel sample
 ------------
 

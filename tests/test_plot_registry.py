@@ -35,6 +35,21 @@ def _model_payload() -> dict:
         "spectral_axis": np.linspace(1000.0, 1700.0, n_bands, dtype=np.float32),
         "coefficients": rng.normal(size=n_bands).astype(np.float32),
         "loadings": rng.normal(size=n_bands).astype(np.float32),
+        "loadings_matrix": rng.normal(size=(n_bands, 3)).astype(np.float32),
+        "coef_cs": rng.normal(size=n_bands).astype(np.float32),
+        "n_components": 3,
+        "fit_statistics": {"rmsee": 0.3, "r2_adj": 0.9},
+        "component_curve": {"rmsecv": np.array([1.0, 0.6, 0.45, 0.47]),
+                            "rmsecv_se": np.array([0.1, 0.06, 0.05, 0.05]),
+                            "q2_cum": np.array([0.6, 0.85, 0.9, 0.89]),
+                            "r2y_cum": np.array([0.65, 0.9, 0.95, 0.96]),
+                            "r2x_cum": np.array([0.5, 0.8, 0.9, 0.95]),
+                            "suggested_one_se": 3, "suggested_min_rmsecv": 3,
+                            "suggested_q2_limit": 3},
+        "score_variances": np.array([1.0, 0.5]),
+        "t2_crit_2_095": 6.1, "t2_crit_2_099": 9.4, "t2_crit_099": 11.5, "dcrit_099": 1.3,
+        "t2_pixels": rng.chisquare(3, 500).astype(np.float32),
+        "dmodx_pixels": rng.gamma(4.0, 0.25, 500).astype(np.float32),
     }
 
 
