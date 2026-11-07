@@ -16,11 +16,31 @@
 - Viewer: Components and Distance pages, T² ellipses in the score plot,
   loadings of the first three components, CoeffCS; **Auto** components in
   the fit dialog; **Fit again...** with the selected model's settings.
+- Applicability diagnostics of predictions: every predicted pixel gets
+  DModXPS (distance to the model) and T²PS, with the 0.99 limits from the
+  training data and a summary (share of pixels above the limits, mean
+  prediction within and outside them). Model runs store the projection data
+  they need (`prediction_model`: `x_mean`, `x_std`, `rotations`, `loadings`,
+  `score_variances`, `s0`, limits); models fitted before have no maps until
+  they are fitted again. `Prediction.dmodx_map`, `.t2_map`, `.diagnostics`,
+  `.provenance`.
+- Viewer: **Layer** selector in the Predict map (Prediction, DModX, T²) with
+  the pixels above the limit marked, and the applicability summary.
 
 ### Changed
 
 - PCR computes its principal components with a full SVD (reproducible);
   results can differ from earlier fits in the last digits.
+- **Breaking:** predictions are not stored. `model.predict(...)` returns an
+  in-memory `Prediction` and writes nothing to the project (the scan is not
+  registered); every prediction writes one log entry with its provenance
+  (`checksum=True` adds the SHA-256 of the data file). The viewer keeps the
+  last three predictions of the session and does not show stored runs.
+  Storing a prediction is a low-level operation
+  (`predict_with_model_run(..., persist_artifacts=True)`); such runs are
+  listed in `project.predictions` as `StoredPrediction`.
+- `ProjectState.register_prediction_run` and `finalize_prediction_result`
+  were removed; `predict_dataset` no longer takes `return_arrays`.
 
 ## 1.2.0 (2026-11-07)
 

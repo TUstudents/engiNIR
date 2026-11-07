@@ -13,8 +13,10 @@ from enginir.io import SpectralData, load_hdf5, save_hdf5
 from enginir.io.project_store import (
     create_project,
     load_model_run_prediction_artifact,
+    load_project_store,
     save_calibration_spec,
     save_dataset_ref,
+    save_prediction_run,
     save_preprocessing_recipe,
     save_signal_domain_contract,
     save_target_assignment,
@@ -445,7 +447,6 @@ def test_predict_dataset_reuses_dataset_local_calibration_defaults_after_reopen(
         model_run_id="model_run_1",
         data_path=pred_path,
         prediction_run_id="prediction_run_in_memory",
-        return_arrays=True,
     )
 
     reopened = ProjectState()
@@ -459,15 +460,12 @@ def test_predict_dataset_reuses_dataset_local_calibration_defaults_after_reopen(
     assert result.dataset.dataset_id == "dataset_pred"
     assert result.calibration.calibration_id == "cal_pred"
     assert result.prediction_run.preprocessing_recipe_id == "recipe_none"
-    assert result.y_pred is None
-    assert result.spatial_map is None
     assert result.prediction_run.artifact_refs["prediction_shape"] == (4,)
     assert result.prediction_run.artifact_refs["spatial_map_shape"] == (2, 2)
-    assert "prediction_run_1" in reopened.predictions
-    assert "spatial_map" not in reopened.predictions["prediction_run_1"].artifact_refs
-    artifact_refs = reopened.ensure_prediction_artifact_refs("prediction_run_1")
-    np.testing.assert_allclose(artifact_refs["y_pred"], in_memory_result.y_pred, rtol=1e-5)
-    np.testing.assert_allclose(artifact_refs["spatial_map"], in_memory_result.spatial_map, rtol=1e-5)
+    assert reopened.predictions["prediction_run_1"] is result, "kept for the session"
+    np.testing.assert_allclose(result.y_pred, in_memory_result.y_pred, rtol=1e-5)
+    np.testing.assert_allclose(result.spatial_map, in_memory_result.spatial_map, rtol=1e-5)
+    assert load_project_store(project_path)["predictions"] == {}, "nothing is stored"
 
 
 def test_reopened_prediction_run_lazily_loads_spatial_map_and_preserves_model_linkage(
@@ -476,41 +474,37 @@ def test_reopened_prediction_run_lazily_loads_spatial_map_and_preserves_model_li
     project_path = str(tmp_path / "phase6_prediction_reopen_lazy.h5")
     _create_phase6_model_project(project_path)
     state = _fit_phase6_model(project_path)
-    state.register_prediction_run(
-        PredictionRun(
-            prediction_run_id="prediction_run_1",
-            dataset_id="dataset_train",
-            calibration_id="cal_train",
-            model_run_id="model_run_1",
-            signal_domain_id="signal_domain_1",
-            preprocessing_recipe_id="recipe_none",
-            artifact_refs={
-                "y_pred": np.array([0.2, 0.4, 0.6, 0.8], dtype=np.float32),
-                "spatial_map": np.array([[0.2, 0.4], [0.6, 0.8]], dtype=np.float32),
-            },
-            created_at="2026-04-02T10:05:30+00:00",
-        )
+    del state
+    # Low-level persistence (a script's explicit request); the viewer never stores predictions.
+    run = PredictionRun(
+        prediction_run_id="prediction_run_1",
+        dataset_id="dataset_train",
+        calibration_id="cal_train",
+        model_run_id="model_run_1",
+        signal_domain_id="signal_domain_1",
+        preprocessing_recipe_id="recipe_none",
+        artifact_refs={
+            "y_pred": np.array([0.2, 0.4, 0.6, 0.8], dtype=np.float32),
+            "spatial_map": np.array([[0.2, 0.4], [0.6, 0.8]], dtype=np.float32),
+        },
+        created_at="2026-04-02T10:05:30+00:00",
     )
+    payload = run.to_dict()
+    del payload["prediction_run_id"]
+    save_prediction_run(project_path, "prediction_run_1", payload)
 
-    reopened = ProjectState()
-    reopened.open_project(project_path)
+    from enginir import Project
 
+    reopened = Project.open(project_path)
     prediction = reopened.predictions["prediction_run_1"]
-    assert prediction.model_run_id == "model_run_1"
-    assert reopened.model_runs[prediction.model_run_id].model_type == "PLS"
-    assert "y_pred" not in prediction.artifact_refs
-    assert "spatial_map" not in prediction.artifact_refs
-
-    artifact_refs = reopened.ensure_prediction_artifact_refs("prediction_run_1")
-
-    np.testing.assert_allclose(
-        artifact_refs["y_pred"], np.array([0.2, 0.4, 0.6, 0.8], dtype=np.float32)
-    )
-    np.testing.assert_allclose(
-        artifact_refs["spatial_map"],
-        np.array([[0.2, 0.4], [0.6, 0.8]], dtype=np.float32),
-    )
-    assert artifact_refs["spatial_map"].shape == (2, 2)
+    assert prediction.ref.model_run_id == "model_run_1"
+    assert reopened.workspace.model_runs[prediction.ref.model_run_id].model_type == "PLS"
+    assert "y_pred" not in prediction.ref.artifact_refs
+    assert "spatial_map" not in prediction.ref.artifact_refs
+    np.testing.assert_allclose(prediction.y_pred,
+                               np.array([0.2, 0.4, 0.6, 0.8], dtype=np.float32))
+    np.testing.assert_allclose(prediction.map,
+                               np.array([[0.2, 0.4], [0.6, 0.8]], dtype=np.float32))
 
 
 def test_predict_dataset_requires_explicit_calibration_when_defaults_absent(tmp_path, qapp):
@@ -531,7 +525,7 @@ def test_predict_dataset_requires_explicit_calibration_when_defaults_absent(tmp_
         )
 
 
-def test_predict_dataset_persists_new_dataset_and_explicit_calibration(tmp_path, qapp):
+def test_predict_dataset_writes_neither_the_new_dataset_nor_its_calibration(tmp_path, qapp):
     project_path = str(tmp_path / "phase6_predict_explicit.h5")
     _create_phase6_model_project(project_path)
     state = _fit_phase6_model(project_path)
@@ -559,12 +553,13 @@ def test_predict_dataset_persists_new_dataset_and_explicit_calibration(tmp_path,
         prediction_run_id="prediction_run_2",
     )
 
+    assert result.calibration.calibration_id == "cal_new"
+    assert state.predictions["prediction_run_2"] is result
     reopened = ProjectState()
     reopened.open_project(project_path)
-    assert result.dataset.dataset_id in reopened.datasets
-    assert reopened.active_calibration_ids[result.dataset.dataset_id] == "cal_new"
-    assert "prediction_run_2" in reopened.predictions
-    assert reopened.predictions["prediction_run_2"].dataset_id == result.dataset.dataset_id
+    assert result.dataset.dataset_id not in reopened.datasets
+    assert "cal_new" not in reopened.calibrations
+    assert reopened.predictions == {}
 
 
 def test_predict_dataset_allows_different_wavelength_metadata(tmp_path, qapp):
@@ -658,13 +653,19 @@ def test_reopened_stateful_preprocessing_replays_persisted_training_state(tmp_pa
     wavelengths = np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
     _write_prediction_cube(in_memory_path, wavelengths=wavelengths)
     _write_prediction_cube(reopened_path, wavelengths=wavelengths)
-    in_memory = fitted.predict_dataset(
-        model_run_id="model_run_msc",
-        data_path=in_memory_path,
-        calibration=_msc_prediction_calibration("cal_msc_in_memory"),
-        prediction_run_id="prediction_run_msc_in_memory",
-        return_arrays=True,
-    )
+    # the fitted pipeline itself (an in-memory predictor), not the saved model
+    context = fitted.build_prediction_job_context(model_run_id="model_run_msc")
+    data = load_hdf5(in_memory_path)
+    dataset = build_dataset_ref_from_spectral_data(data_path=in_memory_path, spectral_data=data,
+                                                   dataset_id="dataset_msc_in_memory")
+    calibration = dataclasses.replace(_msc_prediction_calibration("cal_msc_in_memory"),
+                                      dataset_id=dataset.dataset_id)
+    in_memory = predict_with_model_run(
+        project_path=project_path, model_run=context.model_run,
+        signal_domain=context.signal_domain, recipe=context.recipe, dataset=dataset,
+        calibration=calibration, model_registry=context.model_registry, spectral_data=data,
+        preprocessing_recipe_id=context.preprocessing_recipe_id)
+    assert in_memory.dmodx is None, "an in-memory predictor alone gives no diagnostics"
 
     reopened = ProjectState()
     reopened.open_project(project_path)
@@ -673,7 +674,6 @@ def test_reopened_stateful_preprocessing_replays_persisted_training_state(tmp_pa
         data_path=reopened_path,
         calibration=_msc_prediction_calibration("cal_msc_reopened"),
         prediction_run_id="prediction_run_msc_reopened",
-        return_arrays=True,
     )
 
     np.testing.assert_allclose(replayed.y_pred, in_memory.y_pred, rtol=1e-5, atol=1e-6)

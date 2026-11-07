@@ -10,8 +10,10 @@ import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.colorbar import Colorbar
+from matplotlib.colors import ListedColormap
 from matplotlib.figure import Figure
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
+from PyQt6.QtGui import QStandardItemModel
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -34,12 +36,13 @@ from .._checks import log_and_raise
 from .._workflow import resolve_dataset, resolve_prediction_calibration
 from .._logging import get_logger
 from ..io import load_spectra
-from ..prediction import PredictionProgressEvent, predict_with_model_run, preflight_prediction
-from ..project import (
-    CalibrationSpec,
-    PredictionRun,
-    check_calibration_signal_domain_compatibility,
+from ..prediction import (
+    PredictionProgressEvent,
+    PredictionResult,
+    predict_with_model_run,
+    preflight_prediction,
 )
+from ..project import CalibrationSpec, check_calibration_signal_domain_compatibility
 from ._jobs import BackgroundWorker, BusyStatusWidget, start_background_job
 from ._state import ProjectState
 from ._theme import panel_colors, secondary_text_style
@@ -114,38 +117,6 @@ def _resolve_prediction_target(
     resolved_calibration, calibration_is_new = resolve_prediction_calibration(
         dataset, context.calibrations, context.active_calibration_ids, calibration_input)
     return dataset, resolved_calibration, calibration_is_new
-
-
-def _persist_new_prediction_context(
-    *,
-    project_path: str,
-    dataset: Any,
-    calibration: CalibrationSpec,
-    dataset_is_new: bool,
-    calibration_is_new: bool,
-) -> None:
-    """Persist new dataset/calibration specs into the job's project file.
-
-    Running this inside the worker keeps every file write of one prediction job
-    targeting the project that was open at submission, so the persisted run
-    never references specs that were written into a different project.
-    """
-    from ..io.project_store import save_calibration_spec, save_dataset_ref
-
-    if dataset_is_new:
-        payload = dataset.to_dict()
-        del payload["dataset_id"]
-        save_dataset_ref(project_path, dataset.dataset_id, payload)
-    if calibration_is_new:
-        payload = calibration.to_dict()
-        del payload["calibration_id"]
-        del payload["dataset_id"]
-        save_calibration_spec(
-            project_path,
-            calibration.dataset_id,
-            calibration.calibration_id,
-            payload,
-        )
 
 
 class _PredictionProgressRelay(QObject):
@@ -316,38 +287,39 @@ class PredictionRunDialog(QDialog):
 _MAP_PREVIEW_PIXELS = 512 * 512
 
 
-def _preview_geometry(prediction: PredictionRun, preview: np.ndarray) -> dict[str, Any]:
-    """The subsampling step of a map preview and the full map shape, when known.
+#: Map layers of the Predict workspace; the diagnostics come with the saved model's
+#: projection data (prediction-runtime contract, Applicability Diagnostics).
+MAP_LAYERS = ("Prediction", "DModX", "T²")
+_LAYER_LIMITS = {"DModX": ("dcrit_099", "n_above_dcrit", "share_above_dcrit", "DCrit"),
+                 "T²": ("t2_crit_099", "n_above_t2crit", "share_above_t2crit", "T²Crit")}
+_NO_DIAGNOSTICS = ("No {} map: this model has no projection data (fitted before engiNIR 1.3). "
+                   "Refit it to get the DModX and T² maps.")
 
-    The step is the one :func:`~enginir.io.project_store.load_prediction_spatial_map_preview`
-    used; it is checked against the preview shape and falls back to 1.
-    """
+
+def _map_previews(result: PredictionResult) -> dict[str, Any]:
+    """Subsampled map layers of an in-memory prediction, with the step and full shape."""
     from ..io.project_store import _preview_step
 
-    shape = prediction.artifact_refs.get("spatial_map_shape")
-    if shape is None:
-        shape = prediction.artifact_refs.get("spatial_shape")
-    if shape is None or np.ndim(preview) < 2:
+    spatial_map = result.spatial_map
+    if spatial_map is None or spatial_map.ndim < 2:
         return {}
-    full = tuple(int(n) for n in np.asarray(shape).tolist())
-    if len(full) < 2:
-        return {}
+    full = tuple(int(n) for n in spatial_map.shape[:2])
     step = _preview_step(full, _MAP_PREVIEW_PIXELS)
-    expected = (-(-full[0] // step), -(-full[1] // step))
-    if tuple(np.shape(preview)[:2]) != expected:
-        logger.warning("Prediction '{}' preview shape {} does not match step {} of map {}; "
-                       "showing preview indices", prediction.prediction_run_id,
-                       np.shape(preview)[:2], step, full[:2])
-        return {"full_map_shape": full[:2]}
-    return {"map_step": step, "full_map_shape": full[:2]}
+    layers = {"DModX": result.diagnostic_map(result.dmodx), "T²": result.diagnostic_map(result.t2)}
+    return {"spatial_map": np.ascontiguousarray(spatial_map[::step, ::step, ...]),
+            "layers": {name: np.ascontiguousarray(values[::step, ::step])
+                       for name, values in layers.items() if values is not None},
+            "map_step": step, "full_map_shape": full}
 
 
 class PredictionMapWidget(QWidget):
     """Read-only spatial prediction map surface for the Predict workspace.
 
     A :class:`~enginir.viewer._plot_panel.PlotSource`: the viewer shows it in a
-    plot frame and puts :meth:`header_widgets` (output selector, pan, zoom,
-    reset view) into the frame header. Large maps are shown as a subsampled
+    plot frame and puts :meth:`header_widgets` (layer and output selectors,
+    pan, zoom, reset view) into the frame header. The layer is the prediction
+    or one of the applicability diagnostics (DModX, T²), whose pixels above
+    the 0.99 limit are overlaid. Large maps are shown as a subsampled
     preview; the axes, the hover readout and the CSV use the true frame and
     row of each shown pixel (``map_step`` in the payload).
     """
@@ -370,6 +342,7 @@ class PredictionMapWidget(QWidget):
         self._current_display_map: np.ndarray | None = None
         self._step = 1
         self._rendered_output_index = 0
+        self._rendered_layer = "Prediction"
         self._stats_label = QLabel("")
         self._stats_label.setStyleSheet(secondary_text_style())
         self._cursor_label = QLabel("")
@@ -378,6 +351,13 @@ class PredictionMapWidget(QWidget):
         self._output_combo.setToolTip("Prediction output shown in the map")
         self._output_combo.currentIndexChanged.connect(self._on_output_changed)
         self._output_combo.setVisible(False)
+        self._layer_combo = QComboBox()
+        self._layer_combo.addItems(list(MAP_LAYERS))
+        self._layer_combo.setToolTip("Map layer: the prediction, or the distance to the model "
+                                     "(DModX) or within it (T²) with the pixels above the "
+                                     "0.99 limit marked")
+        self._layer_combo.currentIndexChanged.connect(self._on_output_changed)
+        self._overlay: Any = None
         # Drives pan and zoom from the plot header; the toolbar itself is not shown.
         self._toolbar = NavigationToolbar(self._canvas, self)
         self._toolbar.hide()
@@ -405,8 +385,32 @@ class PredictionMapWidget(QWidget):
         self.clear()
 
     def header_widgets(self) -> list[QWidget]:
-        """Controls for the plot header: output selector, pan, zoom, reset view."""
-        return [self._output_combo, self._pan_button, self._zoom_button, self._reset_button]
+        """Controls for the plot header: layer and output selectors, pan, zoom, reset view."""
+        return [self._layer_combo, self._output_combo, self._pan_button, self._zoom_button,
+                self._reset_button]
+
+    @property
+    def layer(self) -> str:
+        """The shown layer, one of :data:`MAP_LAYERS`."""
+        return self._layer_combo.currentText()
+
+    def set_layer(self, layer: str) -> None:
+        """Show ``layer`` (one of :data:`MAP_LAYERS`)."""
+        self._layer_combo.setCurrentIndex(MAP_LAYERS.index(layer))
+
+    def _sync_layer_items(self, payload: dict[str, Any]) -> None:
+        """Disable the diagnostics layers a prediction does not have."""
+        layers = payload.get("layers") or {}
+        model = self._layer_combo.model()
+        if not isinstance(model, QStandardItemModel):
+            return
+        for index, name in enumerate(MAP_LAYERS):
+            item = model.item(index)
+            if item is None or index == 0:
+                continue
+            available = name in layers
+            item.setEnabled(available)
+            item.setToolTip("" if available else _NO_DIAGNOSTICS.format(name))
 
     def _mode_button(self, text: str, tip: str, toggle: Any) -> QToolButton:
         button = QToolButton()
@@ -431,32 +435,39 @@ class PredictionMapWidget(QWidget):
         return self._fig
 
     def update_data(self, payload: dict[str, Any] | None, *, empty_reason: str = "") -> None:
-        """Render one persisted spatial prediction map when available."""
+        """Render the selected layer of one prediction (``None`` clears the map)."""
         if payload is None:
             self.clear(empty_reason=empty_reason)
             return
+        layer = self.layer
         output_index = self._selected_output_index(payload.get("spatial_map"))
         if (
             payload is self._last_payload
             and empty_reason == self._last_empty_reason
             and output_index == self._rendered_output_index
+            and layer == self._rendered_layer
         ):
             return
 
         spatial_map = payload.get("spatial_map")
         if spatial_map is None:
-            self.clear(
-                empty_reason=empty_reason or "No spatial prediction map stored for this run."
-            )
+            self.clear(empty_reason=empty_reason or "No spatial prediction map for this run.")
             return
 
-        self._configure_output_selector(spatial_map, payload=payload)
-        output_index = self._selected_output_index(spatial_map)
-        arr = self._display_spatial_map(spatial_map, output_index=output_index)
+        self._sync_layer_items(payload)
+        if layer == "Prediction":
+            self._configure_output_selector(spatial_map, payload=payload)
+            output_index = self._selected_output_index(spatial_map)
+            arr = self._display_spatial_map(spatial_map, output_index=output_index)
+        else:
+            self._output_combo.setVisible(False)
+            values = (payload.get("layers") or {}).get(layer)
+            arr = None if values is None else self._display_spatial_map(values)
+            if values is None:
+                self._show_missing_layer(payload, _NO_DIAGNOSTICS.format(layer))
+                return
         if arr is None:
-            self.clear(
-                empty_reason=empty_reason or "No spatial prediction map stored for this run."
-            )
+            self.clear(empty_reason=empty_reason or "No spatial prediction map for this run.")
             return
 
         colors = panel_colors()
@@ -468,7 +479,7 @@ class PredictionMapWidget(QWidget):
         # Each shown pixel covers ``step`` true frames and rows, starting at its index * step.
         image = self._ax.imshow(
             arr,
-            cmap="viridis",
+            cmap="viridis" if layer == "Prediction" else "magma",
             origin="upper",
             aspect="auto",
             interpolation="nearest",
@@ -477,9 +488,17 @@ class PredictionMapWidget(QWidget):
         self._current_display_map = arr
         self._step = step
         self._rendered_output_index = output_index
-        units = str(payload.get("target_unit", ""))
+        self._rendered_layer = layer
+        units = str(payload.get("target_unit", "")) if layer == "Prediction" else ""
         unit_suffix = f" ({units})" if units else ""
-        self._set_title(f"Prediction Map{unit_suffix}")
+        limit = self._layer_limit(payload, layer)
+        if limit is not None:
+            above = np.ma.masked_where(~(arr > limit), np.ones_like(arr))
+            self._overlay = self._ax.imshow(
+                above, cmap=ListedColormap([panel_colors()["accent"]]), alpha=0.9,
+                origin="upper", aspect="auto", interpolation="nearest",
+                extent=(-0.5, arr.shape[1] * step - 0.5, arr.shape[0] * step - 0.5, -0.5))
+        self._set_title(f"{layer} Map{unit_suffix}")
         self._ax.set_xlabel("Frame", color=colors["fg"])
         self._ax.set_ylabel("Row", color=colors["fg"])
         self._colorbar = self._fig.colorbar(image, ax=self._ax, fraction=0.046, pad=0.04)
@@ -488,14 +507,14 @@ class PredictionMapWidget(QWidget):
         finite = arr[np.isfinite(arr)]
         preview = f" | preview every {step}th frame and row" if step > 1 else ""
         if finite.size == 0:
-            self._stats_label.setText(f"Map stats: no finite prediction values.{preview}")
+            self._stats_label.setText(f"Map stats: no finite values.{preview}")
         else:
             self._stats_label.setText(
                 "Map stats: "
                 f"shape={arr.shape[0]} x {arr.shape[1]} | "
                 f"min={float(np.min(finite)):.4g} | "
                 f"mean={float(np.mean(finite)):.4g} | "
-                f"max={float(np.max(finite)):.4g}{preview}"
+                f"max={float(np.max(finite)):.4g}{self._limit_text(payload, layer)}{preview}"
             )
         self._cursor_label.setText("")
         self._last_layout_size = maybe_tight_layout(
@@ -511,7 +530,34 @@ class PredictionMapWidget(QWidget):
         self._last_empty_reason = empty_reason
         self.displayed_map_changed.emit({
             "values": arr, "target_unit": units, "output": self._output_name(),
+            "quantity": layer, "limit": limit,
             "map_step": step, "provenance": self.plot_table_metadata()})
+
+    @staticmethod
+    def _layer_limit(payload: dict[str, Any], layer: str) -> float | None:
+        """The 0.99 limit of a diagnostics layer, or ``None``."""
+        if layer not in _LAYER_LIMITS:
+            return None
+        value = (payload.get("diagnostics") or {}).get(_LAYER_LIMITS[layer][0])
+        return None if value is None or not np.isfinite(value) else float(value)
+
+    @staticmethod
+    def _limit_text(payload: dict[str, Any], layer: str) -> str:
+        """`` | above DCrit 2.1: 40 pixels (1.3 %)`` over the whole scan, or ``""``."""
+        summary = payload.get("diagnostics") or {}
+        if layer not in _LAYER_LIMITS or summary.get(_LAYER_LIMITS[layer][0]) is None:
+            return ""
+        key, count, share, name = _LAYER_LIMITS[layer]
+        return (f" | above {name} {float(summary[key]):.3g}: {int(summary[count])} pixels "
+                f"({100 * float(summary[share]):.2g} %)")
+
+    def _show_missing_layer(self, payload: dict[str, Any], reason: str) -> None:
+        """Placeholder for a diagnostics layer the prediction does not have."""
+        self._last_payload = None
+        self.clear(empty_reason=reason)
+        self._layer_combo.setVisible(True)
+        self._last_payload = payload
+        self._rendered_layer = self.layer
 
     def clear(self, *, empty_reason: str = "") -> None:
         """Show an empty prediction-map placeholder."""
@@ -522,12 +568,13 @@ class PredictionMapWidget(QWidget):
         self._remove_colorbar()
         self._ax.clear()
         self._current_display_map = None
+        self._overlay = None
         self._output_combo.setVisible(False)
         style_axes(self._ax)
-        self._set_title("Prediction Map")
+        self._set_title(f"{self.layer} Map")
         self._ax.set_xlabel("Frame", color=colors["fg"])
         self._ax.set_ylabel("Row", color=colors["fg"])
-        draw_placeholder(self._ax, empty_reason or "No saved prediction results yet.", colors)
+        draw_placeholder(self._ax, empty_reason or "No prediction in this session yet.", colors)
         self._stats_label.setText("")
         self._cursor_label.setText("")
         self._last_layout_size = maybe_tight_layout(
@@ -557,8 +604,11 @@ class PredictionMapWidget(QWidget):
 
     def plot_table_metadata(self) -> dict[str, Any]:
         payload = self._last_payload or {}
-        metadata: dict[str, Any] = {"output": self._output_name(),
+        metadata: dict[str, Any] = {"layer": self.layer, "output": self._output_name(),
                                     "target_unit": str(payload.get("target_unit", ""))}
+        limit = self._layer_limit(payload, self.layer)
+        if limit is not None:
+            metadata["limit_099"] = f"{limit:.6g}"
         if self._step > 1:
             metadata["preview_step"] = self._step
             full_shape = payload.get("full_map_shape")
@@ -665,7 +715,7 @@ class PredictionMapWidget(QWidget):
         if self._colorbar is None:
             return
         colors = panel_colors()
-        label = f"Prediction{unit_suffix}"
+        label = f"{self.layer}{unit_suffix}"
         self._colorbar.set_label(label, color=colors["fg"], fontsize=8)
         self._colorbar.ax.tick_params(colors=colors["fg"], labelsize=8)
 
@@ -691,7 +741,10 @@ def _histogram_render(fig: Figure, payload: Any, colors: Any) -> None:
         return
     ax.stairs(counts, edges, fill=True, color=colors["accent"], alpha=0.85)
     unit = str(payload.get("target_unit", ""))
-    ax.set_xlabel(f"Prediction ({unit})" if unit else "Prediction", color=colors["fg"])
+    quantity = str(payload.get("quantity", "Prediction"))
+    if payload.get("limit") is not None:
+        ax.axvline(float(payload["limit"]), color=colors["fg"], linestyle="--", linewidth=1.0)
+    ax.set_xlabel(f"{quantity} ({unit})" if unit else quantity, color=colors["fg"])
     ax.set_ylabel("Pixels", color=colors["fg"])
 
 
@@ -721,7 +774,7 @@ def _prediction_histogram(payload: Any) -> tuple[np.ndarray | None, np.ndarray |
 #: :attr:`PredictionMapWidget.displayed_map_changed`.
 PREDICTION_HISTOGRAM = register_plot(PlotSpec(
     "predict.histogram", "Prediction Distribution", _histogram_render, _histogram_table,
-    empty_text="No saved prediction results yet."))
+    empty_text="No prediction in this session yet."))
 
 
 class PredictionView(QWidget):
@@ -742,10 +795,8 @@ class PredictionView(QWidget):
         self._job_cancel_event: Event | None = None
         self._job_project_path: str | None = None
         self._last_prediction_phase: str | None = None
-        self._cached_workspace_visual_token: tuple[Any, ...] | None = None
+        self._cached_workspace_visual_token: str | None = None
         self._cached_workspace_visual_payload: dict[str, Any] | None = None
-        self._cached_summary_map_token: tuple[Any, ...] | None = None
-        self._cached_summary_map_fields: tuple[str, str] | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -820,8 +871,6 @@ class PredictionView(QWidget):
         dataset_id = dlg.dataset_id
         dataset: Any = None
         resolved_calibration: CalibrationSpec | None = None
-        calibration_is_new = False
-        dataset_is_new = False
         try:
             if calibration is not None:
                 check_calibration_signal_domain_compatibility(
@@ -830,7 +879,7 @@ class PredictionView(QWidget):
                 )
             spectral_data = _load_prediction_metadata(data_path)
             if spectral_data is not None:
-                dataset, resolved_calibration, calibration_is_new = _resolve_prediction_target(
+                dataset, resolved_calibration, _ = _resolve_prediction_target(
                     context,
                     data_path=data_path,
                     spectral_data=spectral_data,
@@ -838,7 +887,6 @@ class PredictionView(QWidget):
                     calibration=calibration,
                     default_calibration=default_calibration,
                 )
-                dataset_is_new = dataset.dataset_id not in context.datasets
                 preflight_prediction(
                     project_path=context.project_path,
                     model_run=context.model_run,
@@ -847,6 +895,7 @@ class PredictionView(QWidget):
                     dataset=dataset,
                     calibration=resolved_calibration,
                     model_registry=context.model_registry,
+                    prefer_saved_model=True,
                 )
         except Exception as exc:
             logger.error("Prediction failed during preflight: {}", exc)
@@ -862,35 +911,25 @@ class PredictionView(QWidget):
         def emit_progress(event: PredictionProgressEvent) -> None:
             progress_relay.progressed.emit(event)
 
-        def job() -> tuple[Any, Any, Any, bool, bool]:
+        def job() -> PredictionResult:
+            # Nothing is written: the scan and its calibration stay in memory
+            # (prediction-runtime contract, Result Handling).
             local_spectral = spectral_data
             local_dataset = dataset
             local_calibration = resolved_calibration
-            local_calibration_is_new = calibration_is_new
-            local_dataset_is_new = dataset_is_new
             if local_spectral is None:
                 local_spectral = load_spectra(data_path)
-                local_dataset, local_calibration, local_calibration_is_new = (
-                    _resolve_prediction_target(
-                        context,
-                        data_path=data_path,
-                        spectral_data=local_spectral,
-                        dataset_id=dataset_id,
-                        calibration=calibration,
-                        default_calibration=default_calibration,
-                    )
+                local_dataset, local_calibration, _ = _resolve_prediction_target(
+                    context,
+                    data_path=data_path,
+                    spectral_data=local_spectral,
+                    dataset_id=dataset_id,
+                    calibration=calibration,
+                    default_calibration=default_calibration,
                 )
-                local_dataset_is_new = local_dataset.dataset_id not in context.datasets
             if local_dataset is None or local_calibration is None:
                 log_and_raise("Prediction target resolution produced no dataset/calibration")
-            _persist_new_prediction_context(
-                project_path=context.project_path,
-                dataset=local_dataset,
-                calibration=local_calibration,
-                dataset_is_new=local_dataset_is_new,
-                calibration_is_new=local_calibration_is_new,
-            )
-            prediction_result = predict_with_model_run(
+            return predict_with_model_run(
                 project_path=context.project_path,
                 model_run=context.model_run,
                 signal_domain=context.signal_domain,
@@ -903,15 +942,7 @@ class PredictionView(QWidget):
                 preprocessing_recipe_id=context.preprocessing_recipe_id,
                 progress_callback=emit_progress,
                 cancel_callback=cancel_event.is_set,
-                persist_artifacts=True,
-                return_arrays=False,
-            )
-            return (
-                prediction_result,
-                local_dataset,
-                local_calibration,
-                local_dataset_is_new,
-                local_calibration_is_new,
+                prefer_saved_model=True,
             )
 
         self._job_project_path = context.project_path
@@ -942,23 +973,11 @@ class PredictionView(QWidget):
         self._selected_prediction_run_id = selected_prediction_run_id
 
     def workspace_summary(self) -> dict[str, str]:
-        prediction = self._resolved_workspace_prediction_run()
-        dataset = (
-            None if prediction is None else self.project_state.datasets.get(prediction.dataset_id)
-        )
-        calibration = (
-            None
-            if prediction is None
-            else self.project_state.calibrations.get(prediction.calibration_id)
-        )
-        model_run = (
-            None
-            if prediction is None
-            else self.project_state.model_runs.get(prediction.model_run_id)
-        )
-        signal_domain = None
-        if prediction is not None:
-            signal_domain = self.project_state.signal_domains.get(prediction.signal_domain_id)
+        result = self._resolved_workspace_prediction()
+        run = None if result is None else result.prediction_run
+        model_run = None if run is None else self.project_state.model_runs.get(run.model_run_id)
+        signal_domain = (None if run is None
+                         else self.project_state.signal_domains.get(run.signal_domain_id))
 
         target_text = "none"
         if model_run is not None:
@@ -972,16 +991,14 @@ class PredictionView(QWidget):
 
         model_text = "none"
         if model_run is not None:
-            model_text = f"{model_run.model_type} [{model_run.model_run_id}]"
+            model_text = f"{model_run.model_type} [{model_run.name or model_run.model_run_id}]"
 
         dataset_text = "none"
-        if dataset is not None:
-            path_name = Path(dataset.source_path).name if dataset.source_path else "none"
-            dataset_text = f"{dataset.dataset_id} | {path_name}"
-
         calibration_text = "none"
-        if calibration is not None:
-            calibration_text = f"{calibration.calibration_id} | {calibration.mode} -> {calibration.output_signal_unit}"
+        if result is not None:
+            dataset_text = Path(result.dataset.source_path).name or "none"
+            calibration = result.calibration
+            calibration_text = f"{calibration.mode} -> {calibration.output_signal_unit}"
 
         format_text = "-"
         signal_text = "-"
@@ -996,14 +1013,16 @@ class PredictionView(QWidget):
         map_shape_text = "-"
         map_range_text = "-"
         clipping_text = "-"
-        if prediction is not None:
-            map_shape_text, map_range_text = self._prediction_map_summary_fields(prediction)
-            clipping_text = self._prediction_clipping_summary(prediction)
+        diagnostics_text = "-"
+        if result is not None:
+            map_shape_text, map_range_text = self._prediction_map_summary_fields(result)
+            clipping_text = self._prediction_clipping_summary(result)
+            diagnostics_text = self._diagnostics_summary(result)
 
         status_text = self._prediction_status.text()
         readiness_text = self._readiness_status.text()
-        if prediction is not None:
-            status_text = f"Prediction: {prediction.prediction_run_id}"
+        if result is not None:
+            status_text = f"Prediction: {dataset_text} (this session, not stored)"
             readiness_text = "Ready: run another prediction or inspect results."
 
         return {
@@ -1011,7 +1030,7 @@ class PredictionView(QWidget):
             "status": status_text,
             "readiness": readiness_text,
             "service": self._service_status.label.text(),
-            "prediction": "none" if prediction is None else prediction.prediction_run_id,
+            "prediction": "none" if run is None else run.prediction_run_id,
             "model": model_text,
             "dataset": dataset_text,
             "calibration": calibration_text,
@@ -1022,39 +1041,42 @@ class PredictionView(QWidget):
             "map_shape": map_shape_text,
             "map_range": map_range_text,
             "clipping": clipping_text,
+            "diagnostics": diagnostics_text,
         }
 
     def workspace_provenance(self) -> dict[str, str]:
         """Provenance lines for exported prediction plots (Plot Panel Policy)."""
         provenance = {"project_id": str(self.project_state.project_meta.get("project_id", ""))}
-        prediction = self._resolved_workspace_prediction_run()
-        if prediction is None:
+        result = self._resolved_workspace_prediction()
+        if result is None:
             return provenance
-        provenance.update(prediction_run_id=prediction.prediction_run_id,
-                          model_run_id=prediction.model_run_id,
-                          dataset_id=prediction.dataset_id,
-                          calibration_id=prediction.calibration_id,
-                          signal_domain_id=prediction.signal_domain_id)
-        calibration = self.project_state.calibrations.get(prediction.calibration_id)
-        if calibration is not None:
-            provenance["signal_unit"] = calibration.output_signal_unit
-        dataset = self.project_state.datasets.get(prediction.dataset_id)
-        if dataset is not None:
-            provenance["data_file"] = dataset.source_path
+        run = result.prediction_run
+        provenance.update(model_run_id=run.model_run_id,
+                          signal_domain_id=run.signal_domain_id,
+                          signal_unit=result.calibration.output_signal_unit,
+                          calibration_mode=result.calibration.mode,
+                          data_file=result.dataset.source_path,
+                          predicted_at=str(result.provenance.get("created_at", "")))
+        model_run = self.project_state.model_runs.get(run.model_run_id)
+        if model_run is not None and model_run.name:
+            provenance["model_name"] = model_run.name
         return provenance
 
     def workspace_visual_payload(self) -> dict[str, Any] | None:
-        """Return one stable visual payload for the selected Predict workspace run.
+        """Return one stable visual payload for the selected prediction of this session.
 
         The returned object is cached so repeated shell refreshes do not rebuild
         identical prediction-map payloads or trigger redundant redraws.
         """
-        prediction = self._resolved_workspace_prediction_run()
-        if prediction is None:
+        result = self._resolved_workspace_prediction()
+        if result is None:
             self._cached_workspace_visual_token = None
             self._cached_workspace_visual_payload = None
             return None
-        model_run = self.project_state.model_runs.get(prediction.model_run_id)
+        run = result.prediction_run
+        if self._cached_workspace_visual_token == run.prediction_run_id:
+            return self._cached_workspace_visual_payload
+        model_run = self.project_state.model_runs.get(run.model_run_id)
         target_unit = ""
         if model_run is not None:
             sample_set = self.project_state.sample_sets.get(model_run.sample_set_id)
@@ -1062,83 +1084,34 @@ class PredictionView(QWidget):
                 target = self.project_state.targets.get(sample_set.target_id)
                 if target is not None:
                     target_unit = target.unit
-        payload: dict[str, Any] = {"target_unit": target_unit}
-        artifact_refs = prediction.artifact_refs
+        payload: dict[str, Any] = {"target_unit": target_unit,
+                                   "diagnostics": result.diagnostics or {}}
         for key in ("output_names", "output_axis", "output_index", "n_outputs"):
-            if key in artifact_refs:
-                payload[key] = artifact_refs[key]
-        base_token = (
-            prediction.prediction_run_id,
-            target_unit,
-            self.project_state.prediction_artifact_version(prediction.prediction_run_id),
-            _array_payload_fingerprint(artifact_refs.get("spatial_map_shape")),
-            _array_payload_fingerprint(artifact_refs.get("prediction_shape")),
-            tuple(str(name) for name in artifact_refs.get("output_names", [])),
-        )
-        if self._cached_workspace_visual_token == base_token:
-            return self._cached_workspace_visual_payload
-        try:
-            preview = self.project_state.load_prediction_spatial_map_preview(
-                prediction.prediction_run_id, max_pixels=_MAP_PREVIEW_PIXELS
-            )
-            payload["spatial_map"] = preview
-            payload.update(_preview_geometry(prediction, preview))
-        except (KeyError, ValueError, FileNotFoundError, OSError) as exc:
-            logger.warning(
-                "Could not load prediction '{}' spatial-map preview: {}",
-                prediction.prediction_run_id,
-                exc,
-            )
-        self._cached_workspace_visual_token = base_token
+            if key in run.artifact_refs:
+                payload[key] = run.artifact_refs[key]
+        payload.update(_map_previews(result))
+        self._cached_workspace_visual_token = run.prediction_run_id
         self._cached_workspace_visual_payload = payload
         return payload
 
-    def _prediction_map_summary_fields(self, prediction: PredictionRun) -> tuple[str, str]:
-        """Return cached map-shape/map-range summary strings for one prediction run."""
-        artifact_refs = prediction.artifact_refs
-        metadata_token = (
-            prediction.prediction_run_id,
-            self.project_state.prediction_artifact_version(prediction.prediction_run_id),
-            _array_payload_fingerprint(artifact_refs.get("spatial_shape")),
-            artifact_refs.get("prediction_min"),
-            artifact_refs.get("prediction_max"),
-        )
-        if (
-            self._cached_summary_map_token == metadata_token
-            and self._cached_summary_map_fields is not None
-        ):
-            return self._cached_summary_map_fields
-        spatial_shape = artifact_refs.get("spatial_shape")
-        prediction_min = artifact_refs.get("prediction_min")
-        prediction_max = artifact_refs.get("prediction_max")
-        if spatial_shape is not None and prediction_min is not None and prediction_max is not None:
-            shape = tuple(int(dim) for dim in np.asarray(spatial_shape).tolist())
-            if len(shape) >= 2:
-                fields = (
-                    f"{shape[1]} x {shape[0]}",
-                    f"{float(prediction_min):.4g} .. {float(prediction_max):.4g}",
-                )
-                self._cached_summary_map_token = metadata_token
-                self._cached_summary_map_fields = fields
-                return fields
-
-        map_shape_text = "-"
-        map_range_text = "-"
-        spatial_shape = artifact_refs.get("spatial_shape")
-        if spatial_shape is None:
-            spatial_shape = artifact_refs.get("spatial_map_shape")
-        if spatial_shape is not None:
-            shape = tuple(int(dim) for dim in np.asarray(spatial_shape).tolist())
-            if len(shape) >= 2:
-                map_shape_text = f"{shape[1]} x {shape[0]}"
-        self._cached_summary_map_token = metadata_token
-        self._cached_summary_map_fields = (map_shape_text, map_range_text)
-        return self._cached_summary_map_fields
+    @staticmethod
+    def _prediction_map_summary_fields(result: PredictionResult) -> tuple[str, str]:
+        """Map shape and value range of one prediction."""
+        refs = result.prediction_run.artifact_refs
+        shape = refs.get("spatial_shape", refs.get("spatial_map_shape"))
+        shape_text = "-"
+        if shape is not None:
+            dims = tuple(int(dim) for dim in np.asarray(shape).tolist())
+            if len(dims) >= 2:
+                shape_text = f"{dims[1]} x {dims[0]}"
+        low, high = refs.get("prediction_min"), refs.get("prediction_max")
+        range_text = "-" if low is None or high is None else f"{float(low):.4g} .. {float(high):.4g}"
+        return shape_text, range_text
 
     @staticmethod
-    def _prediction_clipping_summary(prediction: PredictionRun) -> str:
-        """Return reflectance clipping telemetry from prediction metadata."""
-        artifact_refs = prediction.artifact_refs
+    def _prediction_clipping_summary(result: PredictionResult) -> str:
+        """Return reflectance clipping telemetry of one prediction."""
+        artifact_refs = result.prediction_run.artifact_refs
         keys = ("clip_low_count", "clip_high_count", "near_zero_denominator_count")
         if not any(key in artifact_refs for key in keys):
             return "-"
@@ -1147,57 +1120,51 @@ class PredictionView(QWidget):
         near_zero = int(artifact_refs.get("near_zero_denominator_count", 0) or 0)
         return f"low={low} | high={high} | near-zero denom={near_zero}"
 
+    @staticmethod
+    def _diagnostics_summary(result: PredictionResult) -> str:
+        """Shares above the 0.99 limits and the mean prediction within and outside them."""
+        summary = result.diagnostics
+        if not summary:
+            return "none (refit the model to get DModX and T² maps)"
+        parts = []
+        for key, share, name in (("dcrit_099", "share_above_dcrit", "DCrit"),
+                                 ("t2_crit_099", "share_above_t2crit", "T²Crit")):
+            if summary.get(key) is not None:
+                parts.append(f"above {name}: {100 * float(summary[share]):.2g} %")
+        inside = summary.get("mean_prediction_within_limits")
+        outside = summary.get("mean_prediction_outside_limits")
+        if inside is not None and np.isfinite(inside):
+            parts.append(f"mean within limits {float(inside):.4g}")
+        if outside is not None and np.isfinite(outside):
+            parts.append(f"outside {float(outside):.4g}")
+        return " | ".join(parts) or "-"
+
     def _invalidate_prediction_workspace_cache(self, *_args) -> None:
         """Drop cached Predict workspace payloads after prediction-state changes."""
         self._cached_workspace_visual_token = None
         self._cached_workspace_visual_payload = None
-        self._cached_summary_map_token = None
-        self._cached_summary_map_fields = None
 
     def _on_prediction_completed(self, prediction_run_id: str) -> None:
         logger.info("Prediction completed -> {}", prediction_run_id)
-        prediction = self.project_state.predictions.get(prediction_run_id)
-        if prediction is None:
-            self._prediction_status.setText(f"Prediction: {prediction_run_id}")
-            self._readiness_status.setText("Ready: run another prediction or inspect results.")
-            return
-        self._prediction_status.setText(f"Prediction: {prediction.prediction_run_id}")
+        self._selected_prediction_run_id = prediction_run_id
+        result = self.project_state.predictions.get(prediction_run_id)
+        name = "" if result is None else Path(result.dataset.source_path).name
+        self._prediction_status.setText(f"Prediction: {name or prediction_run_id}")
         self._readiness_status.setText("Ready: run another prediction or inspect results.")
 
-    def _on_prediction_success(self, payload: tuple[Any, Any, Any, bool, bool]) -> None:
-        prediction_result, dataset, calibration, dataset_is_new, calibration_is_new = payload
+    def _on_prediction_success(self, result: PredictionResult) -> None:
         if self.project_state.project_path != self._job_project_path:
-            msg = (
-                "Prediction finished for project '{}', but project '{}' is now open. "
-                "The run was saved into the original project file; reopen it to inspect."
-            )
+            msg = ("Prediction finished for project '{}', but project '{}' is now open. "
+                   "The result is not shown; predict again in this project.")
             logger.warning(msg, self._job_project_path, self.project_state.project_path)
             self._service_status.set_idle("Service: idle")
             QMessageBox.information(
-                self,
-                "Prediction saved to previous project",
-                msg.format(self._job_project_path, self.project_state.project_path),
-            )
+                self, "Prediction discarded",
+                msg.format(self._job_project_path, self.project_state.project_path))
             return
-        try:
-            self.project_state.finalize_prediction_result(
-                prediction_result=prediction_result,
-                dataset=dataset,
-                calibration=calibration,
-                dataset_is_new=dataset_is_new,
-                calibration_is_new=calibration_is_new,
-            )
-        except Exception as exc:
-            logger.exception("Finalizing the completed prediction run failed")
-            self._on_prediction_error("Prediction failed", str(exc))
-            return
+        self.project_state.add_prediction(result)
         self._service_status.set_idle(
-            f"Service: prediction {prediction_result.prediction_run.prediction_run_id}"
-        )
-        self._prediction_status.setText(
-            f"Prediction: {prediction_result.prediction_run.prediction_run_id} | {Path(dataset.source_path).name}"
-        )
-        self._readiness_status.setText("Ready: run another prediction or inspect results.")
+            f"Service: prediction of {Path(result.dataset.source_path).name} done (not stored)")
 
     def _on_prediction_progress(self, event: object) -> None:
         if not isinstance(event, PredictionProgressEvent):
@@ -1264,23 +1231,14 @@ class PredictionView(QWidget):
         self._btn_predict.setEnabled(True)
         self._btn_cancel.setEnabled(False)
 
-    def _selected_workspace_prediction_run(self) -> PredictionRun | None:
-        if self._selected_prediction_run_id is None:
-            return None
-        prediction = self.project_state.predictions.get(self._selected_prediction_run_id)
-        if prediction is None:
-            self._selected_prediction_run_id = None
-            return None
-        return prediction
-
-    def _resolved_workspace_prediction_run(self) -> PredictionRun | None:
-        selected_prediction = self._selected_workspace_prediction_run()
-        if selected_prediction is not None:
-            return selected_prediction
-        if not self.project_state.predictions:
-            return None
-        latest_prediction_run_id = next(reversed(self.project_state.predictions))
-        return self.project_state.predictions.get(latest_prediction_run_id)
+    def _resolved_workspace_prediction(self) -> PredictionResult | None:
+        """The selected prediction of this session, or the latest one."""
+        predictions = self.project_state.predictions
+        selected = self._selected_prediction_run_id
+        if selected is not None and selected in predictions:
+            return predictions[selected]
+        self._selected_prediction_run_id = None
+        return predictions[next(reversed(predictions))] if predictions else None
 
 
 __all__ = ["PredictionMapWidget", "PredictionRunDialog", "PredictionView"]

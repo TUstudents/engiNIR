@@ -255,19 +255,33 @@ fitted, the readiness message says what is missing.
 Predict
 -------
 
-**Predict...** applies the selected model to a scan. The scan is registered
-in the project (or its registration and calibration are reused), and the
+**Predict...** applies the selected model to a scan. A registered scan reuses
+its calibration; a new scan gets the calibration chosen in the dialog. The
 prediction is refused before it starts when the scan cannot produce the
 model's signal: another instrument format, number of bands, calibration mode
 or signal unit. Wavelength values are metadata and are not compared. Models
 with MSC or EMSC apply the preprocessing state stored at training.
 
-The workspace shows the prediction map, the distribution of the predicted
-values, the model, dataset and calibration used, the compatibility summary,
-and how many reflectance values were clipped.
+Predictions are not stored: the project keeps the spectra, the recipe and
+the fitted model, and a prediction of a new scan is a result to inspect and
+export. The scan is not added to the project, the last three predictions of
+the session are kept in memory, and each prediction writes one entry to the
+log (model, data file with size and modification time, summary). Export the
+map as PNG or CSV from its panel for a report.
 
-The map header has the output selector (for models with several targets),
-**Pan**, **Zoom** and **Reset View**. Large maps are shown as a preview that
+The workspace shows the prediction map, the distribution of the shown
+values, the model, data file and calibration used, the compatibility
+summary, how many reflectance values were clipped, and the applicability of
+the model to the scan (share of pixels above the limits, mean prediction
+within and outside them).
+
+The map header has the **Layer** selector, the output selector (for models
+with several targets), **Pan**, **Zoom** and **Reset View**. The layers are
+the prediction, **DModX** (distance of the spectrum to the model, DModXPS)
+and **T²** (Hotelling's T² of its scores, T²PS); in the DModX and T² layers
+the pixels above the 0.99 limit (DCrit, T²Crit) are marked, and the
+distribution shows the limit. Models fitted before engiNIR 1.3 have no DModX
+and T² layers; fit them again to get them. Large maps are shown as a preview that
 keeps every n-th frame and row. The axes, the hover readout and the exported
 CSV still give the true frame and row, and the CSV records the step. Map and
 distribution export like every other plot (PNG, SVG, CSV, copy) and maximize
@@ -332,8 +346,8 @@ targets and models are labels: you can rename them and they may repeat. The
 viewer refers to everything by id, so repeated names never mix up ROIs, values
 or models; where names may repeat it also shows the data file or the id.
 
-There is no save step: every ROI, value, sample set, model and prediction is
-written when it is made. ROIs and targets are identified by stable ids; names
+There is no save step: every ROI, value, sample set and model is written when
+it is made (predictions are not stored). ROIs and targets are identified by stable ids; names
 are labels. Projects open metadata-first, so ROI spectra and model or
 prediction arrays are read only when a plot or job needs them. To script
 what the viewer does, use :class:`enginir.Project` (:doc:`workflows`).

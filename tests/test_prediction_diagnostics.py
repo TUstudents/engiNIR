@@ -149,3 +149,36 @@ def test_diagnostics_without_a_usable_s0_are_nan_and_not_counted():
     summary.add(np.zeros(7), t2, distance)
     assert summary.as_dict()["n_pixels"] == 0
 
+
+
+def test_a_model_fitted_in_the_viewer_session_gets_the_maps_and_nothing_is_written(tmp_path):
+    from enginir.io import load_project_store
+    from enginir.viewer._app import ensure_app
+    from enginir.viewer._state import ProjectState
+    from tests.test_prediction_runs import _create_phase6_model_project, _write_prediction_cube
+
+    ensure_app()
+    path = str(tmp_path / "session.h5")
+    _create_phase6_model_project(path)
+    state = ProjectState()
+    state.open_project(path)
+    state.build_sample_set(target_id="target_moisture", preprocessing_recipe_id="recipe_none",
+                           sample_set_id="sample_set_1")
+    state.fit_model_run(sample_set_id="sample_set_1", signal_domain_id="signal_domain_1",
+                        model_type="PLS", hyperparameters={"n_components": 1}, cv="logo",
+                        model_run_id="model_1")
+    assert "model_1" in state.model_registry  # the in-memory predictor of the session
+    scan = str(tmp_path / "scan.h5")
+    _write_prediction_cube(scan, wavelengths=np.array([1000.0, 1100.0, 1200.0], np.float32))
+    before = load_project_store(path)
+    calibration = state.calibrations["cal_train"]
+    from dataclasses import replace
+
+    result = state.predict_dataset(model_run_id="model_1", data_path=scan,
+                                   calibration=replace(calibration, calibration_id="cal_scan",
+                                                       dataset_id=""))
+    assert result.dmodx is not None and result.t2 is not None
+    assert result.diagnostics is not None and result.diagnostics["n_pixels"] == result.dmodx.size
+    after = load_project_store(path)
+    assert {key: set(value) for key, value in after.items() if isinstance(value, dict)} == \
+        {key: set(value) for key, value in before.items() if isinstance(value, dict)}

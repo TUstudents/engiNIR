@@ -251,16 +251,26 @@ ROIs, targets, models and predictions by name or by id (see
 
    prediction = model.predict("prediction_scan.eiff",
                               dark="dark.eiff", white="white.eiff")
-   prediction.map            # (frames, height), read from the project file
+   prediction.map            # (frames, height), in memory
+   prediction.dmodx_map      # distance to the model per pixel (DModXPS)
+   prediction.diagnostics    # 0.99 limits and the share of pixels above them
 
-``predict`` registers the scan with a calibration in the model's signal unit
-(or reuses the registered one) and checks that the scan can produce what the
-model was trained on (instrument format, number of bands, calibration and
-signal unit) before anything is read or written. Wavelength values are
-metadata and are not compared. The stored prediction run records the dataset,
-the calibration actually applied, the model, its signal domain and its
-preprocessing recipe. Model runs with ``MSC`` or ``EMSC`` store their fitted
-preprocessing state; prediction restores it without fitting on the new data.
+``predict`` resolves the scan's calibration in the model's signal unit (a
+registered scan reuses its stored one) and checks that the scan can produce
+what the model was trained on (instrument format, number of bands,
+calibration and signal unit) before the data are read. Wavelength values are
+metadata and are not compared. A prediction is an application of the model,
+not part of the calibration: nothing is written to the project. Its
+provenance (model, data file with size and modification time, calibration,
+time, the summary) is on ``prediction.provenance`` and in the log;
+``checksum=True`` adds the SHA-256 of the data file. Model runs with ``MSC``
+or ``EMSC`` store their fitted preprocessing state; prediction restores it
+without fitting on the new data.
+
+Storing a prediction in the project is a low-level operation for scripts
+(``enginir.prediction.predict_with_model_run(..., persist_artifacts=True)``
+after writing the scan's dataset and calibration); such runs are listed in
+``project.predictions``.
 
 See :doc:`workflows` for the complete workflow from a raw scan to a
 prediction map.

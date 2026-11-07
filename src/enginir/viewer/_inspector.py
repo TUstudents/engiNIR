@@ -352,35 +352,30 @@ class ProjectInspector(QWidget):
         return refs.get("exclusion")
 
     def _show_prediction(self, prediction_id: str) -> None:
-        prediction = self.project_state.predictions.get(prediction_id)
-        if prediction is None:
+        result = self.project_state.predictions.get(prediction_id)
+        if result is None:
             self.show_default()
             return
-        artifact_refs = prediction.artifact_refs
-        spatial_shape = artifact_refs.get("spatial_shape")
-        if spatial_shape is None:
-            spatial_shape = artifact_refs.get("spatial_map_shape")
-        if spatial_shape is None:
-            map_shape = "none"
+        run = result.prediction_run
+        shape = run.artifact_refs.get("spatial_shape", run.artifact_refs.get("spatial_map_shape"))
+        map_shape = ("none" if shape is None
+                     else " x ".join(str(int(v)) for v in np.asarray(shape).tolist()))
+        model_run = self.project_state.model_runs.get(run.model_run_id)
+        summary = result.diagnostics or {}
+        lines = [
+            "Not stored: predictions live in this session only.",
+            f"Data file: {result.dataset.source_path}",
+            f"Calibration: {result.calibration.mode} -> {result.calibration.output_signal_unit}",
+            f"Model: {model_run.name if model_run is not None and model_run.name else run.model_run_id}",
+            f"Spatial map: {map_shape}",
+        ]
+        if summary:
+            lines.append(f"Above DCrit: {100 * float(summary.get('share_above_dcrit', 0)):.2g} % | "
+                         f"above T²Crit: {100 * float(summary.get('share_above_t2crit', 0)):.2g} %")
         else:
-            shape_values = (
-                spatial_shape.tolist() if hasattr(spatial_shape, "tolist") else spatial_shape
-            )
-            map_shape = " x ".join(str(int(v)) for v in shape_values)
+            lines.append("No DModX/T² maps (refit the model to get them)")
         self.title_label.setText("Prediction")
-        self.body_label.setText(
-            "\n".join(
-                [
-                    f"ID: {prediction.prediction_run_id}",
-                    f"Dataset: {prediction.dataset_id}",
-                    f"Calibration: {prediction.calibration_id}",
-                    f"Model run: {prediction.model_run_id}",
-                    f"Signal domain: {prediction.signal_domain_id}",
-                    f"Recipe: {prediction.preprocessing_recipe_id}",
-                    f"Spatial map: {map_shape}",
-                ]
-            )
-        )
+        self.body_label.setText("\n".join(lines))
 
     def _show_target_assignment(self, payload: dict[str, str]) -> None:
         roi_id = str(payload.get("roi_id", ""))

@@ -28,7 +28,6 @@ from ..project import (
     CalibrationSpec,
     DatasetRef,
     ModelRun,
-    PredictionRun,
     SampleSet,
     SignalDomainContract,
     TargetAssignment,
@@ -37,7 +36,7 @@ from ..project import (
 )
 from ..preprocessing import PreprocessingRecipe
 from ..preprocessing.recipe import SG_FILTERS
-from ..prediction import predict_with_model_run, preflight_prediction
+from ..prediction import PredictionResult, predict_with_model_run
 from .._checks import log_and_raise
 from .._logging import get_logger
 from ..io.project_store import as_roi_storage_array
@@ -61,6 +60,8 @@ __all__ = [
 DEFAULT_SOURCE_MODALITY: str = "NIR"
 _EPS = 1e-10
 _WORKING_DTYPE = np.float32
+#: Predictions kept in memory in one viewer session (newest last); older ones are dropped.
+SESSION_PREDICTIONS = 3
 
 
 def _quoted_id_list(ids: list[str]) -> str:
@@ -135,10 +136,10 @@ class ProjectState(QObject):
         self.signal_domains: dict[str, SignalDomainContract] = {}
         self.sample_sets: dict[str, SampleSet] = {}
         self.model_runs: dict[str, ModelRun] = {}
-        self.predictions: dict[str, PredictionRun] = {}
+        #: Predictions of this session, newest last (never stored in the project).
+        self.predictions: dict[str, PredictionResult] = {}
         #: Display label per dataset id: the file name, with its folder when names repeat.
         self.data_file_labels: dict[str, str] = {}
-        self._prediction_artifact_versions: dict[str, int] = {}
         self.model_registry: dict[str, Any] = {}
         self.active_model_name: str | None = None
         # Another window's write to the same project re-reads it once, on the next event loop pass.
@@ -195,7 +196,6 @@ class ProjectState(QObject):
         self.project = project
         self.project_path = project.path
         self._sync()
-        self._prediction_artifact_versions = dict.fromkeys(self.predictions, 0)
         self.project_loaded.emit()
         self._emit_workspace_signals()
 
@@ -209,6 +209,7 @@ class ProjectState(QObject):
             )
         self.model_registry.clear()
         self.active_model_name = None
+        self.predictions.clear()
 
     # -- writing -------------------------------------------------------------------
 
@@ -476,13 +477,6 @@ class ProjectState(QObject):
         self.model_fitted.emit(model_run.model_run_id)
         self.active_model_changed.emit(model_run.model_run_id)
 
-    def register_prediction_run(self, prediction: PredictionRun) -> None:
-        """Persist a prediction run."""
-        self._require_project("register_prediction_run").save_prediction_run(prediction)
-        self._written()
-        self._bump_prediction_artifact_version(prediction.prediction_run_id)
-        self.predictions_changed.emit()
-
     def build_prediction_job_context(self, *, model_run_id: str) -> PredictionJobContext:
         """Return a snapshot of everything a background prediction needs."""
         project_path = self._require_project_path("build_prediction_job_context")
@@ -516,34 +510,17 @@ class ProjectState(QObject):
             model_registry=dict(self.model_registry),
         )
 
-    def finalize_prediction_result(
-        self,
-        *,
-        prediction_result: Any,
-        dataset: DatasetRef,
-        calibration: CalibrationSpec,
-        dataset_is_new: bool,
-        calibration_is_new: bool,
-    ) -> None:
-        """Persist one already-computed prediction (and its new dataset/calibration)."""
-        project = self._require_project("finalize_prediction_result")
-        if dataset_is_new and dataset.dataset_id not in project.workspace.datasets:
-            project.save_dataset(dataset)
-        if calibration_is_new and calibration.calibration_id not in project.workspace.calibrations:
-            project.save_calibration(calibration)
-        prediction = prediction_result.prediction_run
-        if not bool(getattr(prediction_result, "artifacts_persisted", False)):
-            project.save_prediction_run(prediction)
-        else:
-            project.reload()
-        self._written()
-        self._bump_prediction_artifact_version(prediction.prediction_run_id)
-        if dataset_is_new:
-            self.datasets_changed.emit()
-        if calibration_is_new:
-            self.calibrations_changed.emit()
+    def add_prediction(self, result: PredictionResult) -> None:
+        """Keep a computed prediction for this session and show it (nothing is written)."""
+        run_id = result.prediction_run.prediction_run_id
+        self.predictions[run_id] = result
+        while len(self.predictions) > SESSION_PREDICTIONS:
+            dropped = next(iter(self.predictions))
+            del self.predictions[dropped]
+            logger.info("Dropped session prediction '{}' (at most {} are kept)", dropped,
+                        SESSION_PREDICTIONS)
         self.predictions_changed.emit()
-        self.prediction_completed.emit(prediction.prediction_run_id)
+        self.prediction_completed.emit(run_id)
 
     def predict_dataset(
         self,
@@ -555,26 +532,19 @@ class ProjectState(QObject):
         prediction_run_id: str | None = None,
         created_at: str | None = None,
         loader_kwargs: dict[str, Any] | None = None,
-        return_arrays: bool = False,
-    ) -> Any:
-        """Resolve the dataset and calibration, predict, and persist the run."""
+    ) -> PredictionResult:
+        """Resolve the dataset and calibration and predict in memory; nothing is written.
+
+        The result (with the DModXPS and T²PS maps when the saved model has
+        projection data) is kept for this session (:meth:`add_prediction`).
+        """
         context = self.build_prediction_job_context(model_run_id=model_run_id)
         spectral_data = _load_prediction_metadata(data_path, loader_kwargs=loader_kwargs)
-        dataset, dataset_is_new = resolve_dataset(context.datasets, data_path, spectral_data,
-                                                  dataset_id=dataset_id, created_at=created_at)
-        resolved_calibration, calibration_is_new = resolve_prediction_calibration(
+        dataset, _ = resolve_dataset(context.datasets, data_path, spectral_data,
+                                     dataset_id=dataset_id, created_at=created_at)
+        resolved_calibration, _ = resolve_prediction_calibration(
             dataset, context.calibrations, context.active_calibration_ids, calibration)
-        preflight_prediction(
-            project_path=context.project_path, model_run=context.model_run,
-            signal_domain=context.signal_domain, recipe=context.recipe, dataset=dataset,
-            calibration=resolved_calibration, model_registry=context.model_registry)
-        # The run refers to its dataset and calibration, so they are stored first.
-        project = self._require_project("predict_dataset")
-        if dataset_is_new:
-            project.save_dataset(dataset)
-        if calibration_is_new:
-            project.save_calibration(resolved_calibration)
-        prediction_result = predict_with_model_run(
+        result = predict_with_model_run(
             project_path=context.project_path,
             model_run=context.model_run,
             signal_domain=context.signal_domain,
@@ -588,17 +558,10 @@ class ProjectState(QObject):
             prediction_run_id=prediction_run_id,
             created_at=created_at,
             loader_kwargs=loader_kwargs,
-            persist_artifacts=True,
-            return_arrays=return_arrays,
+            prefer_saved_model=True,
         )
-        self.finalize_prediction_result(
-            prediction_result=prediction_result,
-            dataset=dataset,
-            calibration=resolved_calibration,
-            dataset_is_new=dataset_is_new,
-            calibration_is_new=calibration_is_new,
-        )
-        return prediction_result
+        self.add_prediction(result)
+        return result
 
     def remove_roi(self, roi_id: str) -> None:
         """Delete an ROI and its assignments."""
@@ -641,52 +604,6 @@ class ProjectState(QObject):
         model_run.artifact_refs = _merge_artifact_refs(model_run.artifact_refs, loaded)
         return model_run.artifact_refs
 
-    def ensure_prediction_artifact_refs(self, prediction_run_id: str) -> dict[str, Any]:
-        """Load heavy prediction artifact refs on demand and merge them into memory."""
-        from ..io.project_store import load_prediction_run_artifact_refs
-
-        project_path = self._require_project_path("ensure_prediction_artifact_refs")
-        prediction = self.predictions.get(prediction_run_id)
-        if prediction is None:
-            log_and_raise("Unknown prediction_run_id '{}'", prediction_run_id, error=KeyError)
-        loaded = load_prediction_run_artifact_refs(project_path, prediction_run_id)
-        prediction.artifact_refs = _merge_artifact_refs(prediction.artifact_refs, loaded)
-        self._bump_prediction_artifact_version(prediction_run_id)
-        return prediction.artifact_refs
-
-    def load_prediction_artifact_refs(
-        self,
-        prediction_run_id: str,
-        *,
-        keys: tuple[str, ...] | list[str] | set[str] | None,
-    ) -> dict[str, Any]:
-        """Load selected prediction artifacts without merging them into project state."""
-        from ..io.project_store import load_prediction_run_artifact_refs
-
-        project_path = self._require_project_path("load_prediction_artifact_refs")
-        if prediction_run_id not in self.predictions:
-            log_and_raise("Unknown prediction_run_id '{}'", prediction_run_id, error=KeyError)
-        return load_prediction_run_artifact_refs(project_path, prediction_run_id, keys)
-
-    def load_prediction_spatial_map_preview(
-        self,
-        prediction_run_id: str,
-        *,
-        max_pixels: int = 512 * 512,
-    ) -> np.ndarray:
-        """Load a bounded spatial-map preview without merging it into project state."""
-        from ..io.project_store import load_prediction_spatial_map_preview
-
-        project_path = self._require_project_path("load_prediction_spatial_map_preview")
-        if prediction_run_id not in self.predictions:
-            log_and_raise("Unknown prediction_run_id '{}'", prediction_run_id, error=KeyError)
-        return load_prediction_spatial_map_preview(project_path, prediction_run_id,
-                                                   max_pixels=max_pixels)
-
-    def prediction_artifact_version(self, prediction_run_id: str) -> int:
-        """Return the in-memory version for one prediction artifact payload."""
-        return self._prediction_artifact_versions.get(prediction_run_id, 0)
-
     # -- mirroring -------------------------------------------------------------------
 
     def reload(self) -> None:
@@ -726,18 +643,7 @@ class ProjectState(QObject):
         self.signal_domains = dict(ws.signal_domains)
         self.sample_sets = dict(ws.sample_sets)
         self.model_runs = dict(ws.model_runs)
-        self.predictions = dict(ws.predictions)
         self.data_file_labels = data_file_labels(self.datasets)
-
-    def _apply_prediction_run(self, prediction: PredictionRun) -> None:
-        """Show a prediction run that is not (yet) stored, e.g. in tests."""
-        self.predictions[prediction.prediction_run_id] = prediction
-        self._bump_prediction_artifact_version(prediction.prediction_run_id)
-
-    def _bump_prediction_artifact_version(self, prediction_run_id: str) -> None:
-        self._prediction_artifact_versions[prediction_run_id] = (
-            self._prediction_artifact_versions.get(prediction_run_id, 0) + 1
-        )
 
     def _emit_workspace_signals(self) -> None:
         self.datasets_changed.emit()

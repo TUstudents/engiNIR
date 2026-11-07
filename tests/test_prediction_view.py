@@ -167,18 +167,14 @@ def test_prediction_view_happy_path_calls_backend_and_updates_status(
         lambda **kwargs: (
             captured.update(kwargs)
             or types.SimpleNamespace(
-                prediction_run=types.SimpleNamespace(prediction_run_id="prediction_1")
+                prediction_run=types.SimpleNamespace(prediction_run_id="prediction_1"),
+                dataset=types.SimpleNamespace(source_path=kwargs["data_path"]),
             )
         ),
     )
     finalized: list[str] = []
-    monkeypatch.setattr(
-        project_state,
-        "finalize_prediction_result",
-        lambda **kwargs: finalized.append(
-            kwargs["prediction_result"].prediction_run.prediction_run_id
-        ),
-    )
+    monkeypatch.setattr(project_state, "add_prediction",
+                        lambda result: finalized.append(result.prediction_run.prediction_run_id))
 
     view = PredictionView(project_state)
     view.predict_btn_clicked()
@@ -186,9 +182,9 @@ def test_prediction_view_happy_path_calls_backend_and_updates_status(
 
     assert captured["model_run"].model_run_id == "model_1"
     assert captured["data_path"] == "/tmp/predict.eiff"
-    assert captured["persist_artifacts"] is True
-    assert captured["return_arrays"] is False
-    assert view._service_status.label.text() == "Service: prediction prediction_1"
+    assert "persist_artifacts" not in captured, "the viewer never stores predictions"
+    assert captured["prefer_saved_model"] is True
+    assert view._service_status.label.text() == "Service: prediction of predict.eiff done (not stored)"
 
 
 def test_prediction_dialog_explicit_calibration_builds_and_validates(
@@ -298,25 +294,18 @@ def test_prediction_view_uses_dialog_default_calibration_for_new_dataset(
         lambda **kwargs: (
             captured.update(kwargs)
             or types.SimpleNamespace(
-                prediction_run=types.SimpleNamespace(prediction_run_id="prediction_1")
+                prediction_run=types.SimpleNamespace(prediction_run_id="prediction_1"),
+                dataset=types.SimpleNamespace(source_path=kwargs["data_path"]),
             )
         ),
     )
-    finalized: list[tuple[str, bool]] = []
-    monkeypatch.setattr(
-        project_state,
-        "finalize_prediction_result",
-        lambda **kwargs: finalized.append(
-            (
-                kwargs["prediction_result"].prediction_run.prediction_run_id,
-                kwargs["calibration_is_new"],
-            )
-        ),
-    )
+    finalized: list[str] = []
+    monkeypatch.setattr(project_state, "add_prediction",
+                        lambda result: finalized.append(result.prediction_run.prediction_run_id))
 
     view = PredictionView(project_state)
     view.predict_btn_clicked()
-    _wait_until(qapp, lambda: finalized == [("prediction_1", True)])
+    _wait_until(qapp, lambda: finalized == ["prediction_1"])
 
     calibration = captured["calibration"]
     assert isinstance(calibration, CalibrationSpec)
@@ -388,25 +377,18 @@ def test_prediction_view_reuses_existing_calibration_when_override_unchecked(
         lambda **kwargs: (
             captured.update(kwargs)
             or types.SimpleNamespace(
-                prediction_run=types.SimpleNamespace(prediction_run_id="prediction_existing")
+                prediction_run=types.SimpleNamespace(prediction_run_id="prediction_existing"),
+                dataset=types.SimpleNamespace(source_path=kwargs["data_path"]),
             )
         ),
     )
-    finalized: list[tuple[str, bool]] = []
-    monkeypatch.setattr(
-        project_state,
-        "finalize_prediction_result",
-        lambda **kwargs: finalized.append(
-            (
-                kwargs["prediction_result"].prediction_run.prediction_run_id,
-                kwargs["calibration_is_new"],
-            )
-        ),
-    )
+    finalized: list[str] = []
+    monkeypatch.setattr(project_state, "add_prediction",
+                        lambda result: finalized.append(result.prediction_run.prediction_run_id))
 
     view = PredictionView(project_state)
     view.predict_btn_clicked()
-    _wait_until(qapp, lambda: finalized == [("prediction_existing", False)])
+    _wait_until(qapp, lambda: finalized == ["prediction_existing"])
 
     assert captured["calibration"] is existing_calibration
 
@@ -466,95 +448,6 @@ def test_prediction_map_widget_exposes_multi_output_selector(qapp):
     widget._output_combo.setCurrentIndex(1)
 
     np.testing.assert_allclose(widget._ax.images[0].get_array(), spatial_map[..., 1].T)
-
-
-def test_prediction_workspace_payload_cache_uses_artifact_version(qapp, project_state, monkeypatch):
-    from enginir.viewer._prediction import PredictionView
-
-    _seed_model_run(project_state)
-    view = PredictionView(project_state)
-    preview_payloads = {"prediction_1": np.array([[1.0, 2.0]], dtype=np.float32)}
-    monkeypatch.setattr(
-        project_state,
-        "load_prediction_spatial_map_preview",
-        lambda prediction_run_id, **_kwargs: preview_payloads[prediction_run_id],
-    )
-    first = PredictionRun(
-        prediction_run_id="prediction_1",
-        dataset_id="dataset_1",
-        calibration_id="calibration_1",
-        model_run_id="model_1",
-        signal_domain_id="signal_domain_1",
-        preprocessing_recipe_id="recipe_1",
-        artifact_refs={
-            "spatial_map": np.array([[1.0, 2.0]], dtype=np.float32),
-            "y_pred": np.array([1.0, 2.0], dtype=np.float32),
-        },
-        created_at="2026-04-02T10:01:00+00:00",
-    )
-    project_state._apply_prediction_run(first)
-
-    first_payload = view.workspace_visual_payload()
-
-    preview_payloads["prediction_1"] = np.array([[3.0, 4.0]], dtype=np.float32)
-    second = PredictionRun(
-        prediction_run_id="prediction_1",
-        dataset_id="dataset_1",
-        calibration_id="calibration_1",
-        model_run_id="model_1",
-        signal_domain_id="signal_domain_1",
-        preprocessing_recipe_id="recipe_1",
-        artifact_refs={
-            "spatial_map": np.array([[3.0, 4.0]], dtype=np.float32),
-            "y_pred": np.array([3.0, 4.0], dtype=np.float32),
-        },
-        created_at="2026-04-02T10:02:00+00:00",
-    )
-    project_state._apply_prediction_run(second)
-
-    second_payload = view.workspace_visual_payload()
-
-    assert first_payload is not second_payload
-    assert second_payload is not None
-    np.testing.assert_allclose(second_payload["spatial_map"], [[3.0, 4.0]])
-
-
-def test_prediction_summary_uses_artifact_metadata_without_loading_map(
-    qapp, project_state, monkeypatch
-):
-    from enginir.viewer._prediction import PredictionView
-
-    _seed_model_run(project_state)
-    view = PredictionView(project_state)
-    prediction = PredictionRun(
-        prediction_run_id="prediction_meta",
-        dataset_id="dataset_1",
-        calibration_id="calibration_1",
-        model_run_id="model_1",
-        signal_domain_id="signal_domain_1",
-        preprocessing_recipe_id="recipe_1",
-        artifact_refs={
-            "spatial_shape": (2, 3),
-            "prediction_min": 1.0,
-            "prediction_max": 4.0,
-            "clip_low_count": 2,
-            "clip_high_count": 3,
-            "near_zero_denominator_count": 1,
-        },
-        created_at="2026-04-02T10:01:00+00:00",
-    )
-    project_state._apply_prediction_run(prediction)
-    monkeypatch.setattr(
-        project_state,
-        "load_prediction_artifact_refs",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("loaded map")),
-    )
-
-    summary = view.workspace_summary()
-
-    assert summary["map_shape"] == "3 x 2"
-    assert summary["map_range"] == "1 .. 4"
-    assert summary["clipping"] == "low=2 | high=3 | near-zero denom=1"
 
 
 def test_prediction_view_reports_backend_failure(qapp, project_state, monkeypatch):
@@ -699,7 +592,7 @@ def test_header_controls_select_the_output_and_pan_zoom_and_reset_the_view(qapp)
     histogram.show()
     payload = _subsampled_map_payload()
     widget.update_data(payload)
-    combo, pan, zoom, reset = widget.header_widgets()
+    _layer, combo, pan, zoom, reset = widget.header_widgets()
 
     def histogram_total():
         table = histogram.table()
@@ -726,36 +619,104 @@ def test_header_controls_select_the_output_and_pan_zoom_and_reset_the_view(qapp)
     assert widget._ax.get_xlim() == pytest.approx(full)
 
 
-def test_the_viewer_labels_a_stored_preview_with_the_loaders_step(tmp_path, monkeypatch):
-    """Preview pixel (i, j) is the stored map at frame i * map_step, row j * map_step."""
-    import types
+def _session_result(run_id, spatial_map, *, dmodx=None, t2=None, diagnostics=None,
+                    artifact_refs=None, source="/data/scan.h5"):
+    """An in-memory prediction as the service returns it."""
+    from enginir.prediction import PredictionResult
+    from enginir.project import DatasetRef
 
-    from enginir.io.project_store import (
-        create_project,
-        finalize_prediction_run_artifacts,
-        initialize_prediction_run_artifacts,
-        load_prediction_spatial_map_preview,
-        open_prediction_run_artifact_writer,
-    )
-    from enginir.viewer import _prediction
+    frames, height = spatial_map.shape[:2]
+    dataset = DatasetRef(dataset_id="dataset_1", source_path=source, source_format="hdf5",
+                         source_modality="nir_hsi", cube_shape=(frames, height, 3), n_bands=3,
+                         wavelengths=np.array([1.0, 2.0, 3.0], dtype=np.float32),
+                         loader_metadata={}, import_timestamp="2026-11-07T10:00:00+00:00")
+    calibration = CalibrationSpec(
+        calibration_id="cal_1", dataset_id="dataset_1", mode="raw_dn", dark_ref_source=None,
+        white_ref_source=None, dark_ref_data=None, white_ref_data=None, black_level=None,
+        white_level=None, output_signal_unit="DN", created_at="2026-11-07T10:00:00+00:00")
+    run = PredictionRun(prediction_run_id=run_id, dataset_id="dataset_1",
+                        calibration_id="cal_1", model_run_id="model_1",
+                        signal_domain_id="signal_domain_1", preprocessing_recipe_id="recipe_1",
+                        artifact_refs=dict(artifact_refs or {"spatial_map_shape": (frames, height)}),
+                        created_at="2026-11-07T10:00:00+00:00")
+    return PredictionResult(dataset=dataset, calibration=calibration, prediction_run=run,
+                            y_pred=spatial_map.reshape(-1), spatial_map=spatial_map,
+                            t2=None if t2 is None else t2.reshape(-1),
+                            dmodx=None if dmodx is None else dmodx.reshape(-1),
+                            diagnostics=diagnostics, provenance={"created_at": "now"})
 
-    path = str(tmp_path / "preview.h5")
-    map_shape = (23, 7)
-    y_pred = np.arange(23 * 7, dtype=np.float32)
-    create_project(path)
-    initialize_prediction_run_artifacts(path, "run", {"dataset_id": "d"},
-                                        y_pred_shape=y_pred.shape, spatial_map_shape=None)
-    with open_prediction_run_artifact_writer(path, "run") as writer:
-        writer.write_chunk(row_start=0, y_pred_chunk=y_pred)
-    finalize_prediction_run_artifacts(path, "run", {"spatial_map_shape": map_shape})
 
-    monkeypatch.setattr(_prediction, "_MAP_PREVIEW_PIXELS", 40)
-    preview = load_prediction_spatial_map_preview(path, "run", max_pixels=40)
-    run = types.SimpleNamespace(prediction_run_id="run",
-                                artifact_refs={"spatial_map_shape": np.array(map_shape)})
-    geometry = _prediction._preview_geometry(run, preview)  # type: ignore[arg-type]
-    step = geometry["map_step"]
-    assert step > 1 and geometry["full_map_shape"] == map_shape
-    full = y_pred.reshape(map_shape)
-    for i, j in ((0, 0), (1, 1), (preview.shape[0] - 1, preview.shape[1] - 1)):
-        assert preview[i, j] == full[i * step, j * step]
+def test_session_predictions_are_bounded_and_the_latest_is_shown(qapp, project_state):
+    from enginir.viewer._prediction import PredictionView
+    from enginir.viewer._state import SESSION_PREDICTIONS
+
+    _seed_model_run(project_state)
+    view = PredictionView(project_state)
+    for index in range(SESSION_PREDICTIONS + 1):
+        project_state.add_prediction(_session_result(
+            f"p{index}", np.full((2, 3), float(index), dtype=np.float32)))
+    assert list(project_state.predictions) == [f"p{i}" for i in range(1, SESSION_PREDICTIONS + 1)]
+    payload = view.workspace_visual_payload()
+    assert payload is not None
+    np.testing.assert_allclose(payload["spatial_map"], SESSION_PREDICTIONS)
+    assert payload["layers"] == {}, "no diagnostics without projection data"
+
+    project_state.new_project(str(project_state.project_path) + ".other.h5")
+    assert project_state.predictions == {}, "a project switch drops the session predictions"
+
+
+def test_prediction_summary_reports_run_metadata_and_applicability(qapp, project_state):
+    from enginir.viewer._prediction import PredictionView
+
+    _seed_model_run(project_state)
+    view = PredictionView(project_state)
+    refs = {"spatial_shape": (2, 3), "prediction_min": 1.0, "prediction_max": 4.0,
+            "clip_low_count": 2, "clip_high_count": 3, "near_zero_denominator_count": 1}
+    summary = {"dcrit_099": 2.0, "t2_crit_099": 9.0, "n_pixels": 6, "n_above_dcrit": 3,
+               "share_above_dcrit": 0.5, "n_above_t2crit": 0, "share_above_t2crit": 0.0,
+               "mean_prediction_within_limits": 1.5, "mean_prediction_outside_limits": 3.5}
+    grid = np.ones((2, 3), dtype=np.float32)
+    project_state.add_prediction(_session_result("p", grid, dmodx=grid, t2=grid,
+                                                 diagnostics=summary, artifact_refs=refs))
+    text = view.workspace_summary()
+    assert text["map_shape"] == "3 x 2" and text["map_range"] == "1 .. 4"
+    assert text["clipping"] == "low=2 | high=3 | near-zero denom=1"
+    assert text["diagnostics"] == ("above DCrit: 50 % | above T²Crit: 0 % | "
+                                   "mean within limits 1.5 | outside 3.5")
+    assert text["dataset"] == "scan.h5" and "not stored" in text["status"]
+
+    project_state.add_prediction(_session_result("old", grid))
+    assert "refit" in view.workspace_summary()["diagnostics"]
+
+
+def test_the_layer_selector_shows_the_diagnostics_and_marks_pixels_above_the_limit(qapp):
+    from enginir.viewer._prediction import PredictionMapWidget
+
+    widget = PredictionMapWidget()
+    prediction = np.arange(6, dtype=np.float32).reshape(3, 2)
+    dmodx = np.array([[0.5, 0.7], [3.0, 0.2], [0.1, 0.9]], dtype=np.float32)
+    payload = {"spatial_map": prediction, "layers": {"DModX": dmodx, "T²": dmodx * 2},
+               "diagnostics": {"dcrit_099": 1.0, "n_above_dcrit": 1, "share_above_dcrit": 1 / 6,
+                               "t2_crit_099": 4.0, "n_above_t2crit": 1,
+                               "share_above_t2crit": 1 / 6}}
+    shown: list = []
+    widget.displayed_map_changed.connect(shown.append)
+    widget.update_data(payload)
+    assert len(widget._ax.images) == 1
+
+    widget.set_layer("DModX")
+    np.testing.assert_allclose(widget._ax.images[0].get_array(), dmodx.T)
+    overlay = widget._ax.images[1].get_array()
+    assert int((~np.ma.getmaskarray(overlay)).sum()) == 1, "one pixel above DCrit is marked"
+    assert not np.ma.getmaskarray(overlay)[0, 1]  # frame 1, row 0 (shown transposed)
+    assert "above DCrit 1: 1 pixels (17 %)" in widget._stats_label.text()
+    assert widget.plot_title == "DModX Map"
+    assert shown[-1]["quantity"] == "DModX" and shown[-1]["limit"] == 1.0
+    assert widget.plot_table_metadata()["layer"] == "DModX"
+
+    widget.update_data({"spatial_map": prediction})  # a model without projection data
+    model = widget._layer_combo.model()
+    assert not model.item(1).isEnabled() and not model.item(2).isEnabled()
+    assert widget._current_display_map is None
+    texts = " ".join(text.get_text() for text in widget._ax.texts)
+    assert "Refit" in texts

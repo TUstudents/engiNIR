@@ -565,7 +565,8 @@ class TestProjectState:
         assert set(ps.signal_domains) == {"signal_domain_1"}
         assert set(ps.sample_sets) == {"sample_set_1"}
         assert set(ps.model_runs) == {"model_run_1"}
-        assert set(ps.predictions) == {"prediction_run_1"}
+        assert ps.predictions == {}, "stored prediction runs are not shown by the viewer"
+        assert set(ps.project.workspace.predictions) == {"prediction_run_1"}
         assert len(ps.rois) == 1
         assert ps.rois["roi_1"].roi_id == "roi_1"
         assert ps.rois["roi_1"].dataset_id == "dataset_1"
@@ -584,16 +585,6 @@ class TestProjectState:
         )
         np.testing.assert_allclose(
             model_artifacts["cv_outputs"]["y_pred_roi"], np.array([12.0], dtype=np.float32)
-        )
-        assert "y_pred" not in ps.predictions["prediction_run_1"].artifact_refs
-        assert "spatial_map" not in ps.predictions["prediction_run_1"].artifact_refs
-        prediction_artifacts = ps.ensure_prediction_artifact_refs("prediction_run_1")
-        np.testing.assert_allclose(
-            prediction_artifacts["y_pred"], np.array([11.9, 12.1], dtype=np.float32)
-        )
-        np.testing.assert_allclose(
-            prediction_artifacts["spatial_map"],
-            np.array([[11.9, 12.1]], dtype=np.float32),
         )
 
     def test_project_switch_clears_in_memory_predictors(self, project_store_path, tmp_path, qapp):
@@ -735,7 +726,6 @@ class TestProjectState:
             CalibrationSpec,
             DatasetRef,
             ModelRun,
-            PredictionRun,
             SampleSet,
             SignalDomainContract,
             TargetDefinition,
@@ -810,17 +800,6 @@ class TestProjectState:
             artifact_refs={"coef": "artifact_refs/prediction_model/coef_"},
             created_at="2026-04-02T10:04:00+00:00",
         )
-        prediction = PredictionRun(
-            prediction_run_id="prediction_fast",
-            dataset_id="dataset_fast",
-            calibration_id="cal_fast",
-            model_run_id="model_fast",
-            signal_domain_id="signal_fast",
-            preprocessing_recipe_id="recipe_fast",
-            artifact_refs={"y_pred": np.array([1.0], dtype=np.float32)},
-            created_at="2026-04-02T10:05:00+00:00",
-        )
-
         with patch.object(ps.project, "_reload", side_effect=AssertionError("unexpected reload")):
             ps.register_dataset(dataset)
             ps.set_active_calibration(calibration)
@@ -839,7 +818,6 @@ class TestProjectState:
             _add_fast_roi(ps, wl)
             ps.create_sample_set(sample_set)
             ps.register_model_run(model_run)
-            ps.register_prediction_run(prediction)
 
         assert ps.datasets["dataset_fast"].source_path == "/tmp/fast.eiff"
         assert ps.active_calibration_ids["dataset_fast"] == "cal_fast"
@@ -847,11 +825,6 @@ class TestProjectState:
         assert ps.signal_domains["signal_fast"].required_calibration_mode == "raw_dn"
         assert ps.sample_sets["sample_fast"].dataset_ids == ["dataset_fast"]
         assert ps.model_runs["model_fast"].sample_set_id == "sample_fast"
-        assert "y_pred" not in ps.predictions["prediction_fast"].artifact_refs
-        np.testing.assert_allclose(
-            ps.ensure_prediction_artifact_refs("prediction_fast")["y_pred"],
-            np.array([1.0], dtype=np.float32),
-        )
 
     def test_create_sample_set_rejects_invalid_relationships_before_persist(
         self, tmp_path, wl, qapp
@@ -1030,7 +1003,7 @@ class TestProjectState:
         save_model_run.assert_not_called()
         assert "model_fast" not in ps.model_runs
 
-    def test_register_prediction_run_rejects_invalid_relationships_before_persist(
+    def test_saving_a_prediction_run_rejects_invalid_relationships_before_persist(
         self, tmp_path, wl, qapp
     ):
         from enginir.project import (
@@ -1107,12 +1080,12 @@ class TestProjectState:
             with pytest.raises(
                 ProjectRelationshipError, match="missing model_run_id 'model_missing'"
             ):
-                ps.register_prediction_run(prediction)
+                ps.project.save_prediction_run(prediction)  # low-level persistence
 
         save_prediction_run.assert_not_called()
-        assert "prediction_fast" not in ps.predictions
+        assert "prediction_fast" not in ps.project.workspace.predictions
 
-    def test_register_prediction_run_rejects_calibration_from_other_dataset(
+    def test_saving_a_prediction_run_rejects_calibration_from_other_dataset(
         self, tmp_path, wl, qapp
     ):
         from enginir.project import (
@@ -1262,10 +1235,10 @@ class TestProjectState:
                 ProjectRelationshipError,
                 match="PredictionRun 'prediction_cross_dataset' uses calibration 'cal_b' of dataset 'dataset_b'",
             ):
-                ps.register_prediction_run(prediction)
+                ps.project.save_prediction_run(prediction)  # low-level persistence
 
         save_prediction_run.assert_not_called()
-        assert "prediction_cross_dataset" not in ps.predictions
+        assert "prediction_cross_dataset" not in ps.project.workspace.predictions
 
     def test_save_and_reopen_preserves_ids_and_references(
         self, tmp_path, wl, sample_provenance, qapp

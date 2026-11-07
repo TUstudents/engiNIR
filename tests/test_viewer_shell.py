@@ -326,8 +326,9 @@ def test_reopened_project_renders_model_and_prediction_workspaces(
     viewer._workspace_tabs.setCurrentWidget(viewer._prediction_view)
     qapp.processEvents()
     assert viewer._workspace_content_stack.currentWidget() is viewer._predict_content_page
-    assert viewer._predict_card_prediction_value.text() != "none"
-    assert viewer._predict_clipping_value.text() == "low=1 | high=2 | near-zero denom=0"
+    # the stored prediction run of the file is not shown: predictions live in the session
+    assert viewer._predict_card_prediction_value.text() == "none"
+    assert viewer._predict_card_model_value.text() == "none"
 
 
 def test_workspace_controls_height_is_stable_between_modes(qapp, cube_and_wavelengths):

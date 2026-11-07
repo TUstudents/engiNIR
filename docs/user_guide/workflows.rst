@@ -6,7 +6,8 @@ models and validation code; they differ in who keeps track of the analysis.
 
 **Project mode** (:class:`enginir.Project`) records every step in a project
 file: datasets with their calibrations, ROIs with reference values, the
-preprocessing recipe, the sample set, the model and its predictions. Results
+preprocessing recipe, the sample set and the model; predictions of new scans
+are returned in memory and logged, not stored. Results
 are reproducible and traceable without any bookkeeping code. Use it unless you
 know exactly which steps you need; it is also what the viewer uses.
 
@@ -38,7 +39,8 @@ One call per step:
    * - Review the model
      - ``model.metrics``, ``model.diagnostics``
    * - Predict a new scan
-     - ``model.predict(path)``, then ``prediction.map`` or ``prediction.y_pred``
+     - ``model.predict(path)``, then ``prediction.map``, ``prediction.dmodx_map``,
+       ``prediction.t2_map`` or ``prediction.diagnostics``
 
 References need not be separate files. ``dark_frames=(first, last)`` and
 ``white_frames=(first, last)`` average frames of the same file (a white tile

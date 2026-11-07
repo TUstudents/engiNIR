@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QFrame, QSizePolicy, QTreeWidget, QTreeWidgetItem, QWidget
@@ -259,7 +261,9 @@ class ProjectBrowser(QTreeWidget):
     def _populate_predictions(self) -> None:
         section = self._sections["predictions"]
         for prediction_id, prediction in self.project_state.predictions.items():
-            label = f"{prediction_id} | model={prediction.model_run_id}"
+            model_run = self.project_state.model_runs.get(prediction.prediction_run.model_run_id)
+            model = model_run.name if model_run is not None and model_run.name else "model"
+            label = f"{Path(prediction.dataset.source_path).name} | {model} (this session)"
             item = QTreeWidgetItem([label])
             item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "prediction", "id": prediction_id})
             section.addChild(item)

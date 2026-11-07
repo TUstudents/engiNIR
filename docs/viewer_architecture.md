@@ -103,7 +103,8 @@ calibrations and ROIs with the shared functions of `enginir._workflow`
 Runtime collections include:
 
 - `project_path`, `project_meta`
-- Collections: `datasets`, `calibrations`, `rois`, `targets`, `target_assignments`, `recipes`, `signal_domains`, `sample_sets`, `model_runs`, `predictions`
+- Collections: `datasets`, `calibrations`, `rois`, `targets`, `target_assignments`, `recipes`, `signal_domains`, `sample_sets`, `model_runs`
+- `predictions`: the in-memory `PredictionResult`s of this session (newest last, at most `SESSION_PREDICTIONS` = 3, cleared on a project switch); stored `/predictions` runs are not shown
 - `model_registry` (in-memory fitted model objects)
 
 **Signals:** `project_loaded()`, `datasets_changed()`, `calibrations_changed()`, `rois_changed()`, `targets_changed()`, `target_assignments_changed()`, `recipes_changed()`, `signal_domains_changed()`, `sample_sets_changed()`, `model_runs_changed()`, `predictions_changed()`, `model_fitted(str)`, `active_model_changed(str)`, `prediction_completed(str)`
@@ -113,8 +114,9 @@ Runtime collections include:
 - `reload()` — re-read the project; every write (`_written`) schedules it in the other `ProjectState`s of the process on the same project file, so several windows stay in step
 - `locate_data_file(dataset_id, path)` — `Dataset.locate`: accept a moved file only if its pixels equal the stored ROI pixels, then update `source_path`
 - `register_dataset(...)`, `set_active_calibration(...)`, `add_roi(...)`, `define_target(...)`, `assign_target_to_roi(...)` — store through `Project` + emit
-- `build_sample_set(...)`, `fit_model_run(...)`, `predict_dataset(...)` — high-level workflows
-- `ensure_model_run_artifact_refs(...)`, `ensure_prediction_artifact_refs(...)` — lazy-load heavy persisted arrays only when a workflow actually needs them
+- `build_sample_set(...)`, `fit_model_run(...)` — high-level workflows
+- `predict_dataset(...)`, `add_prediction(result)` — predict in memory (`prefer_saved_model=True`, so a model fitted in the session gets the DModX and T² maps) and keep the result for the session; nothing is written
+- `ensure_model_run_artifact_refs(...)` — lazy-load heavy persisted arrays only when a workflow actually needs them
 
 ---
 
@@ -300,9 +302,12 @@ implement `PlotSource` (`plot_table()`, `print_figure()`) and are shown in a
 - The other `_panels.py` panels build their print figure with `print_copy` (a pickled copy of
   the screen figure, recoloured).
 - The canvas redraws its current view with matplotlib.
-- `PredictionMapWidget` is a source too. Its header controls (output, pan,
-  zoom, reset) are added to its frame. It emits `displayed_map_changed` to
-  feed the `predict.histogram` spec.
+- `PredictionMapWidget` is a source too. Its header controls (layer, output,
+  pan, zoom, reset) are added to its frame. The layers are `MAP_LAYERS`
+  (Prediction, DModX, T²); a diagnostics layer marks the pixels above its
+  0.99 limit and is disabled for a model without projection data. It emits
+  `displayed_map_changed` (values, quantity, limit) to feed the
+  `predict.histogram` spec, which draws the limit.
 - `PlotPageWidget` lays out frames that are not specs in slots, with the same
   maximize as `PlotGrid`. The Predict page uses it for the map and the
   histogram.

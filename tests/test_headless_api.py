@@ -35,14 +35,15 @@ def test_headless_packages_do_not_import_qt():
 
 
 def test_viewer_writes_projects_only_through_project():
-    """ProjectState delegates to enginir.Project; only the prediction worker writes the
-    job's new dataset and calibration itself, through the validated writers."""
+    """ProjectState delegates to enginir.Project; the viewer calls no writer itself, and a
+    prediction writes nothing (prediction-runtime contract, Result Handling)."""
     import ast
     from pathlib import Path
 
     import enginir.io.project_store as store
 
-    writers = {name for name in dir(store) if name.startswith(("save_", "remove_"))}
+    writers = {name for name in dir(store)
+               if name.startswith(("save_", "remove_", "initialize_", "open_prediction"))}
     viewer = Path(__file__).parents[1] / "src" / "enginir" / "viewer"
     found: dict[str, set[str]] = {}
     for path in viewer.glob("*.py"):
@@ -52,7 +53,10 @@ def test_viewer_writes_projects_only_through_project():
                 if used:
                     found.setdefault(path.name, set()).update(used)
 
-    assert found == {"_prediction.py": {"save_dataset_ref", "save_calibration_spec"}}
+    assert found == {}
+    for path in viewer.glob("*.py"):
+        text = path.read_text()
+        assert "persist_artifacts" not in text and "save_prediction_run" not in text, path.name
 
 
 def test_the_viewer_never_addresses_objects_by_name():
