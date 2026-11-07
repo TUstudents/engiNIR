@@ -33,3 +33,5 @@ Outlier Detection
 .. autofunction:: enginir.validation.outliers.leverage_outliers
 .. autofunction:: enginir.validation.outliers.hotelling_t2
 .. autofunction:: enginir.validation.outliers.spectral_outliers
+.. autofunction:: enginir.validation.outliers.dmodx
+.. autofunction:: enginir.validation.outliers.dmodx_limit

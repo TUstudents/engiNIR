@@ -113,6 +113,8 @@ def cross_validate(
         Group label of every sample, shape ``(n_samples,)``. Samples of one
         group (e.g. pixels of one ROI or replicate spectra of one physical
         sample) never appear in both the training and the test part of a fold.
+        An estimator with ``uses_sample_index = True`` also gets the indices
+        of its training samples, as ``fit(X, y, sample_index=...)``.
     scoring:
         Regression metrics to compute, any of ``"rmsecv"``, ``"r2"``,
         ``"rpd"`` and ``"rpiq"`` (see :mod:`enginir.validation.metrics`).
@@ -163,9 +165,16 @@ def cross_validate(
     test_indices: list[np.ndarray] = []
     fold_results: list[dict[str, Any]] = []
     split_groups = None if cv == "loo" else groups_array
+    # An estimator that needs to know which samples it is trained on (e.g.
+    # the DModX pixel exclusion, which caps the exclusion per ROI) declares
+    # ``uses_sample_index``; it gets the indices of the training part only.
+    pass_index = bool(getattr(estimator, "uses_sample_index", False))
     for train_idx, test_idx in splitter.split(X, y, split_groups):
         model: Any = clone(estimator)
-        model.fit(X[train_idx], y[train_idx])
+        if pass_index:
+            model.fit(X[train_idx], y[train_idx], sample_index=train_idx)
+        else:
+            model.fit(X[train_idx], y[train_idx])
         fold_prediction = np.asarray(model.predict(X[test_idx]))
         predictions.append(fold_prediction)
         test_indices.append(test_idx)

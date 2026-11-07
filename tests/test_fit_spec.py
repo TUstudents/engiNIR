@@ -103,10 +103,11 @@ def test_cv_and_a_fit_spec_with_folds_are_refused_together(tmp_path):
     assert model.ref.cv_spec["requested"] == 3
 
 
-def test_exclusion_is_refused_until_it_is_implemented(tmp_path):
+def test_exclusion_without_residual_degrees_of_freedom_blocks_the_fit(tmp_path):
+    """§7.2: K - A must be at least 1 (here A = K = 12 bands); nothing is stored."""
     project = _uneven_project(tmp_path)
-    with pytest.raises(ValueError, match="not available yet"):
-        project.fit("API", n_components=1, fit_spec={"exclusion": {"method": "dmodx"}})
+    with pytest.raises(ValueError, match="K - A >= 1"):
+        project.fit("API", n_components=N_BANDS, fit_spec={"exclusion": {"method": "dmodx"}})
     assert project.models == {}
 
 

@@ -1,4 +1,4 @@
-"""Outlier diagnostics: leverage, Hotelling's T² and Q residuals.
+"""Outlier diagnostics: leverage, Hotelling's T², Q residuals and DModX.
 
 These diagnostics are usually computed on the scores (T²) and residuals (Q)
 of a fitted PCA or PLS model, or on its scores (leverage). Raw spectra with
@@ -17,6 +17,7 @@ from enginir._checks import as_float_matrix, check_real, log_and_raise
 from enginir._logging import get_logger
 
 logger = get_logger(__name__)
+_EPS = 1e-10
 
 
 def _as_float64_matrix(value: Any, name: str) -> np.ndarray:
@@ -211,4 +212,87 @@ def spectral_outliers(
     return q, q_crit, q > q_crit
 
 
-__all__ = ["hotelling_t2", "leverage_outliers", "spectral_outliers"]
+def dmodx(residuals: np.ndarray, n_components: int, *, centred: bool = True
+          ) -> tuple[np.ndarray, float]:
+    """Normalised distance to the model in X (DModX) of every observation, and s0.
+
+    Definition ``dmodx-1`` (sample-set-model-run contract §7.2, SIMCA 18):
+    with *N* observations, *K* variables, *A* components and *A0* = 1 for
+    centred X (else 0),
+
+    - absolute DModX: s_i = sqrt(sum_k e_ik^2 / (K - A)) * v,
+      v = sqrt(N / (N - A - A0))
+    - pooled: s0 = sqrt(sum_ik e_ik^2 / ((N - A - A0)(K - A)))
+    - normalised DModX = s_i / s0
+
+    Residuals are not weighted by the modelling power. Verified against
+    SIMCA 18.1 to float32 precision.
+
+    Parameters
+    ----------
+    residuals:
+        X residuals of the training observations after *A* components, in
+        the scaled units of the model, shape ``(N, K)``.
+    n_components:
+        Number of components *A*.
+    centred:
+        Whether X was centred (*A0* = 1).
+
+    Returns
+    -------
+    numpy.ndarray, shape (N,)
+        Normalised DModX.
+    float
+        The pooled residual standard deviation s0 (absolute DModX = normalised
+        DModX * s0).
+    """
+    E = _as_float64_matrix(residuals, "residuals")
+    n, k = E.shape
+    a0 = 1 if centred else 0
+    a = int(n_components)
+    if n - a - a0 < 1 or k - a < 1:
+        log_and_raise("DModX needs N - A - A0 >= 1 and K - A >= 1, got N={}, K={}, A={}, A0={}",
+                      n, k, a, a0)
+    ss = np.einsum("ik,ik->i", E, E)
+    s0 = float(np.sqrt(ss.sum() / ((n - a - a0) * (k - a))))
+    if s0 < _EPS:
+        logger.warning("DModX: the residuals are (almost) zero (s0={}); DModX is set to 0", s0)
+        return np.zeros(n), s0
+    v = np.sqrt(n / (n - a - a0))
+    return np.sqrt(ss / (k - a)) * v / s0, s0
+
+
+def dmodx_limit(n_samples: int, n_variables: int, n_components: int, level: float, *,
+                centred: bool = True) -> float:
+    """Critical normalised DModX (DCrit) at probability ``level`` (contract §7.2, SIMCA 18).
+
+    DCrit = sqrt(F^-1(level; DF_obs, DF_mod)) with DF_mod = sqrt((N - A0 - A)(K - A))
+    (at least 1); M = min(K, 100, DF_mod), CORR = N / (N - A0 - A);
+    DF_obs = (M + sqrt(K - DF_mod) - A) / CORR if K > DF_mod, else
+    (M - A) / CORR (at least 1). Verified against SIMCA 18.1.
+
+    Parameters
+    ----------
+    n_samples, n_variables, n_components:
+        *N*, *K* and *A* of the model.
+    level:
+        Probability of the limit, ``0 < level < 1`` (SIMCA's default 0.95).
+    centred:
+        Whether X was centred (*A0* = 1).
+    """
+    level = check_real(level, "level", positive=True)
+    if level >= 1.0:
+        log_and_raise("level must be in (0, 1), got {}", level)
+    n, k, a, a0 = int(n_samples), int(n_variables), int(n_components), 1 if centred else 0
+    if n - a0 - a < 1 or k - a < 1:
+        log_and_raise("DCrit needs N - A0 - A >= 1 and K - A >= 1, got N={}, K={}, A={}, A0={}",
+                      n, k, a, a0)
+    df_mod = max(np.sqrt((n - a0 - a) * (k - a)), 1.0)
+    m = min(k, 100, df_mod)
+    corr = n / (n - a0 - a)
+    df_obs = (m + np.sqrt(k - df_mod) - a) / corr if k > df_mod else (m - a) / corr
+    df_obs = max(df_obs, 1.0)
+    return float(np.sqrt(f.ppf(level, df_obs, df_mod)))
+
+
+__all__ = ["dmodx", "dmodx_limit", "hotelling_t2", "leverage_outliers", "spectral_outliers"]

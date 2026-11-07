@@ -143,6 +143,14 @@ three ROIs each, the options compare with SIMCA's CV-groups dialog like this:
      - whole levels, spread over the range (A C E | B D for 2 folds)
      - no equivalent
 
+Outlying pixels can be left out of a model by their distance to the model
+(DModX, as in SIMCA): ``fit_spec={"exclusion": {"method": "dmodx"}}``
+excludes the pixels above the critical distance at level 0.99, never more
+than 20 % of an ROI (``max_fraction``), inside every cross-validation fold
+from that fold's training pixels only. Held-out pixels are never excluded,
+and ROIs are never left out; an ROI with more outlying pixels than its share
+is flagged. ``model.excluded_pixels`` lists the excluded pixels per ROI.
+
 New models centre the spectra and scale the reference values to unit
 variance (``x_scaling="center"``, ``y_scaling="uv"``, as usual for spectra
 and in SIMCA). Pass ``x_scaling="uv"`` or ``"pareto"`` to scale the

@@ -494,10 +494,13 @@ residuals in scaled units:
 - N − A₀ − A must be at least 1, otherwise exclusion blocks the fit
 
 The help calls *v* only "a correction factor slightly larger than one"; the
-value above is engiNIR's. Residuals are not weighted by the modelling power
-(SIMCA's default weighting). If the SIMCA reference exports (plan
-`fit-specification.md`, Phase R) show a different *v* or the weighting is
-added, that is a new `exclusion/formula` version; stored runs keep theirs.
+SIMCA 18.1 reference exports (plan `fit-specification.md`, Phase R) confirm
+the value above, and DModX, DCrit and absolute DCrit (normalised DCrit × s₀)
+match them to float32 precision. Residuals are not weighted by the modelling
+power, although SIMCA weights them by default: the weighting reproduces
+SIMCA too (MPowₖ = max(0, 1 − SVₖ/SV0ₖ), plan Phase R), but it would make
+the exclusion depend on how well the model fits each band. Adding it is a
+new `exclusion/formula` version; stored runs keep theirs.
 
 ### 7.3 Legacy runs
 

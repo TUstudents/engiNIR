@@ -862,6 +862,24 @@ class Model:
                                                   keys=("cv_outputs", "diagnostics"))
         return {**refs.get("diagnostics", {}), **refs.get("cv_outputs", {})}
 
+    @property
+    def excluded_pixels(self) -> dict[str, np.ndarray]:
+        """Pixels left out of the final model by DModX exclusion, per ROI id.
+
+        Indices into each ROI's stored spectra; empty without exclusion
+        (sample-set-model-run contract §7.2).
+        """
+        refs = store.load_model_run_artifact_refs(self.project.path, self.ref.model_run_id,
+                                                  keys=("exclusion",))
+        exclusion = refs.get("exclusion", {})
+        if not exclusion:
+            return {}
+        roi_ids = [str(roi_id) for roi_id in np.atleast_1d(exclusion["roi_ids"])]
+        counts = np.atleast_1d(exclusion["counts"]).astype(int)
+        indices = np.atleast_1d(exclusion["pixel_indices"]).astype(np.int64)
+        bounds = np.concatenate([[0], np.cumsum(counts)])
+        return {roi_id: indices[bounds[i]:bounds[i + 1]] for i, roi_id in enumerate(roi_ids)}
+
     def refit(self, *, name: str | None = None) -> Model:
         """Fit this model again on exactly what it was fitted on, and store the new run.
 
@@ -908,6 +926,8 @@ class Model:
             signal_domains=ws.signal_domains, signal_domain_id=self.ref.signal_domain_id,
             model_type=self.ref.model_type, hyperparameters=hyperparameters,
             fit_spec=spec, target_name=self.target.name)
+        if spec.exclusion == "dmodx":
+            self._warn_on_exclusion_drift(result.model_run)
         drawn = result.model_run.fit_specification.checksum
         if spec.checksum and drawn != spec.checksum:
             logger.warning("Refit of '{}' drew a different pixel sample than the model was "
@@ -923,6 +943,22 @@ class Model:
         else:
             logger.info("Refit of '{}' reproduced its metrics as '{}'", self.name, refitted.name)
         return refitted
+
+    def _warn_on_exclusion_drift(self, refitted: ModelRun) -> None:
+        """Warn about ROIs whose excluded pixels differ from the stored ones (contract §6)."""
+        before = self.excluded_pixels
+        exclusion = refitted.artifact_refs.get("exclusion", {})
+        after: dict[str, np.ndarray] = {}
+        start = 0
+        for roi_id, count in zip(exclusion.get("roi_ids", []), exclusion.get("counts", [])):
+            after[str(roi_id)] = np.asarray(exclusion["pixel_indices"][start:start + int(count)])
+            start += int(count)
+        differing = sorted(roi_id for roi_id in set(before) | set(after)
+                           if not np.array_equal(before.get(roi_id, []), after.get(roi_id, [])))
+        if differing:
+            logger.warning("Refit of '{}' excluded other pixels than the model in {} ROI(s) "
+                           "(ids {}); borderline pixels can change with floating-point "
+                           "differences", self.name, len(differing), differing[:5])
 
     def _warn_on_group_drift(self, spec: FitSpec, sample_set: SampleSet) -> None:
         """Warn when current sample labels or values would group the ROIs differently.

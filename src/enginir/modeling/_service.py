@@ -48,6 +48,7 @@ from ..project import (
     transform_spectra_to_signal_domain,
 )
 from ..project._fit_spec import FitSpec, fold_groups_problem
+from ._exclusion import DModXExclusion
 from ..project._ids import new_id, now_iso
 from ..project._models import SAMPLE_SET_SEMANTICS
 from ._pixels import draw_pixels, roi_digest, sample_checksum
@@ -407,6 +408,9 @@ def fit_model_run(
     roi_ids_present, roi_index = np.unique(data.groups, return_inverse=True)
     group_of = {roi_id: int(groups[i]) for i, roi_id in enumerate(sample_set.roi_ids)}
     cv_groups = np.array([group_of[roi_id] for roi_id in roi_ids_present])[roi_index]
+    if spec.exclusion == "dmodx":
+        # Inside every fold, on that fold's training pixels only (contract §7.2).
+        cv_estimator = _excluding(cv_estimator, spec, roi_index)
     cv_result = cross_validate(cv_estimator, X_cv, data.y,
                                cv=_splitter(spec, n_fold_groups), groups=cv_groups)
     pixel_y_pred = np.asarray(cv_result["y_pred"], dtype=_WORKING_DTYPE)
@@ -417,13 +421,24 @@ def fit_model_run(
     roi_y_pred = roi_y_pred.astype(_WORKING_DTYPE)
 
     estimator = _ESTIMATORS[model_type](**hyperparameters)
+    exclusion: DModXExclusion | None = None
     if recipe.requires_fitting:
         predictor: Any = make_model_pipeline(recipe=recipe, wavelengths=data.wavelengths,
                                              estimator=estimator)
-        predictor.fit(X_cv, data.y)  # X_cv is X_signal: MSC/EMSC are refitted here
+        if spec.exclusion == "dmodx":
+            exclusion = _excluding(predictor, spec, roi_index).fit(X_cv, data.y)
+            predictor = exclusion.estimator_
+            estimator = predictor[-1]
+        else:
+            predictor.fit(X_cv, data.y)  # X_cv is X_signal: MSC/EMSC are refitted here
     else:
-        estimator.fit(X_cv, data.y)
+        if spec.exclusion == "dmodx":
+            exclusion = _excluding(estimator, spec, roi_index).fit(X_cv, data.y)
+            estimator = exclusion.estimator_
+        else:
+            estimator.fit(X_cv, data.y)
         predictor = _StatelessRecipePredictor(recipe.build_steps(data.wavelengths), estimator)
+    n_excluded = 0 if exclusion is None else int(exclusion.excluded_.sum())
 
     model_run = ModelRun(
         model_run_id=model_run_id or new_id(),
@@ -448,6 +463,7 @@ def fit_model_run(
             "primary_roi_aggregation": sample_set.roi_aggregation,
             "n_rois": int(roi_ids.size),
             "n_pixels": int(data.X.shape[0]),
+            "n_excluded_pixels": n_excluded,
             "pixel_rmsecv": rmsecv(data.y, pixel_y_pred),
             "pixel_r2": r2_score(data.y, pixel_y_pred),
             "pixel_bias": bias(data.y, pixel_y_pred),
@@ -466,6 +482,8 @@ def fit_model_run(
             "diagnostics": _diagnostics_artifact(estimator, data.wavelengths),
             "cv_outputs": {"roi_ids": roi_ids, "y_true_roi": roi_y_true,
                            "y_pred_roi": roi_y_pred},
+            **({} if exclusion is None else
+               {"exclusion": _exclusion_artifact(exclusion, data, roi_ids_present)}),
         },
         created_at=created_at or now_iso(),
         fit_spec=spec.to_dict(),
@@ -513,8 +531,6 @@ def _check_fit_spec_feasible(spec: FitSpec, sample_set: SampleSet,
     if len(sample_set.roi_ids) < 2:
         log_and_raise("A model needs at least 2 ROIs for cross-validation, sample set '{}' has {}",
                       sample_set.sample_set_id, len(sample_set.roi_ids))
-    if spec.exclusion != "none":
-        log_and_raise("Pixel exclusion '{}' is not available yet", spec.exclusion)
     if spec.pixels_per_roi is not None:
         known = [rois[roi_id] for roi_id in sample_set.roi_ids if roi_id in rois]
         smallest = min(known, key=lambda roi: roi.n_pixels, default=None)
@@ -522,6 +538,42 @@ def _check_fit_spec_feasible(spec: FitSpec, sample_set: SampleSet,
             log_and_raise("Cannot draw {} pixels per ROI: ROI '{}' has only {}; choose at most {}",
                           spec.pixels_per_roi, smallest.name, smallest.n_pixels,
                           smallest.n_pixels)
+
+
+def _excluding(model: Any, spec: FitSpec, roi_index: np.ndarray) -> DModXExclusion:
+    """``model`` with the DModX pixel exclusion of ``spec`` (contract §7.2)."""
+    return DModXExclusion(model, roi_index=roi_index, level=spec.exclusion_level,
+                          rounds=spec.exclusion_rounds,
+                          max_fraction=spec.exclusion_max_fraction)
+
+
+def _exclusion_artifact(exclusion: DModXExclusion, data: SampleSetData,
+                        roi_ids_present: np.ndarray) -> dict[str, Any]:
+    """The excluded pixels of the final model per ROI, as indices into its stored spectra."""
+    listed: list[str] = []
+    counts: list[int] = []
+    indices: list[np.ndarray] = []
+    for roi_id in data.sample_set.roi_ids:
+        rows = data.roi_slices.get(roi_id)
+        if rows is None:
+            continue
+        local = np.flatnonzero(exclusion.excluded_[rows])
+        if local.size == 0:
+            continue
+        drawn = None if data.pixel_indices is None else data.pixel_indices.get(roi_id)
+        stored = local if drawn is None else np.asarray(drawn)[local]
+        listed.append(roi_id)
+        counts.append(int(local.size))
+        indices.append(stored.astype(np.uint32))
+    return {
+        "roi_ids": np.array(listed, dtype=object),
+        "counts": np.array(counts, dtype=np.int32),
+        "pixel_indices": (np.concatenate(indices) if indices
+                          else np.empty(0, dtype=np.uint32)),
+        "flagged_roi_ids": np.array([str(roi_ids_present[r]) for r in exclusion.flagged_rois_],
+                                    dtype=object),
+        "dcrit": float(exclusion.dcrit_),
+    }
 
 
 def _with_default_scaling(model_type: str, hyperparameters: dict[str, Any]) -> dict[str, Any]:

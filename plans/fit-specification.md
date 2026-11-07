@@ -1,6 +1,6 @@
 # Plan: fit specification
 
-Status: Phases 0–4, R and S done (2026-11-07); Phases 5–7 open
+Status: Phases 0–5, R and S done (2026-11-07); Phases 6–7 open
 
 ## Goal
 
@@ -269,7 +269,7 @@ centres. Legacy runs without `scale` refit with `scale=True`. Tests: `uv`/`uv` e
 the textbook PLS1 on centred data; coefficients in original units agree
 across scalings.
 
-### Phase 5: DModX and pixel exclusion
+### Phase 5: DModX and pixel exclusion (done 2026-11-07)
 `dmodx(...)` and `dmodx_limit(...)` in `validation/outliers.py` with SIMCA's
 formulas (normalised; see open decision 3), then exclusion inside folds
 and in the final model, stored excluded indices and flags. Tests: limit
@@ -393,14 +393,12 @@ four gates.
 1. **Default scaling for new fits.** Taken in the contract: `center` X,
    `uv` Y (the user's SIMCA practice). This changes the numbers of new fits
    made with the default, so it goes in the CHANGELOG; old runs keep theirs.
-2. **Exclusion and equal weighting.** After exclusion, ROIs have fewer than
-   *n* pixels. Accept that (simple), or replace excluded pixels with
-   unused pixels of the same ROI that pass the DModX limit (keeps every ROI
-   at *n*).
-3. **DModX weighting.** Settled by the SIMCA exports (Phase R): *v* =
-   √(N/(N − A − A₀)) is confirmed, and both the unweighted and the
-   MPow-weighted forms are reproduced. Remaining choice for Phase 5: which
-   one engiNIR uses by default (SIMCA's default is weighted).
+2. **Exclusion and equal weighting.** Settled for Phase 5: excluded pixels
+   are not replaced (an ROI keeps at least 1 − `max_fraction` of its
+   pixels); replacement can be a later formula version.
+3. **DModX weighting.** Settled: *v* is confirmed by the SIMCA exports;
+   engiNIR keeps the unweighted `dmodx-1` for exclusion (the contract's
+   choice); a weighted form would be a new formula version.
 4. **Sample groups (Phase S).** Settled: labels are an optional ROI
    attribute written only by `save_roi_sample`; `target` grouping works with
    both fold rules.

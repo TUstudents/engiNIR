@@ -12,6 +12,13 @@
   same number of pixels from every ROI, so every ROI has the same weight.
   The draw depends only on the seed and each ROI's spectra (not on ids,
   order or the NumPy version); a refit reports a different sample.
+- Pixel exclusion by DModX: `fit_spec={"exclusion": {"method": "dmodx"}}`
+  leaves out pixels above SIMCA's critical distance (level 0.99, at most 20 %
+  of an ROI, one or two rounds), inside every cross-validation fold from its
+  training pixels only. The run stores the excluded pixels
+  (`model.excluded_pixels`), flagged ROIs and DCrit; a refit reports
+  different exclusions. `enginir.validation.dmodx` and `dmodx_limit`
+  compute SIMCA 18's normalised DModX and DCrit.
 - X and Y scaling: `PLSRegression(x_scaling=..., y_scaling=...)` and
   `PCR(x_scaling=...)` take `"center"`, `"uv"` or `"pareto"` (standard
   deviation with N - 1).
