@@ -94,73 +94,19 @@ which follows the true contents 1 to 9::
    Model('PLS 2 LV, SNV', rmsecv=0.612, r2=0.945, bias=0.0838)
    [1.7 2.7 3.7 4.4 5.4 6.3 7.4 8.4]
 
-``project.fit`` deals the ROIs round-robin to 7 folds (``cv=5`` for five,
-``cv="logo"`` to leave one ROI out). ``fit_spec`` gives full control and is
-stored with the model, so ``model.refit()`` repeats it exactly. To give
-every ROI the same weight, draw the same number of pixels from each; the
-draw depends only on the seed and each ROI's spectra:
+``project.fit`` validates with 7 round-robin folds over the ROIs (``cv=5``
+for five, ``cv="logo"`` to leave one ROI out), centres the spectra and
+scales the reference values to unit variance. ``fit_spec`` controls the
+rest, and is stored with the model so that ``model.refit()`` repeats it:
+holding out the ROIs of one sample together, drawing the same number of
+pixels from every ROI, and leaving out outlying pixels by DModX. See
+:doc:`fit_specification`, which also compares the numbers with SIMCA 18:
 
 .. code-block:: python
 
    model = project.fit("API content", recipe=PreprocessingRecipe(snv=True),
                        n_components=2, fit_spec={"pixels": {"per_roi": 40, "seed": 1}})
    model.ref.fit_specification      # FitSpec(fold_rule='round_robin', ...)
-
-When several ROIs come from one physical sample, for example three regions
-of the same tablet, holding out one of them while the others stay in
-training leaks that sample into its own validation, and RMSECV comes out too
-low. Give the ROIs of one sample the same label and hold them out together;
-``group_by="target"`` groups ROIs with the same reference value instead,
-without labels:
-
-.. code-block:: python
-
-   for roi in ("T1 a", "T1 b", "T1 c"):
-       project.set_sample(roi, "tablet 1")
-   model = project.fit("API content", n_components=2,
-                       fit_spec={"folds": {"rule": "leave_one_group_out",
-                                           "group_by": "sample"}})
-
-The groups the fit used are stored with the model, so ``model.refit()``
-repeats the same folds even after labels are edited (it warns when the
-current labels would group differently). With five concentration levels of
-three ROIs each, the options compare with SIMCA's CV-groups dialog like this:
-
-.. list-table::
-   :header-rows: 1
-
-   * - engiNIR
-     - Folds
-     - SIMCA
-   * - default (``group_by="roi"``, 7 round-robin folds)
-     - single ROIs; replicates of a level stay in training
-     - every Nth observation, on ROI means
-   * - ``group_by="sample"`` or ``"target"``, ``leave_one_group_out``
-     - one blend (all its ROIs) per fold
-     - grouping by a sample-name ID; grouping by concentration only when the
-       blocks happen to match the levels
-   * - ``group_by="target"``, round-robin
-     - whole levels, spread over the range (A C E | B D for 2 folds)
-     - no equivalent
-
-Outlying pixels can be left out of a model by their distance to the model
-(DModX, as in SIMCA): ``fit_spec={"exclusion": {"method": "dmodx"}}``
-excludes the pixels above the critical distance at level 0.99, never more
-than 20 % of an ROI (``max_fraction``), inside every cross-validation fold
-from that fold's training pixels only. Held-out pixels are never excluded,
-and ROIs are never left out; an ROI with more outlying pixels than its share
-is flagged. ``model.excluded_pixels`` lists the excluded pixels per ROI.
-The default DModX treats all bands alike; ``"formula": "dmodx-2"`` weights
-each band's residual by how well the model describes that band (its
-modelling power), SIMCA's default. Unweighted is the default because
-weighting turns down the bands where an unexpected component, such as a
-contaminant or glare, usually shows.
-
-New models centre the spectra and scale the reference values to unit
-variance (``x_scaling="center"``, ``y_scaling="uv"``, as usual for spectra
-and in SIMCA). Pass ``x_scaling="uv"`` or ``"pareto"`` to scale the
-spectra as well; models stored before engiNIR 1.2 keep their ``scale``
-setting when refitted.
 
 Reopen the project later with ``Project.open("tablets.h5")``; datasets are
 available by path and ROIs, targets and models by name, e.g.

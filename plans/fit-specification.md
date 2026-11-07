@@ -1,6 +1,6 @@
 # Plan: fit specification
 
-Status: Phases 0–6, R and S done (2026-11-07); Phase 7 open
+Status: done (2026-11-07): Phases 0–7, R and S; G22 and G23 closed
 
 ## Goal
 
@@ -384,7 +384,7 @@ maximum = smallest ROI of the plan), seed, X and Y scaling, pixel
 exclusion. Diagnostics show the specification of a run and the excluded
 pixels per ROI; flagged ROIs are listed. Viewer docs kept in sync.
 
-### Phase 7: docs and release notes
+### Phase 7: docs and release notes (done 2026-11-07)
 User guide section "Fit specification", API reference, CHANGELOG, all
 four gates.
 

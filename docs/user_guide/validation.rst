@@ -172,6 +172,8 @@ a variable (for example the concentration) has no equivalent on purpose:
 SIMCA sorts the observations by the value and cuts them into equal blocks,
 which can split the spectra of one sample across folds and leaves the
 lowest and highest concentrations to be predicted by extrapolation.
+Model runs in a project can hold the ROIs of one sample out together
+instead; see :doc:`fit_specification`.
 
 The metrics in ``results`` are computed over pixels. For ROI-based data the
 primary figures of merit are ROI-level: average the out-of-fold predictions per

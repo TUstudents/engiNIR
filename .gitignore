@@ -71,3 +71,6 @@ uv.lock
 
 # SIMCA output (verification only, not committed; see tests/data/simca_reference/README.md)
 tests/data/simca_reference/simca_exports/
+
+# Local agent handovers (not part of the project)
+handover/

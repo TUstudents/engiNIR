@@ -66,6 +66,7 @@ scikit-learn estimators:
    user_guide/preprocessing
    user_guide/models
    user_guide/validation
+   user_guide/fit_specification
    user_guide/visualization
    user_guide/viewer
    user_guide/logging
