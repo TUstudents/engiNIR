@@ -20,7 +20,14 @@ from .cross_val import (
     kennard_stone,
 )
 from .metrics import bias, metrics_report, r2_score, rmsec, rmsecv, rmsep, rpd, rpiq, sep
-from .outliers import dmodx, dmodx_limit, hotelling_t2, leverage_outliers, spectral_outliers
+from .outliers import (
+    dmodx,
+    dmodx_limit,
+    hotelling_t2,
+    leverage_outliers,
+    modelling_power,
+    spectral_outliers,
+)
 
 __all__ = [
     "DEFAULT_GROUPED_N_SPLITS",
@@ -33,6 +40,7 @@ __all__ = [
     "leverage_outliers",
     "dmodx",
     "dmodx_limit",
+    "modelling_power",
     "metrics_report",
     "r2_score",
     "rmsec",

@@ -380,7 +380,7 @@ spectra and values, new ids) gives the same numbers.
 | `exclusion/level` | probability of the DCrit limit, 0.5 < level < 1 | `0.99` |
 | `exclusion/rounds` | `1` or `2` | `1` |
 | `exclusion/max_fraction` | largest share of an ROI's drawn pixels that may be excluded over all rounds, 0 < value < 1 | `0.2` |
-| `exclusion/formula` | version of the DModX definition used, currently `dmodx-1` (§7.2) | `dmodx-1` |
+| `exclusion/formula` | DModX definition (§7.2): `dmodx-1` (unweighted) or `dmodx-2` (weighted by the modelling power, SIMCA's default) | `dmodx-1` |
 
 Every key is written for every new run, also when it has no effect (e.g.
 `n_folds` with `leave_one_group_out`, `level` with `method = none`), so that
@@ -497,10 +497,26 @@ The help calls *v* only "a correction factor slightly larger than one"; the
 SIMCA 18.1 reference exports (plan `fit-specification.md`, Phase R) confirm
 the value above, and DModX, DCrit and absolute DCrit (normalised DCrit × s₀)
 match them to float32 precision. Residuals are not weighted by the modelling
-power, although SIMCA weights them by default: the weighting reproduces
-SIMCA too (MPowₖ = max(0, 1 − SVₖ/SV0ₖ), plan Phase R), but it would make
-the exclusion depend on how well the model fits each band. Adding it is a
-new `exclusion/formula` version; stored runs keep theirs.
+power in `dmodx-1`, the default: weighting turns down the bands the model
+does not describe, where an unexpected component (a contaminant, glare)
+often shows, and makes the exclusion depend on how well the model fits each
+band.
+
+Definition `dmodx-2` (SIMCA 18's default, help page
+`15-Appendix A Statistics_files/MPow_weighted_distance_to_the_model.htm`
+and `Modeling_power_MPowX.htm`): as `dmodx-1`, with every residual
+multiplied by the modelling power of its band, eᵢₖ · MPowₖ, in sᵢ and in s₀:
+
+- MPowₖ = max(0, 1 − SVₖ / SV0ₖ), with SVₖ = √(Σᵢ eᵢₖ² / (N − A − A₀)) the
+  residual SD and SV0ₖ = √(Σᵢ (xᵢₖ − x̄ₖ)² / (N − 1)) the initial SD of band
+  *k*, both in the scaled units of the model (SV0ₖ = 1 for `uv` X)
+- MPow is computed from the fit whose pixels are being judged (every
+  exclusion round recomputes it)
+- DCrit is the same as for `dmodx-1`
+
+Both definitions reproduce SIMCA 18.1 (plan Phase R: MPowX with the clip
+at 0, weighted and unweighted DModX); a run keeps the definition it was
+fitted with.
 
 ### 7.3 Legacy runs
 

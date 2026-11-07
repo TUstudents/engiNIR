@@ -18,13 +18,15 @@ from sklearn.pipeline import Pipeline
 from .._checks import log_and_raise
 from .._logging import get_logger
 from ..models import PCR, PLSRegression
-from ..validation.outliers import dmodx, dmodx_limit
+from ..validation.outliers import dmodx, dmodx_limit, modelling_power
 
 logger = get_logger(__name__)
 
 
-def x_residuals(model: Any, X: np.ndarray) -> tuple[np.ndarray, int]:
-    """X residuals of ``X`` after the model's components, in its scaled units, and *A*.
+def x_residuals(model: Any, X: np.ndarray) -> tuple[np.ndarray, int, np.ndarray]:
+    """X residuals of ``X`` after the model's components, *A*, and the centred X.
+
+    Residuals and centred X are in the scaled units of the model.
 
     ``model`` is a fitted :class:`~enginir.models.PLSRegression` or
     :class:`~enginir.models.PCR`, or a fitted pipeline ending in one (its
@@ -38,16 +40,18 @@ def x_residuals(model: Any, X: np.ndarray) -> tuple[np.ndarray, int]:
         rotations = np.asarray(model.x_rotations_)
         scaled = (X - model.x_mean_) / model.x_std_
         scores = scaled @ rotations
-        return scaled - scores @ np.asarray(model.x_loadings_).T, int(rotations.shape[-1])
+        residuals = scaled - scores @ np.asarray(model.x_loadings_).T
+        return residuals, int(rotations.shape[-1]), scaled
     if isinstance(model, PCR):
         centred = np.asarray(model._scaled(X), dtype=np.float64) - model.pca_.mean_
         components = np.asarray(model.pca_.components_)
-        return centred - (centred @ components.T) @ components, int(components.shape[0])
+        residuals = centred - (centred @ components.T) @ components
+        return residuals, int(components.shape[0]), centred
     log_and_raise("DModX exclusion supports PLS and PCR models, got {}", type(model).__name__)
 
 
 class DModXExclusion(BaseEstimator):
-    """A model fitted with DModX pixel exclusion (contract §7.2, definition ``dmodx-1``).
+    """A model fitted with DModX pixel exclusion (contract §7.2).
 
     Parameters
     ----------
@@ -64,6 +68,9 @@ class DModXExclusion(BaseEstimator):
     max_fraction:
         Largest share of an ROI's training pixels that may be excluded over
         all rounds (⌊max_fraction × n⌋ pixels).
+    formula:
+        ``"dmodx-1"`` (unweighted residuals) or ``"dmodx-2"`` (weighted by
+        the modelling power of every band, SIMCA's default).
 
     Attributes
     ----------
@@ -82,18 +89,22 @@ class DModXExclusion(BaseEstimator):
     uses_sample_index = True
 
     def __init__(self, estimator: Any = None, roi_index: Any = None, level: float = 0.99,
-                 rounds: int = 1, max_fraction: float = 0.2) -> None:
+                 rounds: int = 1, max_fraction: float = 0.2,
+                 formula: str = "dmodx-1") -> None:
         self.estimator = estimator
         self.roi_index = roi_index
         self.level = level
         self.rounds = rounds
         self.max_fraction = max_fraction
+        self.formula = formula
 
     def fit(self, X: np.ndarray, y: np.ndarray, sample_index: Any = None) -> DModXExclusion:
         """Fit, exclude the pixels above DCrit within each ROI's budget, refit (per round)."""
         rows = np.arange(X.shape[0]) if sample_index is None else np.asarray(sample_index)
         if self.roi_index is None:
             log_and_raise("DModXExclusion needs roi_index")
+        if self.formula not in ("dmodx-1", "dmodx-2"):
+            log_and_raise("Unknown DModX formula {!r}", self.formula)
         roi = np.asarray(self.roi_index)[rows]
         if roi.shape[0] != X.shape[0]:
             log_and_raise("sample_index has {} rows, X has {}", roi.shape[0], X.shape[0])
@@ -105,8 +116,10 @@ class DModXExclusion(BaseEstimator):
         model.fit(X, y)
         dcrit = float("nan")
         for _round in range(int(self.rounds)):
-            residuals, n_components = x_residuals(model, X[kept])
-            distance, _s0 = dmodx(residuals, n_components)
+            residuals, n_components, centred = x_residuals(model, X[kept])
+            weights = (modelling_power(residuals, centred, n_components)
+                       if self.formula == "dmodx-2" else None)
+            distance, _s0 = dmodx(residuals, n_components, weights=weights)
             dcrit = dmodx_limit(int(kept.sum()), residuals.shape[1], n_components, self.level)
             kept_rows = np.flatnonzero(kept)
             above = distance > dcrit

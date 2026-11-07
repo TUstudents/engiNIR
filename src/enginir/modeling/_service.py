@@ -544,7 +544,8 @@ def _excluding(model: Any, spec: FitSpec, roi_index: np.ndarray) -> DModXExclusi
     """``model`` with the DModX pixel exclusion of ``spec`` (contract §7.2)."""
     return DModXExclusion(model, roi_index=roi_index, level=spec.exclusion_level,
                           rounds=spec.exclusion_rounds,
-                          max_fraction=spec.exclusion_max_fraction)
+                          max_fraction=spec.exclusion_max_fraction,
+                          formula=spec.exclusion_formula)
 
 
 def _exclusion_artifact(exclusion: DModXExclusion, data: SampleSetData,

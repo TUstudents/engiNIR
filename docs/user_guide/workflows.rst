@@ -150,6 +150,11 @@ than 20 % of an ROI (``max_fraction``), inside every cross-validation fold
 from that fold's training pixels only. Held-out pixels are never excluded,
 and ROIs are never left out; an ROI with more outlying pixels than its share
 is flagged. ``model.excluded_pixels`` lists the excluded pixels per ROI.
+The default DModX treats all bands alike; ``"formula": "dmodx-2"`` weights
+each band's residual by how well the model describes that band (its
+modelling power), SIMCA's default. Unweighted is the default because
+weighting turns down the bands where an unexpected component, such as a
+contaminant or glare, usually shows.
 
 New models centre the spectra and scale the reference values to unit
 variance (``x_scaling="center"``, ``y_scaling="uv"``, as usual for spectra

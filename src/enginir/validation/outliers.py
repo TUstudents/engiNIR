@@ -212,8 +212,49 @@ def spectral_outliers(
     return q, q_crit, q > q_crit
 
 
-def dmodx(residuals: np.ndarray, n_components: int, *, centred: bool = True
-          ) -> tuple[np.ndarray, float]:
+def modelling_power(residuals: np.ndarray, centred_x: np.ndarray, n_components: int, *,
+                    centred: bool = True) -> np.ndarray:
+    """Modelling power MPow of every variable (SIMCA 18, contract §7.2 ``dmodx-2``).
+
+    MPow_k = max(0, 1 - SV_k / SV0_k) with the residual SD
+    SV_k = sqrt(sum_i e_ik^2 / (N - A - A0)) and the initial SD
+    SV0_k = sqrt(sum_i x_ik^2 / (N - 1)) of the centred X. 1 means the model
+    explains the variable completely, 0 not at all (negative values, possible
+    with few observations, are set to 0 as in SIMCA). Verified against SIMCA
+    18.1.
+
+    Parameters
+    ----------
+    residuals:
+        X residuals after *A* components, in the scaled units of the model,
+        shape ``(N, K)``.
+    centred_x:
+        The centred (and scaled) X the model was fitted on, shape ``(N, K)``.
+    n_components:
+        Number of components *A*.
+    centred:
+        Whether X was centred (*A0* = 1).
+    """
+    E = _as_float64_matrix(residuals, "residuals")
+    Xc = _as_float64_matrix(centred_x, "centred_x")
+    if Xc.shape != E.shape:
+        log_and_raise("centred_x has shape {}, residuals {}", Xc.shape, E.shape)
+    n, a0, a = E.shape[0], 1 if centred else 0, int(n_components)
+    if n - a - a0 < 1:
+        log_and_raise("MPow needs N - A - A0 >= 1, got N={}, A={}, A0={}", n, a, a0)
+    residual_sd = np.sqrt((E ** 2).sum(axis=0) / (n - a - a0))
+    initial_sd = np.sqrt((Xc ** 2).sum(axis=0) / (n - 1))
+    constant = initial_sd < _EPS
+    if np.any(constant):
+        logger.warning("MPow: {} constant variable(s) get modelling power 0",
+                       int(constant.sum()))
+    ratio = np.divide(residual_sd, initial_sd, out=np.ones_like(residual_sd),
+                      where=~constant)
+    return np.clip(1.0 - ratio, 0.0, None)
+
+
+def dmodx(residuals: np.ndarray, n_components: int, *, centred: bool = True,
+          weights: np.ndarray | None = None) -> tuple[np.ndarray, float]:
     """Normalised distance to the model in X (DModX) of every observation, and s0.
 
     Definition ``dmodx-1`` (sample-set-model-run contract §7.2, SIMCA 18):
@@ -225,8 +266,10 @@ def dmodx(residuals: np.ndarray, n_components: int, *, centred: bool = True
     - pooled: s0 = sqrt(sum_ik e_ik^2 / ((N - A - A0)(K - A)))
     - normalised DModX = s_i / s0
 
-    Residuals are not weighted by the modelling power. Verified against
-    SIMCA 18.1 to float32 precision.
+    With ``weights`` (the modelling power of every variable,
+    :func:`modelling_power`), every residual is multiplied by the weight of
+    its variable first: definition ``dmodx-2``, SIMCA's default. Both forms
+    are verified against SIMCA 18.1 to float32 precision.
 
     Parameters
     ----------
@@ -237,6 +280,8 @@ def dmodx(residuals: np.ndarray, n_components: int, *, centred: bool = True
         Number of components *A*.
     centred:
         Whether X was centred (*A0* = 1).
+    weights:
+        Optional weight of every variable, shape ``(K,)``.
 
     Returns
     -------
@@ -248,6 +293,11 @@ def dmodx(residuals: np.ndarray, n_components: int, *, centred: bool = True
     """
     E = _as_float64_matrix(residuals, "residuals")
     n, k = E.shape
+    if weights is not None:
+        w = np.asarray(weights, dtype=np.float64)
+        if w.shape != (k,):
+            log_and_raise("weights must have shape ({},), got {}", k, w.shape)
+        E = E * w
     a0 = 1 if centred else 0
     a = int(n_components)
     if n - a - a0 < 1 or k - a < 1:
@@ -295,4 +345,5 @@ def dmodx_limit(n_samples: int, n_variables: int, n_components: int, level: floa
     return float(np.sqrt(f.ppf(level, df_obs, df_mod)))
 
 
-__all__ = ["dmodx", "dmodx_limit", "hotelling_t2", "leverage_outliers", "spectral_outliers"]
+__all__ = ["dmodx", "dmodx_limit", "hotelling_t2", "leverage_outliers", "modelling_power",
+           "spectral_outliers"]

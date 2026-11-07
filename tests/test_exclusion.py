@@ -9,7 +9,7 @@ import pytest
 from enginir import Project
 from enginir.io import save_hdf5
 from enginir.modeling import _exclusion, _service
-from enginir.validation import dmodx, dmodx_limit
+from enginir.validation import dmodx, dmodx_limit, modelling_power
 from tests.test_fit_spec import _warnings_during
 
 N_BANDS = 30
@@ -38,6 +38,35 @@ def test_dmodx_is_normalised_so_that_its_mean_square_is_one():
     assert np.mean(distance ** 2) == pytest.approx(1.0, rel=1e-12)
     assert s0 == pytest.approx(np.sqrt((residuals ** 2).sum() / ((50 - 3 - 1) * (20 - 3))))
     assert np.argmax(distance) == np.argmax((residuals ** 2).sum(axis=1))
+
+
+def test_modelling_power_is_the_explained_sd_clipped_at_zero():
+    """MPow_k = max(0, 1 - SV_k / SV0_k), SV with N - A - A0 and SV0 with N - 1 (dmodx-2)."""
+    rng = np.random.default_rng(2)
+    centred = rng.normal(size=(12, 4))
+    centred -= centred.mean(axis=0)
+    residuals = centred * np.array([0.1, 0.5, 1.0, 0.0])
+    mpow = modelling_power(residuals, centred, 2)
+    ratio = np.sqrt((residuals ** 2).sum(0) / (12 - 2 - 1)) / np.sqrt((centred ** 2).sum(0) / 11)
+    np.testing.assert_allclose(mpow, np.clip(1 - ratio, 0, None))
+    assert mpow[2] == 0.0, "a residual SD above the initial SD (few observations) is clipped"
+    assert mpow[3] == 1.0 and mpow[0] > mpow[1] > 0
+
+
+def test_weighted_dmodx_scales_each_band_by_its_weight():
+    rng = np.random.default_rng(3)
+    residuals = rng.normal(size=(40, 10))
+    plain, s0 = dmodx(residuals, 2)
+    ones, s0_ones = dmodx(residuals, 2, weights=np.ones(10))
+    np.testing.assert_allclose(ones, plain)
+    assert s0_ones == pytest.approx(s0)
+    odd = residuals.copy()
+    odd[7, 9] += 25.0  # a large residual in band 9 only
+    weights = np.ones(10)
+    weights[9] = 0.0
+    assert np.argmax(dmodx(odd, 2)[0]) == 7
+    np.testing.assert_allclose(dmodx(odd, 2, weights=weights)[0],
+                               dmodx(residuals, 2, weights=weights)[0])
 
 
 def test_dmodx_needs_degrees_of_freedom():
@@ -136,3 +165,18 @@ def test_a_refit_repeats_the_exclusion_and_reports_a_different_one(tmp_path):
     reopened = Project.open(project.path).model(model_run_id=model.ref.model_run_id)
     _refitted, messages = _warnings_during(reopened.refit)
     assert any("excluded other pixels" in message for message in messages)
+
+
+@pytest.mark.parametrize("formula", ["dmodx-1", "dmodx-2"])
+def test_the_formula_of_the_specification_is_used_and_stored(tmp_path, monkeypatch, formula):
+    """dmodx-2 weights by the modelling power (computed in every round), dmodx-1 does not."""
+    project = _project_with_an_odd_pixel(tmp_path)
+    calls: list[int] = []
+    real = _exclusion.modelling_power
+    monkeypatch.setattr(_exclusion, "modelling_power",
+                        lambda *args, **kwargs: calls.append(1) or real(*args, **kwargs))
+    model = project.fit("API", n_components=2,
+                        fit_spec={"exclusion": {"method": "dmodx", "formula": formula}})
+    assert model.ref.fit_specification.exclusion_formula == formula
+    assert bool(calls) == (formula == "dmodx-2")
+    assert 5 in model.excluded_pixels[project.roi("s3").roi_id]

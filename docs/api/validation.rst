@@ -35,3 +35,4 @@ Outlier Detection
 .. autofunction:: enginir.validation.outliers.spectral_outliers
 .. autofunction:: enginir.validation.outliers.dmodx
 .. autofunction:: enginir.validation.outliers.dmodx_limit
+.. autofunction:: enginir.validation.outliers.modelling_power

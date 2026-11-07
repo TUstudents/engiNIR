@@ -17,8 +17,10 @@
   of an ROI, one or two rounds), inside every cross-validation fold from its
   training pixels only. The run stores the excluded pixels
   (`model.excluded_pixels`), flagged ROIs and DCrit; a refit reports
-  different exclusions. `enginir.validation.dmodx` and `dmodx_limit`
-  compute SIMCA 18's normalised DModX and DCrit.
+  different exclusions. `"formula": "dmodx-2"` weights the residuals by the
+  modelling power, SIMCA's default (`"dmodx-1"`, unweighted, is engiNIR's).
+  `enginir.validation.dmodx`, `dmodx_limit` and `modelling_power` compute
+  SIMCA 18's normalised DModX (unweighted or weighted), DCrit and MPowX.
 - X and Y scaling: `PLSRegression(x_scaling=..., y_scaling=...)` and
   `PCR(x_scaling=...)` take `"center"`, `"uv"` or `"pareto"` (standard
   deviation with N - 1).

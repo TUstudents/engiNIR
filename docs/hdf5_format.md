@@ -437,7 +437,7 @@ exclusion/
   @level                 probability of the DCrit limit
   @rounds                1 | 2
   @max_fraction          largest excluded share of an ROI's drawn pixels, all rounds
-  @formula               DModX definition, e.g. dmodx-1
+  @formula               DModX definition: dmodx-1 (unweighted) | dmodx-2 (MPow-weighted)
 ```
 
 Every key is written for every run that has a `fit_spec`, also when it has

@@ -397,8 +397,8 @@ four gates.
    are not replaced (an ROI keeps at least 1 − `max_fraction` of its
    pixels); replacement can be a later formula version.
 3. **DModX weighting.** Settled: *v* is confirmed by the SIMCA exports;
-   engiNIR keeps the unweighted `dmodx-1` for exclusion (the contract's
-   choice); a weighted form would be a new formula version.
+   the unweighted `dmodx-1` is the default, the MPow-weighted `dmodx-2`
+   (SIMCA's default) an option (2026-11-07).
 4. **Sample groups (Phase S).** Settled: labels are an optional ROI
    attribute written only by `save_roi_sample`; `target` grouping works with
    both fold rules.
