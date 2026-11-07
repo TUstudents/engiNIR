@@ -329,6 +329,18 @@ v3 reporting decision:
 - primary validation metrics are computed from one aggregated prediction per held-out ROI
 - pixel-level prediction distributions remain secondary diagnostics only
 
+Fit statistics of the final model (engiNIR 1.3 and later), stored in
+`metrics`, with *A* components, *N* the pixels the final model was fitted on
+(drawn pixels minus excluded ones) and *R* ROIs:
+
+- `pixel_rmsee` = √(Σᵢ (ŷᵢ − yᵢ)² / (N − 1 − A)) over those pixels (ŷ the
+  final model's fitted values), as SIMCA computes RMSEE; written only when
+  N − 1 − A ≥ 1
+- `rmsee` = √(Σᵣ (ŷᵣ − yᵣ)² / (R − 1 − A)), ŷᵣ the mean fitted value of an
+  ROI's pixels the model was fitted on; written only when R − 1 − A ≥ 1
+- `pixel_r2_adj` = 1 − (RSS / (N − 1 − A)) / (TSS / (N − 1)) and `r2_adj`
+  the same over ROI means (written only when R − 1 − A ≥ 1)
+
 ## 6. Refitting a stored model
 
 A stored model run can be fitted again on exactly what it was fitted on:
@@ -341,6 +353,10 @@ A stored model run can be fitted again on exactly what it was fitted on:
   its checksum with the stored one; a different checksum (the stored
   spectra of an ROI changed) is logged as a warning naming the run, the
   refit proceeds, and the new run stores its own checksum
+- the refit uses the stored number of components
+  (`hyperparameters/n_components`), never chooses it again; when the
+  stored rule (`fit_spec/components/rule`, not `fixed`) would now choose a
+  different number, this is logged as a warning naming the run
 - the refit uses the stored fold groups (`fit_spec/folds/groups`), not the
   current sample labels or target values. The groups computed from the
   current labels or values are compared with the stored array element by
@@ -373,6 +389,9 @@ spectra and values, new ids) gives the same numbers.
 | `folds/n_folds` | integer ≥ 2, the requested *F* | `7` |
 | `folds/group_by` | `roi`, `sample`, `target` (§4.1) | `roi` |
 | `folds/groups` | one integer per ROI of the sample set, in `roi_ids` order: the index of its fold group in group order (§4.1); a fit output like `checksum` | – |
+| `components/rule` | `fixed` (the number was given), `one_se`, `min_rmsecv`, `q2_limit` (§7.4) | `fixed` with a number; `one_se` with `n_components="auto"` |
+| `components/max` | integer ≥ 1, the largest number of components of the curve (*A*max) | max(*n*, min(15, max(1, *G* − 2), *M*)), *n* the given number (0 for `"auto"`), *M* the rank limit (§7.4) |
+| `components/selected` | the number of components of the run (equal to `hyperparameters/n_components`); a fit output | – |
 | `pixels/per_roi` | `all`, or an integer from 1 to the pixel count of the smallest ROI of the sample set | `all` |
 | `pixels/seed` | integer, 0 ≤ seed < 2⁶³ (a signed 64-bit HDF5 attribute) | `0` |
 | `pixels/checksum` | SHA-256 (hex) of the drawn pixel indices (§7.1), written at fit time; empty string for `all` | – |
@@ -386,6 +405,18 @@ Every key is written for every new run, also when it has no effect (e.g.
 `n_folds` with `leave_one_group_out`, `level` with `method = none`), so that
 a stored specification compares equal to the same specification
 rebuilt from its keys.
+
+`n_components` may be requested as `"auto"`: the fit computes the component
+curve (§7.4), chooses the number with `components/rule` and stores the chosen
+integer in `hyperparameters/n_components`, so the stored model stays
+`Backend(**hyperparameters)`. A number given by the user is stored as is,
+with `components/rule = fixed`; the curve is computed in both cases.
+`components/selected` is written by the fit and refused in a request, like
+`folds/groups`. A stored `selected` other than 0 must equal
+`hyperparameters/n_components`, or the project is refused when read. A
+`fit_spec` without a `components` part (runs written by engiNIR 1.2) reads
+as `rule = fixed`, `max` = 0 (the default formula when refitted) and
+`selected` = 0 (not recorded).
 
 `folds/groups` is written by the fit; a fit request (`project.fit`) that
 contains it is refused. A stored `groups` is well-formed when it has one
@@ -530,6 +561,8 @@ A run without `fit_spec` is a legacy run. Reading and refitting it uses:
   than *F*; a stored legacy run with an integer *F* always has at least *F*
   ROIs, because fewer were refused when it was fitted
 - fold groups `roi` (groups 0 … *R* − 1, not stored)
+- `components/rule = fixed`; no component curve and no training
+  diagnostics of §7.5 (they appear after a refit)
 - all pixels, no exclusion
 - the stored `hyperparameters/scale` (absent means `true`): `true` scales X
   and Y (PLS, standard deviation with N − 1) or X (PCR, scikit-learn
@@ -542,6 +575,88 @@ reproduces the metrics of runs written by engiNIR 1.0.1 to 1.1.x as long as
 that algorithm is unchanged. Runs written by 1.0.0 labelled ROIs by their
 random ids (CHANGELOG 1.0.1); their refit uses positions and may differ,
 and this is reported like any metric difference.
+
+### 7.4 Component curve
+
+Every new PLS or PCR run stores, for *a* = 1 … *A*max (`components/max`),
+how cross-validated prediction and fit change with the number of
+components (`artifact_refs/component_curve`). The curve uses the run's
+folds, fold groups, pixel sample, scaling and preprocessing; DModX pixel
+exclusion is not applied to it (the exclusion depends on *A*; the chosen
+model is fitted with exclusion as specified). Without exclusion the curve's
+RMSECV at the run's *A* is the run's RMSECV (one cross-validation serves
+both); with exclusion the run's cross-validation is a second one and the
+two differ. RSS(*b*), R²Y and R²X come from a fit on all drawn pixels with
+*A*max components, without exclusion.
+
+The rank limit *M* is the smallest of min(n − 1, K) over the training
+pixels of every fold and of all drawn pixels (n pixels, K bands after
+preprocessing): every fold must be able to fit *A*max components.
+
+Definitions, at ROI level (*R* ROIs, ŷᵣ the mean of an ROI's out-of-fold
+pixel predictions, ȳ the mean reference value, *SS* = Σᵣ (yᵣ − ȳ)²):
+
+- PRESS(*a*) = Σᵣ (ŷᵣ(*a*) − yᵣ)², RMSECV(*a*) = √(PRESS(*a*) / *R*)
+- SE(*a*), the standard error of RMSECV(*a*): s(eᵣ²) / (2 RMSECV(*a*) √*R*),
+  with eᵣ = ŷᵣ(*a*) − yᵣ and s the standard deviation with *R* − 1 (delta
+  method)
+- Q²(cum)(*a*) = 1 − PRESS(*a*) / *SS*
+- Q²ₐ = 1 − PRESS(*a*) / RSS(*a* − 1), RSS(*b*) the ROI-level residual sum of
+  squares of the model fitted on all ROIs with *b* components (RSS(0) =
+  *SS*)
+- R²Y(cum)(*a*) = 1 − RSSₚ(*a*) / SSₚ over the drawn pixels (as SIMCA; never
+  decreases with *a*), and `r2y_cum_roi` = 1 − RSS(*a*) / *SS* over ROI means
+  (it can decrease)
+- R²X(cum)(*a*) = 1 − ‖X − Tₐ Pₐᵀ‖² / ‖X‖², X the scaled, centred drawn
+  pixels after preprocessing
+
+Every fold is refitted with all *a* components, so Q² is stricter than
+SIMCA's component-wise cross-validation (plan `fit-specification.md`,
+Phase R), and Q²(cum) is not 1 − Πₐ (1 − Q²ₐ) as in SIMCA: both are kept as
+defined above. Guards: SE(*a*) = 0 when RMSECV(*a*) < 10⁻¹⁰; Q²ₐ is NaN when
+RSS(*a* − 1) < 10⁻¹⁰, and Q²(cum), R²Y(cum) are NaN when *SS* < 10⁻¹⁰, each
+with a logged warning.
+
+Rules (`components/rule`), each choosing a number from 1 to *A*max:
+
+- `min_rmsecv`: the smallest *a* with the lowest RMSECV
+- `one_se` (default): the smallest *a* with RMSECV(*a*) ≤ RMSECV(*a*\*) +
+  SE(*a*\*), *a*\* the `min_rmsecv` choice
+- `q2_limit`: the largest *a* such that Q²_b > *L* for every *b* ≤ *a*, with
+  *L* = 0.05 when *G* ≤ 100 and 0 otherwise, *G* the number of fold groups
+  (the independent samples; SIMCA's Autofit rule R1); 1 when Q²₁ ≤ *L*; a
+  NaN Q² fails the test
+
+Ties are decided by exact comparison; values within floating-point noise of
+each other can choose differently on another platform, which a refit
+reports. The curve stores the suggestion of every rule, so the user sees
+where they disagree.
+
+### 7.5 Training diagnostics
+
+Every new PLS or PCR run also stores, from the final model (*N* the pixels
+it was fitted on):
+
+- `coef_cs`: the coefficients in the model's own scaled units (SIMCA's
+  CoeffCS), bₖ · sₓₖ / s_y with sₓₖ the model's X divisor (`x_std_`; 1 for
+  centred X) and s_y its Y divisor (`y_std_`; for PCR, which does not scale
+  Y, the standard deviation of y with N − 1)
+- one value per drawn pixel, in the order of the sample set's ROIs and then
+  the drawn indices: Hotelling's T² = Σₐ tₐ² / var(tₐ) (variance over the
+  N fitted pixels, N − 1) and the normalised, unweighted DModX (`dmodx-1`,
+  §7.2, s₀ and v from the N fitted pixels). Pixels excluded by DModX get the
+  same formulas from the final model (`artifact_refs/exclusion` says which
+  they are)
+- T²Crit = A(N − 1)/(N − A) · F(level; A, N − A) at 0.95 and 0.99 (SIMCA's
+  F form; `enginir.validation.outliers.hotelling_t2` uses the Beta form for
+  training observations, a different number); T²Crit for the first two
+  components (the score-plot ellipse) only when A ≥ 2; DModX and DCrit at
+  0.99 only when K − A ≥ 1 and N − A₀ − A ≥ 1
+- per ROI the share of its drawn pixels above DCrit and above T²Crit (0.99)
+
+PCR computes its principal components with a deterministic full SVD, so a
+fit is reproducible and its first *a* components are those of an
+*a*-component fit.
 
 ## Weighting Rule
 
@@ -585,8 +700,11 @@ Model fitting for a sample set must block or warn when:
 - fewer than 2 ROIs, fewer than 2 fold groups, or a requested fold count
   below 2
 - fold rule `group_kfold` with `group_by` other than `roi`
-- a fit request that contains `folds/groups`; stored groups that are not
-  well-formed (§7)
+- a fit request that contains `folds/groups` or `components/selected`;
+  stored groups that are not well-formed (§7)
+- `components/max` or a given number of components above the rank limit
+  *M* (§7.4); a rule other than `fixed` with a given number (except a refit,
+  whose number equals the stored `selected`)
 - `group_by = sample` when no ROI of the sample set has a sample label:
   warn (the folds equal `group_by = roi`), do not block
 - DModX exclusion with N − A₀ − A < 1 or K − A < 1

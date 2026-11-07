@@ -136,6 +136,28 @@ Before choosing the default: apply every rule to M1–M5 of the reference
 project (pixels and ROI means) and to one real data set from the user;
 record where the rules disagree. Compare with SIMCA's Autofit (M4 chose 2).
 
+Results on the reference blends (2026-11-07; 18 ROIs with values, 7
+round-robin folds, A_max 15; RMSECV per ROI):
+
+| Preprocessing | Pixels per ROI | one_se | min_rmsecv | q2_limit |
+|---|---|---|---|---|
+| none | 10 (seed 2026) | 5 | 5 | 5 |
+| none | all (48) | 7 | 8 | 6 |
+| SNV | 10 | 3 | 3 | 3 |
+| SNV | all | 3 | 3 | 3 |
+| SG 1st derivative, 15 points | 10 | 2 | 2 | 2 |
+| SG 1st derivative, 15 points | all | 4 | 5 | 2 |
+
+- SNV: all rules choose 3, as SIMCA's export showed (M2: Q² best at 3).
+- The rules disagree where the curve has a long flat tail (derivative, all
+  pixels: RMSECV 0.0020 ± noise from 4 to 15 components); one_se stops
+  before the tail, min_rmsecv walks into it, q2_limit stops earliest
+  because a small gain fails the limit.
+- More pixels per ROI make extra components look better (the pixel noise
+  averages out within an ROI); the default one_se is a reasonable middle.
+- Pending: one real data set from the user (not available during the
+  unattended run).
+
 ### Phase 4: viewer
 
 - Model diagnostics: a **Components** page with RMSECV (error bars) and

@@ -16,9 +16,9 @@ from typing import Any
 
 import numpy as np
 
-from sklearn.model_selection import GroupKFold
+from sklearn.model_selection import GroupKFold, LeaveOneGroupOut
 
-from enginir._checks import log_and_raise
+from enginir._checks import check_integer, log_and_raise
 from enginir._logging import get_logger
 
 from ..io.project_store import (
@@ -48,6 +48,7 @@ from ..project import (
     transform_spectra_to_signal_domain,
 )
 from ..project._fit_spec import FitSpec, fold_groups_problem
+from ._components import component_curve, default_max, rank_limit, training_diagnostics
 from ._exclusion import DModXExclusion
 from ..project._ids import new_id, now_iso
 from ..project._models import SAMPLE_SET_SEMANTICS
@@ -394,13 +395,17 @@ def fit_model_run(
     hyperparameters = _with_default_scaling(model_type, dict(hyperparameters or {}))
     # Stateless recipes are applied once; MSC/EMSC must be fitted inside each fold.
     if recipe.requires_fitting:
-        cv_estimator: Any = make_model_pipeline(recipe=recipe, wavelengths=data.wavelengths,
-                                                estimator=_ESTIMATORS[model_type](**hyperparameters))
         X_cv = X_signal
     else:
-        cv_estimator = _ESTIMATORS[model_type](**hyperparameters)
         X_cv = apply_preprocessing_recipe(X_signal, recipe=recipe, wavelengths=data.wavelengths)
         del X_signal  # only the preprocessed matrix is needed from here on
+
+    def model_with(params: dict[str, Any]) -> Any:
+        estimator = _ESTIMATORS[model_type](**params)
+        if recipe.requires_fitting:
+            return make_model_pipeline(recipe=recipe, wavelengths=data.wavelengths,
+                                       estimator=estimator)
+        return estimator
     # ROI ids are random, so the splitter gets each ROI's fold-group index
     # (its position in the sample set with group_by "roi") instead: folds
     # follow the recorded ROI order or target values and are the same
@@ -408,11 +413,28 @@ def fit_model_run(
     roi_ids_present, roi_index = np.unique(data.groups, return_inverse=True)
     group_of = {roi_id: int(groups[i]) for i, roi_id in enumerate(sample_set.roi_ids)}
     cv_groups = np.array([group_of[roi_id] for roi_id in roi_ids_present])[roi_index]
+    splitter = _splitter(spec, n_fold_groups)
+
+    # The component curve (contract §7.4): A_max components per fold, once.
+    spec, hyperparameters, a_max = _components_request(spec, hyperparameters, model_type,
+                                                       X_cv, cv_groups, splitter, n_fold_groups)
+    lowest = int(hyperparameters["n_components"]) if spec.components_rule == "fixed" else 1
+    base_params: dict[str, Any] = dict(hyperparameters)
+    curve, curve_predictions, curve_scheme, reached = _curve_up_to(
+        lambda n: model_with({**base_params, "n_components": n}), X_cv, data.y,
+        a_max=a_max, lowest=lowest, splitter=splitter, cv_groups=cv_groups,
+        roi_index=roi_index, n_samples=n_fold_groups)
+    if reached != a_max:
+        spec = replace(spec, components_max=reached)
+    hyperparameters, spec = _chosen_components(spec, hyperparameters, curve)
+    n_chosen = int(hyperparameters["n_components"])
+
     if spec.exclusion == "dmodx":
         # Inside every fold, on that fold's training pixels only (contract §7.2).
-        cv_estimator = _excluding(cv_estimator, spec, roi_index)
-    cv_result = cross_validate(cv_estimator, X_cv, data.y,
-                               cv=_splitter(spec, n_fold_groups), groups=cv_groups)
+        cv_result = cross_validate(_excluding(model_with(hyperparameters), spec, roi_index),
+                                   X_cv, data.y, cv=splitter, groups=cv_groups)
+    else:  # without exclusion the curve's column A is the run's cross-validation
+        cv_result = {"y_pred": curve_predictions[:, n_chosen - 1], "cv_scheme": curve_scheme}
     pixel_y_pred = np.asarray(cv_result["y_pred"], dtype=_WORKING_DTYPE)
     roi_ids, roi_y_true, roi_y_pred = aggregate_regression_predictions(
         data.y, pixel_y_pred, data.groups, aggregation=sample_set.roi_aggregation
@@ -439,6 +461,20 @@ def fit_model_run(
             estimator.fit(X_cv, data.y)
         predictor = _StatelessRecipePredictor(recipe.build_steps(data.wavelengths), estimator)
     n_excluded = 0 if exclusion is None else int(exclusion.excluded_.sum())
+    kept = (np.ones(X_cv.shape[0], dtype=bool) if exclusion is None
+            else ~np.asarray(exclusion.excluded_))
+    y_divisor = (float(np.asarray(estimator.y_std_).reshape(-1)[0])
+                 if isinstance(estimator, PLSRegression)
+                 else float(np.std(np.asarray(data.y)[kept], ddof=1)) or 1.0)
+    fit_metrics, training = training_diagnostics(
+        predictor if recipe.requires_fitting else estimator, X_cv, data.y, kept, roi_index,
+        y_divisor=y_divisor)
+    # Per-ROI shares follow cv_outputs/roi_ids (they are computed in roi_ids_present order).
+    position = {str(roi_id): i for i, roi_id in enumerate(np.asarray(roi_ids_present))}
+    order = [position[str(roi_id)] for roi_id in np.asarray(roi_ids)]
+    for key in ("roi_share_above_dcrit", "roi_share_above_t2crit"):
+        if key in training:
+            training[key] = np.asarray(training[key])[order]
 
     model_run = ModelRun(
         model_run_id=model_run_id or new_id(),
@@ -464,6 +500,7 @@ def fit_model_run(
             "n_rois": int(roi_ids.size),
             "n_pixels": int(data.X.shape[0]),
             "n_excluded_pixels": n_excluded,
+            **fit_metrics,
             "pixel_rmsecv": rmsecv(data.y, pixel_y_pred),
             "pixel_r2": r2_score(data.y, pixel_y_pred),
             "pixel_bias": bias(data.y, pixel_y_pred),
@@ -479,7 +516,8 @@ def fit_model_run(
                 "intercept_": np.atleast_1d(np.asarray(estimator.intercept_, _WORKING_DTYPE)),
                 **_preprocessing_state_entry(predictor, recipe),
             },
-            "diagnostics": _diagnostics_artifact(estimator, data.wavelengths),
+            "diagnostics": {**_diagnostics_artifact(estimator, data.wavelengths), **training},
+            "component_curve": curve,
             "cv_outputs": {"roi_ids": roi_ids, "y_true_roi": roi_y_true,
                            "y_pred_roi": roi_y_pred},
             **({} if exclusion is None else
@@ -538,6 +576,75 @@ def _check_fit_spec_feasible(spec: FitSpec, sample_set: SampleSet,
             log_and_raise("Cannot draw {} pixels per ROI: ROI '{}' has only {}; choose at most {}",
                           spec.pixels_per_roi, smallest.name, smallest.n_pixels,
                           smallest.n_pixels)
+
+
+def _curve_up_to(make: Any, X: np.ndarray, y: np.ndarray, *, a_max: int, lowest: int,
+                 splitter: Any, cv_groups: np.ndarray, roi_index: np.ndarray,
+                 n_samples: int) -> tuple[dict[str, Any], np.ndarray, dict[str, Any], int]:
+    """The component curve up to ``a_max``, or as far as the data allow (at least ``lowest``).
+
+    More components than the data support (e.g. y fitted exactly) make the
+    fit fail; the curve is then shortened step by step, with a warning.
+    """
+    for attempt in range(a_max, lowest - 1, -1):
+        try:
+            curve, predictions, scheme = component_curve(
+                make(attempt), X, y, splitter=splitter, cv_groups=cv_groups,
+                roi_index=roi_index, n_samples=n_samples)
+            return curve, predictions, scheme, attempt
+        except (ValueError, np.linalg.LinAlgError) as exc:
+            if attempt == lowest:
+                raise
+            logger.warning("The component curve cannot reach {} components ({}); trying {}",
+                           attempt, exc, attempt - 1)
+    log_and_raise("No component curve could be computed (lowest {})", lowest)
+
+
+def _components_request(spec: FitSpec, hyperparameters: dict[str, Any], model_type: str,
+                        X: np.ndarray, cv_groups: np.ndarray, splitter: Any,
+                        n_groups: int) -> tuple[FitSpec, dict[str, Any], int]:
+    """Resolve ``n_components`` ("auto" or a number), the rule and A_max (contract §7, §7.4)."""
+    requested = hyperparameters.get("n_components",
+                                    _ESTIMATORS[model_type]().get_params()["n_components"])
+    auto = isinstance(requested, str)
+    if auto and requested != "auto":
+        log_and_raise("n_components must be a number or 'auto', got {!r}", requested)
+    folds = (LeaveOneGroupOut() if isinstance(splitter, str) else splitter)
+    sizes = [len(train) for train, _test in folds.split(X, None, cv_groups)] + [X.shape[0]]
+    limit = rank_limit(sizes, X.shape[1])
+    if requested is None:  # PCR: as many components as the data allow
+        requested = limit
+    rule = spec.components_rule
+    if auto:
+        rule = "one_se" if rule == "fixed" else rule
+        given = 0
+    else:
+        given = check_integer(requested, "n_components", minimum=1)
+        if rule != "fixed" and given != spec.components_selected:
+            log_and_raise("n_components={} is a given number; choose it by rule {!r} with "
+                          "n_components='auto'", given, rule)
+    a_max = max(spec.components_max or default_max(given, n_groups, limit), given)
+    if a_max > limit:
+        log_and_raise("Cannot fit {} components: the smallest training set of a fold allows "
+                      "at most {}", a_max, limit)
+    params = {**hyperparameters, "n_components": given if given else a_max}
+    return replace(spec, components_rule=rule, components_max=a_max), params, a_max
+
+
+def _chosen_components(spec: FitSpec, hyperparameters: dict[str, Any],
+                       curve: dict[str, Any]) -> tuple[dict[str, Any], FitSpec]:
+    """The run's number of components: given, or chosen by the rule from the curve."""
+    given = int(hyperparameters["n_components"])
+    if spec.components_rule == "fixed":
+        chosen = given
+    else:
+        chosen = int(curve[f"suggested_{spec.components_rule}"])
+        if spec.components_selected and chosen != spec.components_selected:
+            logger.warning("Rule {!r} would now choose {} components; the refit keeps the "
+                           "stored {}", spec.components_rule, chosen, spec.components_selected)
+            chosen = spec.components_selected
+    return ({**hyperparameters, "n_components": chosen},
+            replace(spec, components_selected=chosen))
 
 
 def _excluding(model: Any, spec: FitSpec, roi_index: np.ndarray) -> DModXExclusion:

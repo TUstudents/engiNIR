@@ -27,6 +27,11 @@ Aggregation
 
 .. autofunction:: enginir.validation.aggregate_regression_predictions
 
+Number of components
+--------------------
+
+.. autofunction:: enginir.validation.choose_components
+
 Outlier Detection
 -----------------
 

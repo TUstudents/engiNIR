@@ -133,7 +133,9 @@ class PCR(RegressorMixin, EnginirEstimator):
             self.x_mean_, self.x_std_ = scaling_statistics(X, self.x_scaling)
         self.x_scaling_ = self.x_scaling or ("uv" if self.scale else "center")
         X_scaled = self._scaled(X)
-        self.pca_ = PCA(n_components=n_components).fit(X_scaled)
+        # A full SVD: reproducible, and the first a components are those of an
+        # a-component fit (scikit-learn may otherwise choose a randomised SVD).
+        self.pca_ = PCA(n_components=n_components, svd_solver="full").fit(X_scaled)
         self.scores_ = self.pca_.transform(X_scaled)
         self.reg_ = LinearRegression().fit(self.scores_, y)
         self.loadings_ = np.asarray(self.pca_.components_).T
@@ -188,6 +190,33 @@ class PCR(RegressorMixin, EnginirEstimator):
         X = as_float_matrix(X, "X")
         check_n_features(X, self.n_features_in_, "PCR")
         return self.pca_.transform(self._scaled(X))
+
+    def predict_components(self, X: np.ndarray, n_components: int | None = None) -> np.ndarray:
+        """Predictions of the models with 1, 2, ... ``n_components`` components, from this fit.
+
+        The training PCA scores are centred and orthogonal, so the regression
+        on the first *a* scores has the first *a* coefficients of the full
+        regression: every smaller model's predictions come from one fit.
+
+        Returns
+        -------
+        numpy.ndarray
+            Shape ``(n_samples, n_components)`` for one target, ``(n_samples,
+            n_targets, n_components)`` for several; column *a* - 1 holds the
+            predictions with *a* components.
+        """
+        check_is_fitted(self, "coef_")
+        n_fitted = int(self.loadings_.shape[1])
+        n = n_fitted if n_components is None else check_n_components(
+            n_components, "n_components", maximum=n_fitted)
+        scores = np.asarray(self.transform(X), dtype=np.float64)[:, :n]
+        coef = np.atleast_2d(np.asarray(self.reg_.coef_, dtype=np.float64))[:, :n]
+        intercept = np.atleast_1d(np.asarray(self.reg_.intercept_, dtype=np.float64))
+        contributions = scores[:, np.newaxis, :] * coef[np.newaxis, :, :]
+        predictions = np.cumsum(contributions, axis=2) + intercept[np.newaxis, :, np.newaxis]
+        if np.ndim(self.coef_) == 1:
+            return predictions[:, 0, :]
+        return predictions
 
     def _scaled(self, X: np.ndarray) -> np.ndarray:
         """``X`` centred and scaled as in :meth:`fit` (centring only is left to the PCA)."""

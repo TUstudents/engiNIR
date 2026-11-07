@@ -334,6 +334,9 @@ class Project:
         if fit_spec is not None and FitSpec.coerce(fit_spec).groups:
             log_and_raise("fit_spec folds/groups is written by the fit; leave it out and choose "
                           "folds/group_by instead")
+        if fit_spec is not None and FitSpec.coerce(fit_spec).components_selected:
+            log_and_raise("fit_spec components/selected is written by the fit; pass "
+                          "n_components='auto' or a number instead")
         target_ref = self._target_of(target)
         recipe_obj = _as_recipe(recipe)
         recipe_id, recipe_dict = _recipe_id(recipe_obj), recipe_obj.to_dict()
@@ -861,6 +864,19 @@ class Model:
         refs = store.load_model_run_artifact_refs(self.project.path, self.ref.model_run_id,
                                                   keys=("cv_outputs", "diagnostics"))
         return {**refs.get("diagnostics", {}), **refs.get("cv_outputs", {})}
+
+    @property
+    def component_curve(self) -> dict[str, Any] | None:
+        """RMSECV, its standard error, Q², Q²(cum), R²X(cum) and R²Y(cum) per number of components.
+
+        Arrays over ``n_components`` 1 … A_max and every rule's suggestion
+        (``suggested_one_se``, ``suggested_min_rmsecv``, ``suggested_q2_limit``);
+        ``None`` for a model fitted before engiNIR 1.3
+        (sample-set-model-run contract §7.4).
+        """
+        refs = store.load_model_run_artifact_refs(self.project.path, self.ref.model_run_id,
+                                                  keys=("component_curve",))
+        return refs.get("component_curve") or None
 
     @property
     def excluded_pixels(self) -> dict[str, np.ndarray]:

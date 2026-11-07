@@ -293,3 +293,26 @@ def test_pickles_record_the_version_and_refuse_pre_1_0_state():
     del old_state["_enginir_version"]
     with pytest.raises(ValueError, match="saved by engiNIR before 1.0"):
         PLSRegression.__new__(PLSRegression).__setstate__(old_state)
+
+
+@pytest.mark.parametrize("model", [PLSRegression(n_components=5),
+                                   PLSRegression(n_components=5, x_scaling="center"),
+                                   PLSRegression(n_components=5, x_scaling="pareto",
+                                                 y_scaling="center"),
+                                   PCR(n_components=5), PCR(n_components=5, x_scaling="center"),
+                                   PCR(n_components=5, x_scaling="uv")])
+def test_predictions_for_every_number_of_components_come_from_one_fit(model):
+    """predict_components column a - 1 equals a separate fit with a components (one and two
+    targets), so the component curve needs one fit per fold."""
+    from sklearn.base import clone
+
+    rng = np.random.default_rng(11)
+    X_new = rng.normal(size=(9, P))
+    for y in (Y_REG, np.column_stack([Y_REG, X_DUMMY[:, 1]])):
+        fitted = clone(model).fit(X_DUMMY, y)
+        every = fitted.predict_components(X_new)
+        assert every.shape == (9, 5) if y.ndim == 1 else (9, 2, 5)
+        for a in range(1, 6):
+            alone = clone(model).set_params(n_components=a).fit(X_DUMMY, y).predict(X_new)
+            np.testing.assert_allclose(every[..., a - 1], alone, rtol=1e-9, atol=1e-12)
+    assert fitted.predict_components(X_new, 2).shape == (9, 2, 2)

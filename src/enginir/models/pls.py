@@ -214,6 +214,40 @@ class PLSRegression(RegressorMixin, EnginirEstimator):
         scaled /= self.x_std_.astype(X.dtype)
         return scaled @ self.x_rotations_.astype(X.dtype)
 
+    def predict_components(self, X: np.ndarray, n_components: int | None = None) -> np.ndarray:
+        """Predictions of the models with 1, 2, ... ``n_components`` components, from this fit.
+
+        The first *a* columns of the rotations and Y loadings are exactly the
+        *a*-component PLS model (NIPALS), so every smaller model's predictions
+        come from one fit.
+
+        Parameters
+        ----------
+        X:
+            Spectra, shape ``(n_samples, n_wavelengths)``.
+        n_components:
+            Largest number of components (default: all of this fit).
+
+        Returns
+        -------
+        numpy.ndarray
+            Shape ``(n_samples, n_components)`` for one target, ``(n_samples,
+            n_targets, n_components)`` for several; column *a* - 1 holds the
+            predictions with *a* components.
+        """
+        check_is_fitted(self, "coef_")
+        rotations = np.asarray(self.x_rotations_)
+        n = rotations.shape[-1] if n_components is None else check_n_components(
+            n_components, "n_components", maximum=rotations.shape[-1])
+        scores = np.asarray(self.transform(X), dtype=np.float64)[:, :n]
+        q = np.asarray(self.y_loadings_, dtype=np.float64)[:, :n]          # (targets, n)
+        contributions = scores[:, np.newaxis, :] * q[np.newaxis, :, :]     # (samples, targets, n)
+        predictions = (np.cumsum(contributions, axis=2) * self.y_std_[np.newaxis, :, np.newaxis]
+                       + self.y_mean_[np.newaxis, :, np.newaxis])
+        if np.ndim(self.coef_) == 1:
+            return predictions[:, 0, :]
+        return predictions
+
     def vip_scores(self) -> np.ndarray:
         """Return the Variable Importance in Projection (VIP) of every wavelength.
 

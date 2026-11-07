@@ -122,6 +122,11 @@ def validate_project_relationships(
             if problem is not None:
                 _fail("ModelRun '{}': fit_spec/folds/groups is not well-formed: {}",
                       model_run.model_run_id, problem)
+            stored_n = model_run.hyperparameters.get("n_components")
+            if spec.components_selected and spec.components_selected != stored_n:
+                _fail("ModelRun '{}': fit_spec/components/selected {} differs from "
+                      "hyperparameters/n_components {}", model_run.model_run_id,
+                      spec.components_selected, stored_n)
     for prediction in predictions.values():
         owner = prediction.prediction_run_id
         _require(prediction.dataset_id, datasets, "PredictionRun", owner, "dataset_id")

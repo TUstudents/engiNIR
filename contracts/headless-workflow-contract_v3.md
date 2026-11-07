@@ -132,6 +132,12 @@ and writes nothing they would reject.
 - `model.refit(*, name=None)` fits the model again on its stored sample set,
   recipe, signal domain, hyperparameters and fit specification and stores
   the new run (`sample-set-model-run-contract_v3.md`, Refitting a stored model)
+- `project.fit(..., n_components="auto")` chooses the number of components
+  from the component curve with `fit_spec={"components": {"rule": ...,
+  "max": ...}}` (default rule `one_se`); every PLS/PCR model has the curve
+  (`model.component_curve`: a dict of arrays and the suggestions, or `None`
+  for a model fitted before 1.3) and the training diagnostics
+  (`sample-set-model-run-contract_v3.md` §7.4, §7.5)
 - `project.set_sample(roi, label)` sets the sample label of an ROI (name or
   object); `None` or an empty or blank text removes it
   (`roi-target-contract_v3.md`). The typed, id-based form is

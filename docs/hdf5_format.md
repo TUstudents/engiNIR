@@ -438,6 +438,10 @@ exclusion/
   @rounds                1 | 2
   @max_fraction          largest excluded share of an ROI's drawn pixels, all rounds
   @formula               DModX definition: dmodx-1 (unweighted) | dmodx-2 (MPow-weighted)
+components/              (1.3 and later)
+  @rule                  fixed | one_se | min_rmsecv | q2_limit
+  @max                   largest number of components of the curve (Amax); 0 = not recorded (1.2)
+  @selected              number of components of the run (= hyperparameters/n_components); 0 = not recorded
 ```
 
 Every key is written for every run that has a `fit_spec`, also when it has
@@ -460,6 +464,10 @@ per-pixel diagnostics.
 @n_rois
 @n_pixels                drawn pixels (all pixels for per_roi = all); the pixel_* metrics use them
 @n_excluded_pixels       pixels excluded by DModX from the final model (1.2 and later)
+@pixel_rmsee             RMSEE over training pixels, N - 1 - A (1.3 and later)
+@pixel_r2_adj            adjusted R² over training pixels (1.3 and later)
+@rmsee                   RMSEE over ROI means, R - 1 - A; only when R - 1 - A >= 1
+@r2_adj                  adjusted R² over ROI means; only when R - 1 - A >= 1
 @pixel_rmsecv            secondary per-pixel RMSECV
 @pixel_r2                secondary per-pixel R²
 @pixel_bias              secondary per-pixel bias
@@ -512,6 +520,37 @@ wavelengths
 coef_
 loadings_
 scores_
+```
+
+Both, for runs of engiNIR 1.3 and later (`sample-set-model-run-contract_v3.md`
+§7.5):
+
+```text
+coef_cs                  coefficients for scaled, centred X and scaled Y (CoeffCS)
+t2                       float32, Hotelling's T² per drawn pixel (ROI order, then drawn index)
+dmodx                    float32, normalised unweighted DModX per drawn pixel (only if K - A >= 1)
+@t2_crit_095, @t2_crit_099   T²Crit with A components
+@t2_crit_2_095, @t2_crit_2_099   T²Crit for the first two components (ellipse; A >= 2)
+@dcrit_099               DCrit at 0.99 (normalised; only with dmodx)
+roi_share_above_dcrit    float32 per ROI (cv_outputs/roi_ids order), share of pixels above DCrit
+roi_share_above_t2crit   float32 per ROI, share of pixels above T²Crit (0.99)
+```
+
+#### `artifact_refs/component_curve`
+
+Runs of engiNIR 1.3 and later (§7.4). One entry per number of components
+1 … Amax:
+
+```text
+n_components             int, 1 .. Amax
+rmsecv                   ROI-level RMSECV
+rmsecv_se                its standard error
+q2                       Q² per component
+q2_cum                   Q²(cum)
+r2x_cum                  R²X(cum)
+r2y_cum                  R²Y(cum) over drawn pixels (never decreases)
+r2y_cum_roi              R²Y(cum) over ROI means
+@suggested_one_se, @suggested_min_rmsecv, @suggested_q2_limit
 ```
 
 #### `artifact_refs/cv_outputs`

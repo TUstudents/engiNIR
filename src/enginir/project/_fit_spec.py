@@ -21,6 +21,7 @@ logger = get_logger(__name__)
 
 FOLD_RULES = ("round_robin", "leave_one_group_out", "group_kfold")
 GROUP_BY = ("roi", "sample", "target")
+COMPONENT_RULES = ("fixed", "one_se", "min_rmsecv", "q2_limit")
 EXCLUSION_METHODS = ("none", "dmodx")
 DMODX_FORMULAS = ("dmodx-1", "dmodx-2")
 ALL_PIXELS = "all"
@@ -31,6 +32,7 @@ _KEYS = {
     "folds": ("rule", "n_folds", "group_by", "groups"),
     "pixels": ("per_roi", "seed", "checksum"),
     "exclusion": ("method", "level", "rounds", "max_fraction", "formula"),
+    "components": ("rule", "max", "selected"),
 }
 
 
@@ -64,6 +66,15 @@ class FitSpec:
         ``"none"`` or ``"dmodx"``.
     exclusion_level, exclusion_rounds, exclusion_max_fraction, exclusion_formula
         Settings of the DModX exclusion (contract §7.2).
+    components_rule : str
+        How the number of components is chosen (§7.4): ``"fixed"`` (the given
+        number; with ``n_components="auto"`` it means the default rule
+        ``"one_se"``), ``"one_se"``, ``"min_rmsecv"`` or ``"q2_limit"``.
+    components_max : int or None
+        Largest number of components of the component curve; ``None`` in a
+        request takes the default.
+    components_selected : int
+        Number of components of the run, set by the fit; 0 before the fit.
     """
 
     fold_rule: str = "round_robin"
@@ -78,6 +89,9 @@ class FitSpec:
     exclusion_rounds: int = 1
     exclusion_max_fraction: float = 0.2
     exclusion_formula: str = "dmodx-1"
+    components_rule: str = "fixed"
+    components_max: int | None = None
+    components_selected: int = 0
 
     def __post_init__(self) -> None:
         _check_choice(self.fold_rule, "folds/rule", FOLD_RULES)
@@ -109,6 +123,13 @@ class FitSpec:
         if not 0.0 < fraction < 1.0:
             log_and_raise("exclusion/max_fraction must be between 0 and 1, got {}", fraction)
         _check_choice(self.exclusion_formula, "exclusion/formula", DMODX_FORMULAS)
+        _check_choice(self.components_rule, "components/rule", COMPONENT_RULES)
+        if self.components_max is not None:
+            object.__setattr__(self, "components_max",
+                               _check_int(self.components_max, "components/max", minimum=1))
+        object.__setattr__(self, "components_selected",
+                           _check_int(self.components_selected, "components/selected",
+                                      minimum=0))
         # Stored values come back as NumPy scalars; keep plain Python values.
         for name, kind in (("n_folds", int), ("seed", int), ("exclusion_rounds", int),
                            ("exclusion_level", float), ("exclusion_max_fraction", float)):
@@ -166,6 +187,8 @@ class FitSpec:
             for key in keys:
                 if key in group:
                     values[_FIELD[part, key]] = _decoded(group[key])
+        if values.get("components_max") == 0:  # "not set" in the stored form
+            values["components_max"] = None
         per_roi = values.get("pixels_per_roi")
         if per_roi == ALL_PIXELS:
             values["pixels_per_roi"] = None
@@ -193,6 +216,9 @@ class FitSpec:
                           "rounds": self.exclusion_rounds,
                           "max_fraction": self.exclusion_max_fraction,
                           "formula": self.exclusion_formula},
+            "components": {"rule": self.components_rule,
+                           "max": self.components_max or 0,
+                           "selected": self.components_selected},
         }
 
     def with_checksum(self, checksum: str) -> FitSpec:
@@ -240,6 +266,8 @@ _FIELD = {
     ("exclusion", "rounds"): "exclusion_rounds",
     ("exclusion", "max_fraction"): "exclusion_max_fraction",
     ("exclusion", "formula"): "exclusion_formula",
+    ("components", "rule"): "components_rule", ("components", "max"): "components_max",
+    ("components", "selected"): "components_selected",
 }
 
 
@@ -270,5 +298,5 @@ def _check_float(value: Any, name: str) -> float:
     return float(value)
 
 
-__all__ = ["ALL_PIXELS", "DMODX_FORMULAS", "EXCLUSION_METHODS", "FOLD_RULES", "GROUP_BY",
-           "FitSpec", "fold_groups_problem"]
+__all__ = ["ALL_PIXELS", "COMPONENT_RULES", "DMODX_FORMULAS", "EXCLUSION_METHODS",
+           "FOLD_RULES", "GROUP_BY", "FitSpec", "fold_groups_problem"]

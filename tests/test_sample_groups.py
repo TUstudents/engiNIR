@@ -8,7 +8,7 @@ import pytest
 
 from enginir import Project
 from enginir.io import save_hdf5
-from enginir.modeling import _service
+from enginir.modeling import _components, _service
 from enginir.project import FitSpec
 from tests.test_fit_spec import _warnings_during
 
@@ -51,6 +51,8 @@ def _held_out_folds(project, monkeypatch, **fit_args):
         seen["cv"], seen["groups"] = cv, groups
         return real(estimator, X, y, cv=cv, groups=groups, **kwargs)
 
+    # the folds run in the component curve (and, with exclusion, again in the service)
+    monkeypatch.setattr(_components, "cross_validate", recording)
     monkeypatch.setattr(_service, "cross_validate", recording)
     model = project.fit("API", n_components=1, **fit_args)
     run, ws = model.ref, project.workspace

@@ -449,11 +449,12 @@ def test_fit_model_run_uses_roi_aggregated_primary_metrics(tmp_path, monkeypatch
         np.testing.assert_array_equal(y, np.array([1.0, 1.0, 2.0, 2.0], dtype=np.float32))
         return {
             "y_true": y,
-            "y_pred": np.array([0.0, 2.0, 1.0, 3.0], dtype=np.float32),
+            # the component curve's cross-validation: one column per number of components
+            "y_pred": np.array([[0.0], [2.0], [1.0], [3.0]], dtype=np.float32),
             "cv_scheme": {"type": "LeaveOneGroupOut", "n_splits": 2},
         }
 
-    monkeypatch.setattr("enginir.modeling._service.cross_validate", _fake_cross_validate)
+    monkeypatch.setattr("enginir.modeling._components.cross_validate", _fake_cross_validate)
 
     result = fit_model_run(
         project_path=project_path,
@@ -524,21 +525,22 @@ def test_fit_model_run_preprocesses_stateless_recipe_once_before_cv(tmp_path, mo
     def _fake_cross_validate(estimator, X, y, cv, groups, scoring=None, return_train_score=False):
         del y, scoring, return_train_score
         assert isinstance(cv, RoundRobinGroups) and cv.n_splits == 7  # cv="auto"
-        assert isinstance(estimator, PLSRegression)
-        assert estimator.n_components == 1
+        model = estimator.estimator  # the component curve's wrapper around the model
+        assert isinstance(model, PLSRegression)
+        assert model.n_components == 1  # A_max: 2 ROIs allow no more than the given 1
         assert X is transformed
         # One label per ROI: its position in the sample set's roi_ids.
         np.testing.assert_array_equal(groups, [0, 0, 1, 1])
         return {
             "cv_scheme": {"type": "LeaveOneGroupOut", "n_splits": 2},
             "y_true": sample_set_data.y,
-            "y_pred": np.array([0.0, 2.0, 1.0, 3.0], dtype=np.float32),
+            "y_pred": np.array([[0.0], [2.0], [1.0], [3.0]], dtype=np.float32),
         }
 
     monkeypatch.setattr(
         "enginir.modeling._service.apply_preprocessing_recipe", _fake_apply_preprocessing_recipe
     )
-    monkeypatch.setattr("enginir.modeling._service.cross_validate", _fake_cross_validate)
+    monkeypatch.setattr("enginir.modeling._components.cross_validate", _fake_cross_validate)
 
     fit_model_run(
         project_path=project_path,
@@ -649,13 +651,15 @@ def test_fit_model_run_fits_msc_inside_every_cross_validation_fold(tmp_path, mon
 
     def _record_cross_validate(estimator, X, y, cv, groups, scoring=None,
                                return_train_score=False):
-        seen["estimator"] = estimator
+        seen["estimator"] = estimator.estimator  # inside the component curve's wrapper
+        columns = estimator.estimator.get_params()["model__n_components"]
         return {"cv_scheme": {"type": "LeaveOneGroupOut", "n_splits": 3},
-                "y_true": y, "y_pred": np.asarray(y, dtype=np.float32)}
+                "y_true": y,
+                "y_pred": np.repeat(np.asarray(y, dtype=np.float32)[:, None], columns, axis=1)}
 
     monkeypatch.setattr("enginir.modeling._service.apply_preprocessing_recipe",
                         _no_preprocessing_outside_cv)
-    monkeypatch.setattr("enginir.modeling._service.cross_validate", _record_cross_validate)
+    monkeypatch.setattr("enginir.modeling._components.cross_validate", _record_cross_validate)
     fit_model_run(**_fit_kwargs(project_path, state, data.sample_set))
 
     estimator = seen["estimator"]
