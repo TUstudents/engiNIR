@@ -36,78 +36,89 @@ then be made again):
 uv run python -m tests._simca_reference
 ```
 
-## Building the models in SIMCA 18
+## The models
 
-Import (`File > New`, spectroscopic project) `pixels.csv` and, for M4,
-`roi_means.csv`:
-
-- first row: variable names; decimal symbol: point; separator: comma
-- `obs_id`: primary observation ID; `roi`: secondary observation ID
-- `conc`: Y; all wavelength columns: X; first row (the wavelengths): spectral ID
-
-Workset for every model:
-
-- scaling: X centred (Ctr), Y unit variance (UV)
-- cross-validation (Model Options > CV-groups): M1–M3, M5: "assign
-  observations with the same value of `roi` to the same group", 7 groups;
-  M4: every 7th observation (default), 7 groups
-
-| Model | Table | Filter (Data > Spectral filters) | Components |
+| Model | Table | SIMCA spectral filter | Components |
 |---|---|---|---|
-| M1 | pixels | none | 4, with `Add` four times |
-| M2 | pixels | SNV | 4, with `Add` four times |
-| M3 | pixels | Derivatives: first, quadratic, 15 points, distance 1 | 4, with `Add` four times |
-| M4 | roi_means | none | `Autofit`; note how many it chose |
-| M5 | pixels | AsLS correction, smoothing factor 10000, asymmetry factor 0.001 | 4, with `Add` four times |
+| M1 | pixels | none | 4 |
+| M2 | pixels | SNV | 4 |
+| M3 | pixels | Derivatives: first, quadratic, 15 points, distance 1 | 4 |
+| M4 | roi_means | none | Autofit |
+| M5 | pixels | AsLS baseline correction, λ 10000, p 0.001 | 4 |
 
-Use `Add`, not `Autofit`, for M1–M3 and M5 (also when SIMCA marks a
-component as not significant: M2's fourth component should get worse, which
-tests the significance rule). M4 tests Autofit itself. Below, *A* is the
-number of components of the model: 4, or the Autofit result for M4.
+All are PLS with X centred (Ctr) and `conc` unit-variance scaled (UV), and
+cross-validation over 7 groups that hold whole ROIs: the ROIs at positions
+*f* and *f* + 7 of the table form group *f* (engiNIR's round-robin rule).
+M1–M3 and M5 keep 4 components even where SIMCA calls one not significant
+(M2's fourth should get worse, which tests the significance rule); M4 tests
+Autofit. M1–M3 and M5 predict `pixels_test.csv`. A filter creates a new
+dataset without Y; the filtered models take X from it and `conc` from the
+unfiltered `pixels` dataset (SIMCA matches the observations by ID).
 
-For M1–M3 and M5, add `pixels_test.csv` as prediction set (Predict >
-Specify predictionset > from file). M4 has no prediction set.
+## Running the export in SIMCA 18
 
-## Exports
+`simca_export.py` builds the project and the models and exports the
+results. It needs a SIMCA licence with Python scripting (File > Help shows
+it). Copy this folder to the Windows machine (or open it from there), then
+either:
 
-Make the lists with `Home > Create > List`. In the dialog:
+- run `SIMCA.exe /execpython <full path>\simca_export.py`, or
+- in SIMCA, Developer > Add script to Favorites, choose `simca_export.py`
+  and click it in the Favorites pane.
 
-- data source (`Data` box): the model (e.g. `M1`); for the prediction list
-  `PS`
-- `Scale` and `Transform` unchecked (original units)
-- number format (Number format page): `Exponential`, precision `6`
+SIMCA asks once whether to trust the script. The Python console (Developer
+> Python console) shows its progress. Copy `simca_exports/` back into this
+folder for the comparison. The folder is git-ignored: SIMCA's output is
+used for verification only and is not committed. The findings (which
+SIMCA 18.1 results engiNIR reproduces, and the formulas) are in
+`plans/fit-specification.md`, Phase R.
 
-Add the series in the order given, then select the whole list (click the
-top-left corner), copy (Ctrl+C), paste into a text editor and save as
-`simca_exports/<model>_<list>.csv` (e.g. `M1_components.csv`). Tabs or
-commas both work; keep the header row and the observation/variable ID
-column.
+Cross-validation groups cannot be set from Python, so the script imports the
+pixel table interleaved (row *k* from group *k* mod 7): SIMCA's default
+groups, every 7th observation, are then exactly the groups above. The test
+`test_simca_default_cv_groups_on_the_imported_order_are_the_round_robin_roi_folds`
+checks this ordering rule, and the exported `CVGroups` show what SIMCA used.
 
-Lists for every model:
+## The exports
 
-| List | Data type | Series (component) | Rows |
-|---|---|---|---|
-| `components` | Function of component | R2X, R2Xcum, R2Y, R2Ycum, Q2, Q2cum, SSX, SSY, RMSEcv, Eig, SDt | 1 to *A* |
-| `observations` | Variables and scores | CVgroups; YVar (conc); YPred (*A*); YPredcv (*A*); t (1 … *A*, one series each); T2Range (1 to *A*); DModX (*A*); DModX (0) | workset observations |
-| `variables` | Observations and loadings | Xavg; Xws; w (1 … *A*); w* (1 … *A*); p (1 … *A*); CoeffCS (*A*); Coeff (*A*); VIP (*A*); MPowX (*A*) | X variables |
-| `errors` | Observations and loadings, select the Y variable `conc` | Yavg; Yws; RMSEE (*A*); RMSEcv (*A*); MBEE (*A*); MBEcv (*A*); for M1–M3, M5 also RMSEP (*A*), MBEP (*A*) | `conc` |
-| `prediction` (M1–M3, M5) | Variables and scores, data source PS | YVarPS (conc); YPredPS (*A*); tPS (1 … *A*); T2RangePS (1 to *A*); DModXPS (*A*); DModXPS+ (*A*) | prediction set observations |
+All values are written at the precision SIMCA computes (SIMCA stores data
+as 32-bit floats, so expect about 7 significant digits). *A* is the number
+of components.
 
-Not available as lists, please copy by hand:
+| File | Content |
+|---|---|
+| `manifest.json` | SIMCA version, settings, per model: SIMCA's number and name, N, K, *A*, DModX options; every step that failed |
+| `simca_reference.usp` | the SIMCA project, for a look in the GUI |
+| `<M>_components.csv` | per component: R2X, R2Xcum, R2Y, R2Ycum, Q2, Q2cum, SSX, SSY, Eig, SDt, RMSEcv |
+| `<M>_observations.csv` | per observation: CVGroups, YVar, YPred, YPredcv, t[1…*A*], T2Range(1–*A*), DModX[*A*], DModX[0] |
+| `<M>_variables.csv` | per X variable: Xavg, Xws, w, w*, p (1…*A*), CoeffCS, Coeff, VIP, MPowX |
+| `<M>_errors.csv` | for `conc`: Yavg, Yws, RMSEE, RMSEcv, MBEE, MBEcv; with prediction set RMSEP, MBEP |
+| `<M>_prediction.csv` | per test pixel: YVarPS, YPredPS, tPS[1…*A*], T2RangePS(1–*A*), DModXPS[*A*], DModXPS+[*A*] |
+| `<M>_limits.csv` | T2Crit, DModXCrit (absolute and normalised) at 0.95 and 0.99 |
+| `<M>_dmodx_unweighted.csv`, `<M>_dmodxps_unweighted.csv` | DModX without modelling-power weighting |
+| `M2_filtered.csv`, `M3_filtered.csv`, `M5_filtered.csv` | the filtered datasets |
 
-- `<model>_model.csv`: the component table of the model window
-  (double-click the model): R2X(cum), R2Y(cum), Q2(cum), limit and
-  significance per component.
-- `<model>_limits.txt`: the critical values shown in the plots at *A*
-  components: `T2Crit(95%)` and `T2Crit(99%)` (Home > Hotelling's T2Range,
-  components 1 to *A*), `D-Crit(0.05)` (Home > DModX, normalised), and
-  for M1–M3, M5 the D-Crit of DModXPS (Predict > DModX PS).
-- the DModX settings: the `DModX` series names show them, e.g. `(N)` for
-  normalised and `(M)` for weighted by modelling power. If your default is
-  weighted, please also export the DModX (*A*) and DModX (0) series once
-  unweighted (Model Options > Distance to the model, uncheck the
-  modelling-power weighting) as `<model>_dmodx_unweighted.csv`.
-- M2, M3, M5: the filtered dataset (the new dataset the filter created,
-  e.g. DS2): open it, select all, copy, save as `<model>_filtered.csv`.
+Each CSV has the ID columns first, then one column per series; the second
+row holds SIMCA's own series names (e.g. `M1.t[1]`).
 
-Please note the SIMCA version and build in `simca_exports/VERSION.txt`.
+The Q2 limit and significance shown in the model window are not available
+to Python; the tests derive them from Q2 and N with SIMCA's rule.
+
+## Exporting models configured by hand
+
+Settings that Python cannot make (the CV-groups dialog) are made in the
+GUI: open `simca_exports/simca_reference.usp`, change a model's CV groups
+(Model Options > CV-groups) or make a new model, fit it, then run
+`simca_export_active.py` the same way. It exports every fitted model of the
+active project, named by SIMCA's model name, into `simca_exports/manual/`.
+
+For the grouped CV, please make on the pixels (copies of M1, 4 components
+with `Add`):
+
+- grouping by the variable `conc`, 7 groups
+- grouping by the secondary ID `roi`, 7 groups
+- grouping by `roi`, 5 groups (14 values into 5 groups shows how SIMCA
+  sizes uneven blocks)
+
+If a step fails, the script carries on with the others and lists the
+failure in `manifest.json`; please send that file and the console output.
