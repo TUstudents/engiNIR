@@ -70,7 +70,11 @@ the weights and loadings of each component should show it.
     folds, groups, pixel sample and scaling as the run.
   - §6 refit: a refit uses the stored `n_components` (never re-chooses), and
     reports when the stored rule would now choose differently.
-- `docs/hdf5_format.md`: `fit_spec/components/`, and
+  - §5 reporting: RMSEE and R²adj (Phase 2b) next to the primary metrics,
+    with their degrees of freedom; CoeffCS, training T² with T²Crit and
+    training DModX with DCrit as stored diagnostics.
+- `docs/hdf5_format.md`: `fit_spec/components/`, the new metrics and
+  diagnostics of Phase 2b, and
   `artifact_refs/component_curve/` (`n_components`, `rmsecv`, `rmsecv_se`,
   `q2`, `q2_cum`, `r2x_cum`, `r2y_cum`, `suggested` per rule).
 - Legacy runs: no curve, `components/rule = fixed`.
@@ -95,6 +99,28 @@ summary in `metrics` (`rmsecv` at the chosen *A* stays the primary
 metric). Tests: the curve at *A* equals the run's RMSECV; folds and groups
 are those of the run; R²Y(cum) never decreases.
 
+### Phase 2b: SIMCA statistics of the fitted model (added 2026-11-07)
+
+From the SIMCA follow-up list of the fit-specification plan; computed in
+the same fit, shown on the pages of Phase 4.
+
+- **RMSEE** = √(Σ res² / (N − 1 − A)) and **R²adj**: at pixel level (N
+  pixels, as SIMCA computes them, so the numbers compare) and at ROI level
+  (R ROI means; reported only when R − 1 − A ≥ 1). Stored in `metrics`.
+- **CoeffCS**: coefficients for scaled and centred X and scaled Y (SIMCA's
+  default coefficient view), so band importance compares across scalings.
+  Stored with the diagnostics.
+- **Training T²** per pixel and per ROI mean, with T²Crit = A(N − 1)/(N − A)
+  · F(level; A, N − A) at 0.95 and 0.99, and the T² ellipse of the score plot
+  (components 1 and 2, T²Crit for A = 2).
+- **Training DModX** per pixel (unweighted `dmodx-1`, normalised) with
+  DCrit at 0.99, also when no pixel exclusion was requested; the share of
+  pixels above DCrit per ROI.
+
+Tests: RMSEE, R²adj, T², T²Crit, DModX and DCrit against the formulas
+verified with SIMCA 18.1 (fit-specification plan, Phase R) on the SIMCA
+reference blends; CoeffCS equals the raw coefficients rescaled.
+
 ### Phase 3: rules and `n_components="auto"`
 
 `enginir.validation.choose_components(curve, rule)` (public, documented
@@ -117,7 +143,11 @@ record where the rules disagree. Compare with SIMCA's Autofit (M4 chose 2).
   run's *A* highlighted; clicking *a* offers "Fit with *a* components" (same
   target, recipe and fit specification).
 - The Spectral page shows weights and loadings of the first components (not
-  only LV1), so the physical meaning can be checked.
+  only LV1), so the physical meaning can be checked, and CoeffCS next to the
+  raw coefficients.
+- The score plot gets the T² ellipse (0.95 and 0.99); a **Distance** panel
+  shows training DModX (pixels or ROI means) with DCrit at 0.99 and T² with
+  T²Crit; the metrics table shows RMSEE and R²adj.
 - Fit dialog: Components = a number or **Auto** (rule, maximum).
 - Viewer docs, contract and architecture notes in sync.
 
@@ -132,5 +162,8 @@ four gates.
 - Choosing the preprocessing automatically (needs nested cross-validation
   to stay honest; separate plan).
 - SIMCA's component-wise cross-validation as an option (reproduced in the
-  SIMCA handover; separate decision).
+  SIMCA handover; deferred 2026-11-07).
+- Autofit's other rules (R2, N3, N4), DModXPS+ (deferred 2026-11-07).
+- SIMCA preprocessing (AsLS, Savitzky-Golay without edges): plan
+  `simca-preprocessing.md`.
 - OPLS.

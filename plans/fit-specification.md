@@ -405,13 +405,21 @@ four gates.
 
 ## Follow-up plan: SIMCA statistics and filters
 
-- R²X, R²Y per component and cumulative; Q² and Q²(cum) (product form with
-  SIMCA's truncation); RMSEE (N − 1 − A); R²adj; VIP; CoeffCS
-- Autofit rules R1, R2, N3, N4
-- Hotelling T² with SIMCA's limit A(N−1)/(N−A)·F and the score-plot ellipse;
-  DModXPS and DModXPS+ for predictions
-- Savitzky-Golay without edge bands; AsLS correction and smoothing (SIMCA
-  defaults λ = 10000, p = 0.001)
-- filter-once mode for stateful filters (SIMCA filters the dataset once)
-- reference tests against SIMCA 18 exports (CV-group list, summary of fit,
-  scores, coefficients, T², DModX)
+Distributed on 2026-11-07:
+
+- **`plans/component-selection.md`**: R²X, R²Y, Q², Q²(cum) and RMSECV per
+  component; the SIMCA-like Q² limit (Autofit R1); RMSEE and R²adj; CoeffCS;
+  training T² with T²Crit and the score-plot ellipse; training DModX with
+  DCrit (Phase 2b).
+- **`plans/prediction-diagnostics.md`**: DModXPS (unweighted) and T²PS with
+  their limits for predictions.
+- **`plans/simca-preprocessing.md`**: AsLS correction and smoothing;
+  Savitzky-Golay without edge bands.
+- **Done:** VIP, coefficients, scores, loadings; DModX, DCrit and MPow
+  (Phase 5, `dmodx-1`/`dmodx-2`).
+- **Decided against:** CV grouping by a variable; scaling `none`; "filter
+  once" for MSC/EMSC (leaks held-out samples into the reference).
+- **Deferred:** SIMCA's component-wise cross-validation as an option;
+  Autofit rules R2, N3 and N4; DModXPS+; OPLS; PLS-DA/OPLS-DA.
+- Reference tests against SIMCA exports: the exports are verification
+  only and not committed; the formulas are recorded under Phase R.
