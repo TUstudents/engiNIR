@@ -147,15 +147,21 @@ and writes nothing they would reject.
   (`sample-set-model-run-contract_v3.md` §4.1); `model.refit()` uses the
   groups stored with the run and warns when current labels or values would
   group differently
-- `model.predict(path, *, dark=None, white=None)` predicts a dataset and
-  returns a prediction handle
+- `model.predict(path, *, dark=None, white=None, checksum=False)` predicts a
+  data file and returns an in-memory `Prediction` (`enginir._workflow.Prediction`: `map`, `y_pred`,
+  `dmodx_map`, `t2_map`, `diagnostics` with limits and summary,
+  `provenance`); it writes nothing to the project (the file is not
+  registered, the prediction not stored) and logs one entry
+  (`prediction-runtime-contract_v3.md`, Result Handling). Persisting a
+  prediction is a low-level operation (`enginir.io.project_store`)
 - read access: `project.datasets`, `project.rois`, `project.targets`,
   `project.models`, `project.predictions`, keyed by name (datasets by path,
-  predictions by id). When names of a kind repeat, its name-keyed mapping is
+  predictions by id; `project.predictions` lists only predictions persisted
+  by low-level writers, as `StoredPrediction` handles). When names of a kind repeat, its name-keyed mapping is
   an error listing the repeated names and their ids instead of silently
   keeping one; `project.workspace` holds every collection keyed by id;
   handles expose their typed object (`.ref`) and the essentials (`model.metrics`,
-  `model.diagnostics`, `prediction.map`, `prediction.y_pred`)
+  `model.diagnostics`)
 
 ### Names and ids
 
@@ -215,16 +221,19 @@ and writes nothing they would reject.
 - **Signal domain**: derived with `SignalDomainContract.for_training_data`
   from the training datasets and calibrations; `fit` refuses ROIs whose
   datasets or calibrations would need different signal domains
-- **Prediction**: `predict` resolves the dataset as `add_dataset` does, with
-  the model's signal unit as `unit`, then runs `preflight_prediction` and
-  `predict_with_model_run` and stores the prediction run
+- **Prediction**: `predict` resolves the data file and its calibration as
+  `add_dataset` does, with the model's signal unit as `unit`, but in memory
+  only (a registered file reuses its stored calibration read-only), then
+  runs `preflight_prediction` and `predict_with_model_run` without
+  persisting; nothing is written to the project
 
 ### Writes and failures
 
 - every call validates and computes everything it can before its first write;
   a call that fails there leaves the project file and the `Project` unchanged
 - writes happen in dependency order (dataset, calibration, recipe, sample
-  set, signal domain, model run, prediction run), each one atomic; a failure
+  set, signal domain, model run; for low-level persistence also prediction
+  run), each one atomic; a failure
   during writing can leave complete, valid objects that nothing references
   yet, never a broken reference
 - after a successful call, the `Project` in memory equals what

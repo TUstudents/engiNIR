@@ -658,6 +658,12 @@ PCR computes its principal components with a deterministic full SVD, so a
 fit is reproducible and its first *a* components are those of an
 *a*-component fit.
 
+The final model's `prediction_model` artifact also stores its projection
+data (`x_mean`, `x_std`, `rotations`, `loadings`, `score_variances`, `s0`,
+`n_train`, `n_components`, `t2_crit_099`, `dcrit_099`), the same values the
+training diagnostics above use, so predictions can compute DModXPS and T²PS
+(`prediction-runtime-contract_v3.md`, Applicability Diagnostics).
+
 ## Weighting Rule
 
 v3 must not silently bias the fit toward larger ROIs without an explicit decision.

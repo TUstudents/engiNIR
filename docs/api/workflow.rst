@@ -34,6 +34,12 @@ Prediction
 .. autoclass:: enginir._workflow.Prediction
    :members:
 
+StoredPrediction
+----------------
+
+.. autoclass:: enginir._workflow.StoredPrediction
+   :members:
+
 Shared rules
 ------------
 

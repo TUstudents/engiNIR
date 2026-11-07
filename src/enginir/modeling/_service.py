@@ -466,7 +466,7 @@ def fit_model_run(
     y_divisor = (float(np.asarray(estimator.y_std_).reshape(-1)[0])
                  if isinstance(estimator, PLSRegression)
                  else float(np.std(np.asarray(data.y)[kept], ddof=1)) or 1.0)
-    fit_metrics, training = training_diagnostics(
+    fit_metrics, training, projection = training_diagnostics(
         predictor if recipe.requires_fitting else estimator, X_cv, data.y, kept, roi_index,
         y_divisor=y_divisor)
     # Per-ROI shares follow cv_outputs/roi_ids (they are computed in roi_ids_present order).
@@ -515,6 +515,7 @@ def fit_model_run(
                 "coef_": np.asarray(estimator.coef_, dtype=_WORKING_DTYPE),
                 "intercept_": np.atleast_1d(np.asarray(estimator.intercept_, _WORKING_DTYPE)),
                 **_preprocessing_state_entry(predictor, recipe),
+                **projection,
             },
             "diagnostics": {**_diagnostics_artifact(estimator, data.wavelengths), **training},
             "component_curve": curve,

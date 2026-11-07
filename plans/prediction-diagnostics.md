@@ -68,7 +68,7 @@ the result.
 In `artifact_refs/prediction_model` (model content, needed to apply the
 model): `x_mean`, `x_std` (scaling), `rotations`, `loadings`,
 `score_variances`, `s0` (training pooled residual SD, unweighted), `n_train`
-(N), and `dcrit_099`, `t2crit_099` for the record. `coef_`, `intercept_` and
+(N), and `dcrit_099`, `t2_crit_099` for the record. `coef_`, `intercept_` and
 the preprocessing state stay. A run without these fields predicts as before
 but shows no DModXPS/T²PS (the viewer says "refit to get the maps").
 

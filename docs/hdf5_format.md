@@ -489,7 +489,22 @@ target_names            string array
 coef_                    shape (n_bands,) or (n_bands, n_targets)
 intercept_               shape (1,) or (n_targets,)
 preprocessing_state      optional group, fitted MSC/EMSC parameters
+x_mean, x_std            float64 (n_bands,), the effective centre and divisor (1.3 and later)
+rotations, loadings      (n_bands, A), scores = scaled X @ rotations
+score_variances          (A,), training score variances (N - 1); NaN for a component without variance
+@s0                      training pooled residual SD (unweighted); absent when K - A < 1
+@n_train                 kept training pixels N of the final model (after DModX exclusion)
+@n_components            A
+@t2_crit_099, @dcrit_099 limits for the applicability diagnostics (each absent when undefined)
 ```
+
+`x_mean` is the centre in the model's input space: for PCR the PCA mean is
+folded in (`x_mean_ + pca_.mean_ * x_std_`), and `rotations` = `loadings` =
+the PCA components.
+
+The projection fields serve the applicability diagnostics of predictions
+(DModXPS, T²PS; `prediction-runtime-contract_v3.md`); runs without them
+predict without diagnostics.
 
 Both model types are replayed as the affine map
 `y = X_preprocessed @ coef_ + intercept_`, where `X_preprocessed` is the

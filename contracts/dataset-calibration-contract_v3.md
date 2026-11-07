@@ -205,9 +205,11 @@ v3 rule:
 
 - the UI may expose calibration edits, but every committed calibration state must become an explicit `CalibrationSpec`, not mutable anonymous widget state
 - replacing calibration in v3 updates the dataset's single active calibration spec rather than keeping multiple active variants
-- before writing an explicit prediction calibration, the executable content must
-  be compared against existing dataset-local calibrations and reused when it
-  matches
+- a prediction does not write its calibration (in-memory by default,
+  `prediction-runtime-contract_v3.md` §Result Handling); before low-level
+  persistence writes an explicit prediction calibration, the executable
+  content must be compared against existing dataset-local calibrations and
+  reused when it matches
 
 Calibration content identity in v3:
 
@@ -454,26 +456,33 @@ The fit pipeline is:
 
 ## 5. Predict on new raw `.eiff`
 
-When a new dataset is imported for prediction:
+When a new data file is predicted (nothing is written to the project by
+default; `prediction-runtime-contract_v3.md` §Result Handling):
 
-1. create `DatasetRef`
-2. create/select `CalibrationSpec` for that dataset
+1. describe the file as a `DatasetRef` in memory (a registered file uses its
+   stored one)
+2. create/select the `CalibrationSpec` in memory (a registered file reuses its
+   stored active calibration read-only)
 3. if dataset-associated calibration defaults already exist, reuse them by default
 4. compare the dataset + calibration state to the model's `SignalDomainContract`
-5. if compatible, initialize disk-backed prediction artifacts
+5. if compatible, allocate the in-memory result maps
 6. load and process bounded chunks
 7. for each chunk, convert to the required signal unit
 8. for each chunk, apply the saved preprocessing recipe
-9. for each chunk, run prediction and write outputs incrementally
-10. persist/finalize a `PredictionRun` with both model and applied calibration references
+9. for each chunk, run prediction and the applicability diagnostics and
+   write the outputs into the result maps
+10. return the result and write one log entry; only low-level persistence
+    writes the `DatasetRef`, the `CalibrationSpec` and a `PredictionRun`
+    with both model and applied calibration references
 
 v3 default behavior:
 
 - when a prediction dataset already has associated calibration defaults, the system reuses them by default
 - when no dataset-associated defaults exist, the user must select or define the required calibration explicitly
 - the user may override them explicitly
-- explicit overrides are content-deduplicated against existing dataset-local
-  calibrations before a new calibration id is created
+- with low-level persistence, explicit overrides are content-deduplicated
+  against existing dataset-local calibrations before a new calibration id is
+  created
 - the system must never silently reuse training-dataset dark/white references as prediction defaults
 - stateful fitted preprocessing must either be reproduced from persisted
   training-side state or be blocked explicitly on reopened prediction runs

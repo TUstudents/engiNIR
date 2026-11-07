@@ -199,9 +199,9 @@ def test_project_state_fit_model_run_persists_grouped_model_run(tmp_path, qapp):
     )
     assert reloaded.sample_sets["sample_set_phase5"].roi_ids == ["roi_1", "roi_2", "roi_3", "roi_4"]
     assert "fitted_model" not in reloaded.model_runs["model_run_phase5"].artifact_refs
-    assert reloaded.model_runs["model_run_phase5"].artifact_refs.get("prediction_model") == {
-        "model_type": "PLSRegression"
-    }
+    metadata = reloaded.model_runs["model_run_phase5"].artifact_refs.get("prediction_model")
+    assert metadata["model_type"] == "PLSRegression"
+    assert not {"coef_", "x_mean", "rotations", "loadings"} & set(metadata), "arrays not hydrated"
     assert "roi_ids" not in reloaded.model_runs["model_run_phase5"].artifact_refs.get(
         "cv_outputs", {}
     )

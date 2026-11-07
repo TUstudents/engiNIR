@@ -451,7 +451,8 @@ Secondary content region:
 Required visible information:
 
 - active or selected model run
-- latest prediction run or `none`
+- the latest prediction of this session or `none` (predictions are not
+  stored; earlier stored predictions in a project are not shown)
 - service status for prediction
 
 Required controls:
@@ -468,6 +469,12 @@ Required prediction-map interaction:
 - a color scale/legend must be visible for numeric prediction values
 - multi-output prediction artifacts must expose an explicit target/output
   selector before the map is rendered
+- a layer selector shows the prediction, the distance to the model (DModXPS)
+  or Hotelling T² (T²PS); on these two the pixels above the 0.99 limit are
+  marked and the share above is shown (`prediction-runtime-contract_v3.md`,
+  Applicability Diagnostics)
+- the Predict workspace writes nothing to the project: the scan is not
+  registered and the prediction is not stored; the plot panels export it
 - pan and zoom must be available for the prediction map
 - the map is a plot panel (see Plot Panel Policy). Its CSV export is the
   displayed output as a matrix, with one CSV row per map row and one column

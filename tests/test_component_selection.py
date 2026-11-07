@@ -150,7 +150,7 @@ def test_training_dmodx_equals_the_exclusion_formula():
     """§7.5 DModX of the fitted pixels is dmodx-1 of the model's residuals."""
     X, y, roi_index = _three_sources()
     model = PLSRegression(n_components=2, x_scaling="center").fit(X, y)
-    _metrics, diagnostics = _components.training_diagnostics(
+    _metrics, diagnostics, _projection = _components.training_diagnostics(
         model, X, y, np.ones(X.shape[0], bool), roi_index, y_divisor=float(model.y_std_[0]))
     from enginir.modeling._exclusion import x_residuals
 

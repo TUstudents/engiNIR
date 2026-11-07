@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -40,6 +40,14 @@ from ..io.project_store import (
     open_prediction_run_artifact_writer,
 )
 from ..preprocessing import PreprocessingRecipe
+from ._diagnostics import (
+    DiagnosticsSummary,
+    Projection,
+    chunk_diagnostics,
+    file_records,
+    log_prediction,
+    projection_of,
+)
 from ..preprocessing._pipeline import (
     restore_fitted_preprocessing_steps,
     transform_preprocessing_steps,
@@ -124,6 +132,9 @@ class PredictionPreflight:
         matrices).
     n_rows : int
         Number of predicted spectra, ``n_frames * height``.
+    projection : Projection or None
+        The model's projection data for DModXPS and T²PS, or ``None`` (a run
+        fitted before engiNIR 1.3: no applicability diagnostics).
     """
 
     predictor: Any | None
@@ -134,6 +145,7 @@ class PredictionPreflight:
     chunk_size: int
     spatial_shape: tuple[int, int]
     n_rows: int
+    projection: Projection | None = None
 
 
 @dataclass(slots=True)
@@ -154,6 +166,16 @@ class PredictionResult:
         ``y_pred`` viewed as ``(n_frames, height[, n_outputs])``.
     artifacts_persisted : bool
         Whether the predictions were written into the project file.
+    t2, dmodx : numpy.ndarray of float32 or None
+        T²PS and DModXPS per spectrum (``None`` for a model without projection
+        data, or without ``return_arrays``).
+    diagnostics : dict or None
+        Limits (0.99) and summary of the applicability diagnostics
+        (prediction-runtime contract).
+    provenance : dict
+        Model run id and name, data file(s) with size and modification time
+        (and SHA-256 on request), calibration, clipping counts and time; the
+        content of the prediction's log entry.
     """
 
     dataset: DatasetRef
@@ -162,6 +184,16 @@ class PredictionResult:
     y_pred: np.ndarray | None
     spatial_map: np.ndarray | None
     artifacts_persisted: bool = False
+    t2: np.ndarray | None = None
+    dmodx: np.ndarray | None = None
+    diagnostics: dict[str, Any] | None = None
+    provenance: dict[str, Any] = field(default_factory=dict)
+
+    def diagnostic_map(self, values: np.ndarray | None) -> np.ndarray | None:
+        """``t2`` or ``dmodx`` as an image, shaped like ``spatial_map``'s first two axes."""
+        if values is None or self.spatial_map is None:
+            return None
+        return values.reshape(self.spatial_map.shape[:2])
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,6 +219,7 @@ def preflight_prediction(
     model_registry: dict[str, Any],
     chunk_size: int | None = None,
     prediction_run_id: str | None = None,
+    prefer_saved_model: bool = False,
 ) -> PredictionPreflight:
     """Check that a prediction can run and resolve the state shared by all chunks.
 
@@ -210,6 +243,11 @@ def preflight_prediction(
         Frames per chunk; default ``min(n_frames, 512)``.
     prediction_run_id:
         Id the new prediction run will get; must not exist in the project.
+    prefer_saved_model:
+        Use the saved model instead of an in-memory predictor when the saved
+        one has projection data, so that the prediction gets the
+        applicability diagnostics (what the viewer does for models fitted in
+        the session). An in-memory predictor alone gives no diagnostics.
 
     Raises
     ------
@@ -241,6 +279,16 @@ def preflight_prediction(
     steps = recipe.build_steps(wavelengths)
     predictor = model_registry.get(model_run.model_run_id)
     model_blob = None
+    if predictor is not None and prefer_saved_model:
+        # The saved model with projection data replaces the in-memory
+        # predictor: the same affine model, and its preprocessed spectra give
+        # the applicability diagnostics.
+        try:
+            saved = load_model_run_prediction_artifact(project_path, model_run.model_run_id)
+        except KeyError:
+            saved = None
+        if projection_of(saved) is not None:
+            predictor = None
     if predictor is not None:
         if not hasattr(predictor, "predict"):
             log_and_raise("In-memory predictor of model run '{}' has no predict()",
@@ -270,6 +318,7 @@ def preflight_prediction(
         chunk_size=chunk_size,
         spatial_shape=(n_frames, height),
         n_rows=n_frames * height,
+        projection=projection_of(model_blob),
     )
 
 
@@ -320,6 +369,8 @@ def predict_with_model_run(
     chunk_size: int | None = None,
     persist_artifacts: bool = False,
     return_arrays: bool = True,
+    checksum: bool = False,
+    prefer_saved_model: bool = False,
 ) -> PredictionResult:
     """Predict a whole dataset with a model run.
 
@@ -350,6 +401,11 @@ def predict_with_model_run(
         cancelled.
     return_arrays:
         Keep the predictions in memory and return them.
+    checksum:
+        Add the SHA-256 of the data file to the provenance (reads the file
+        once more).
+    prefer_saved_model:
+        See :func:`preflight_prediction`.
 
     Returns
     -------
@@ -383,6 +439,7 @@ def predict_with_model_run(
         model_registry=model_registry,
         chunk_size=chunk_size,
         prediction_run_id=run_id if persist_artifacts else None,
+        prefer_saved_model=prefer_saved_model,
     )
     progress.total = preflight.n_chunks
     run_payload = {
@@ -429,9 +486,11 @@ def predict_with_model_run(
             del signal  # one working chunk at a time (X_ready may be signal itself)
             progress.report("predicting", f"Predicting {step}")
             y_chunk = _predict_chunk(X_ready, preflight)
+            diagnostics = (None if preflight.projection is None
+                           else chunk_diagnostics(X_ready, preflight.projection))
             del X_ready
             progress.report("writing", f"Writing {step}")
-            outputs.add(row_start, y_chunk)
+            outputs.add(row_start, y_chunk, diagnostics)
             progress.completed += 1
             del y_chunk
         progress.report("finalizing", "Finalizing prediction artifacts")
@@ -439,6 +498,15 @@ def predict_with_model_run(
     prediction_run = PredictionRun(
         prediction_run_id=run_id, artifact_refs=artifact_refs, **run_payload
     )
+    summary = outputs.diagnostics_summary()
+    provenance = {
+        "model_run_id": model_run.model_run_id, "model_name": model_run.name,
+        "files": file_records(data_path, checksum=checksum),
+        "calibration_id": calibration.calibration_id, "calibration_mode": calibration.mode,
+        "clip_low_count": stats.clip_low_count, "clip_high_count": stats.clip_high_count,
+        "created_at": run_payload["created_at"],
+    }
+    log_prediction(provenance, summary)
     progress.report("finalizing", f"Finalized prediction {run_id}", check_cancel=False)
     return PredictionResult(
         dataset=dataset,
@@ -447,6 +515,10 @@ def predict_with_model_run(
         y_pred=outputs.y_pred,
         spatial_map=outputs.spatial_map,
         artifacts_persisted=persist_artifacts,
+        t2=outputs.t2,
+        dmodx=outputs.dmodx,
+        diagnostics=summary,
+        provenance=provenance,
     )
 
 
@@ -607,6 +679,11 @@ class _PredictionOutputs:
         self._max = -np.inf
         self.y_pred: np.ndarray | None = None
         self.spatial_map: np.ndarray | None = None
+        self.t2: np.ndarray | None = None
+        self.dmodx: np.ndarray | None = None
+        projection = preflight.projection
+        self._summary = (None if projection is None else
+                         DiagnosticsSummary(t2_crit=projection.t2_crit, dcrit=projection.dcrit))
 
     def __enter__(self) -> _PredictionOutputs:
         return self
@@ -616,11 +693,22 @@ class _PredictionOutputs:
         if exc_type is not None and self._staged and self._project_path is not None:
             discard_prediction_run_artifacts(self._project_path, self._run_id)
 
-    def add(self, row_start: int, y_chunk: np.ndarray) -> None:
+    def add(self, row_start: int, y_chunk: np.ndarray,
+            diagnostics: tuple[np.ndarray, np.ndarray] | None = None) -> None:
         if self._chunks == 0:
             self._start(tuple(int(dim) for dim in y_chunk.shape[1:]))
         if self.y_pred is not None:
             self.y_pred[row_start:row_start + y_chunk.shape[0]] = y_chunk
+        if diagnostics is not None:
+            t2, distance = diagnostics
+            if self._keep_arrays:
+                if self.t2 is None or self.dmodx is None:
+                    self.t2 = np.full(self._preflight.n_rows, np.nan, dtype=_WORKING_DTYPE)
+                    self.dmodx = np.full(self._preflight.n_rows, np.nan, dtype=_WORKING_DTYPE)
+                self.t2[row_start:row_start + t2.shape[0]] = t2
+                self.dmodx[row_start:row_start + distance.shape[0]] = distance
+            if self._summary is not None:
+                self._summary.add(np.asarray(y_chunk), t2, distance)
         if self._writer is not None:
             self._writer.write_chunk(row_start=row_start, y_pred_chunk=y_chunk)
         finite = y_chunk[np.isfinite(y_chunk)]
@@ -661,6 +749,10 @@ class _PredictionOutputs:
             self._writer = self._stack.enter_context(
                 open_prediction_run_artifact_writer(self._project_path, self._run_id)
             )
+
+    def diagnostics_summary(self) -> dict[str, Any] | None:
+        """Limits and summary of the applicability diagnostics, or ``None``."""
+        return None if self._summary is None else self._summary.as_dict()
 
     def finish(self, stats: CalibrationStats) -> dict[str, Any]:
         """Check completeness, finalize staged artifacts and return the artifact metadata."""

@@ -191,13 +191,35 @@ def component_curve(model: Any, X: np.ndarray, y: np.ndarray, *, splitter: Any,
     return curve, oof, cv["cv_scheme"]
 
 
+def projection_data(model: Any) -> dict[str, np.ndarray]:
+    """``x_mean``, ``x_std``, ``rotations``, ``loadings`` of a PLS or PCR model.
+
+    Scores are ((x - x_mean) / x_std) @ rotations for a preprocessed spectrum
+    x, for both model types (PCR's PCA mean is folded into ``x_mean``).
+    """
+    if isinstance(model, PLSRegression):
+        return {"x_mean": np.asarray(model.x_mean_, dtype=np.float64),
+                "x_std": np.asarray(model.x_std_, dtype=np.float64),
+                "rotations": np.asarray(model.x_rotations_, dtype=np.float64),
+                "loadings": np.asarray(model.x_loadings_, dtype=np.float64)}
+    if isinstance(model, PCR):
+        std = np.asarray(model.x_std_, dtype=np.float64)
+        components = np.asarray(model.pca_.components_, dtype=np.float64).T
+        return {"x_mean": np.asarray(model.x_mean_, dtype=np.float64)
+                + np.asarray(model.pca_.mean_, dtype=np.float64) * std,
+                "x_std": std, "rotations": components, "loadings": components}
+    log_and_raise("Projection data exist for PLS and PCR models, got {}", type(model).__name__)
+
+
 def training_diagnostics(fitted: Any, X: np.ndarray, y: np.ndarray, kept: np.ndarray,
                          roi_index: np.ndarray, *, y_divisor: float) -> tuple[
-                             dict[str, Any], dict[str, Any]]:
-    """Fit statistics (metrics) and per-pixel diagnostics of the final model (§5, §7.5).
+                             dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Fit statistics (metrics), per-pixel diagnostics and projection data (§5, §7.5).
 
     ``kept`` marks the pixels the model was fitted on (all, unless DModX
-    excluded some); excluded pixels get the same formulas.
+    excluded some); excluded pixels get the same formulas. The projection
+    data let predictions compute DModXPS and T²PS (prediction-runtime
+    contract, Applicability Diagnostics).
     """
     model: Any = fitted[-1] if isinstance(fitted, Pipeline) else fitted
     projection = project(fitted, X)
@@ -208,6 +230,9 @@ def training_diagnostics(fitted: Any, X: np.ndarray, y: np.ndarray, kept: np.nda
     variances = np.where(variances < _EPS, np.nan, variances)
     t2 = (projection.scores ** 2 / variances).sum(axis=1)
     diagnostics: dict[str, Any] = {"t2": t2.astype(np.float32)}
+    projection_fields: dict[str, Any] = {**projection_data(model),
+                                         "score_variances": np.asarray(variances),
+                                         "n_train": n, "n_components": a}
 
     def t2_crit(components: int, level: float) -> float:
         return float(components * (n - 1) / (n - components) * f.ppf(level, components,
@@ -216,6 +241,7 @@ def training_diagnostics(fitted: Any, X: np.ndarray, y: np.ndarray, kept: np.nda
     if n - a >= 1:
         diagnostics["t2_crit_095"] = t2_crit(a, 0.95)
         diagnostics["t2_crit_099"] = t2_crit(a, 0.99)
+        projection_fields["t2_crit_099"] = diagnostics["t2_crit_099"]
     if a >= 2 and n - 2 >= 1:
         diagnostics["t2_crit_2_095"] = t2_crit(2, 0.95)
         diagnostics["t2_crit_2_099"] = t2_crit(2, 0.99)
@@ -226,6 +252,7 @@ def training_diagnostics(fitted: Any, X: np.ndarray, y: np.ndarray, kept: np.nda
                     else np.zeros(X.shape[0]))
         diagnostics["dmodx"] = distance.astype(np.float32)
         diagnostics["dcrit_099"] = dmodx_limit(n, k, a, 0.99)
+        projection_fields.update(s0=s0, dcrit_099=diagnostics["dcrit_099"])
 
     n_rois = int(roi_index.max()) + 1
     counts = np.bincount(roi_index, minlength=n_rois)
@@ -258,8 +285,8 @@ def training_diagnostics(fitted: Any, X: np.ndarray, y: np.ndarray, kept: np.nda
         metrics["rmsee"] = float(np.sqrt(rss_roi / (n_rois - 1 - a)))
         if tss_roi >= _EPS:
             metrics["r2_adj"] = float(1 - (rss_roi / (n_rois - 1 - a)) / (tss_roi / (n_rois - 1)))
-    return metrics, diagnostics
+    return metrics, diagnostics, projection_fields
 
 
 __all__ = ["AllComponents", "Projection", "component_curve", "component_predictions",
-           "default_max", "project", "rank_limit", "training_diagnostics"]
+           "default_max", "project", "projection_data", "rank_limit", "training_diagnostics"]

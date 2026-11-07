@@ -50,7 +50,7 @@ from .project._models import sample_label
 logger = get_logger(__name__)
 
 __all__ = ["DEFAULT_BLACK_LEVEL", "DEFAULT_WHITE_LEVEL", "Dataset", "GridCell", "Model",
-           "Prediction", "Project", "check_data_file_location", "data_file_labels",
+           "Prediction", "Project", "StoredPrediction", "check_data_file_location", "data_file_labels",
            "make_calibration", "make_roi", "read_frames", "read_header",
            "recipe_id_for", "resolve_calibration", "resolve_dataset",
            "resolve_prediction_calibration", "resolve_sample_set", "resolve_signal_domain",
@@ -135,9 +135,10 @@ class Project:
         return {name: Model(self, run) for name, run in runs.items()}
 
     @property
-    def predictions(self) -> dict[str, Prediction]:
+    def predictions(self) -> dict[str, StoredPrediction]:
         """Predictions by id."""
-        return {run_id: Prediction(self, run) for run_id, run in self.workspace.predictions.items()}
+        return {run_id: StoredPrediction(self, run)
+                for run_id, run in self.workspace.predictions.items()}
 
     def roi(self, name: str | None = None, *, roi_id: str | None = None) -> TrainingROI:
         """Return the ROI called ``name``, or the ROI with ``roi_id``.
@@ -1011,42 +1012,101 @@ class Model:
 
     def predict(self, path: str | os.PathLike[str], *,
                 dark: str | os.PathLike[str] | np.ndarray | None = None,
-                white: str | os.PathLike[str] | np.ndarray | None = None) -> Prediction:
-        """Predict the target for every spectrum of a data file and store the prediction.
+                white: str | os.PathLike[str] | np.ndarray | None = None,
+                checksum: bool = False) -> Prediction:
+        """Predict the target for every spectrum of a data file, in memory.
 
-        The file is registered as with :meth:`Project.add_dataset`, in the
-        model's signal unit; compatibility with the model is checked before
-        anything is read or written.
+        The file and its calibration are resolved as by
+        :meth:`Project.add_dataset`, in the model's signal unit, but nothing
+        is written to the project: a registered file reuses its stored
+        calibration, a new file gets one in memory. Compatibility with the
+        model is checked before the data are read. The prediction is logged
+        once (model, data file with size and modification time, summary);
+        ``checksum=True`` adds the SHA-256 of the data file.
+
+        Returns
+        -------
+        Prediction
+            The prediction map and vector, the DModXPS and T²PS maps with
+            their 0.99 limits and summary, and the provenance.
         """
         project, ws = self.project, self.project.workspace
         domain = ws.signal_domains[self.ref.signal_domain_id]
         recipe_id = ws.sample_sets[self.ref.sample_set_id].preprocessing_recipe_id
         recipe = PreprocessingRecipe.from_dict(ws.recipes[recipe_id])
-        dataset, calibration, new_dataset, new_calibration = project._resolve_dataset(
+        dataset, calibration, _new_dataset, _new_calibration = project._resolve_dataset(
             path, dark=dark, white=white, unit=domain.required_signal_unit)
         common: dict[str, Any] = dict(project_path=project.path, model_run=self.ref, signal_domain=domain,
                       recipe=recipe, dataset=dataset, calibration=calibration,
                       model_registry={})
         preflight_prediction(**common)
-
-        project._write_dataset(dataset, calibration, new_dataset, new_calibration)
         result: PredictionResult = predict_with_model_run(
             **common, data_path=dataset.source_path, preprocessing_recipe_id=recipe_id,
-            persist_artifacts=True, return_arrays=False)
-        project._reload()
-        return Prediction(project, project.workspace.predictions[
-            result.prediction_run.prediction_run_id])
+            checksum=checksum)
+        return Prediction(self, result)
 
 
 class Prediction:
-    """Stored predictions of one model for one dataset."""
+    """A prediction of one model for one data file, held in memory (never stored).
+
+    ``map``/``y_pred`` are the predictions, ``dmodx_map``/``t2_map`` the
+    applicability diagnostics (``None`` for a model fitted before engiNIR 1.3:
+    refit it), ``diagnostics`` the 0.99 limits and the summary, and
+    ``provenance`` the record also written to the log.
+    """
+
+    def __init__(self, model: Model, result: PredictionResult) -> None:
+        self.model = model
+        self.result = result
+
+    def __repr__(self) -> str:
+        return f"Prediction(model={self.model.name!r}, file={self.result.dataset.source_path!r})"
+
+    @property
+    def y_pred(self) -> np.ndarray:
+        """Predictions, one per spectrum in file order."""
+        return _required(self.result.y_pred)
+
+    @property
+    def map(self) -> np.ndarray:
+        """Predictions as an image ``(frames, height)`` (with an output axis for several targets)."""
+        return _required(self.result.spatial_map)
+
+    @property
+    def dmodx_map(self) -> np.ndarray | None:
+        """DModXPS per pixel as an image, or ``None`` without projection data."""
+        return self.result.diagnostic_map(self.result.dmodx)
+
+    @property
+    def t2_map(self) -> np.ndarray | None:
+        """T²PS per pixel as an image, or ``None`` without projection data."""
+        return self.result.diagnostic_map(self.result.t2)
+
+    @property
+    def diagnostics(self) -> dict[str, Any] | None:
+        """Limits (``t2_crit_099``, ``dcrit_099``) and summary over the scan."""
+        return self.result.diagnostics
+
+    @property
+    def provenance(self) -> dict[str, Any]:
+        return self.result.provenance
+
+
+def _required(values: np.ndarray | None) -> np.ndarray:
+    if values is None:
+        log_and_raise("The prediction holds no arrays", depth=2)
+    return values
+
+
+class StoredPrediction:
+    """A prediction persisted by the low-level writers (``enginir.io.project_store``)."""
 
     def __init__(self, project: Project, ref: PredictionRun) -> None:
         self.project = project
         self.ref = ref
 
     def __repr__(self) -> str:
-        return f"Prediction({self.ref.prediction_run_id!r}, dataset={self.dataset.path!r})"
+        return f"StoredPrediction({self.ref.prediction_run_id!r}, dataset={self.dataset.path!r})"
 
     @property
     def model(self) -> Model:

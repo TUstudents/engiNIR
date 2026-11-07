@@ -57,8 +57,7 @@ def test_workflow_fits_predicts_and_reopens_identically(tmp_path):
     assert list(reopened.models) == [model.name]
     assert reopened.model(model.name).metrics == model.metrics
     assert set(reopened.rois) == set(project.rois)
-    np.testing.assert_array_equal(next(iter(reopened.predictions.values())).map,
-                                  prediction.map)
+    assert reopened.predictions == {}, "predictions are never stored by the facade"
 
 
 def test_the_facade_refuses_names_it_creates_itself(tmp_path):

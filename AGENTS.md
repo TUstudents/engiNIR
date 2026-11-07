@@ -59,8 +59,7 @@ Boundaries:
   `import enginir`, stays Qt-free (`tests/test_headless_api.py`).
 - The viewer holds no workflow rule. `ProjectState` mirrors `Project` for the
   widgets and writes only through `Project.save_*`; Explore and Predict use
-  the shared rules above. The only direct writer call in the viewer is the
-  prediction worker storing its job's new dataset and calibration (checked by
+  the shared rules above. The viewer has no direct writer call (checked by
   `test_viewer_writes_projects_only_through_project`).
 - Services take plain callables for progress and cancellation; the viewer
   adapts them to Qt signals in `viewer/_jobs.py`.

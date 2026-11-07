@@ -751,6 +751,10 @@ Resolved for v3:
   (`RoundRobinGroups`, `GroupKFold` or `LeaveOneGroupOut`), the requested
   strategy, the fold and group counts, and the frozen
   grouping/validation/reporting semantics
+- `/predictions/{prediction_run_id}/` is written only by the low-level
+  writers when a script asks for it; the facade and the viewer do not store
+  predictions or register predicted scans as datasets
+  (`prediction-runtime-contract_v3.md`, Result Handling)
 - `fit_spec` persists what was requested: fold rule and fold groups (with
   the group index of every ROI as used), pixel sample (count, seed,
   checksum) and DModX exclusion

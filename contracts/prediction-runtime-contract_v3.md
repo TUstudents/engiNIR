@@ -17,7 +17,8 @@ This contract defines:
 - how prediction is executed in chunks
 - how progress is reported to the viewer
 - which arrays may be held in memory at once
-- how prediction artifacts are written and reopened
+- what a prediction returns, and how the optional low-level prediction
+  artifacts are written and reopened
 - what the interactive prediction map must be able to inspect
 
 ## Relationship To Other Contracts
@@ -44,18 +45,20 @@ Prediction runtime is split into explicit phases:
 
 1. resolve model run and prediction dataset request
 2. inspect dataset metadata and dimensions
-3. resolve or create dataset-local calibration
+3. resolve or create the scan's calibration (in memory; not registered in the
+   project, §Result Handling)
 4. validate signal-domain compatibility
 5. validate preprocessing replay and predictor shape
-6. initialize prediction artifact storage
+6. allocate the result maps (in memory, `float32`, one value per pixel)
 7. load one bounded data chunk
 8. transform chunk into the required signal domain
 9. apply saved preprocessing to the chunk
-10. run model inference for the chunk
-11. write chunk predictions to disk-backed artifact datasets
+10. run model inference for the chunk, and compute the applicability
+    diagnostics (DModXPS, T²PS) from the same preprocessed chunk
+11. write the chunk's values into the result maps; accumulate the summary
 12. update progress
-13. finalize `PredictionRun` metadata
-14. render or refresh a preview/map from persisted artifacts
+13. finalize the result (metadata, limits, summary) and write the log entry
+14. render or refresh the maps from the result
 
 The service may combine adjacent phases internally, but progress/status
 reporting must preserve these semantic boundaries.
@@ -169,7 +172,8 @@ Required behavior:
 - chunk size must be configurable by service defaults and overridable by tests
 - the default image chunk size is 512 frames; callers and tests may override it
 - the prediction service must keep a chunkable source handle and the active
-  artifact writer open across the chunk loop rather than reopening either file
+  result maps (or, for low-level persistence, the artifact writer) open
+  across the chunk loop rather than reopening either file
   for every chunk
 - processing order must preserve the persisted spatial output order
 - chunked output must be numerically equivalent to one-shot output for
@@ -209,9 +213,14 @@ Required behavior:
   - one calibrated/preprocessed working chunk, or an explicitly reused buffer
   - one chunk of model outputs
   - small model/calibration/preprocessing metadata
-- persisted prediction maps and prediction vectors must be disk-backed after
-  save
-- metadata-first project open must not hydrate prediction artifact arrays
+- the result maps are 2-D `float32` arrays held in memory (one value per
+  pixel and layer: prediction, DModXPS, T²PS; each the size of one band of
+  the scan)
+- the applicability diagnostics are computed from the preprocessed chunk in
+  row blocks of at most 4096 spectra, in `float64` (scaled spectra,
+  residuals and scores of one block); no further chunk-sized copy is held
+- prediction maps persisted by the low-level writers (§Result Handling) are
+  disk-backed; metadata-first project open must not hydrate them
 
 Recommended behavior:
 
@@ -264,15 +273,17 @@ Required behavior:
   aggregate
 - non-zero clipping counts must be logged and surfaced in prediction run
   metadata or user-visible run summary
-- explicit prediction calibration requests must be compared by content against
-  existing dataset-local calibrations and reused when the executable content is
-  identical
+- a registered scan reuses its stored calibration read-only; a scan that is
+  not registered gets an in-memory calibration that is never written
+  (§Result Handling); content deduplication applies to calibrations written
+  by low-level persistence
 
 Forbidden behavior:
 
 - silently clipping over-bright or below-dark pixels without telemetry
-- writing duplicate dataset-local `dark_white_reference` calibrations every time
-  the user chooses identical scalar levels or identical reference arrays
+- writing duplicate dataset-local `dark_white_reference` calibrations (low-level
+  persistence) every time the user chooses identical scalar levels or
+  identical reference arrays
 
 ## Progress Event Contract
 
@@ -304,7 +315,8 @@ Required behavior:
   UI thread
 - the first event must be emitted before expensive I/O starts
 - long chunked phases must emit at least one event per chunk
-- the final event must identify the saved prediction run
+- the final event must identify the completed prediction (and, for
+  low-level persistence, the saved prediction run)
 - errors must preserve the last phase in user-visible status
 
 Allowed behavior:
@@ -318,12 +330,83 @@ Forbidden behavior:
 - requiring users to inspect logs to know whether the job is loading,
   predicting, writing, or rendering
 
-## Artifact Persistence Contract
+## Applicability Diagnostics
 
-Prediction artifacts are scientific outputs and must be persisted incrementally
-for scalable runs.
+For model runs that store projection data (`prediction_model`: `x_mean`,
+`x_std`, `rotations`, `loadings`, `score_variances`, `s0`, `n_train`,
+`n_components`; runs of engiNIR 1.3 and later), every predicted pixel also
+gets, from its preprocessed spectrum x (K bands after preprocessing, A
+components, N kept training pixels, i.e. after DModX exclusion):
+
+- the diagnostics always use the saved `prediction_model` and the saved or
+  restored recipe steps; a model fitted in the current session is saved by
+  the fit, and the viewer predicts with the saved model
+  (`prefer_saved_model=True`) so that it gets the maps; an explicit
+  in-memory predictor alone (low-level API) gives no diagnostics
+- `x_mean` is the effective centre in the model's input space (for PCR the
+  PCA mean is folded in: `x_mean_` + `pca_.mean_` · `x_std_`); for PCR
+  `rotations` = `loadings` = the PCA components
+
+- scaled spectrum z = (x − `x_mean`) / `x_std`, scores t = z · `rotations`
+- **T²PS** = Σₐ tₐ² / `score_variances`ₐ
+- **DModXPS** = √(Σₖ eₖ² / (K − A)) / `s0`, e = z − t · `loadings`ᵀ, without the
+  factor v of the training DModX (as SIMCA's DModXPS) and without
+  modelling-power weighting
+- limits from the training data at 0.99: T²Crit = A(N − 1)/(N − A) ·
+  F(0.99; A, N − A) and DCrit (`sample-set-model-run-contract_v3.md` §7.2),
+  stored with the model as `t2_crit_099`, `dcrit_099`
+- summary over the scan: pixels above each limit (count, share), and the
+  mean prediction of the pixels within both limits and of the others
+  (single-output models; the diagnostics are per pixel, not per output)
+- pixels with a non-finite statistic are left out of the counts, shares and
+  means; shares use the finite pixels as denominator
+- `t2_crit_099` is absent when N − A < 1, and `s0`/`dcrit_099` when
+  K − A < 1; a missing limit means no pixel is counted above it.
+  `score_variances` may be NaN (a component without variance), and then
+  T²PS is NaN; with `s0` below `1e-10` DModXPS is not computed (NaN)
+- the arithmetic is `float64` per row block; results are `float32`, and
+  tests compare with an independent `float64` computation at rtol `1e-5`
+
+A run without projection data predicts as before and has no diagnostics
+(the viewer says to refit; the summary has the prediction statistics only). Nothing of the diagnostics depends on the whole
+image, so they are computed in the single chunked pass.
+
+## Result Handling
+
+Predictions are applications of a model to new scans, not calibration
+content: by default nothing of a prediction is written to the project file.
 
 Required behavior:
+
+- `model.predict(...)` and the viewer return an in-memory result
+  (`Prediction`, `enginir._workflow`): the prediction map and vector, the DModXPS and
+  T²PS maps (`dmodx_map`, `t2_map`), the limits and summary
+  (`diagnostics`), and the provenance (model run id and name, data file,
+  calibration settings, clipping counts, time)
+- the predicted scan and its calibration are not registered as a dataset in
+  the project
+- every prediction writes one log entry with its provenance and summary:
+  model run id and name, data file path(s) (for ENVI the data and header
+  files), size and modification time of each, time, the summary values; a
+  SHA-256 of the data file is added only on request (`checksum=True`),
+  because it reads the whole file once more. The same record is on the
+  result (the library logs nothing until `enable_logging()`)
+- results are exported through the plot panels (PNG, SVG, CSV)
+- persisting a prediction is an explicit low-level operation
+  (`enginir.io.project_store` writers, below); neither the facade nor the
+  viewer calls it
+
+Low-level persistence (`/predictions/{prediction_run_id}/`), when a script
+asks for it, keeps the following rules.
+
+Required behavior:
+
+- the caller writes the scan's `DatasetRef` and its `CalibrationSpec` first
+  (dependency order; `project-schema-contract_v3.md` referential
+  integrity), e.g. with `Project.add_dataset`, then calls
+  `predict_with_model_run(..., persist_artifacts=True)`; a run whose
+  dataset or calibration is missing makes the project fail to open
+  (relationship validation)
 
 - initialize artifact datasets before chunk writes
 - write prediction chunks directly to their final HDF5 datasets
@@ -378,8 +461,6 @@ different data. Readers accept files containing both.
 
 Forbidden behavior:
 
-- relying on transient Python-only arrays as the only completed prediction
-  output
 - requiring complete prediction output to return to the UI thread before it can
   be saved
 
@@ -412,8 +493,9 @@ Forbidden behavior:
 
 ## Interactive Map Handoff
 
-Prediction map visualization must be driven by persisted artifact metadata and
-lazy array reads.
+Prediction map visualization is driven by the in-memory result of the
+session (a preview subsampled with the same step rule as before for large
+maps).
 
 Required behavior:
 
@@ -422,6 +504,8 @@ Required behavior:
 - map rendering must include a color scale/legend
 - multi-output predictions must expose an explicit output/target selector before
   display
+- a layer selector shows the prediction, DModXPS or T²PS; on the diagnostics
+  layers the pixels above the 0.99 limit are marked and their share is shown
 - clicking the map must expose at least frame, row, and predicted value
 - map interaction must not require loading unrelated model diagnostics or ROI
   spectra
@@ -456,10 +540,12 @@ Runtime tests must cover:
   fail during preflight before chunk processing
 - `band_mapping_policy` values do not imply interpolation in v3 and wavelength
   metadata differences are not prediction-time hard failures
-- reflectance clipping logs and persists low/high clipped counts
+- reflectance clipping logs low/high clipped counts and reports them in the
+  result (and persists them with low-level persistence)
 - multi-output predictions require explicit output selection and never silently
   display only output `0`
-- duplicate explicit prediction calibrations are reused by content
+- a registered scan reuses its stored active calibration read-only; a new
+  scan gets an in-memory calibration
 - signal-unit comparisons are case-normalized
 - calibration reference alignment can infer spatial shape from
   `DatasetRef.cube_shape` for flattened inputs
@@ -469,6 +555,12 @@ Runtime tests must cover:
   completion phases
 - large prediction artifacts are not hydrated during metadata-first project
   open
+- a prediction by the facade or the viewer leaves the project file without new
+  datasets, calibrations or prediction runs, and writes one log entry
+- DModXPS and T²PS equal their formulas; chunked equals unchunked; an odd
+  pixel exceeds DCrit
+- a model fitted in the same viewer session gets the maps; a run without
+  projection data has no diagnostics layer
 - prediction finalization leaves no completed `PredictionRun` after a chunk
   write failure
 - a prediction run marked `writing` and a run with an unknown
