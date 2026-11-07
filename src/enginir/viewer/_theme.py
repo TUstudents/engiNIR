@@ -27,6 +27,7 @@ __all__ = [
     "panel_colors",
     "print_colors",
     "secondary_text_style",
+    "theme_applied",
 ]
 
 
@@ -98,6 +99,12 @@ def _storage_dir() -> Path:
         fallback.mkdir(parents=True, exist_ok=True)
         logger.debug("Falling back to temporary theme storage {}: {}", fallback, exc)
         return fallback
+
+
+def theme_applied(app: QApplication, *, dark: bool) -> bool:
+    """Whether ``app`` already has the engiNIR theme in this mode."""
+    return (bool(app.property(_THEME_PROPERTY))
+            and bool(app.property(_THEME_MODE_PROPERTY)) == dark)
 
 
 def apply_qt_theme(app: QApplication, *, dark: bool = True) -> QApplication:

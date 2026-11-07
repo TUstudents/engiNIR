@@ -91,8 +91,8 @@ tablets:
 It prints the cross-validated model and the mean prediction of each tablet,
 which follows the true contents 1 to 9::
 
-   Model('PLS 2 LV, SNV', rmsecv=0.642, r2=0.94, bias=0.0944)
-   [1.7 2.6 3.7 4.4 5.4 6.3 7.4 8.4]
+   Model('PLS 2 LV, SNV', rmsecv=0.612, r2=0.945, bias=0.0838)
+   [1.7 2.7 3.7 4.4 5.4 6.3 7.4 8.4]
 
 ``project.fit`` deals the ROIs round-robin to 7 folds (``cv=5`` for five,
 ``cv="logo"`` to leave one ROI out). ``fit_spec`` gives full control and is
@@ -142,6 +142,12 @@ three ROIs each, the options compare with SIMCA's CV-groups dialog like this:
    * - ``group_by="target"``, round-robin
      - whole levels, spread over the range (A C E | B D for 2 folds)
      - no equivalent
+
+New models centre the spectra and scale the reference values to unit
+variance (``x_scaling="center"``, ``y_scaling="uv"``, as usual for spectra
+and in SIMCA). Pass ``x_scaling="uv"`` or ``"pareto"`` to scale the
+spectra as well; models stored before engiNIR 1.2 keep their ``scale``
+setting when refitted.
 
 Reopen the project later with ``Project.open("tablets.h5")``; datasets are
 available by path and ROIs, targets and models by name, e.g.

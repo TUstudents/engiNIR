@@ -897,12 +897,16 @@ class Model:
                            len(changed), changed[:5])
         spec = self.ref.fit_specification
         self._warn_on_group_drift(spec, sample_set)
+        hyperparameters = dict(self.ref.hyperparameters)
+        if self.ref.fit_spec is None and not any(
+                key in hyperparameters for key in ("scale", "x_scaling", "y_scaling")):
+            hyperparameters["scale"] = True  # runs before 1.2: absent means True (§7.3)
         result = fit_model_run(
             project_path=project.path, sample_set=sample_set, datasets=ws.datasets,
             calibrations=ws.calibrations, rois=ws.rois,
             target_assignments=ws.target_assignments, recipes=ws.recipes,
             signal_domains=ws.signal_domains, signal_domain_id=self.ref.signal_domain_id,
-            model_type=self.ref.model_type, hyperparameters=dict(self.ref.hyperparameters),
+            model_type=self.ref.model_type, hyperparameters=hyperparameters,
             fit_spec=spec, target_name=self.target.name)
         drawn = result.model_run.fit_specification.checksum
         if spec.checksum and drawn != spec.checksum:

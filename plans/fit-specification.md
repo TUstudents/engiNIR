@@ -1,6 +1,6 @@
 # Plan: fit specification
 
-Status: Phases 0–3, R and S done (2026-11-07); Phases 4–7 open
+Status: Phases 0–4, R and S done (2026-11-07); Phases 5–7 open
 
 ## Goal
 
@@ -261,10 +261,11 @@ Tests: same seed gives the same pixels and metrics; adding an ROI leaves
 the others' pixels unchanged; a changed checksum is reported on refit;
 memory stays float32 without extra full copies.
 
-### Phase 4: scaling of X and Y
+### Phase 4: scaling of X and Y (done 2026-11-07)
 `PLSRegression` and `PCR` take `x_scaling` and `y_scaling` (centring and
 scaling done by engiNIR, scikit-learn called with `scale=False`; variances
-with N − 1). Tests: `uv`/`uv` equals today's results; `center` X gives
+with N − 1). `none` dropped from the contract: scikit-learn always
+centres. Legacy runs without `scale` refit with `scale=True`. Tests: `uv`/`uv` equals today's results; `center` X gives
 the textbook PLS1 on centred data; coefficients in original units agree
 across scalings.
 

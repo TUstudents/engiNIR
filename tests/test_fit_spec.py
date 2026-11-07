@@ -118,13 +118,14 @@ def test_a_legacy_run_refits_with_group_kfold(tmp_path, requested):
     """§7.3: a run without fit_spec keeps GroupKFold; round-robin would give other folds."""
     project = _uneven_project(tmp_path)
     n_folds = 7 if requested == "auto" else requested
-    legacy = project.fit("API", n_components=2, name="legacy",
+    legacy = project.fit("API", n_components=2, name="legacy", scale=True,
                          fit_spec={"folds": {"rule": "group_kfold", "n_folds": n_folds}})
-    round_robin = project.fit("API", n_components=2, cv=n_folds)
+    round_robin = project.fit("API", n_components=2, cv=n_folds, scale=True)
     assert legacy.metrics["rmsecv"] != pytest.approx(round_robin.metrics["rmsecv"], rel=1e-6)
     with h5py.File(project.path, "a") as f:  # what a run written before 1.2 looks like
         group = f[f"/model_runs/{legacy.ref.model_run_id}"]
         del group["fit_spec"]
+        del group["hyperparameters"].attrs["scale"]  # absent means True (§7.3)
         group["cv_spec"].attrs["requested"] = requested
     old = Project.open(project.path).model(model_run_id=legacy.ref.model_run_id)
     assert old.ref.fit_spec is None
@@ -243,3 +244,22 @@ def test_a_refit_reports_a_different_pixel_sample(tmp_path):
     changed = Project.open(project.path).model(model_run_id=model.ref.model_run_id)
     _refitted, warnings = _warnings_during(changed.refit)
     assert any("different pixel sample" in w for w in warnings)
+
+
+# -- scaling of X and Y ------------------------------------------------------------------
+
+
+def test_new_runs_store_centred_x_and_uv_y_unless_a_scaling_is_given(tmp_path):
+    """§7: defaults x_scaling center, y_scaling uv (PCR: x only); an explicit choice is kept."""
+    project = _uneven_project(tmp_path)
+    assert project.fit("API", n_components=2).ref.hyperparameters == {
+        "n_components": 2, "x_scaling": "center", "y_scaling": "uv"}
+    assert project.fit("API", model="PCR", n_components=2).ref.hyperparameters == {
+        "n_components": 2, "x_scaling": "center"}
+    assert project.fit("API", n_components=2, x_scaling="pareto").ref.hyperparameters == {
+        "n_components": 2, "x_scaling": "pareto"}
+    autoscaled = project.fit("API", n_components=2, scale=True)
+    assert autoscaled.ref.hyperparameters == {"n_components": 2, "scale": True}
+    reopened = Project.open(project.path).model(model_run_id=autoscaled.ref.model_run_id)
+    assert reopened.refit().metrics["rmsecv"] == pytest.approx(autoscaled.metrics["rmsecv"],
+                                                               rel=1e-9)

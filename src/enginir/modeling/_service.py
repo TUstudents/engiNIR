@@ -390,7 +390,7 @@ def fit_model_run(
                                      signal_domain)
 
     recipe = PreprocessingRecipe.from_dict(recipes[sample_set.preprocessing_recipe_id])
-    hyperparameters = dict(hyperparameters or {})
+    hyperparameters = _with_default_scaling(model_type, dict(hyperparameters or {}))
     # Stateless recipes are applied once; MSC/EMSC must be fitted inside each fold.
     if recipe.requires_fitting:
         cv_estimator: Any = make_model_pipeline(recipe=recipe, wavelengths=data.wavelengths,
@@ -522,6 +522,21 @@ def _check_fit_spec_feasible(spec: FitSpec, sample_set: SampleSet,
             log_and_raise("Cannot draw {} pixels per ROI: ROI '{}' has only {}; choose at most {}",
                           spec.pixels_per_roi, smallest.name, smallest.n_pixels,
                           smallest.n_pixels)
+
+
+def _with_default_scaling(model_type: str, hyperparameters: dict[str, Any]) -> dict[str, Any]:
+    """Add the scaling defaults of new runs (contract §7) unless a scaling is given.
+
+    Centred X, and for PLS unit-variance Y, the usual setting for spectra.
+    Hyperparameters with ``scale`` (runs before engiNIR 1.2, refitted) are
+    left as they are.
+    """
+    keys = ("scale", "x_scaling", "y_scaling") if model_type == "PLS" else ("scale", "x_scaling")
+    if any(key in hyperparameters for key in keys):
+        return hyperparameters
+    defaults = {"x_scaling": "center", "y_scaling": "uv"} if model_type == "PLS" \
+        else {"x_scaling": "center"}
+    return {**hyperparameters, **defaults}
 
 
 def fold_groups(group_by: str, sample_set: SampleSet, rois: dict[str, TrainingROI],

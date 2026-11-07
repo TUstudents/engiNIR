@@ -12,6 +12,9 @@
   same number of pixels from every ROI, so every ROI has the same weight.
   The draw depends only on the seed and each ROI's spectra (not on ids,
   order or the NumPy version); a refit reports a different sample.
+- X and Y scaling: `PLSRegression(x_scaling=..., y_scaling=...)` and
+  `PCR(x_scaling=...)` take `"center"`, `"uv"` or `"pareto"` (standard
+  deviation with N - 1).
 - `enginir.validation.RoundRobinGroups`: grouped folds dealt round-robin, the
   i-th group in fold i mod k (SIMCA's "every Nth" rule for groups).
 - Sample groups: ROIs can carry a sample label (`project.set_sample(roi,
@@ -29,6 +32,12 @@
   before on the same data; stored models keep their folds when refitted.
 - An integer `cv` larger than the number of ROIs now leaves one ROI out
   instead of being refused; the viewer needs only 2 ROIs.
+- New models centre the spectra and scale the reference values to unit
+  variance (`x_scaling="center"`, `y_scaling="uv"`, the usual setting for
+  spectra) instead of autoscaling the spectra. Their metrics differ from
+  models fitted before on the same data; stored models keep their `scale`
+  when refitted. `PLSRegression()` and `PCR()` used directly keep their
+  defaults (`scale=True`).
 - The fold rule `leave_one_roi_out` of the (unreleased) fit specification is
   now `leave_one_group_out`; with the default grouping it still leaves one
   ROI out. `cv_spec/n_groups` counts fold groups (the ROIs, by default).

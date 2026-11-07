@@ -392,8 +392,8 @@ state is stored.
 Scaling of X and Y (engiNIR 1.2 and later):
 
 ```text
-@x_scaling               none | center | uv | pareto   (default center)
-@y_scaling               none | center | uv | pareto   (PLS only, default uv)
+@x_scaling               center | uv | pareto   (default center)
+@y_scaling               center | uv | pareto   (PLS only, default uv)
 ```
 
 Runs before engiNIR 1.2 store `@scale` (boolean, absent means `true`)

@@ -396,10 +396,16 @@ run whose `groups` breaks this is refused when it is read, and a refit
 never uses such groups.
 
 Scaling of X and Y is a model setting, not part of `fit_spec`: it is stored
-in `hyperparameters` as `x_scaling` and `y_scaling` (each `none`, `center`,
-`uv` or `pareto`; defaults for new runs: `x_scaling = center`,
-`y_scaling = uv`, the usual setting for spectra), so the estimator stays
-reconstructable as `Backend(**hyperparameters)`. PCR has `x_scaling` only.
+in `hyperparameters` as `x_scaling` and `y_scaling` (each `center`, `uv`
+or `pareto`; defaults for new runs: `x_scaling = center`, `y_scaling = uv`,
+the usual setting for spectra), so the estimator stays reconstructable as
+`Backend(**hyperparameters)`. PCR has `x_scaling` only. Every scaling
+centres: scikit-learn's PLS and PCA always centre, and uncentred models are
+not used for spectra, so SIMCA's `none` is not offered (decided 2026-11-07;
+it was listed in Phase 0). `uv` divides by the standard deviation with
+N − 1, `pareto` by its square root. A fit that gives neither `scale` nor a
+scaling gets the defaults; a fit that gives `scale` (the form of runs before
+engiNIR 1.2) keeps it.
 Centring and scaling are learnt from the training pixels of each fold, like
 every other fitted step; standard deviations use N − 1.
 
