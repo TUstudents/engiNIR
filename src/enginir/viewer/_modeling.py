@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFormLayout,
     QGridLayout,
     QGroupBox,
@@ -276,11 +277,13 @@ class FitModelRunDialog(QDialog):
         recipe: PreprocessingRecipe,
         default_signal_unit: str,
         readiness: Callable[[str], tuple[str, bool]],
+        smallest_roi: Callable[[str], int | None] = lambda _target_id: None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Fit model")
         self._readiness = readiness
+        self._smallest_roi = smallest_roi
         layout = QFormLayout(self)
 
         self._target_combo = QComboBox()
@@ -363,6 +366,7 @@ class FitModelRunDialog(QDialog):
             "several ROIs come from one physical sample (set it in the ROI table), so that "
             "no sample is on both sides of a fold.")
         layout.addRow("Hold out together:", self._group_by_combo)
+        layout.addRow(self._fitting_group())
 
         self._readiness_label = QLabel("")
         self._readiness_label.setWordWrap(True)
@@ -375,6 +379,89 @@ class FitModelRunDialog(QDialog):
         self._buttons.rejected.connect(self.reject)
         layout.addRow(self._buttons)
         self._update_readiness()
+
+    def _fitting_group(self) -> QGroupBox:
+        """Pixel sample, scaling and DModX exclusion (sample-set-model-run contract §7)."""
+        group = QGroupBox("Fitting")
+        form = QFormLayout(group)
+
+        self._draw_check = QCheckBox("Same number from every ROI")
+        self._draw_check.setToolTip("Draw this many pixels from each ROI, so every ROI has "
+                                    "the same weight; at most the smallest ROI's pixel count.")
+        self._pixels_spin = QSpinBox()
+        self._pixels_spin.setRange(1, 1_000_000)
+        self._pixels_spin.setValue(50)
+        self._seed_spin = QSpinBox()
+        self._seed_spin.setRange(0, 2**31 - 1)
+        self._smallest_label = QLabel("")
+        self._smallest_label.setStyleSheet(secondary_text_style())
+        pixels_row = QHBoxLayout()
+        for widget in (self._draw_check, self._pixels_spin, QLabel("seed"), self._seed_spin,
+                       self._smallest_label):
+            pixels_row.addWidget(widget)
+        form.addRow("Pixels per ROI:", pixels_row)
+
+        self._x_scaling_combo = QComboBox()
+        self._y_scaling_combo = QComboBox()
+        for combo in (self._x_scaling_combo, self._y_scaling_combo):
+            for label, value in (("Centre", "center"), ("Unit variance", "uv"),
+                                 ("Pareto", "pareto")):
+                combo.addItem(label, value)
+        self._y_scaling_combo.setCurrentIndex(self._y_scaling_combo.findData("uv"))
+        scaling_row = QHBoxLayout()
+        for widget in (QLabel("X"), self._x_scaling_combo, QLabel("Y"), self._y_scaling_combo):
+            scaling_row.addWidget(widget)
+        scaling_row.addStretch(1)
+        form.addRow("Scaling:", scaling_row)
+
+        self._exclude_check = QCheckBox("Exclude outlying pixels by DModX")
+        self._exclude_check.setToolTip(
+            "Leave out pixels above the critical distance to the model, inside every "
+            "validation fold from its training pixels only; held-out pixels are never "
+            "excluded and ROIs are never left out.")
+        self._level_spin = QDoubleSpinBox()
+        self._level_spin.setRange(0.9, 0.999)
+        self._level_spin.setDecimals(3)
+        self._level_spin.setSingleStep(0.005)
+        self._level_spin.setValue(0.99)
+        self._rounds_spin = QSpinBox()
+        self._rounds_spin.setRange(1, 2)
+        self._share_spin = QSpinBox()
+        self._share_spin.setRange(1, 50)
+        self._share_spin.setValue(20)
+        self._share_spin.setSuffix(" %")
+        self._formula_combo = QComboBox()
+        self._formula_combo.addItem("Unweighted", "dmodx-1")
+        self._formula_combo.addItem("Weighted by modelling power (SIMCA)", "dmodx-2")
+        form.addRow("", self._exclude_check)
+        exclusion_row = QHBoxLayout()
+        for widget in (QLabel("level"), self._level_spin, QLabel("rounds"), self._rounds_spin,
+                       QLabel("at most"), self._share_spin, QLabel("per ROI")):
+            exclusion_row.addWidget(widget)
+        form.addRow("DModX:", exclusion_row)
+        form.addRow("", self._formula_combo)
+
+        for signal in (self._draw_check.toggled, self._exclude_check.toggled,
+                       self._model_type_combo.currentIndexChanged,
+                       self._target_combo.currentIndexChanged):
+            signal.connect(self._update_fitting)
+        self._update_fitting()
+        return group
+
+    def _update_fitting(self, *_args: Any) -> None:
+        target_id = self._target_combo.currentData()
+        smallest = None if target_id is None else self._smallest_roi(str(target_id))
+        if smallest is not None:
+            self._pixels_spin.setMaximum(max(1, smallest))
+            self._smallest_label.setText(f"(smallest ROI: {smallest})")
+        else:
+            self._smallest_label.setText("")
+        for widget in (self._pixels_spin, self._seed_spin):
+            widget.setEnabled(self._draw_check.isChecked())
+        self._y_scaling_combo.setEnabled(self._model_type_combo.currentText() == "PLS")
+        for widget in (self._level_spin, self._rounds_spin, self._share_spin,
+                       self._formula_combo):
+            widget.setEnabled(self._exclude_check.isChecked())
 
     def _update_enabled(self, *_args: Any) -> None:
         smoothing = self._filter_combo.currentData() != "none"
@@ -451,6 +538,34 @@ class FitModelRunDialog(QDialog):
     def group_by(self) -> str:
         """Return which ROIs are held out together: ``"roi"``, ``"sample"`` or ``"target"``."""
         return str(self._group_by_combo.currentData())
+
+    @property
+    def hyperparameters(self) -> dict[str, Any]:
+        """Components and the X (and, for PLS, Y) scaling of the model."""
+        values: dict[str, Any] = {"n_components": self.n_components,
+                                  "x_scaling": str(self._x_scaling_combo.currentData())}
+        if self.model_type == "PLS":
+            values["y_scaling"] = str(self._y_scaling_combo.currentData())
+        return values
+
+    @property
+    def fit_spec(self) -> FitSpec | None:
+        """The fit specification of the choices, or ``None`` for the defaults (then ``cv``)."""
+        draw = self._draw_check.isChecked()
+        exclude = self._exclude_check.isChecked()
+        if self.group_by == "roi" and not draw and not exclude:
+            return None
+        return replace(
+            FitSpec.from_cv(self.cv),
+            group_by=self.group_by,
+            pixels_per_roi=self._pixels_spin.value() if draw else None,
+            seed=self._seed_spin.value() if draw else 0,
+            exclusion="dmodx" if exclude else "none",
+            exclusion_level=round(self._level_spin.value(), 3),
+            exclusion_rounds=self._rounds_spin.value(),
+            exclusion_max_fraction=self._share_spin.value() / 100.0,
+            exclusion_formula=str(self._formula_combo.currentData()),
+        )
 
 
 class ModelingView(QWidget):
@@ -657,6 +772,7 @@ class ModelingView(QWidget):
             recipe=self.state.recipe,
             default_signal_unit=self.state.y_unit,
             readiness=self.fit_readiness,
+            smallest_roi=self._smallest_labelled_roi,
             parent=self,
         )
         if dlg.exec() != QDialog.DialogCode.Accepted:
@@ -693,14 +809,11 @@ class ModelingView(QWidget):
 
         from ..modeling import fit_model_run as fit_project_model_run
 
-        # Fold groups other than single ROIs go into the fit specification,
-        # which then also carries the fold rule (cv and a fit_spec that sets
-        # the folds are not combined).
-        cv: int | str | None = dlg.cv
-        fit_spec: FitSpec | None = None
-        if dlg.group_by != "roi":
-            fit_spec = replace(FitSpec.from_cv(dlg.cv), group_by=dlg.group_by)
-            cv = None
+        # A fit specification, when the choices need one, also carries the
+        # fold rule (cv and a fit_spec that sets the folds are not combined).
+        fit_spec = dlg.fit_spec
+        cv: int | str | None = dlg.cv if fit_spec is None else None
+        hyperparameters = dlg.hyperparameters
 
         def job():
             return fit_project_model_run(
@@ -714,7 +827,7 @@ class ModelingView(QWidget):
                 signal_domains=resolved_signal_domains,
                 signal_domain_id=signal_domain.signal_domain_id,
                 model_type=dlg.model_type,
-                hyperparameters={"n_components": dlg.n_components},
+                hyperparameters=hyperparameters,
                 cv=cv,
                 fit_spec=fit_spec,
                 target_name=target_name,
@@ -734,6 +847,13 @@ class ModelingView(QWidget):
             on_error=lambda msg: self._on_job_error("Fit model failed", msg),
             on_finished=self._clear_job,
         )
+
+    def _smallest_labelled_roi(self, target_id: str) -> int | None:
+        """Pixel count of the smallest ROI with a value for ``target_id`` (the draw limit)."""
+        state = self.project_state
+        counts = [roi.n_pixels for roi in state.rois.values()
+                  if (roi.roi_id, target_id) in state.target_assignments]
+        return min(counts) if counts else None
 
     def fit_readiness(self, target_id: str) -> tuple[str, bool]:
         """What a fit of ``target_id`` would use, per data file; and whether it can run."""

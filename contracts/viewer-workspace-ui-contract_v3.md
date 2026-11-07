@@ -385,8 +385,15 @@ Required controls:
 - fit model: one dialog with target, signal unit, preprocessing, model,
   components, cross-validation and which ROIs are held out together (each
   ROI, same sample label, same target value;
-  `sample-set-model-run-contract_v3.md` §4.1); it builds or reuses the
-  sample set of all ROIs with a value for the target, from all data files
+  `sample-set-model-run-contract_v3.md` §4.1), and a Fitting group: pixels
+  per ROI with seed (at most the smallest ROI with a value), X and Y scaling
+  (Y for PLS only), and DModX pixel exclusion with level, rounds, the
+  largest share per ROI and unweighted or modelling-power weighted
+  residuals (§7); it builds or reuses the sample set of all ROIs with a value
+  for the target, from all data files
+- the inspector shows how a model run was fitted: folds and fold groups,
+  pixel sample, scaling, exclusion settings, excluded pixels per ROI,
+  flagged ROIs and DCrit
 
 Required browser emphasis:
 

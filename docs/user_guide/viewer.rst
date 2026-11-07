@@ -224,7 +224,13 @@ the signal unit, the preprocessing (it starts from the Explore preview, but
 what the dialog shows is what the model is trained with), PLS or PCR, the
 number of components, the validation and which ROIs are held out together
 (**Hold out together**: each ROI, ROIs with the same **Sample** label, or
-ROIs with the same target value). Below, the dialog counts per data
+ROIs with the same target value). The **Fitting** group sets how the
+model is fitted: the same number of pixels from every ROI (at most the
+smallest ROI, with a seed so the draw repeats), the scaling of X and Y, and
+leaving out outlying pixels by DModX (level, one or two rounds, at most a
+share of every ROI, unweighted or weighted as in SIMCA). The Project
+browser's inspector shows these settings for a stored model, with the
+excluded pixels per ROI and the flagged ROIs. Below, the dialog counts per data
 file how many ROIs have a value for the target and says why a fit cannot run
 yet; **OK** is enabled only when it can. The model uses all ROIs with a
 value, from all data files. Fitting again with the same target, ROIs and

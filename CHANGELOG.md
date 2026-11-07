@@ -32,6 +32,9 @@
   sample out together; `"target"` groups ROIs with the same reference value.
   The fit stores the groups it used, so a refit repeats its folds and warns
   when labels changed. The viewer's fit dialog has **Hold out together**.
+- The viewer's fit dialog has a **Fitting** group (pixels per ROI and seed,
+  X and Y scaling, DModX exclusion), and the inspector shows how a model was
+  fitted, with its excluded pixels and flagged ROIs.
 
 ### Changed
 

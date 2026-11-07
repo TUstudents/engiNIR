@@ -263,6 +263,8 @@ def test_a_fit_stores_its_sample_set_and_a_refit_reuses_it(qapp, state_and_proje
     assert sample_set.roi_ids == ["roi_1", "roi_2"] and sample_set.target_id == "target_1"
     assert sample_set.preprocessing_recipe_id == recipe_id_for(state.recipe)
     assert captured[0]["cv"] == "auto" and captured[0]["fit_spec"] is None
+    assert captured[0]["hyperparameters"] == {"n_components": 6, "x_scaling": "center",
+                                              "y_scaling": "uv"}
     assert view._service_status.label.text() == "Service: model model_1"
 
     _wait_until(qapp, lambda: view._job_thread is None)
@@ -309,6 +311,71 @@ def test_holding_out_samples_together_reaches_the_fit_as_its_fold_groups(
     spec = captured[0]["fit_spec"]
     assert captured[0]["cv"] is None
     assert (spec.group_by, spec.fold_rule) == ("sample", "leave_one_group_out")
+
+
+def test_the_fitting_section_becomes_the_fit_specification(qapp, state_and_project):
+    """Pixels per ROI (at most the smallest ROI), scaling and DModX exclusion (contract §7)."""
+    from enginir.viewer._modeling import FitModelRunDialog, ModelingView
+
+    state, project = state_and_project
+    _labelled_rois(state, project)
+    view = ModelingView(state, project)
+    dialog = FitModelRunDialog([("target_1", "moisture")], default_target_id="target_1",
+                               recipe=state.recipe, default_signal_unit="Reflectance",
+                               readiness=view.fit_readiness,
+                               smallest_roi=view._smallest_labelled_roi)
+    assert dialog.fit_spec is None, "the defaults need no fit specification"
+    assert dialog.hyperparameters == {"n_components": 6, "x_scaling": "center",
+                                      "y_scaling": "uv"}
+    smallest = min(roi.n_pixels for roi in project.rois.values())
+    assert dialog._pixels_spin.maximum() == smallest
+
+    dialog._draw_check.setChecked(True)
+    dialog._pixels_spin.setValue(smallest)
+    dialog._seed_spin.setValue(3)
+    dialog._exclude_check.setChecked(True)
+    dialog._rounds_spin.setValue(2)
+    dialog._share_spin.setValue(10)
+    dialog._formula_combo.setCurrentIndex(dialog._formula_combo.findData("dmodx-2"))
+    dialog._x_scaling_combo.setCurrentIndex(dialog._x_scaling_combo.findData("pareto"))
+    dialog._cv_combo.setCurrentIndex(dialog._cv_combo.findData("logo"))
+    spec = dialog.fit_spec
+    assert (spec.pixels_per_roi, spec.seed, spec.fold_rule) == (smallest, 3,
+                                                                 "leave_one_group_out")
+    assert (spec.exclusion, spec.exclusion_rounds, spec.exclusion_max_fraction,
+            spec.exclusion_formula, spec.exclusion_level) == ("dmodx", 2, 0.1, "dmodx-2", 0.99)
+    assert dialog.hyperparameters["x_scaling"] == "pareto"
+
+    dialog._model_type_combo.setCurrentText("PCR")
+    assert "y_scaling" not in dialog.hyperparameters
+    assert not dialog._y_scaling_combo.isEnabled()
+
+
+def test_the_inspector_summarises_how_a_run_was_fitted(tmp_path):
+    from enginir.io.project_store import load_model_run_artifact_refs
+    from enginir.viewer._inspector import fit_summary
+    from tests.test_exclusion import _project_with_an_odd_pixel
+
+    project = _project_with_an_odd_pixel(tmp_path)
+    model = project.fit("API", n_components=2, fit_spec={
+        "pixels": {"per_roi": 10, "seed": 3},
+        "exclusion": {"method": "dmodx", "formula": "dmodx-2", "level": 0.51,
+                      "max_fraction": 0.1}})
+    exclusion = load_model_run_artifact_refs(project.path, model.ref.model_run_id,
+                                             keys=("exclusion",))["exclusion"]
+    names = {roi_id: roi.name for roi_id, roi in project.workspace.rois.items()}
+    lines = fit_summary(model.ref, names, exclusion)
+    assert lines[0] == "Folds: round-robin, 7 folds; held out together: each ROI"
+    assert lines[1] == "Pixels: 10 per ROI (seed 3)"
+    assert lines[2] == "Scaling: X centre, Y unit variance"
+    assert lines[3].startswith("Pixel exclusion: DModX (weighted), level 0.51, 1 round(s), "
+                               "at most 10% per ROI;")
+    excluded = model.excluded_pixels
+    assert lines[4] == "Excluded per ROI: " + ", ".join(
+        f"{names[r]} {len(v)}" for r, v in excluded.items())
+    assert any(line.startswith("Flagged ROIs") for line in lines)
+    assert fit_summary(project.fit("API", n_components=2).ref, names)[3] \
+        == "Pixel exclusion: none"
 
 
 def test_a_failed_fit_stores_nothing(qapp, state_and_project, monkeypatch):

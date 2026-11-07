@@ -94,7 +94,13 @@ Modeling view
    :members: target_name, target_unit, selected_target_id, creates_target
 
 .. autoclass:: enginir.viewer._modeling.FitModelRunDialog
-   :members: target_id, recipe, set_recipe, model_type, n_components, signal_unit, cv
+   :members: target_id, recipe, set_recipe, model_type, n_components, signal_unit, cv,
+      group_by, hyperparameters, fit_spec
+
+Inspector
+---------
+
+.. autofunction:: enginir.viewer._inspector.fit_summary
 
 Prediction view
 ---------------

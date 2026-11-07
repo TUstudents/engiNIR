@@ -1,6 +1,6 @@
 # Plan: fit specification
 
-Status: Phases 0–5, R and S done (2026-11-07); Phases 6–7 open
+Status: Phases 0–6, R and S done (2026-11-07); Phase 7 open
 
 ## Goal
 
@@ -378,7 +378,7 @@ sides of a fold (fault injection: `group_by` ignored must fail);
 refit reproduces metrics with changed labels and warns; old project files
 without labels open unchanged.
 
-### Phase 6: viewer
+### Phase 6: viewer (done 2026-11-07)
 The fit dialog gets a "Fitting" section: folds, pixels per ROI (spin box,
 maximum = smallest ROI of the plan), seed, X and Y scaling, pixel
 exclusion. Diagnostics show the specification of a run and the excluded

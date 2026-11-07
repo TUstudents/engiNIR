@@ -20,11 +20,11 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_recent.py` | MRU file list (`~/.config/enginir/recent.json`) |
 | `_eda.py` | `EDAView` — signal, preprocessing, project, and ROI controls |
 | `_attachment.py` | Project/dataset binding validation |
-| `_modeling.py` | `ModelingView` — target, target values (ROI table) and the fit dialog |
+| `_modeling.py` | `ModelingView` — target, target values (ROI table) and the fit dialog (with its Fitting group: pixel sample, scaling, DModX exclusion → `FitSpec` and hyperparameters) |
 | `_model_diagnostics.py` | Model workspace diagnostics surface |
 | `_prediction.py` | `PredictionView` and `PredictionMapWidget` |
 | `_browser.py` | Read-only workspace object tree |
-| `_inspector.py` | Selection-driven metadata display |
+| `_inspector.py` | Selection-driven metadata display; `fit_summary` describes how a model run was fitted (reads the stored exclusion arrays on demand) |
 | `_jobs.py` | `BackgroundWorker`, `_CallbackRelay`, `start_background_job`, `BusyStatusWidget` |
 | `_loading.py` | Shared wait-cursor/status/progress helpers for startup and open flows |
 | `_data_helpers.py` | Dataset-shape and spectral array helpers shared by viewer workflows |
@@ -55,7 +55,7 @@ _eda      → _state, _modeling (NewROIDialog), _attachment, _loading, io
 _modeling → _state, _jobs, io.project_store, modeling, prediction, project
 _prediction → _state, _jobs, io, prediction, project
 _browser  → _state
-_inspector → _state
+_inspector → _state, io.project_store, project
 _panels   → _state
 _canvas   → (no viewer imports — standalone pyqtgraph widget)
 _jobs     → (no viewer imports — standalone Qt threading)
