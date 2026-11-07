@@ -9,6 +9,7 @@ on:
 jobs:
   gates:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30  # a hang must not wait for GitHub's 6-hour limit
     strategy:
       fail-fast: false
       matrix:
@@ -28,7 +29,9 @@ jobs:
             libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3
       - run: uv sync --all-extras
       - name: Tests
-        run: uv run pytest -q
+        # A hang outside a test (e.g. at shutdown) is not covered by the per-test
+        # timeout: after 15 minutes, abort with faulthandler's stack of every thread.
+        run: timeout -s ABRT 900 uv run python -X faulthandler -m pytest -q
       - name: Lint
         run: uv run ruff check src/enginir tests docs/examples
       - name: Types
