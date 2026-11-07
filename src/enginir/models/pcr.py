@@ -10,10 +10,16 @@ from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.utils.validation import check_is_fitted
 
-from enginir._checks import as_float_matrix, check_n_features
+from enginir._checks import as_float_matrix, check_n_features, log_and_raise
 from enginir._logging import get_logger
 
-from ._common import as_target_array, check_n_components, max_components
+from ._common import (
+    as_target_array,
+    check_n_components,
+    check_scaling,
+    max_components,
+    scaling_statistics,
+)
 
 logger = get_logger(__name__)
 
@@ -33,9 +39,15 @@ class PCR(RegressorMixin, EnginirEstimator):
         X), or ``None`` to keep that maximum.
         Default ``10``.
     scale:
-        If ``True`` (default), every wavelength is scaled to unit variance
-        before PCA (constant wavelengths are left unscaled); if ``False`` the
-        spectra are only mean-centred.
+        Used when ``x_scaling`` is ``None`` (models stored before engiNIR
+        1.2): ``True`` (default) scales every wavelength to unit variance with
+        scikit-learn's ``StandardScaler`` (standard deviation with N;
+        constant wavelengths are left unscaled), ``False`` only centres.
+    x_scaling:
+        Scaling of the spectra: ``"center"``, ``"uv"`` (standard deviation
+        with N - 1) or ``"pareto"`` (its square root); ``None`` (default)
+        follows ``scale``. Model runs use ``"center"``
+        (sample-set-model-run contract §7).
 
     Attributes
     ----------
@@ -45,7 +57,10 @@ class PCR(RegressorMixin, EnginirEstimator):
     intercept_ : float or numpy.ndarray, shape (n_targets,)
         Intercept in raw data units (a float for a single target).
     scaler_ : sklearn.preprocessing.StandardScaler or None
-        Fitted scaler, ``None`` when ``scale=False``.
+        Fitted scaler of ``scale=True`` without ``x_scaling``, else ``None``.
+    x_mean_, x_std_ : numpy.ndarray, shape (n_wavelengths,)
+        Centring and divisor applied before the PCA. For centring only both
+        are neutral (zeros and ones): the PCA centres the spectra itself.
     pca_ : sklearn.decomposition.PCA
         Fitted PCA of the (scaled) spectra.
     reg_ : sklearn.linear_model.LinearRegression
@@ -70,9 +85,11 @@ class PCR(RegressorMixin, EnginirEstimator):
     True
     """
 
-    def __init__(self, n_components: int | None = 10, scale: bool = True) -> None:
+    def __init__(self, n_components: int | None = 10, scale: bool = True,
+                 x_scaling: str | None = None) -> None:
         self.n_components = n_components
         self.scale = scale
+        self.x_scaling = x_scaling
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> PCR:
         """Fit the PCA and the score regression.
@@ -99,8 +116,23 @@ class PCR(RegressorMixin, EnginirEstimator):
             else check_n_components(self.n_components, "n_components", maximum=maximum)
         )
 
-        self.scaler_ = StandardScaler().fit(X) if self.scale else None
-        X_scaled = X if self.scaler_ is None else self.scaler_.transform(X)
+        if self.x_scaling is not None and not self.scale:
+            log_and_raise("Give either scale=False or x_scaling, not both")
+        if self.x_scaling is None:  # models stored before engiNIR 1.2
+            self.scaler_ = StandardScaler().fit(X) if self.scale else None
+            if self.scaler_ is None:
+                self.x_mean_, self.x_std_ = np.zeros(X.shape[1]), np.ones(X.shape[1])
+            else:
+                self.x_mean_ = np.asarray(self.scaler_.mean_, dtype=np.float64)
+                self.x_std_ = np.asarray(self.scaler_.scale_, dtype=np.float64)
+        elif check_scaling(self.x_scaling, "x_scaling") == "center":
+            self.scaler_ = None
+            self.x_mean_, self.x_std_ = np.zeros(X.shape[1]), np.ones(X.shape[1])
+        else:
+            self.scaler_ = None
+            self.x_mean_, self.x_std_ = scaling_statistics(X, self.x_scaling)
+        self.x_scaling_ = self.x_scaling or ("uv" if self.scale else "center")
+        X_scaled = self._scaled(X)
         self.pca_ = PCA(n_components=n_components).fit(X_scaled)
         self.scores_ = self.pca_.transform(X_scaled)
         self.reg_ = LinearRegression().fit(self.scores_, y)
@@ -111,10 +143,8 @@ class PCR(RegressorMixin, EnginirEstimator):
         # map y = X @ coef_ + intercept_.
         coef = self.loadings_ @ np.atleast_2d(self.reg_.coef_).T  # (n_wavelengths, n_targets)
         offset = np.asarray(self.pca_.mean_)
-        if self.scaler_ is not None:
-            scale = np.asarray(self.scaler_.scale_)
-            coef = coef / scale[:, np.newaxis]
-            offset = np.asarray(self.scaler_.mean_) + offset * scale
+        coef = coef / self.x_std_[:, np.newaxis]
+        offset = self.x_mean_ + offset * self.x_std_
         intercept = np.atleast_1d(self.reg_.intercept_) - offset @ coef
         single_target = y.ndim == 1
         self.coef_ = coef[:, 0] if single_target else coef
@@ -157,8 +187,17 @@ class PCR(RegressorMixin, EnginirEstimator):
         check_is_fitted(self, "coef_")
         X = as_float_matrix(X, "X")
         check_n_features(X, self.n_features_in_, "PCR")
-        X_scaled = X if self.scaler_ is None else self.scaler_.transform(X)
-        return self.pca_.transform(X_scaled)
+        return self.pca_.transform(self._scaled(X))
+
+    def _scaled(self, X: np.ndarray) -> np.ndarray:
+        """``X`` centred and scaled as in :meth:`fit` (centring only is left to the PCA)."""
+        if self.scaler_ is not None:
+            return np.asarray(self.scaler_.transform(X))
+        if self.x_scaling_ == "center":
+            return X  # the PCA centres; this keeps the pre-1.2 numbers exactly
+        scaled = X - self.x_mean_.astype(X.dtype)
+        scaled /= self.x_std_.astype(X.dtype)
+        return scaled
 
 
 __all__ = ["PCR"]

@@ -29,11 +29,49 @@ _METRICS = {"rmsecv": rmsecv, "r2": r2_score, "rpd": rpd, "rpiq": rpiq}
 _KS_BLOCK_ELEMENTS = 2**22  # distances per block (32 MiB of float64)
 
 
+class RoundRobinGroups:
+    """Grouped folds dealt round-robin: the *i*-th group (in sorted label order) is in fold *i* mod *k*.
+
+    *k* = min(``n_splits``, number of groups), so with fewer groups than
+    ``n_splits`` every fold holds out one group. With groups labelled by their
+    position in a sample set, the ROI at position *i* is held out in fold
+    *i* mod *k*, the rule of ``sample-set-model-run-contract_v3.md`` §4 and
+    SIMCA's "assign every Nth observation to the same group" applied to
+    groups.
+
+    Parameters
+    ----------
+    n_splits:
+        Requested number of folds, at least 2.
+    """
+
+    def __init__(self, n_splits: int = DEFAULT_GROUPED_N_SPLITS) -> None:
+        self.n_splits = check_integer(n_splits, "n_splits", minimum=2)
+
+    def get_n_splits(self, X: Any = None, y: Any = None, groups: Any = None) -> int:
+        """Number of folds: ``n_splits``, or the number of groups if smaller."""
+        if groups is None:
+            return self.n_splits
+        return min(self.n_splits, int(np.unique(np.asarray(groups)).size))
+
+    def split(self, X: Any, y: Any = None, groups: Any = None):
+        """Yield ``(train_indices, test_indices)`` for every fold."""
+        if groups is None:
+            log_and_raise("RoundRobinGroups requires groups")
+        labels, index = np.unique(np.asarray(groups), return_inverse=True)
+        if labels.size < 2:
+            log_and_raise("RoundRobinGroups needs at least 2 groups, got {}", labels.size)
+        k = min(self.n_splits, labels.size)
+        fold = (np.arange(labels.size) % k)[index]
+        for f in range(k):
+            yield np.flatnonzero(fold != f), np.flatnonzero(fold == f)
+
+
 def cross_validate(
     estimator: Any,
     X: np.ndarray,
     y: np.ndarray,
-    cv: int | str = _AUTO_CV,
+    cv: Any = _AUTO_CV,
     groups: np.ndarray | None = None,
     scoring: list[str] | None = None,
     return_train_score: bool = False,
@@ -69,10 +107,14 @@ def cross_validate(
           otherwise shuffled (stratified for classifiers).
         * ``"logo"``: leave-one-group-out (requires ``groups``).
         * ``"loo"``: leave-one-sample-out (ignores ``groups`` with a warning).
+        * a splitter object with ``split`` and ``get_n_splits``, e.g.
+          :class:`RoundRobinGroups`.
     groups:
         Group label of every sample, shape ``(n_samples,)``. Samples of one
         group (e.g. pixels of one ROI or replicate spectra of one physical
         sample) never appear in both the training and the test part of a fold.
+        An estimator with ``uses_sample_index = True`` also gets the indices
+        of its training samples, as ``fit(X, y, sample_index=...)``.
     scoring:
         Regression metrics to compute, any of ``"rmsecv"``, ``"r2"``,
         ``"rpd"`` and ``"rpiq"`` (see :mod:`enginir.validation.metrics`).
@@ -123,9 +165,16 @@ def cross_validate(
     test_indices: list[np.ndarray] = []
     fold_results: list[dict[str, Any]] = []
     split_groups = None if cv == "loo" else groups_array
+    # An estimator that needs to know which samples it is trained on (e.g.
+    # the DModX pixel exclusion, which caps the exclusion per ROI) declares
+    # ``uses_sample_index``; it gets the indices of the training part only.
+    pass_index = bool(getattr(estimator, "uses_sample_index", False))
     for train_idx, test_idx in splitter.split(X, y, split_groups):
         model: Any = clone(estimator)
-        model.fit(X[train_idx], y[train_idx])
+        if pass_index:
+            model.fit(X[train_idx], y[train_idx], sample_index=train_idx)
+        else:
+            model.fit(X[train_idx], y[train_idx])
         fold_prediction = np.asarray(model.predict(X[test_idx]))
         predictions.append(fold_prediction)
         test_indices.append(test_idx)
@@ -200,6 +249,10 @@ def _make_splitter(
     is_regression: bool,
     random_state: int | None,
 ) -> Any:
+    if hasattr(cv, "split") and hasattr(cv, "get_n_splits"):
+        if groups is not None:
+            _check_group_count(groups, minimum=2, label="grouped cross-validation")
+        return cv
     if isinstance(cv, str):
         check_choice(cv, "cv", _SUPPORTED_STRING_CV)
         n_splits = DEFAULT_GROUPED_N_SPLITS
@@ -418,6 +471,7 @@ def _whitened_scores(X: np.ndarray) -> np.ndarray:
 
 
 __all__ = [
+    "RoundRobinGroups",
     "DEFAULT_GROUPED_N_SPLITS",
     "aggregate_regression_predictions",
     "cross_validate",

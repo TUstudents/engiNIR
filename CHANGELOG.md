@@ -1,5 +1,69 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Fit specification: every new model run stores exactly how it was fitted
+  (`fit_spec`: folds and fold groups, pixel sample, pixel exclusion), and
+  `model.refit()` repeats it. `project.fit(..., fit_spec=...)` gives full
+  control; `enginir.project.FitSpec` is the typed form. User guide: *Fit
+  specification*, including a comparison with SIMCA 18.
+- Sample groups: ROIs can carry a sample label (`project.set_sample(roi,
+  label)`, the **Sample** column of the viewer's ROI table), and
+  `fit_spec={"folds": {"group_by": "sample"}}` holds the ROIs of one physical
+  sample out together; `"target"` groups ROIs with the same reference value.
+  The fit stores the groups it used, so a refit repeats its folds and warns
+  when labels changed.
+- Pixel sample: `fit_spec={"pixels": {"per_roi": n, "seed": s}}` draws the
+  same number of pixels from every ROI, so every ROI has the same weight.
+  The draw depends only on the seed and each ROI's spectra (not on ids,
+  order or the NumPy version); a refit reports a different sample.
+- X and Y scaling: `PLSRegression(x_scaling=..., y_scaling=...)` and
+  `PCR(x_scaling=...)` take `"center"`, `"uv"` or `"pareto"` (standard
+  deviation with N - 1).
+- Pixel exclusion by DModX: `fit_spec={"exclusion": {"method": "dmodx"}}`
+  leaves out pixels above SIMCA's critical distance (level 0.99, at most 20 %
+  of an ROI, one or two rounds), inside every cross-validation fold from its
+  training pixels only. The run stores the excluded pixels
+  (`model.excluded_pixels`), flagged ROIs and DCrit; a refit reports
+  different exclusions. `"formula": "dmodx-2"` weights the residuals by the
+  modelling power, SIMCA's default (`"dmodx-1"`, unweighted, is engiNIR's).
+- `enginir.validation.dmodx`, `dmodx_limit` and `modelling_power`: SIMCA 18's
+  normalised DModX (unweighted or weighted), DCrit and MPowX, verified
+  against SIMCA 18.1.
+- `enginir.validation.RoundRobinGroups`: grouped folds dealt round-robin, the
+  i-th group in fold i mod k (SIMCA's "every Nth" rule for groups).
+- Viewer: the fit dialog has **Hold out together** and a **Fitting** group
+  (pixels per ROI and seed, X and Y scaling, DModX exclusion); the inspector
+  shows how a model was fitted, with its excluded pixels and flagged ROIs.
+
+### Changed
+
+- New models are validated with ROIs dealt round-robin to the folds
+  (`cv="auto"`: 7 folds, the ROI at position i of the sample set in fold
+  i mod 7) instead of `GroupKFold`, and centre the spectra and scale the
+  reference values to unit variance (`x_scaling="center"`,
+  `y_scaling="uv"`) instead of autoscaling the spectra. Their metrics differ
+  from models fitted before on the same data. Stored models keep their folds
+  and their `scale` when refitted; `PLSRegression()` and `PCR()` used
+  directly keep their defaults (`scale=True`).
+- An integer `cv` larger than the number of ROIs now leaves one ROI out
+  instead of being refused; the viewer needs only 2 ROIs.
+- `cv_spec/n_groups` counts fold groups (the ROIs, unless ROIs are grouped).
+
+### Fixed
+
+- Opening another viewer window no longer restyles every open widget; the
+  repeated restyle could crash Qt.
+
+### Compatibility
+
+- Projects stay schema v3. An engiNIR before 1.2 opens a project with fit
+  specifications and sample labels, ignores them with a warning and still
+  predicts with the stored models, but cannot refit such models or re-save
+  such ROIs.
+
 ## 1.1.0 (2026-11-04)
 
 ### Added

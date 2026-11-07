@@ -312,6 +312,27 @@ class ProjectState(QObject):
         elif changes:
             self.saved.emit(f"{len(changes)} target values saved to project")
 
+    def set_roi_samples(self, changes: list[tuple[str, str | None]]) -> None:
+        """Set or remove sample labels: ``(roi_id, label)``; ``None`` or blank text removes.
+
+        Labels only change which ROIs are one physical sample (fold groups);
+        the ROIs themselves are not changed.
+        """
+        project = self._require_project("set_roi_samples")
+        for roi_id, label in changes:
+            project.save_roi_sample(roi_id, label)
+        self._written()
+        self.rois_changed.emit()
+        if len(changes) == 1:
+            roi_id, _label = changes[0]
+            roi = self.rois.get(roi_id)
+            name = roi.name if roi is not None else roi_id
+            label = roi.sample if roi is not None else None
+            self.saved.emit(f"Sample label removed for ROI '{name}'" if label is None
+                            else f"Sample '{label}' saved for ROI '{name}'")
+        elif changes:
+            self.saved.emit(f"{len(changes)} sample labels saved to project")
+
     def add_roi(
         self,
         roi: TrainingROI,

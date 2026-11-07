@@ -91,8 +91,22 @@ tablets:
 It prints the cross-validated model and the mean prediction of each tablet,
 which follows the true contents 1 to 9::
 
-   Model('PLS 2 LV, SNV', rmsecv=0.642, r2=0.94, bias=0.0944)
-   [1.7 2.6 3.7 4.4 5.4 6.3 7.4 8.4]
+   Model('PLS 2 LV, SNV', rmsecv=0.612, r2=0.945, bias=0.0838)
+   [1.7 2.7 3.7 4.4 5.4 6.3 7.4 8.4]
+
+``project.fit`` validates with 7 round-robin folds over the ROIs (``cv=5``
+for five, ``cv="logo"`` to leave one ROI out), centres the spectra and
+scales the reference values to unit variance. ``fit_spec`` controls the
+rest, and is stored with the model so that ``model.refit()`` repeats it:
+holding out the ROIs of one sample together, drawing the same number of
+pixels from every ROI, and leaving out outlying pixels by DModX. See
+:doc:`fit_specification`, which also compares the numbers with SIMCA 18:
+
+.. code-block:: python
+
+   model = project.fit("API content", recipe=PreprocessingRecipe(snv=True),
+                       n_components=2, fit_spec={"pixels": {"per_roi": 40, "seed": 1}})
+   model.ref.fit_specification      # FitSpec(fold_rule='round_robin', ...)
 
 Reopen the project later with ``Project.open("tablets.h5")``; datasets are
 available by path and ROIs, targets and models by name, e.g.

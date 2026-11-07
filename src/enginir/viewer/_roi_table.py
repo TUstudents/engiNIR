@@ -47,7 +47,8 @@ from ._theme import secondary_text_style
 
 logger = get_logger(__name__)
 
-_FIXED = ("Data file", "ROI", "Pixels")
+_FIXED = ("Data file", "ROI", "Pixels", "Sample")
+_SAMPLE_COLUMN = _FIXED.index("Sample")
 _ALL_FILES = "__all__"
 ModelIndex = QModelIndex | QPersistentModelIndex
 
@@ -73,7 +74,7 @@ def parse_value(text: str) -> float | None:
 
 
 class RoiTableModel(QAbstractTableModel):
-    """Rows: ROIs (filtered by data file); columns: data file, ROI, pixels, targets."""
+    """Rows: ROIs (filtered by data file); columns: data file, ROI, pixels, sample, targets."""
 
     #: A value could not be stored; the message says why.
     edit_failed = pyqtSignal(str)
@@ -174,22 +175,31 @@ class RoiTableModel(QAbstractTableModel):
         column = index.column()
         if role == Qt.ItemDataRole.TextAlignmentRole:
             return (Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-                    if column >= 2 else None)
+                    if column >= 2 and column != _SAMPLE_COLUMN else None)
         if column == 0:
             return self._file_name(roi.dataset_id)
         if column == 1:
             return roi.name or roi.roi_id
         if column == 2:
             return str(roi.n_pixels)
+        if column == _SAMPLE_COLUMN:
+            return roi.sample or ""
         assignment = state.target_assignments.get((roi.roi_id, self.target_id(column) or ""))
         return "" if assignment is None else f"{assignment.value:g}"
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlag:
         base = super().flags(index)
-        return base | Qt.ItemFlag.ItemIsEditable if index.column() >= len(_FIXED) else base
+        editable = index.column() >= len(_FIXED) or index.column() == _SAMPLE_COLUMN
+        return base | Qt.ItemFlag.ItemIsEditable if editable else base
 
     def setData(self, index: ModelIndex, value: Any,  # noqa: N802 (Qt API)
                 role: int = Qt.ItemDataRole.EditRole) -> bool:
+        if role == Qt.ItemDataRole.EditRole and index.column() == _SAMPLE_COLUMN:
+            roi_id = self._roi_ids[index.row()]
+            label = str(value).strip() or None
+            if label != self.project_state.rois[roi_id].sample:
+                self.write_samples([(roi_id, label)])
+            return True
         target_id = self.target_id(index.column())
         if role != Qt.ItemDataRole.EditRole or target_id is None:
             return False
@@ -213,6 +223,15 @@ class RoiTableModel(QAbstractTableModel):
             self.project_state.set_roi_values(changes)
         except (OSError, ValueError, KeyError) as exc:
             logger.error("Target values not stored: {}", exc)
+            self.edit_failed.emit(str(exc))
+
+
+    def write_samples(self, changes: list[tuple[str, str | None]]) -> None:
+        """Store sample labels (``None`` removes); the table reloads afterwards."""
+        try:
+            self.project_state.set_roi_samples(changes)
+        except (OSError, ValueError, KeyError) as exc:
+            logger.error("Sample labels not stored: {}", exc)
             self.edit_failed.emit(str(exc))
 
 
@@ -382,19 +401,21 @@ class RoiTableWidget(QWidget):
     # -- paste ------------------------------------------------------------
 
     def paste_clipboard(self, text: str | None = None) -> bool:
-        """Fill the current target column downwards from the clipboard (or ``text``).
+        """Fill the current target or Sample column downwards from the clipboard (or ``text``).
 
         One value per line (the first tab-separated field); an empty line
         removes a value. Every value is checked first: an invalid one, or more
-        lines than rows below, writes nothing.
+        lines than rows below, writes nothing. Sample labels are text, so any
+        text is accepted.
         """
         if text is None:
             clipboard = QGuiApplication.clipboard()
             text = clipboard.text() if clipboard is not None else ""
         current = self.view.currentIndex()
+        is_sample = current.isValid() and current.column() == _SAMPLE_COLUMN
         target_id = self.model.target_id(current.column()) if current.isValid() else None
-        if target_id is None:
-            self._show_error("Select a cell in a target column, then paste.")
+        if target_id is None and not is_sample:
+            self._show_error("Select a cell in a target or the Sample column, then paste.")
             return False
         lines = text.splitlines()
         while lines and not lines[-1].strip():
@@ -402,6 +423,15 @@ class RoiTableWidget(QWidget):
         if current.row() + len(lines) > self.model.rowCount():
             self._show_error(f"{len(lines)} values do not fit below this row "
                              f"({self.model.rowCount() - current.row()} rows); nothing pasted.")
+            return False
+        if is_sample:
+            samples = [(self.model.roi_id(current.row() + offset),
+                        line.split("\t", 1)[0].strip() or None)
+                       for offset, line in enumerate(lines)]
+            if samples:
+                self.model.write_samples(samples)
+            return True
+        if target_id is None:  # not reached: a sample paste returned above
             return False
         changes: list[tuple[str, str, float | None]] = []
         for offset, line in enumerate(lines):
@@ -418,7 +448,7 @@ class RoiTableWidget(QWidget):
         return True
 
     def _show_error(self, message: str) -> None:
-        QMessageBox.warning(self, "Target values", message)
+        QMessageBox.warning(self, "ROI table", message)
 
 
 __all__ = ["RoiTableModel", "RoiTableWidget", "parse_value"]

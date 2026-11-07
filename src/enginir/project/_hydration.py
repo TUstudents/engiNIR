@@ -143,7 +143,7 @@ def hydrate_project_store(
     }
     rois = {
         roi_id: _build(TrainingROI, f"/rois/{roi_id}", payload, {"roi_id": roi_id},
-                       ignored={"spectra", "calibration_refs"})
+                       ignored={"spectra", "calibration_refs"}, optional=("sample",))
         for roi_id, payload in store.get("rois", {}).items()
     }
     recipes = {
@@ -153,7 +153,8 @@ def hydrate_project_store(
     }
     signal_domains = _build_all(SignalDomainContract, "signal_domains", "signal_domain_id", store)
     sample_sets = _build_all(SampleSet, "sample_sets", "sample_set_id", store)
-    model_runs = _build_all(ModelRun, "model_runs", "model_run_id", store, optional=("name",))
+    model_runs = _build_all(ModelRun, "model_runs", "model_run_id", store,
+                            optional=("name", "fit_spec"))
     predictions = _build_all(PredictionRun, "predictions", "prediction_run_id", store)
 
     validate_project_relationships(
@@ -271,8 +272,8 @@ _WRITABLE_MODELS: dict[str, type] = {
 _WRITE_OPTIONS: dict[str, dict[str, Any]] = {
     "DatasetRef": {"ignored": {"calibrations", "active_calibration_id"}},
     "CalibrationSpec": {"optional": _CALIBRATION_REFERENCE_FIELDS},
-    "TrainingROI": {"ignored": {"spectra", "calibration_refs"}},
-    "ModelRun": {"optional": ("name",)},
+    "TrainingROI": {"ignored": {"spectra", "calibration_refs"}, "optional": ("sample",)},
+    "ModelRun": {"optional": ("name", "fit_spec")},
 }
 
 

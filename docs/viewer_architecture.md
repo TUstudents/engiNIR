@@ -20,16 +20,16 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_recent.py` | MRU file list (`~/.config/enginir/recent.json`) |
 | `_eda.py` | `EDAView` — signal, preprocessing, project, and ROI controls |
 | `_attachment.py` | Project/dataset binding validation |
-| `_modeling.py` | `ModelingView` — target, target values (ROI table) and the fit dialog |
+| `_modeling.py` | `ModelingView` — target, target values (ROI table) and the fit dialog (with its Fitting group: pixel sample, scaling, DModX exclusion → `FitSpec` and hyperparameters) |
 | `_model_diagnostics.py` | Model workspace diagnostics surface |
 | `_prediction.py` | `PredictionView` and `PredictionMapWidget` |
 | `_browser.py` | Read-only workspace object tree |
-| `_inspector.py` | Selection-driven metadata display |
+| `_inspector.py` | Selection-driven metadata display; `fit_summary` describes how a model run was fitted (reads the stored exclusion arrays on demand) |
 | `_jobs.py` | `BackgroundWorker`, `_CallbackRelay`, `start_background_job`, `BusyStatusWidget` |
 | `_loading.py` | Shared wait-cursor/status/progress helpers for startup and open flows |
 | `_data_helpers.py` | Dataset-shape and spectral array helpers shared by viewer workflows |
 | `_project_rois.py` | `ProjectRoisView` (Explore's Project ROIs tab), `RoiMosaic` (stored ROI pixels as tiles, a `PlotSource`), specs `explore.roi_means`/`explore.roi_pixels` fed by `enginir.modeling.roi_spectrum_summaries`. Tiles arrive in background batches of 40 and are drawn incrementally with the stretch of the first batch, then re-stretched once together; target and value changes update the labels in place (coalesced), without a new layout |
-| `_roi_table.py` | `RoiTableModel`/`RoiTableWidget`: target values of all ROIs (one column per target), Enter-to-next-row editing, column paste, data file and missing-value filters |
+| `_roi_table.py` | `RoiTableModel`/`RoiTableWidget`: sample labels and target values of all ROIs (a Sample column, one column per target), Enter-to-next-row editing, column paste, data file and missing-value filters; labels are written through `ProjectState.set_roi_samples` → `Project.save_roi_sample` |
 | `_roi_grid.py` | `RoiGridDialog`: a grid of equal ROIs by number, size, origin and spacing (`roi_grid`), empty-position buttons, a live preview on the canvas (outside cells red); `GridDefaultsDialog` (Options > ROI Grid Defaults) and the shared `GridGeometryForm` |
 | `_grid_settings.py` | `GridDefaults` every new grid starts with, in the user settings (`roi_grid.json`) |
 | `_data_files.py` | `AddDataFileDialog` and `DataFileRequest`: the calibration of a data file added to a project (reference files, frame ranges, shared references, levels, raw) |
@@ -55,7 +55,7 @@ _eda      → _state, _modeling (NewROIDialog), _attachment, _loading, io
 _modeling → _state, _jobs, io.project_store, modeling, prediction, project
 _prediction → _state, _jobs, io, prediction, project
 _browser  → _state
-_inspector → _state
+_inspector → _state, io.project_store, project
 _panels   → _state
 _canvas   → (no viewer imports — standalone pyqtgraph widget)
 _jobs     → (no viewer imports — standalone Qt threading)

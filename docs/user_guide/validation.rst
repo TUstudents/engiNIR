@@ -149,13 +149,31 @@ in the same fold:
    # leave-one-group-out (most conservative; one ROI withheld per fold)
    results_logo = cross_validate(model, X, y, cv="logo", groups=groups)
 
+   # Round-robin: the i-th group (sorted labels) is held out in fold i mod 7,
+   # SIMCA's "every Nth" rule applied to groups; what model runs use.
+   from enginir.validation import RoundRobinGroups
+   results_rr = cross_validate(model, X, y, cv=RoundRobinGroups(7), groups=groups)
+
 Explicit integer ``cv`` uses ``GroupKFold(n_splits=cv)`` and therefore requires
 at least that many unique groups. ``GroupKFold`` assigns groups to folds by size
 and, among groups of equal size, by the order of their labels, so use labels
 whose order is reproducible (for example sample numbers, not random ids); model
-runs label each ROI with its position in the sample set. ``cv="loo"`` remains available for explicit
+runs label each ROI with its position in the sample set and use
+:class:`~enginir.validation.RoundRobinGroups`. ``cv="loo"`` remains available for explicit
 observation-level leave-one-out, but it ignores groups, logs that choice when
 groups are present, and is not the default.
+
+Coming from SIMCA: round-robin folds give the same partition as SIMCA's
+default "every Nth observation" groups when SIMCA's observations are ROI
+means (on pixels in ROI order, SIMCA's rule puts pixels of every ROI into
+every group), and ``cv="logo"`` the same as grouping by an observation ID
+such as the ROI name. SIMCA's grouping by
+a variable (for example the concentration) has no equivalent on purpose:
+SIMCA sorts the observations by the value and cuts them into equal blocks,
+which can split the spectra of one sample across folds and leaves the
+lowest and highest concentrations to be predicted by extrapolation.
+Model runs in a project can hold the ROIs of one sample out together
+instead; see :doc:`fit_specification`.
 
 The metrics in ``results`` are computed over pixels. For ROI-based data the
 primary figures of merit are ROI-level: average the out-of-fold predictions per

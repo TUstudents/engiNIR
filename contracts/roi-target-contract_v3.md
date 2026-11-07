@@ -82,6 +82,12 @@ Required fields:
 - `calibration_id`
 - `provenance`
 
+Optional fields:
+
+- `sample`: label of the physical sample the ROI was taken from (e.g. the
+  blend or tablet), a non-empty string; absent when the ROI is its own
+  sample
+
 Required invariants:
 
 - every ROI belongs to exactly one source dataset
@@ -96,6 +102,18 @@ v3 rule:
 
 - `roi_id` is the real persistent identity
 - `name` is a mutable user-facing label and may be changed without affecting identity
+- `sample` is a mutable label like `name`: setting, changing or removing it
+  never changes the ROI's identity, spectra or other fields. It only says
+  which ROIs belong to one physical sample, for fold groups
+  (`sample-set-model-run-contract_v3.md` §4.1). Every writer removes
+  surrounding spaces and stores an empty result as no label; labels are
+  then compared as exact Unicode strings (case and inner spaces matter, no
+  further normalisation). Because labels that differ only in case would
+  split one physical sample into two groups, a fit warns when two labels of
+  its sample set are equal after case folding. A stored model run keeps the
+  fold groups it used, so later label edits do not change how it refits.
+  Only `save_roi_sample` sets, changes or removes the label; re-saving an
+  ROI never changes it
 - raw ROI spectra remain the scientific truth; ROI-local reference snapshots preserve the sensor-row calibration context needed to transform those raw spectra reproducibly
 - ROI spectra persist in their source dtype: uint16 for raw DN sources,
   float32 for precalibrated floating sources; float spectra must never be
@@ -331,6 +349,11 @@ v3 rule:
 The viewer edits target values in an ROI table:
 
 - one row per ROI, showing its data file, name and pixel count
+- a "Sample" column with the ROI's sample label; typing a label sets it
+  when the cell is left, clearing the cell removes it, and pasting a column
+  fills consecutive rows (labels are text, so any text is accepted;
+  leading and trailing spaces are removed and an empty result removes the
+  label)
 - one column per target definition
 - an empty cell is a missing assignment, never zero
 - typing a value creates or updates the assignment when the cell is left;
@@ -402,6 +425,7 @@ v3 persistence decision:
 - `created_at`
 - `calibration_id`
 - provenance
+- `sample`, when set
 - raw spectra storage
 - ROI-local dark/white reference storage when the active calibration has embedded full-sensor references
 
@@ -513,7 +537,9 @@ Decision:
 
 - the domain may support multiple sample-unit styles later
 - v3 modeling uses pixel-level spectral observations with ROI-level target semantics
-- v3 validation groups observations by `roi_id`
+- v3 validation groups observations by `roi_id`; folds may join the ROIs
+  of one physical sample (ROI `sample` label) or of one target value
+  (`sample-set-model-run-contract_v3.md` §4.1), never split an ROI
 
 Out of scope for v3:
 
@@ -536,4 +562,6 @@ This contract is implemented correctly when:
   single anonymous `y_value`
 - target values of all targets can be edited, removed and pasted in the ROI
   table, also without any data file
+- the sample label can be set, changed and removed in the ROI table and by
+  script without changing the ROI's identity, spectra or other fields
 - an ROI grid is written completely or not at all

@@ -244,6 +244,8 @@ accepted when it equals the path id and rejected when it contradicts it. An
 ├── @dataset_id
 ├── @calibration_id
 ├── @name                   mutable display label
+├── @sample                 optional sample label (mutable); ROIs with equal
+│                           labels are one physical sample for fold groups
 ├── @source_file
 ├── @n_pixels
 ├── @created_at
@@ -366,11 +368,13 @@ grouped and validated by ROI, then reported at ROI level using mean aggregation.
 ├── @name                   optional display name (mutable label)
 ├── hyperparameters/
 ├── cv_spec/
+├── fit_spec/               absent only for runs before engiNIR 1.2
 ├── metrics/
 ├── artifact_refs/
 │   ├── prediction_model/
 │   ├── diagnostics/
-│   └── cv_outputs/
+│   ├── cv_outputs/
+│   └── exclusion/          only with DModX exclusion
 └── @created_at
 ```
 
@@ -385,18 +389,59 @@ Constructor keyword arguments for the normalized `model_type` backend
 The estimator is reconstructable as `Backend(**hyperparameters)`; no pickled
 state is stored.
 
+Scaling of X and Y (engiNIR 1.2 and later):
+
+```text
+@x_scaling               center | uv | pareto   (default center)
+@y_scaling               center | uv | pareto   (PLS only, default uv)
+```
+
+Runs before engiNIR 1.2 store `@scale` (boolean, absent means `true`)
+instead: `true` scales X and Y (PLS) or X (PCR) to unit variance, `false`
+only centres (`sample-set-model-run-contract_v3.md` §7.3).
+
 #### `cv_spec/`
 
 ```text
-@type                    GroupKFold | LeaveOneGroupOut
+@type                    RoundRobinGroups | GroupKFold | LeaveOneGroupOut
 @n_splits                number of CV folds actually run
-@requested               the requested strategy: "auto", "logo", or an integer fold count
-@n_groups                number of ROI groups
+@requested               the requested strategy: "auto", "logo", an integer fold count,
+                         or "fit_spec" when the folds came from a fit specification
+@n_groups                number of fold groups G (= number of ROIs with group_by roi)
 @grouping_unit           roi
 @validation_unit         roi
 @reporting_level         roi
 @roi_aggregation         mean
 ```
+
+#### `fit_spec/`
+
+What was requested (`sample-set-model-run-contract_v3.md` §7). Absent in
+runs before engiNIR 1.2, which read as the legacy specification (§7.3).
+
+```text
+folds/
+  @rule                  round_robin | leave_one_group_out | group_kfold
+  @n_folds               requested fold count F (k = min(F, number of fold groups))
+  @group_by              roi | sample | target
+  groups                 int64, one per ROI in sample-set roi_ids order: index of
+                         its fold group in group order, as used by the fit;
+                         exactly 0 .. G-1, each used (attribute, or a dataset
+                         for large sample sets)
+pixels/
+  @per_roi               "all" or the number of pixels drawn per ROI
+  @seed                  integer seed of the pixel sample, 0 <= seed < 2**63
+  @checksum              SHA-256 (hex) of the drawn indices; "" for "all"
+exclusion/
+  @method                none | dmodx
+  @level                 probability of the DCrit limit
+  @rounds                1 | 2
+  @max_fraction          largest excluded share of an ROI's drawn pixels, all rounds
+  @formula               DModX definition: dmodx-1 (unweighted) | dmodx-2 (MPow-weighted)
+```
+
+Every key is written for every run that has a `fit_spec`, also when it has
+no effect.
 
 #### `metrics/`
 
@@ -413,7 +458,8 @@ per-pixel diagnostics.
 @primary_reporting_level roi
 @primary_roi_aggregation mean
 @n_rois
-@n_pixels
+@n_pixels                drawn pixels (all pixels for per_roi = all); the pixel_* metrics use them
+@n_excluded_pixels       pixels excluded by DModX from the final model (1.2 and later)
 @pixel_rmsecv            secondary per-pixel RMSECV
 @pixel_r2                secondary per-pixel R²
 @pixel_bias              secondary per-pixel bias
@@ -474,6 +520,19 @@ scores_
 roi_ids                  string array, one per held-out ROI
 y_true_roi               float32, reference value per ROI
 y_pred_roi               float32, aggregated cross-validated prediction per ROI
+```
+
+#### `artifact_refs/exclusion`
+
+Written when `fit_spec/exclusion/@method` is `dmodx`. Indices refer to the
+row order of each ROI's stored spectra.
+
+```text
+roi_ids                  string array, ROIs with excluded pixels, sample-set order
+counts                   int32, number of excluded pixels per listed ROI
+pixel_indices            uint32, the excluded indices, concatenated in roi_ids order
+flagged_roi_ids          string array, ROIs with more pixels above DCrit than max_fraction allows
+@dcrit                   DCrit of the last exclusion round of the final model
 ```
 
 ### 3.9. Prediction runs

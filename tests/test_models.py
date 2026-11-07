@@ -31,15 +31,20 @@ Y_SEP = np.repeat([0, 1, 2], 20)
 # --- linear regression --------------------------------------------------------------------------
 
 @pytest.mark.parametrize("model", [PCR(n_components=10, scale=True), PCR(n_components=10, scale=False),
+                                   PCR(n_components=10, x_scaling="center"),
+                                   PCR(n_components=10, x_scaling="uv"),
+                                   PCR(n_components=10, x_scaling="pareto"),
                                    PLSRegression(n_components=5, scale=True),
-                                   PLSRegression(n_components=5, scale=False)])
+                                   PLSRegression(n_components=5, scale=False),
+                                   PLSRegression(n_components=5, x_scaling="center", y_scaling="uv"),
+                                   PLSRegression(n_components=5, x_scaling="pareto",
+                                                 y_scaling="center")])
 def test_linear_models_fold_scaling_and_centring_into_raw_space_coefficients(model):
     """``X @ coef_ + intercept_`` must equal the model evaluated step by step in score space."""
 
     def stepwise(model, X):
         if isinstance(model, PCR):
-            scaled = X if model.scaler_ is None else model.scaler_.transform(X)
-            return model.reg_.predict(model.pca_.transform(scaled))
+            return model.reg_.predict(model.transform(X))
         y_scaled = model.transform(X) @ model.y_loadings_.T  # PLS: T Q^T in scaled Y units
         return np.squeeze(y_scaled * model.y_std_ + model.y_mean_)
 
@@ -48,6 +53,59 @@ def test_linear_models_fold_scaling_and_centring_into_raw_space_coefficients(mod
         np.testing.assert_allclose(X_DUMMY @ model.coef_ + model.intercept_,
                                    stepwise(model, X_DUMMY), rtol=1e-8, atol=1e-10)
     assert model.coef_.shape == (P, 2)
+
+
+def _textbook_pls1(X, y, n_components):
+    """NIPALS PLS1 on centred X and y (Wold et al. 2001), coefficients in raw units."""
+    x_mean, y_mean = X.mean(axis=0), y.mean()
+    E, f = X - x_mean, y - y_mean
+    W, P, q = [], [], []
+    for _ in range(n_components):
+        w = E.T @ f
+        w /= np.linalg.norm(w)
+        t = E @ w
+        p_a, q_a = E.T @ t / (t @ t), f @ t / (t @ t)
+        E, f = E - np.outer(t, p_a), f - q_a * t
+        W.append(w), P.append(p_a), q.append(q_a)
+    W, P = np.array(W).T, np.array(P).T
+    coef = W @ np.linalg.solve(P.T @ W, np.array(q))
+    return coef, y_mean - x_mean @ coef
+
+
+def test_scaling_of_x_and_y():
+    """§7: uv/uv is the former autoscaling, centred X is textbook PLS1 on centred data, the Y
+    scaling does not change PLS1 coefficients, uv and pareto divide by the SD (N - 1) and its
+    square root."""
+    autoscaled = PLSRegression(n_components=4).fit(X_DUMMY, Y_REG)
+    uv = PLSRegression(n_components=4, x_scaling="uv", y_scaling="uv").fit(X_DUMMY, Y_REG)
+    np.testing.assert_allclose(uv.coef_, autoscaled.coef_, rtol=1e-10)
+
+    centred = PLSRegression(n_components=4, x_scaling="center", y_scaling="uv").fit(X_DUMMY, Y_REG)
+    coef, intercept = _textbook_pls1(X_DUMMY, Y_REG, 4)
+    np.testing.assert_allclose(centred.coef_, coef, rtol=1e-8)
+    assert centred.intercept_ == pytest.approx(intercept, rel=1e-8)
+    y_centred = PLSRegression(n_components=4, x_scaling="center",
+                              y_scaling="center").fit(X_DUMMY, Y_REG)
+    np.testing.assert_allclose(y_centred.coef_, centred.coef_, rtol=1e-10)
+
+    sd = X_DUMMY.std(axis=0, ddof=1)
+    np.testing.assert_allclose(uv.x_std_, sd, rtol=1e-12)
+    pareto = PLSRegression(n_components=4, x_scaling="pareto").fit(X_DUMMY, Y_REG)
+    np.testing.assert_allclose(pareto.x_std_, np.sqrt(sd), rtol=1e-12)
+    np.testing.assert_allclose(PCR(n_components=4, x_scaling="uv").fit(X_DUMMY, Y_REG).x_std_,
+                               sd, rtol=1e-12)
+    assert not np.allclose(pareto.coef_, centred.coef_, rtol=1e-3)
+
+
+@pytest.mark.parametrize(("model", "message"), [
+    (PLSRegression(x_scaling="none"), "x_scaling must be one of"),
+    (PLSRegression(scale=False, y_scaling="uv"), "either scale=False or"),
+    (PCR(x_scaling="none"), "x_scaling must be one of"),
+    (PCR(scale=False, x_scaling="uv"), "either scale=False or"),
+])
+def test_invalid_scalings_are_refused(model, message):
+    with pytest.raises(ValueError, match=message):
+        model.fit(X_DUMMY, Y_REG)
 
 
 def test_pls_matches_scikit_learn_and_keeps_2d_targets_2d():

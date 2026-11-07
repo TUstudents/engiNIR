@@ -11,7 +11,13 @@ from sklearn.utils.validation import check_is_fitted
 from enginir._checks import as_float_matrix, check_n_features, log_and_raise
 from enginir._logging import get_logger
 
-from ._common import as_target_array, check_n_components, max_components
+from ._common import (
+    as_target_array,
+    check_n_components,
+    max_components,
+    resolve_scalings,
+    scaling_statistics,
+)
 
 logger = get_logger(__name__)
 
@@ -30,8 +36,16 @@ class PLSRegression(RegressorMixin, EnginirEstimator):
         Number of latent variables, ``1 <= n_components <= min(n_samples - 1,
         n_wavelengths)`` (the rank limit of mean-centred X). Default ``6``.
     scale:
-        If ``True`` (default), X and Y are autoscaled (unit standard deviation)
-        before fitting; if ``False`` they are only mean-centred.
+        Shorthand kept for models stored before engiNIR 1.2: ``True``
+        (default) autoscales X and Y (``uv``), ``False`` only centres them.
+        Used for a scaling left as ``None`` below.
+    x_scaling, y_scaling:
+        Scaling of X and of Y: ``"center"`` (mean-centred), ``"uv"`` (also
+        divided by the standard deviation, N - 1) or ``"pareto"`` (divided by
+        its square root). ``None`` (default) follows ``scale``. Model runs use
+        ``x_scaling="center"``, ``y_scaling="uv"`` (sample-set-model-run
+        contract §7). For one target, the Y scaling does not change the
+        predictions or the coefficients in raw units.
     max_iter:
         Maximum number of NIPALS iterations per component (only used for
         PLS2). Default ``500``.
@@ -46,10 +60,10 @@ class PLSRegression(RegressorMixin, EnginirEstimator):
     intercept_ : float or numpy.ndarray, shape (n_targets,)
         Intercept in raw data units (a float for PLS1).
     x_mean_, x_std_ : numpy.ndarray, shape (n_wavelengths,)
-        Centring and scaling applied to X (``x_std_`` is all ones when
-        ``scale=False``).
+        Centring and divisor applied to X (``x_std_`` is all ones for
+        ``center``, the square root of the standard deviation for ``pareto``).
     y_mean_, y_std_ : numpy.ndarray, shape (n_targets,)
-        Centring and scaling applied to Y.
+        Centring and divisor applied to Y.
     x_weights_ : numpy.ndarray, shape (n_wavelengths, n_components)
         X weights ``W`` (unit-norm columns).
     x_loadings_ : numpy.ndarray, shape (n_wavelengths, n_components)
@@ -89,11 +103,15 @@ class PLSRegression(RegressorMixin, EnginirEstimator):
         scale: bool = True,
         max_iter: int = 500,
         tol: float = 1e-6,
+        x_scaling: str | None = None,
+        y_scaling: str | None = None,
     ) -> None:
         self.n_components = n_components
         self.scale = scale
         self.max_iter = max_iter
         self.tol = tol
+        self.x_scaling = x_scaling
+        self.y_scaling = y_scaling
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> PLSRegression:
         """Fit the PLS model.
@@ -115,26 +133,38 @@ class PLSRegression(RegressorMixin, EnginirEstimator):
         y = as_target_array(y, n_samples=X.shape[0])
         n_components = check_n_components(self.n_components, "n_components",
                                           maximum=max_components(X))
+        x_scaling, y_scaling = resolve_scalings(self.scale, self.x_scaling, self.y_scaling)
 
+        # engiNIR centres and scales; scikit-learn gets the scaled data (one
+        # float64 working copy, which scikit-learn would make anyway) and only
+        # re-centres it.
+        is_pls1 = y.ndim == 1
+        x_mean, x_std = scaling_statistics(X, x_scaling)
+        y_mean, y_std = scaling_statistics(y, y_scaling)
+        X_scaled = np.asarray(X, dtype=np.float64) - x_mean
+        X_scaled /= x_std
+        y_scaled = (np.asarray(y, dtype=np.float64).reshape(y.shape[0], -1) - y_mean) / y_std
         backend = _SklearnPLSRegression(
             n_components=n_components,
-            scale=self.scale,
+            scale=False,
             max_iter=self.max_iter,
             tol=self.tol,
+            copy=False,
         )
-        backend.fit(X, y)
-        is_pls1 = y.ndim == 1
+        backend.fit(X_scaled, y_scaled[:, 0] if is_pls1 else y_scaled)
+        del X_scaled
 
-        # scikit-learn predicts (X - x_mean) @ coef.T + y_mean; fold the centring
-        # into the intercept so that y = X @ coef_ + intercept_.
-        coef = backend.coef_.T  # (n_wavelengths, n_targets)
-        intercept = backend.intercept_ - backend._x_mean @ coef
+        # Coefficients in raw units: y = X @ coef_ + intercept_, the model
+        # passes through the means.
+        coef = backend.coef_.T / x_std[:, np.newaxis] * y_std[np.newaxis, :]
+        intercept = y_mean - x_mean @ coef
         self.coef_ = coef[:, 0] if is_pls1 else coef
         self.intercept_ = float(intercept[0]) if is_pls1 else intercept
-        self.x_mean_ = backend._x_mean.copy()
-        self.x_std_ = backend._x_std.copy()
-        self.y_mean_ = backend._y_mean.copy()
-        self.y_std_ = backend._y_std.copy()
+        self.x_mean_ = x_mean + backend._x_mean * x_std
+        self.x_std_ = x_std
+        self.y_mean_ = y_mean + backend._y_mean * y_std
+        self.y_std_ = y_std
+        self.x_scaling_, self.y_scaling_ = x_scaling, y_scaling
         self.x_weights_ = backend.x_weights_
         self.x_loadings_ = backend.x_loadings_
         self.y_loadings_ = backend.y_loadings_

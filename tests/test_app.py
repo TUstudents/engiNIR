@@ -39,6 +39,19 @@ def test_ensure_app_uses_saved_theme_preference(qapp, monkeypatch):
     assert called == [False]
 
 
+def test_ensure_app_does_not_restyle_an_app_that_has_the_theme(qapp, monkeypatch):
+    """Opening another window must not restyle every live widget (it crashed Qt in tests)."""
+    import enginir.viewer._app as appmod
+
+    appmod.ensure_app()
+    called: list[bool] = []
+    monkeypatch.setattr(appmod, "apply_qt_theme", lambda app, *, dark: called.append(dark) or app)
+    monkeypatch.setattr(appmod, "load_preference", lambda: bool(qapp.property(
+        "_enginir_theme_dark")))
+    assert appmod.ensure_app() is qapp
+    assert called == []
+
+
 def test_apply_qt_theme_persists_panel_colors_and_preference(qapp, tmp_path, monkeypatch):
     import enginir.viewer._theme as thememod
 

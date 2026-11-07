@@ -236,7 +236,7 @@ def test_cross_validation_does_not_depend_on_the_random_roi_ids(tmp_path, monkey
     first, first_cv = fit("a", range(8))
     second, second_cv = fit("b", [1, 2, 3, 4, 5, 6, 7, 0])
 
-    assert first.ref.cv_spec["type"] == "GroupKFold"
+    assert first.ref.cv_spec["type"] == "RoundRobinGroups"
     assert second_cv == pytest.approx(first_cv)
     assert second.metrics["rmsecv"] == pytest.approx(first.metrics["rmsecv"])
 
@@ -302,7 +302,9 @@ def test_refit_reproduces_a_model_from_its_stored_sample_set(tmp_path):
     assert refitted.name == "PLS 2 LV, SNV (2)"
     for key in ("sample_set_id", "signal_domain_id", "model_type", "hyperparameters"):
         assert getattr(refitted.ref, key) == getattr(model.ref, key)
-    assert refitted.ref.cv_spec["requested"] == 3
+    assert refitted.ref.fit_specification == model.ref.fit_specification
+    assert refitted.ref.cv_spec["type"] == model.ref.cv_spec["type"] == "RoundRobinGroups"
+    assert refitted.ref.cv_spec["requested"] == "fit_spec"
     for key in ("rmsecv", "r2", "bias", "pixel_rmsecv", "n_rois"):
         assert refitted.metrics[key] == pytest.approx(model.metrics[key], rel=1e-9)
     assert project.fit("API", recipe=PreprocessingRecipe(snv=True), n_components=2,

@@ -22,6 +22,7 @@ from ._logging import get_logger
 from .io import file_format, load_spectra
 from .io import project_store as store
 from .modeling import fit_model_run, plan_sample_set
+from .modeling._service import fold_groups
 from .prediction import (
     PredictionResult,
     build_dataset_ref_from_spectral_data,
@@ -32,6 +33,7 @@ from .preprocessing import PreprocessingRecipe
 from .project import (
     CalibrationSpec,
     DatasetRef,
+    FitSpec,
     ModelRun,
     PredictionRun,
     SampleSet,
@@ -43,6 +45,7 @@ from .project import (
     validate_project_relationships,
 )
 from .project._ids import new_id, now_iso
+from .project._models import sample_label
 
 logger = get_logger(__name__)
 
@@ -260,6 +263,15 @@ class Project:
         self.save_target(target)
         return target
 
+    def set_sample(self, roi: str | TrainingROI, label: str | None) -> None:
+        """Set the sample label of ``roi`` (name or object); ``None`` or blank text removes it.
+
+        ROIs with equal labels are one physical sample: with
+        ``fit_spec={"folds": {"group_by": "sample"}}`` they are held out
+        together. The label never changes the ROI itself.
+        """
+        self.save_roi_sample(self._roi_of(roi).roi_id, label)
+
     def set_value(self, roi: str | TrainingROI, target: str | TargetDefinition,
                   value: float | None) -> None:
         """Set (or replace) the reference value of ``target`` for ``roi``; ``None`` removes it.
@@ -282,7 +294,8 @@ class Project:
         recipe: PreprocessingRecipe | Mapping[str, Any] | None = None,
         model: str = "PLS",
         name: str | None = None,
-        cv: int | str = "auto",
+        cv: int | str | None = None,
+        fit_spec: FitSpec | Mapping[str, Any] | None = None,
         **hyperparameters: Any,
     ) -> Model:
         """Fit and cross-validate a model of ``target`` on every ROI with a value for it.
@@ -298,8 +311,18 @@ class Project:
         name:
             Model name (default: e.g. ``"PLS 2 LV, SNV"``).
         cv:
-            Cross-validation over ROIs: ``"auto"``, a number of folds or
-            ``"logo"`` (leave one ROI out).
+            Cross-validation over ROIs, the short form of the fold rule:
+            ``"auto"`` (default: 7 round-robin folds), a number of
+            round-robin folds, or ``"logo"`` (leave one ROI out).
+        fit_spec:
+            Full control of the fit (:class:`~enginir.project.FitSpec` or a
+            mapping with the keys of ``sample-set-model-run-contract_v3.md``
+            §7), e.g. ``{"pixels": {"per_roi": 50, "seed": 1}}`` or
+            ``{"folds": {"group_by": "sample"}}`` (hold the ROIs of one sample
+            out together, see :meth:`set_sample`); keys left out take their
+            defaults. Not combined with ``cv`` when it sets the folds;
+            ``folds/groups`` is written by the fit and refused here. The
+            complete specification is stored with the model.
         **hyperparameters:
             Estimator parameters, e.g. ``n_components=2``.
 
@@ -308,6 +331,9 @@ class Project:
         Model
         """
         ws = self.workspace
+        if fit_spec is not None and FitSpec.coerce(fit_spec).groups:
+            log_and_raise("fit_spec folds/groups is written by the fit; leave it out and choose "
+                          "folds/group_by instead")
         target_ref = self._target_of(target)
         recipe_obj = _as_recipe(recipe)
         recipe_id, recipe_dict = _recipe_id(recipe_obj), recipe_obj.to_dict()
@@ -327,7 +353,8 @@ class Project:
             target_assignments=ws.target_assignments, recipes=recipes,
             signal_domains={**ws.signal_domains, domain.signal_domain_id: domain},
             signal_domain_id=domain.signal_domain_id, model_type=model,
-            hyperparameters=hyperparameters, cv=cv, target_name=target_ref.name)
+            hyperparameters=hyperparameters, cv=cv, fit_spec=fit_spec,
+            target_name=target_ref.name)
         run = replace(result.model_run,
                       name=name or self.default_model_name(result.model_run, recipe_obj))
         validate_project_relationships(
@@ -398,6 +425,13 @@ class Project:
                                 dark_ref_spectra=dark_ref_spectra,
                                 white_ref_spectra=white_ref_spectra)
         self.workspace.rois[roi.roi_id] = roi
+
+    def save_roi_sample(self, roi_id: str, sample: str | None) -> None:
+        """Set (or, with ``None`` or blank text, remove) the sample label of a stored ROI."""
+        roi = _with_id(self.workspace.rois, roi_id, "ROI")
+        label = sample_label(sample)
+        store.save_roi_sample(self.path, roi_id, label)
+        self.workspace.rois[roi_id] = replace(roi, sample=label)
 
     def save_rois(self, rois: Sequence[tuple[TrainingROI, np.ndarray, tuple[np.ndarray,
                                                                         np.ndarray] | None]],
@@ -828,14 +862,34 @@ class Model:
                                                   keys=("cv_outputs", "diagnostics"))
         return {**refs.get("diagnostics", {}), **refs.get("cv_outputs", {})}
 
+    @property
+    def excluded_pixels(self) -> dict[str, np.ndarray]:
+        """Pixels left out of the final model by DModX exclusion, per ROI id.
+
+        Indices into each ROI's stored spectra; empty without exclusion
+        (sample-set-model-run contract §7.2).
+        """
+        refs = store.load_model_run_artifact_refs(self.project.path, self.ref.model_run_id,
+                                                  keys=("exclusion",))
+        exclusion = refs.get("exclusion", {})
+        if not exclusion:
+            return {}
+        roi_ids = [str(roi_id) for roi_id in np.atleast_1d(exclusion["roi_ids"])]
+        counts = np.atleast_1d(exclusion["counts"]).astype(int)
+        indices = np.atleast_1d(exclusion["pixel_indices"]).astype(np.int64)
+        bounds = np.concatenate([[0], np.cumsum(counts)])
+        return {roi_id: indices[bounds[i]:bounds[i + 1]] for i, roi_id in enumerate(roi_ids)}
+
     def refit(self, *, name: str | None = None) -> Model:
         """Fit this model again on exactly what it was fitted on, and store the new run.
 
         Uses the stored sample set (its ``roi_ids`` and preprocessing recipe),
-        signal domain, model type, hyperparameters and requested
-        cross-validation, not the ROIs that have values now. Folds depend only
-        on the sample set, so unchanged data give the same metrics; reference
-        values changed since the fit are reported. Refused when an ROI of the
+        signal domain, model type, hyperparameters and fit specification
+        (for a model stored without one, its legacy specification), not the
+        ROIs that have values now. Folds depend only on the sample set and
+        the pixel sample only on the seed and the ROI spectra, so unchanged
+        data give the same metrics; reference values changed since the fit
+        and a different pixel sample are reported. Refused when an ROI of the
         sample set was deleted.
 
         Parameters
@@ -859,16 +913,26 @@ class Model:
             logger.warning("Refitting model '{}': {} reference value(s) changed since it was "
                            "fitted (ROI ids {}); the metrics will differ", self.name,
                            len(changed), changed[:5])
-        requested = self.ref.cv_spec.get("requested", "auto")
-        cv: int | str = int(requested) if isinstance(requested, (int, np.integer)) \
-            else str(requested)
+        spec = self.ref.fit_specification
+        self._warn_on_group_drift(spec, sample_set)
+        hyperparameters = dict(self.ref.hyperparameters)
+        if self.ref.fit_spec is None and not any(
+                key in hyperparameters for key in ("scale", "x_scaling", "y_scaling")):
+            hyperparameters["scale"] = True  # runs before 1.2: absent means True (§7.3)
         result = fit_model_run(
             project_path=project.path, sample_set=sample_set, datasets=ws.datasets,
             calibrations=ws.calibrations, rois=ws.rois,
             target_assignments=ws.target_assignments, recipes=ws.recipes,
             signal_domains=ws.signal_domains, signal_domain_id=self.ref.signal_domain_id,
-            model_type=self.ref.model_type, hyperparameters=dict(self.ref.hyperparameters),
-            cv=cv, target_name=self.target.name)
+            model_type=self.ref.model_type, hyperparameters=hyperparameters,
+            fit_spec=spec, target_name=self.target.name)
+        if spec.exclusion == "dmodx":
+            self._warn_on_exclusion_drift(result.model_run)
+        drawn = result.model_run.fit_specification.checksum
+        if spec.checksum and drawn != spec.checksum:
+            logger.warning("Refit of '{}' drew a different pixel sample than the model was "
+                           "fitted on (checksum {} instead of {}): the stored spectra of an ROI "
+                           "changed", self.name, drawn[:12], spec.checksum[:12])
         run = replace(result.model_run,
                       name=name or project.default_model_name(result.model_run, self.recipe))
         project.save_model_run(run)
@@ -879,6 +943,41 @@ class Model:
         else:
             logger.info("Refit of '{}' reproduced its metrics as '{}'", self.name, refitted.name)
         return refitted
+
+    def _warn_on_exclusion_drift(self, refitted: ModelRun) -> None:
+        """Warn about ROIs whose excluded pixels differ from the stored ones (contract §6)."""
+        before = self.excluded_pixels
+        exclusion = refitted.artifact_refs.get("exclusion", {})
+        after: dict[str, np.ndarray] = {}
+        start = 0
+        for roi_id, count in zip(exclusion.get("roi_ids", []), exclusion.get("counts", [])):
+            after[str(roi_id)] = np.asarray(exclusion["pixel_indices"][start:start + int(count)])
+            start += int(count)
+        differing = sorted(roi_id for roi_id in set(before) | set(after)
+                           if not np.array_equal(before.get(roi_id, []), after.get(roi_id, [])))
+        if differing:
+            logger.warning("Refit of '{}' excluded other pixels than the model in {} ROI(s) "
+                           "(ids {}); borderline pixels can change with floating-point "
+                           "differences", self.name, len(differing), differing[:5])
+
+    def _warn_on_group_drift(self, spec: FitSpec, sample_set: SampleSet) -> None:
+        """Warn when current sample labels or values would group the ROIs differently.
+
+        The refit keeps the stored groups (sample-set-model-run contract §6).
+        """
+        if not spec.groups:
+            return
+        ws = self.project.workspace
+        try:
+            now = fold_groups(spec.group_by, sample_set, ws.rois, ws.target_assignments)
+        except (KeyError, ValueError) as exc:
+            logger.warning("Refit of '{}' keeps its stored fold groups; the current ones cannot "
+                           "be built: {}", self.name, exc)
+            return
+        if not np.array_equal(now, np.asarray(spec.groups)):
+            logger.warning("Refit of '{}' keeps its stored fold groups (by {}); the current "
+                           "{} would group the ROIs differently", self.name, spec.group_by,
+                           "sample labels" if spec.group_by == "sample" else "target values")
 
     def _changed_values(self, sample_set: SampleSet) -> list[str]:
         """Ids of ROIs whose current reference value differs from the one the model used."""

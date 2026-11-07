@@ -10,7 +10,7 @@ from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtWidgets import QApplication, QDialog
 
 from .._logging import enable_logging, get_logger, logging_enabled
-from ._theme import apply_qt_theme, load_preference
+from ._theme import apply_qt_theme, load_preference, theme_applied
 
 __all__ = ["enable_viewer_logging", "ensure_app", "run"]
 
@@ -99,14 +99,21 @@ def ensure_app() -> QApplication:
     """Return the existing QApplication or create one.
 
     Also enables viewer logging (see :func:`enable_viewer_logging`). Safe to
-    call multiple times; returns the singleton.
+    call multiple times; returns the singleton. The theme is applied only when
+    the application does not have it yet in the saved mode, because applying
+    it restyles every open widget.
     """
     global _app
     enable_viewer_logging()
     existing = QApplication.instance()
     if isinstance(existing, QApplication):
         _install_dialog_centering(existing)
-        return apply_qt_theme(existing, dark=load_preference())
+        dark = load_preference()
+        if theme_applied(existing, dark=dark):
+            # Restyling the application restyles every live widget; the theme
+            # is already in place, so a second window does not repeat it.
+            return existing
+        return apply_qt_theme(existing, dark=dark)
     _configure_qt_platform()
     _app = QApplication([])
     _install_dialog_centering(_app)

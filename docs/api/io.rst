@@ -121,6 +121,8 @@ Saving objects
 
 .. autofunction:: enginir.io.project_store.save_training_roi
 
+.. autofunction:: enginir.io.project_store.save_roi_sample
+
 .. autofunction:: enginir.io.project_store.save_sample_set
 
 .. autofunction:: enginir.io.project_store.save_model_run
@@ -132,6 +134,7 @@ Saving objects
 .. autofunction:: enginir.io.project_store.remove_target_assignment
 
 .. autofunction:: enginir.io.project_store.load_roi_band_images
+
 
 .. autofunction:: enginir.io.project_store.relocate_dataset_ref
 
@@ -157,6 +160,8 @@ Loading arrays on demand
 .. autofunction:: enginir.io.project_store.load_roi_spectra
 
 .. autofunction:: enginir.io.project_store.load_roi_spectra_batch
+
+.. autofunction:: enginir.io.project_store.load_roi_spectra_dtypes
 
 .. autofunction:: enginir.io.project_store.load_roi_spectra_matrix
 

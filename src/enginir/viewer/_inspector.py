@@ -8,9 +8,67 @@ from pathlib import Path
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QLabel, QFrame, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
+from typing import Any
+
+import numpy as np
+
+from .._logging import get_logger
+from ..io.project_store import load_model_run_artifact_refs
+from ..project import ModelRun
 from ._state import ProjectState
 
-__all__ = ["ProjectInspector"]
+__all__ = ["ProjectInspector", "fit_summary"]
+
+logger = get_logger(__name__)
+
+_FOLD_RULES = {"round_robin": "round-robin, {n} folds", "leave_one_group_out": "leave one out",
+               "group_kfold": "GroupKFold, {n} folds (before 1.2)"}
+_GROUPS = {"roi": "each ROI", "sample": "ROIs with the same Sample label",
+           "target": "ROIs with the same target value"}
+_SCALINGS = {"center": "centre", "uv": "unit variance", "pareto": "Pareto"}
+
+
+def fit_summary(model_run: ModelRun, roi_names: dict[str, str],
+                exclusion: dict[str, Any] | None = None) -> list[str]:
+    """How a model run was fitted, as lines for people (sample-set-model-run contract §7).
+
+    ``exclusion`` is the run's stored ``artifact_refs/exclusion`` (with its
+    arrays); ROI ids are shown by name.
+    """
+    spec = model_run.fit_specification
+    folds = _FOLD_RULES.get(spec.fold_rule, spec.fold_rule).format(n=spec.n_folds)
+    lines = [f"Folds: {folds}; held out together: {_GROUPS.get(spec.group_by, spec.group_by)}"]
+    lines.append("Pixels: all" if spec.pixels_per_roi is None
+                 else f"Pixels: {spec.pixels_per_roi} per ROI (seed {spec.seed})")
+    hyper = model_run.hyperparameters
+    if "x_scaling" in hyper:
+        scaling = f"X {_SCALINGS.get(str(hyper['x_scaling']), hyper['x_scaling'])}"
+        if "y_scaling" in hyper:
+            scaling += f", Y {_SCALINGS.get(str(hyper['y_scaling']), hyper['y_scaling'])}"
+    else:
+        scaling = "unit variance (before 1.2)" if hyper.get("scale", True) else "centre"
+    lines.append(f"Scaling: {scaling}")
+    if spec.exclusion == "none":
+        lines.append("Pixel exclusion: none")
+        return lines
+    weighting = "weighted" if spec.exclusion_formula == "dmodx-2" else "unweighted"
+    lines.append(f"Pixel exclusion: DModX ({weighting}), level {spec.exclusion_level:g}, "
+                 f"{spec.exclusion_rounds} round(s), at most "
+                 f"{spec.exclusion_max_fraction:.0%} per ROI; "
+                 f"{model_run.metrics.get('n_excluded_pixels', 0)} pixels excluded")
+    if exclusion:
+        roi_ids = [str(r) for r in np.atleast_1d(exclusion.get("roi_ids", []))]
+        counts = np.atleast_1d(exclusion.get("counts", [])).astype(int)
+        if roi_ids:
+            lines.append("Excluded per ROI: " + ", ".join(
+                f"{roi_names.get(r, r)} {n}" for r, n in zip(roi_ids, counts)))
+        flagged = [str(r) for r in np.atleast_1d(exclusion.get("flagged_roi_ids", []))]
+        if flagged:
+            lines.append("Flagged ROIs (more outlying pixels than allowed): "
+                         + ", ".join(roi_names.get(r, r) for r in flagged))
+        if "dcrit" in exclusion:
+            lines.append(f"DCrit: {float(exclusion['dcrit']):.4g}")
+    return lines
 
 
 class ProjectInspector(QWidget):
@@ -271,10 +329,27 @@ class ProjectInspector(QWidget):
                     f"Sample set: {model_run.sample_set_id}",
                     f"Signal domain: {model_run.signal_domain_id}",
                     f"CV: {model_run.cv_spec}",
+                    *fit_summary(model_run, {r: roi.name for r, roi in
+                                             self.project_state.rois.items()},
+                                 self._exclusion_of(model_run)),
                     f"Metrics: {model_run.metrics or 'none'}",
                 ]
             )
         )
+
+    def _exclusion_of(self, model_run: ModelRun) -> dict[str, Any] | None:
+        """The run's stored exclusion arrays, read on demand (``None`` without exclusion)."""
+        path = self.project_state.project_path
+        if model_run.fit_specification.exclusion == "none" or path is None:
+            return None
+        try:
+            refs = load_model_run_artifact_refs(path, model_run.model_run_id,
+                                                keys=("exclusion",))
+        except (OSError, KeyError, ValueError) as exc:
+            logger.warning("Excluded pixels of model run '{}' not read: {}",
+                           model_run.model_run_id, exc)
+            return None
+        return refs.get("exclusion")
 
     def _show_prediction(self, prediction_id: str) -> None:
         prediction = self.project_state.predictions.get(prediction_id)
