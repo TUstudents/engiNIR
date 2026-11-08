@@ -258,8 +258,12 @@ ROIs, targets, models and predictions by name or by id (see
 ``predict`` resolves the scan's calibration in the model's signal unit (a
 registered scan reuses its stored one) and checks that the scan can produce
 what the model was trained on (instrument format, number of bands,
-calibration and signal unit) before the data are read. Wavelength values are
-metadata and are not compared. A prediction is an application of the model,
+calibration and signal unit) before the data are read. Wavelength values
+never block a prediction, but when the scan and the model both have a real
+wavelength axis and they differ (beyond the signal domain's
+``wavelength_tolerance_nm``, by default any difference), the prediction logs
+a warning with the largest difference and records it in
+``prediction.provenance["wavelength_warning"]``. A prediction is an application of the model,
 not part of the calibration: nothing is written to the project. Its
 provenance (model, data file with size and modification time, calibration,
 time, the summary) is on ``prediction.provenance`` and in the log;

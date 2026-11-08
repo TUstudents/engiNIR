@@ -24,6 +24,11 @@
   `score_variances`, `s0`, limits); models fitted before have no maps until
   they are fitted again. `Prediction.dmodx_map`, `.t2_map`, `.diagnostics`,
   `.provenance`.
+- Wavelength warning at prediction: when the scan and the model both have
+  a real wavelength axis and they differ, the prediction logs a warning with
+  the largest difference and records it in `provenance["wavelength_warning"]`
+  (Predict summary: **Wavelengths**); it never blocks or changes the
+  prediction. `enginir.prediction.wavelength_mismatch`.
 - Viewer: **Layer** selector in the Predict map (Prediction, DModX, T²) with
   the pixels above the limit marked, and the applicability summary.
 - AsLS baseline correction (asymmetric least squares, as in SIMCA):

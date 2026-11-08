@@ -135,6 +135,9 @@ class PredictionPreflight:
     projection : Projection or None
         The model's projection data for DModXPS and T²PS, or ``None`` (a run
         fitted before engiNIR 1.3: no applicability diagnostics).
+    wavelength_warning : str or None
+        Why the scan's wavelength axis differs from the model's, or ``None``
+        (see :func:`wavelength_mismatch`; a warning, never a gate).
     """
 
     predictor: Any | None
@@ -146,6 +149,7 @@ class PredictionPreflight:
     spatial_shape: tuple[int, int]
     n_rows: int
     projection: Projection | None = None
+    wavelength_warning: str | None = None
 
 
 @dataclass(slots=True)
@@ -321,6 +325,8 @@ def preflight_prediction(
         spatial_shape=(n_frames, height),
         n_rows=n_frames * height,
         projection=projection_of(model_blob),
+        wavelength_warning=wavelength_mismatch(dataset.wavelengths, signal_domain.wavelengths,
+                                               signal_domain.wavelength_tolerance_nm),
     )
 
 
@@ -337,6 +343,34 @@ def _check_recipe_aware(predictor: Any, steps: list[tuple[str, Any]], model_run_
     if missing:
         log_and_raise("In-memory pipeline of model run '{}' lacks the recipe step(s) {}",
                       model_run_id, missing, depth=2)
+
+
+def _is_real_axis(wavelengths: np.ndarray) -> bool:
+    """``False`` for an empty axis or the band-index fallback 0, 1, …, n − 1 of loaders."""
+    axis = np.asarray(wavelengths, dtype=np.float64).reshape(-1)
+    return axis.size > 0 and not np.array_equal(axis, np.arange(axis.size, dtype=np.float64))
+
+
+def wavelength_mismatch(scan: np.ndarray, model: np.ndarray, tolerance_nm: float = 0.0
+                        ) -> str | None:
+    """Why a scan's wavelength axis differs from a model's, or ``None``.
+
+    Compared only when both are real axes of the same length (not empty, not
+    the band-index fallback); a difference above ``max(tolerance_nm, 1e-6)``
+    nm at any band is reported with the largest one. This is a warning,
+    never a prediction gate (prediction-runtime contract, G18).
+    """
+    scan_axis = np.asarray(scan, dtype=np.float64).reshape(-1)
+    model_axis = np.asarray(model, dtype=np.float64).reshape(-1)
+    if scan_axis.size != model_axis.size or not (_is_real_axis(scan_axis)
+                                                 and _is_real_axis(model_axis)):
+        return None
+    difference = np.abs(scan_axis - model_axis)
+    worst = int(np.argmax(difference))
+    if difference[worst] <= max(float(tolerance_nm), 1e-6):
+        return None
+    return (f"wavelengths differ from the model's by up to {difference[worst]:.4g} nm "
+            f"(band {worst}: {scan_axis[worst]:.6g} nm, model {model_axis[worst]:.6g} nm)")
 
 
 def _check_model_blob(blob: dict[str, Any], n_bands: int, model_run_id: str) -> None:
@@ -505,11 +539,15 @@ def predict_with_model_run(
         prediction_run_id=run_id, artifact_refs=artifact_refs, **run_payload
     )
     summary = outputs.diagnostics_summary()
+    if preflight.wavelength_warning is not None:
+        logger.warning("{}: {} (model {}); predicted anyway", data_path,
+                       preflight.wavelength_warning, model_run.name or model_run.model_run_id)
     provenance = {
         "model_run_id": model_run.model_run_id, "model_name": model_run.name,
         "files": file_records(data_path, checksum=checksum),
         "calibration_id": calibration.calibration_id, "calibration_mode": calibration.mode,
         "clip_low_count": stats.clip_low_count, "clip_high_count": stats.clip_high_count,
+        "wavelength_warning": preflight.wavelength_warning,
         "created_at": run_payload["created_at"],
     }
     log_prediction(provenance, summary)
@@ -852,4 +890,5 @@ __all__ = [
     "build_dataset_ref_from_spectral_data",
     "predict_with_model_run",
     "preflight_prediction",
+    "wavelength_mismatch",
 ]

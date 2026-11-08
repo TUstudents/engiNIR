@@ -544,6 +544,8 @@ class HSIViewer(QMainWindow):
         self._predict_clipping_value = QLabel("-")
         self._predict_diagnostics_value = QLabel("-")
         self._predict_diagnostics_value.setWordWrap(True)
+        self._predict_wavelengths_value = QLabel("-")
+        self._predict_wavelengths_value.setWordWrap(True)
         compatibility_layout.addRow("Input contract", self._predict_contract_format_value)
         compatibility_layout.addRow("Signal contract", self._predict_contract_signal_value)
         compatibility_layout.addRow("Bands", self._predict_contract_bands_value)
@@ -551,6 +553,7 @@ class HSIViewer(QMainWindow):
         compatibility_layout.addRow("Map range", self._predict_map_range_value)
         compatibility_layout.addRow("Calibration clipping", self._predict_clipping_value)
         compatibility_layout.addRow("Applicability", self._predict_diagnostics_value)
+        compatibility_layout.addRow("Wavelengths", self._predict_wavelengths_value)
 
         layout.addWidget(self._predict_content_title)
         predict_text_layout.addWidget(self._predict_summary_status)
@@ -1169,6 +1172,7 @@ class HSIViewer(QMainWindow):
         self._predict_map_range_value.setText(prediction_summary["map_range"])
         self._predict_clipping_value.setText(prediction_summary["clipping"])
         self._predict_diagnostics_value.setText(prediction_summary["diagnostics"])
+        self._predict_wavelengths_value.setText(prediction_summary["wavelengths"])
         predict_map_widget.update_data(
             self._prediction_view.workspace_visual_payload(),
             empty_reason=prediction_summary["readiness"],
@@ -1247,6 +1251,7 @@ class HSIViewer(QMainWindow):
                     f"Map range: {self._predict_map_range_value.text()}",
                     f"Calibration clipping: {self._predict_clipping_value.text()}",
                     f"Applicability: {self._predict_diagnostics_value.text()}",
+                    f"Wavelengths: {self._predict_wavelengths_value.text()}",
                 ],
             )
             return

@@ -267,8 +267,10 @@ Predict
 its calibration; a new scan gets the calibration chosen in the dialog. The
 prediction is refused before it starts when the scan cannot produce the
 model's signal: another instrument format, number of bands, calibration mode
-or signal unit. Wavelength values are metadata and are not compared. Models
-with MSC or EMSC apply the preprocessing state stored at training.
+or signal unit. Wavelength values never block a prediction; when the scan's
+wavelengths differ from the model's, the **Wavelengths** row of the summary
+shows a warning with the largest difference. Models with MSC or EMSC apply
+the preprocessing state stored at training.
 
 Predictions are not stored: the project keeps the spectra, the recipe and
 the fitted model, and a prediction of a new scan is a result to inspect and

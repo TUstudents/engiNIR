@@ -17,6 +17,7 @@ from ._service import (
     build_dataset_ref_from_spectral_data,
     predict_with_model_run,
     preflight_prediction,
+    wavelength_mismatch,
 )
 
 __all__ = [
@@ -30,4 +31,5 @@ __all__ = [
     "build_dataset_ref_from_spectral_data",
     "predict_with_model_run",
     "preflight_prediction",
+    "wavelength_mismatch",
 ]

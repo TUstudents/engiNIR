@@ -309,10 +309,10 @@ Executable field semantics in v3:
   calibration must carry the corresponding reference context (embedded
   reference arrays, reference source provenance, or scalar levels); both
   checks are skipped when the prediction calibration is `precalibrated_import`
-- `wavelength_tolerance_nm` is persisted diagnostic metadata with no
-  executable gate in v3; current writers emit `0.0`; a future
-  wavelength-compatibility contract must define its use before it gains
-  runtime effect
+- `wavelength_tolerance_nm` is the tolerance of the prediction-time
+  wavelength warning (`prediction-runtime-contract_v3.md`, Signal-Domain
+  Runtime Contract); it never gates prediction; current writers emit `0.0`
+  (any difference above float noise warns)
 
 ## Separation Of Responsibilities
 

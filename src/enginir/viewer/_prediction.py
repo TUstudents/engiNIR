@@ -1014,7 +1014,10 @@ class PredictionView(QWidget):
         map_range_text = "-"
         clipping_text = "-"
         diagnostics_text = "-"
+        wavelengths_text = "-"
         if result is not None:
+            warning = result.provenance.get("wavelength_warning")
+            wavelengths_text = f"Warning: {warning}" if warning else "match the model"
             map_shape_text, map_range_text = self._prediction_map_summary_fields(result)
             clipping_text = self._prediction_clipping_summary(result)
             diagnostics_text = self._diagnostics_summary(result)
@@ -1042,6 +1045,7 @@ class PredictionView(QWidget):
             "map_range": map_range_text,
             "clipping": clipping_text,
             "diagnostics": diagnostics_text,
+            "wavelengths": wavelengths_text,
         }
 
     def workspace_provenance(self) -> dict[str, str]:

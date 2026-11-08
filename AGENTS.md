@@ -80,7 +80,8 @@ These are contract decisions; do not change them without a contract change.
 - Raw ROI spectra are stored as recorded (uint16 counts, or float32 for
   precalibrated data); working arrays are float32. Do not upcast to float64
   or add copies without a measured reason.
-- Wavelength values are metadata, not a prediction gate (open decision G18).
+- Wavelength values are metadata, not a prediction gate; a differing axis only
+  warns (G18, decided 2026-11-08).
 
 ## Code conventions
 

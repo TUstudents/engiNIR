@@ -133,7 +133,14 @@ Required behavior:
 - wavelength arrays remain useful metadata for display, diagnostics, and rough
   import/load sanity checks
 - prediction runtime must not repeatedly compare full wavelength axes once the
-  dataset has been accepted into the project
+  dataset has been accepted into the project, apart from the wavelength warning (G18): preflight compares the scan's wavelength axis
+with the model's (the signal domain's) once; when both are real axes (not
+empty and not the band-index fallback 0, 1, …, n − 1 that loaders use for
+files without wavelengths) and differ by more than
+`max(wavelength_tolerance_nm, 1e-6)` nm at any band, prediction logs a
+warning with the largest difference and records it in the result
+(`provenance["wavelength_warning"]`; the viewer shows it in the Predict
+summary). It never refuses or changes the prediction
 - `output_signal_unit`, `required_signal_unit`, and related enum strings must be
   compared after canonical normalization
 - if flat spectra are supplied without an explicit `spatial_shape`, calibration

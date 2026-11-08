@@ -16,6 +16,8 @@ Running predictions
 
 .. autofunction:: enginir.prediction.build_dataset_ref_from_spectral_data
 
+.. autofunction:: enginir.prediction.wavelength_mismatch
+
 Results and progress
 --------------------
 
