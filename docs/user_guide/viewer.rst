@@ -185,7 +185,10 @@ Model shows the selected model and its diagnostics:
 - the **Fit** page: predicted vs reference (with R², RMSECV, bias, and RMSEE
   and adjusted R²), residuals, the distribution of reference values, and the
   training scores of the first two latent variables with the Hotelling T²
-  ellipses (0.95 dotted, 0.99 dashed)
+  ellipses (0.95 dotted, 0.99 dashed); one point per ROI, the mean of the
+  pixels the model was fitted on (the drawn pixels with a pixel sample,
+  without the excluded ones). Models fitted with an earlier version show no
+  scores until they are fitted again
 - the **Spectral** page: the regression coefficients, the scaled
   coefficients (CoeffCS) and the loadings of the first three latent variables,
   to see which components are concentration and which are physics (scatter,

@@ -564,6 +564,8 @@ dmodx                    float32, normalised unweighted DModX per drawn pixel (o
 @dcrit_099               DCrit at 0.99 (normalised; only with dmodx)
 roi_share_above_dcrit    float32 per ROI (cv_outputs/roi_ids order), share of pixels above DCrit
 roi_share_above_t2crit   float32 per ROI, share of pixels above T²Crit (0.99)
+roi_scores               float32 (n_rois, A), mean training score of each ROI's fitted pixels
+roi_score_pixels         int (n_rois,), fitted pixels behind each ROI score (0: NaN scores)
 ```
 
 #### `artifact_refs/component_curve`

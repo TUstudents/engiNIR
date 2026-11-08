@@ -264,6 +264,15 @@ def training_diagnostics(fitted: Any, X: np.ndarray, y: np.ndarray, kept: np.nda
         above = t2 > diagnostics["t2_crit_099"]
         diagnostics["roi_share_above_t2crit"] = (
             np.bincount(roi_index, weights=above, minlength=n_rois) / counts).astype(np.float32)
+    # ROI scores of the score plot: mean over each ROI's fitted pixels (§7.5).
+    fitted_counts = np.bincount(roi_index[kept], minlength=n_rois)
+    sums = np.stack([np.bincount(roi_index[kept], weights=projection.scores[kept, c],
+                                 minlength=n_rois) for c in range(a)], axis=1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        diagnostics["roi_scores"] = np.where(fitted_counts[:, None] > 0,
+                                             sums / fitted_counts[:, None],
+                                             np.nan).astype(np.float32)
+    diagnostics["roi_score_pixels"] = fitted_counts.astype(np.int64)
     coef = np.asarray(model.coef_, dtype=np.float64)
     diagnostics["coef_cs"] = (coef * np.asarray(model.x_std_) / y_divisor).astype(np.float32)
 

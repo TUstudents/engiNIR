@@ -242,12 +242,14 @@ Required for PLS and PCR:
 Required behavior:
 
 - one point per ROI, not one point per pixel
-- the ROI-level score is the arithmetic mean of that ROI's pixel-level
-  training scores, segmented by the sample set's ROI pixel counts in
-  sample-set ROI order
-- if persisted scores cannot be aligned with the sample set's ROI pixel
-  counts, the scores view must degrade to an explicit empty/placeholder state
-  rather than plotting misaligned points
+- the ROI-level score is the arithmetic mean of the training scores of that
+  ROI's fitted pixels (the drawn pixels with a pixel sample, the kept pixels
+  with DModX exclusion), computed and stored by the fit (`diagnostics/
+  roi_scores`, sample-set-model-run contract §7.5); the viewer never
+  reconstructs it from pixel counts
+- a run without stored ROI scores (fitted before this rule) shows an
+  explicit placeholder asking to fit the model again; an ROI without fitted
+  pixels has no point, and the plot says how many ROIs that are
 - ROI selection should be possible or at least inspectable
 - the plot must label the scores as training scores, so that they are not
   mistaken for cross-validated scores

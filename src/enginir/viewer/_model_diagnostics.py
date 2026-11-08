@@ -218,8 +218,13 @@ def _render_scores(fig: Figure, payload: Any, colors: Mapping[str, str]
     pairs = _cv_pairs(payload)
     scores = None if pairs is None else _scores(payload, pairs[0].size)
     if pairs is None or scores is None:
-        draw_placeholder(ax, "No latent scores diagnostics yet.", colors)
+        draw_placeholder(ax, payload.get("scores_message") or "No latent scores diagnostics yet.",
+                         colors)
         return None
+    missing = int(payload.get("scores_without_pixels", 0))
+    if missing:  # every pixel of these ROIs was excluded: no point (§2)
+        ax.text(0.01, 0.97, f"{missing} ROI(s) without fitted pixels not shown",
+                transform=ax.transAxes, va="top", fontsize=8, color=colors["fg"])
     ax.scatter(scores[:, 0], scores[:, 1], c=pairs[0], s=36, alpha=0.8, edgecolors="none")
     ax.axhline(0.0, color=_GUIDE, linewidth=0.6, linestyle="--")
     ax.axvline(0.0, color=_GUIDE, linewidth=0.6, linestyle="--")

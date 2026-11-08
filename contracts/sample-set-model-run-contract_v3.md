@@ -664,6 +664,13 @@ it was fitted on):
   training observations, a different number); T²Crit for the first two
   components (the score-plot ellipse) only when A ≥ 2; DModX and DCrit at
   0.99 only when K − A ≥ 1 and N − A₀ − A ≥ 1
+- ROI scores for the score plot (model-workspace-diagnostics contract §2):
+  `roi_scores`, per ROI (in `cv_outputs/roi_ids` order) the mean training
+  score of each component over that ROI's fitted pixels (the drawn pixels
+  with a pixel sample, the kept pixels with DModX exclusion), and
+  `roi_score_pixels`, the number of those pixels. An ROI with no fitted
+  pixel has NaN scores and 0. The fit computes them because only the fit
+  knows which row belongs to which ROI
 - per ROI the share of its drawn pixels above DCrit and above T²Crit (0.99)
 
 PCR computes its principal components with a deterministic full SVD, so a

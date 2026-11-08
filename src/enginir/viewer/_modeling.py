@@ -683,6 +683,22 @@ def _component_payload(model_run: ModelRun, artifact: dict[str, Any]) -> dict[st
     return payload
 
 
+def _roi_score_payload(artifact: dict[str, Any] | None) -> dict[str, Any]:
+    """The ROI scores the fit stored (model-workspace-diagnostics contract §2).
+
+    The viewer never rebuilds them from pixel counts: a run without stored
+    ROI scores gets a placeholder message.
+    """
+    scores = None if artifact is None else artifact.get("roi_scores")
+    if scores is None:
+        return {"scores_message": "ROI scores are not stored for this model; fit it again."}
+    matrix = np.asarray(scores, dtype=np.float32)
+    if matrix.ndim != 2:
+        return {"scores_message": "ROI scores of this model are malformed; fit it again."}
+    return {"scores_roi": matrix,
+            "scores_without_pixels": int(np.sum(~np.isfinite(matrix).all(axis=1)))}
+
+
 class ModelingView(QWidget):
     """Modeling controls for target editing, sample-set builds, and model fitting."""
 
@@ -1262,9 +1278,7 @@ class ModelingView(QWidget):
         if roi_ids is not None:
             payload["roi_ids"] = np.asarray(roi_ids, dtype=object).reshape(-1)
             payload["roi_names"] = roi_names
-        scores_roi = self._extract_roi_scores(model_run, artifact)
-        if scores_roi is not None:
-            payload["scores_roi"] = scores_roi
+        payload.update(_roi_score_payload(artifact))
         if artifact is not None:
             coefficients = artifact.get("coef_")
             if coefficients is not None:
@@ -1352,53 +1366,6 @@ class ModelingView(QWidget):
         self._cached_diagnostics_model_key = cache_key
         self._cached_diagnostics_model_artifact = artifact
         return artifact
-
-    def _extract_roi_scores(self, model_run, artifact: dict[str, Any] | None) -> np.ndarray | None:
-        if artifact is None:
-            return None
-        sample_set = self.project_state.sample_sets.get(model_run.sample_set_id)
-        if sample_set is None:
-            return None
-        scores = None
-        if "x_scores_" in artifact:
-            scores = artifact["x_scores_"]
-        elif "scores_" in artifact:
-            scores = artifact["scores_"]
-        if scores is None:
-            return None
-
-        scores_arr = np.asarray(scores, dtype=np.float32)
-        if scores_arr.ndim != 2 or scores_arr.shape[0] == 0:
-            return None
-
-        counts: list[int] = []
-        for roi_id in sample_set.roi_ids:
-            roi = self.project_state.rois.get(roi_id)
-            if roi is None:
-                return None
-            n_pixels = int(getattr(roi, "n_pixels", 0))
-            if n_pixels <= 0:
-                return None
-            counts.append(n_pixels)
-
-        counts_arr = np.asarray(counts, dtype=np.int64)
-        total_pixels = int(counts_arr.sum())
-        if total_pixels > scores_arr.shape[0]:
-            logger.warning(
-                "Model diagnostics scores for '{}' are shorter than sample-set ROI pixel counts",
-                model_run.model_run_id,
-            )
-            return None
-        if total_pixels != scores_arr.shape[0]:
-            logger.warning(
-                "Model diagnostics scores for '{}' have {} rows but sample-set ROI counts consume {}",
-                model_run.model_run_id,
-                scores_arr.shape[0],
-                total_pixels,
-            )
-        starts = np.concatenate(([0], np.cumsum(counts_arr[:-1], dtype=np.int64)))
-        sums = np.add.reduceat(scores_arr[:total_pixels], starts, axis=0)
-        return (sums / counts_arr[:, None]).astype(np.float32, copy=False)
 
     def _update_target_status(self) -> None:
         target = self.current_target()

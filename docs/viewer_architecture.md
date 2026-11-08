@@ -20,7 +20,7 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_recent.py` | MRU file list (`~/.config/enginir/recent.json`) |
 | `_eda.py` | `EDAView` — signal, preprocessing, project, and ROI controls |
 | `_attachment.py` | Project/dataset binding validation |
-| `_modeling.py` | `ModelingView` — target, target values (ROI table), the fit dialog (components or Auto with a rule; Fitting group: pixel sample, scaling, DModX exclusion → `FitSpec` and hyperparameters) and Fit again (dialog preset from a stored run; the preset recipe's AsLS fields and `sg_edges` are kept, as the dialog has no controls for them); `_component_payload` adds curve, loadings, CoeffCS and training distances to the diagnostics payload |
+| `_modeling.py` | `ModelingView` — target, target values (ROI table), the fit dialog (components or Auto with a rule; Fitting group: pixel sample, scaling, DModX exclusion → `FitSpec` and hyperparameters) and Fit again (dialog preset from a stored run; the preset recipe's AsLS fields and `sg_edges` are kept, as the dialog has no controls for them); `_component_payload` adds curve, loadings, CoeffCS and training distances to the diagnostics payload; `_roi_score_payload` passes the ROI scores the fit stored (`diagnostics/roi_scores`) and never rebuilds them from pixel counts |
 | `_model_diagnostics.py` | Model workspace diagnostics surface |
 | `_prediction.py` | `PredictionView` and `PredictionMapWidget` |
 | `_browser.py` | Read-only workspace object tree |

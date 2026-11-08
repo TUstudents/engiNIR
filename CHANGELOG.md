@@ -58,6 +58,11 @@
   edges). Projects with the new recipe fields need this version or later.
 - `PreprocessingRecipe.build_steps`, `make_model_pipeline` and
   `apply_preprocessing_recipe` take `signal_unit` (required with AsLS).
+- **Breaking:** the fit stores the ROI scores of the score plot
+  (`diagnostics/roi_scores`, `roi_score_pixels`: the mean training score of
+  each ROI's fitted pixels). The viewer only reads them, so the plot now
+  works with a pixel sample and DModX exclusion (it was empty before);
+  models fitted before show a placeholder until they are fitted again.
 
 ## 1.2.0 (2026-11-07)
 

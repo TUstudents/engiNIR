@@ -476,7 +476,8 @@ def fit_model_run(
     # Per-ROI shares follow cv_outputs/roi_ids (they are computed in roi_ids_present order).
     position = {str(roi_id): i for i, roi_id in enumerate(np.asarray(roi_ids_present))}
     order = [position[str(roi_id)] for roi_id in np.asarray(roi_ids)]
-    for key in ("roi_share_above_dcrit", "roi_share_above_t2crit"):
+    for key in ("roi_share_above_dcrit", "roi_share_above_t2crit", "roi_scores",
+                "roi_score_pixels"):
         if key in training:
             training[key] = np.asarray(training[key])[order]
 
