@@ -68,6 +68,7 @@ scikit-learn estimators:
    user_guide/validation
    user_guide/fit_specification
    user_guide/band_selection
+   user_guide/model_plots
    user_guide/visualization
    user_guide/viewer
    user_guide/logging

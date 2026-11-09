@@ -208,7 +208,13 @@ Model shows the selected model and its diagnostics:
 
 - summary cards for target, sample set (its ROI count and preprocessing),
   model (by name), components, cross-validation (for example "7 folds,
-  round-robin over 20 samples"), ROI and pixel counts, R², RMSECV and bias
+  round-robin over 20 samples"), ROI and pixel counts; **Metrics per ROI**
+  (R²Y of the fit, Q² = the cross-validated R², RMSEE, RMSECV, bias, RPD) and
+  **Metrics per pixel** (the same over single spectra, which are noisier); and
+  a warning when the validation is likely optimistic (see
+  :doc:`fit_specification`)
+- a **?** button in every plot header that explains how to read the plot
+  (:doc:`model_plots` collects these texts)
 - the **Fit** page: predicted vs reference (with R², RMSECV, bias, and RMSEE
   and adjusted R²; a unit of ``1`` is not repeated after each number),
   residuals, the distribution of reference values (one bar per value when
@@ -232,10 +238,14 @@ Model shows the selected model and its diagnostics:
   bands labelled, and the selectivity ratio (PLS and PCR); see
   :doc:`band_selection`. Plots over wavelength leave a gap where a band
   selection leaves out bands
-- the **Components** page: RMSECV (with its standard error) and R²Y, Q², R²X
-  against the number of components, with the model's number and each rule's
-  suggestion; **Fit again...** opens the fit dialog with the model's settings
-  to try another number
+- the **Components** page, four plots that name their level: RMSECV with
+  its standard error and RMSEE, per ROI, with the model's number and every
+  rule's suggestion with the number that decided it (and what the noise
+  guard changed); R²Y and Q² per ROI, with the gap between them shaded; each
+  component on its own (Q²ₐ per ROI, ΔR²X per pixel, the Durbin–Watson value
+  of its weights; noise components grey); and R²X and R²Y per pixel.
+  **Fit again...** opens the fit dialog with the model's settings to try
+  another number
 - the **Distance** page: the distance to the model (DModX) and Hotelling T²
   of the training pixels, with their 0.99 limits and the share above them.
   A 0.99 limit expects 1 % of the pixels above it; much more means the
@@ -300,7 +310,11 @@ ranges (``1100-1350, 1500-2300``, applied after every other step), with a
 spectrum of the target's ROIs, and **Propose...** to run the band proposal
 with nested validation and take its ranges (:doc:`band_selection`); the
 Explore preview then shows the left-out bands as missing. **Components** takes a number, or **Auto**
-to choose it from the component curve by a rule (one SE by default). The
+to choose it from the component curve by a rule (one SE by default; also
+lowest RMSECV, Q² limit, F-test and Q² with look-ahead) with **drop noise**
+(the noise guard, on by default; see :doc:`fit_specification`). The dialog
+warns when the validation would be optimistic, for example when the ROIs of a
+scan share one value but are held out in different folds. The
 **Fitting** group sets how the
 model is fitted: the same number of pixels from every ROI (at most the
 smallest ROI, with a seed so the draw repeats), the scaling of X and Y, and

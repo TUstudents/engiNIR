@@ -946,8 +946,10 @@ class Model:
         """RMSECV, its standard error, Q², Q²(cum), R²X(cum) and R²Y(cum) per number of components.
 
         Arrays over ``n_components`` 1 … A_max and every rule's suggestion
-        (``suggested_one_se``, ``suggested_min_rmsecv``, ``suggested_q2_limit``);
-        ``None`` for a model fitted before engiNIR 1.3
+        (``suggested_one_se``, ``suggested_min_rmsecv``, ``suggested_q2_limit``,
+        ``suggested_f_test``, ``suggested_q2_lookahead``); from engiNIR 1.4 also
+        ``r2y_cum_roi``, ``rmsee_roi``, ``noise``, ``dw_weights`` and
+        ``structure_ceiling``. ``None`` for a model fitted before engiNIR 1.3
         (sample-set-model-run contract §7.4).
         """
         refs = store.load_model_run_artifact_refs(self.project.path, self.ref.model_run_id,

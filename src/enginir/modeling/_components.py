@@ -21,7 +21,11 @@ from .._checks import log_and_raise
 from .._logging import get_logger
 from ..models import PCR, PLSRegression
 from ..validation import choose_components, cross_validate
-from ..validation.components import COMPONENT_CHOICE_RULES
+from ..validation.components import (
+    COMPONENT_CHOICE_RULES,
+    noise_components,
+    structure_ceiling,
+)
 from ..validation.outliers import dmodx_limit
 
 logger = get_logger(__name__)
@@ -186,9 +190,38 @@ def component_curve(model: Any, X: np.ndarray, y: np.ndarray, *, splitter: Any,
                                 np.full_like(projection.cumulative_rss, projection.total_ss),
                                 "the spectral spread"),
     }
+    dof = n_rois - curve["n_components"] - 1  # RMSEE degrees of freedom (§7.5), per ROI
+    with np.errstate(invalid="ignore", divide="ignore"):
+        curve["rmsee_roi"] = np.where(dof >= 1, np.sqrt(rss_roi / np.maximum(dof, 1)), np.nan)
+    curve["dw_weights"] = weight_roughness(full)
+    curve["noise"] = noise_components(curve, n_samples=n_samples)
+    curve["structure_ceiling"] = structure_ceiling(curve)
     for rule in COMPONENT_CHOICE_RULES:
         curve[f"suggested_{rule}"] = choose_components(curve, rule, n_samples=n_samples)
     return curve, oof, cv["cv_scheme"]
+
+
+def weight_roughness(fitted: Any) -> np.ndarray:
+    """Durbin–Watson value Σ (wₖ₊₁ − wₖ)² / Σ wₖ² of each component's weight vector (§7.4).
+
+    PLS: the X weights; PCR: the principal components. Near 0 for a smooth,
+    spectrum-like vector, near 2 for white noise. NaN for a zero vector.
+    """
+    model: Any = fitted[-1] if isinstance(fitted, Pipeline) else fitted
+    if isinstance(model, PLSRegression):
+        weights = np.asarray(model.x_weights_, dtype=np.float64)
+    elif isinstance(model, PCR):
+        weights = np.asarray(model.pca_.components_, dtype=np.float64).T
+    else:
+        log_and_raise("Weight roughness exists for PLS and PCR models, got {}",
+                      type(model).__name__)
+    total = np.sum(weights ** 2, axis=0)
+    out = np.full(total.shape, np.nan)
+    if weights.shape[0] < 2:
+        return out
+    rough = np.sum(np.diff(weights, axis=0) ** 2, axis=0)
+    np.divide(rough, total, out=out, where=total >= _EPS)
+    return out
 
 
 def projection_data(model: Any) -> dict[str, np.ndarray]:

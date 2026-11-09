@@ -433,6 +433,8 @@ only centres (`sample-set-model-run-contract_v3.md` §7.3).
 @validation_unit         roi
 @reporting_level         roi
 @roi_aggregation         mean
+@warnings                comma-separated fold warnings: few_groups, one_level_per_file;
+                         empty when none (1.4+; §7.4 of the model-run contract)
 ```
 
 #### `fit_spec/`
@@ -460,8 +462,10 @@ exclusion/
   @max_fraction          largest excluded share of an ROI's drawn pixels, all rounds
   @formula               DModX definition: dmodx-1 (unweighted) | dmodx-2 (MPow-weighted)
 components/              (1.3 and later)
-  @rule                  fixed | one_se | min_rmsecv | q2_limit
+  @rule                  fixed | one_se | min_rmsecv | q2_limit | f_test | q2_lookahead
+  @noise_guard           on | off (1.4+; absent reads off)
   @max                   largest number of components of the curve (Amax); 0 = not recorded (1.2)
+  @rule_choice           the rule's number before the noise guard and ceiling (1.4+)
   @selected              number of components of the run (= hyperparameters/n_components); 0 = not recorded
 ```
 
@@ -596,7 +600,12 @@ q2_cum                   Q²(cum)
 r2x_cum                  R²X(cum)
 r2y_cum                  R²Y(cum) over drawn pixels (never decreases)
 r2y_cum_roi              R²Y(cum) over ROI means
+rmsee_roi                RMSEE over ROI means, √(RSS/(R − a − 1)); NaN when R − a − 1 < 1 (1.4+)
+dw_weights               Durbin–Watson of each component's weight vector (1.4+)
+noise                    bool: ΔR²X < 0.01 and Q²ₐ ≤ L, a noise component (1.4+)
 @suggested_one_se, @suggested_min_rmsecv, @suggested_q2_limit
+@suggested_f_test, @suggested_q2_lookahead (1.4+)
+@structure_ceiling       1 + number of components with ΔR²X ≥ 0.005, at most Amax (1.4+)
 ```
 
 #### `artifact_refs/cv_outputs`

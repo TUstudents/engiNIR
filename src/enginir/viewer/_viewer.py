@@ -436,18 +436,27 @@ class HSIViewer(QMainWindow):
         summary_layout.addRow("ROIs", self._model_card_roi_count_value)
         summary_layout.addRow("Pixels", self._model_card_pixel_count_value)
 
-        metrics_box = QGroupBox("Metrics")
-        metrics_layout = QFormLayout(metrics_box)
-        metrics_layout.setContentsMargins(8, 8, 8, 8)
-        metrics_layout.setSpacing(4)
-
+        # Two levels (model-workspace-diagnostics contract): ROI means, single pixels.
+        metrics_box = QGroupBox("Metrics per ROI")
+        metrics_box.setToolTip("Over ROI means: the model's quality. The target, the folds "
+                               "and the reported metrics are per ROI.")
+        self._model_metrics_layout = QFormLayout(metrics_box)
+        self._model_metrics_layout.setContentsMargins(8, 8, 8, 8)
+        self._model_metrics_layout.setSpacing(4)
+        pixel_box = QGroupBox("Metrics per pixel")
+        pixel_box.setToolTip("Over single spectra (the observations of the fit). Single "
+                             "pixels are noisy, so these are worse than per ROI.")
+        self._model_pixel_metrics_layout = QFormLayout(pixel_box)
+        self._model_pixel_metrics_layout.setContentsMargins(8, 8, 8, 8)
+        self._model_pixel_metrics_layout.setSpacing(4)
+        self._model_pixel_metrics_box = pixel_box
         self._model_metric_r2_value = QLabel("-")
         self._model_metric_rmsecv_value = QLabel("-")
         self._model_metric_bias_value = QLabel("-")
-
-        metrics_layout.addRow("R2", self._model_metric_r2_value)
-        metrics_layout.addRow("RMSECV", self._model_metric_rmsecv_value)
-        metrics_layout.addRow("Bias", self._model_metric_bias_value)
+        self._model_metric_rows: list[str] = []
+        self._model_warnings = QLabel("")
+        self._model_warnings.setWordWrap(True)
+        self._model_warnings.setVisible(False)
 
         readiness_box = QGroupBox("Readiness")
         readiness_layout = QVBoxLayout(readiness_box)
@@ -462,6 +471,8 @@ class HSIViewer(QMainWindow):
         text_layout.addWidget(self._model_summary_service)
         text_layout.addWidget(summary_box)
         text_layout.addWidget(metrics_box)
+        text_layout.addWidget(pixel_box)
+        text_layout.addWidget(self._model_warnings)
         text_layout.addWidget(readiness_box)
         text_layout.addStretch(1)
 
@@ -1198,6 +1209,7 @@ class HSIViewer(QMainWindow):
         self._model_metric_r2_value.setText(model_summary["r2"])
         self._model_metric_rmsecv_value.setText(model_summary["rmsecv"])
         self._model_metric_bias_value.setText(model_summary["bias"])
+        self._set_metric_rows(model_summary)
         self._model_readiness_body.setText(model_summary["readiness"])
         self._set_busy_status_widget(
             self._model_summary_service, text=service_text, busy=service_busy
@@ -1238,6 +1250,29 @@ class HSIViewer(QMainWindow):
             self._prediction_view.workspace_visual_payload(),
             empty_reason=prediction_summary["readiness"],
         )
+
+    def _set_metric_rows(self, model_summary: dict[str, Any]) -> None:
+        """Fill the *per ROI* and *per pixel* groups and the fold warnings."""
+        roi_rows = list(model_summary.get("roi_metrics") or [])
+        if not roi_rows:  # no run yet: the required three, empty
+            roi_rows = [("Q² (CV R²)", model_summary["r2"]), ("RMSECV", model_summary["rmsecv"]),
+                        ("Bias", model_summary["bias"])]
+        rows = [f"{label}: {text}" for label, text in roi_rows]
+        pixel_rows = list(model_summary.get("pixel_metrics") or [])
+        if rows == self._model_metric_rows and pixel_rows == getattr(self, "_pixel_rows", None):
+            return
+        self._model_metric_rows, self._pixel_rows = rows, pixel_rows
+        for layout, entries in ((self._model_metrics_layout, roi_rows),
+                                (self._model_pixel_metrics_layout, pixel_rows)):
+            while layout.rowCount():
+                layout.removeRow(0)
+            for label, text in entries:
+                layout.addRow(label, QLabel(text))
+        self._model_pixel_metrics_box.setVisible(bool(pixel_rows))
+        warnings = str(model_summary.get("warnings") or "")
+        self._model_warnings.setText(f"⚠ Validation likely optimistic: {warnings}"
+                                     if warnings else "")
+        self._model_warnings.setVisible(bool(warnings))
 
     @staticmethod
     def _set_busy_status_widget(widget: BusyStatusWidget, *, text: str, busy: bool) -> None:
@@ -1308,9 +1343,7 @@ class HSIViewer(QMainWindow):
                     f"Validation: {self._model_card_cv_value.text()}",
                     f"ROIs: {self._model_card_roi_count_value.text()}",
                     f"Pixels: {self._model_card_pixel_count_value.text()}",
-                    f"R2: {self._model_metric_r2_value.text()}",
-                    f"RMSECV: {self._model_metric_rmsecv_value.text()}",
-                    f"Bias: {self._model_metric_bias_value.text()}",
+                    *(f"{row} (per ROI)" for row in self._model_metric_rows),
                     self._model_readiness_body.text(),
                 ],
             )

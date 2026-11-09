@@ -396,8 +396,12 @@ Required controls:
 - target selection/creation
 - target assignment and sample label editing (the ROI table)
 - fit model: one dialog with target, signal unit, preprocessing, model,
-  components (a number, or **Auto** with a rule and a maximum:
-  `sample-set-model-run-contract_v3.md` §7.4), cross-validation and which
+  components (a number, or **Auto** with a rule, the noise guard (on by
+  default) and a maximum: `sample-set-model-run-contract_v3.md` §7.4; the
+  dialog and the Model readiness line warn, before fitting, when the chosen
+  grouping gives fewer than 7 fold groups or a data file's ROIs share one
+  reference value while they are held out in different folds (the fold
+  warnings of §7.4), cross-validation and which
   ROIs are held out together (each
   ROI, same sample label, same target value;
   `sample-set-model-run-contract_v3.md` §4.1), and a Fitting group: pixels
@@ -609,6 +613,8 @@ and every plot added later.
 Each plot is shown in its own plot panel with a header. The header contains:
 
 - the plot title (the title is not drawn a second time inside the plot)
+- a help control (**?**) when the plot has a help text; required for the
+  Model diagnostics (`model-workspace-diagnostics-contract_v3.md`)
 - a maximize/restore control
 - an export menu
 

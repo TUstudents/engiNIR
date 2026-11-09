@@ -738,3 +738,82 @@ def test_distance_histograms_show_the_tail_as_one_bar_and_rois_by_their_share():
     assert labels == ["L4_01", "L7_01", "L1_01"]
     table = _table_roi_distance(rois)
     assert [c.name for c in table.columns][:3] == ["roi_id", "rank", "dmodx_share_above_percent"]
+
+
+def test_the_components_page_explains_each_rule_and_the_guard():
+    from matplotlib.figure import Figure
+
+    from enginir.viewer._model_diagnostics import _render_components, _render_per_component
+    from enginir.viewer._theme import panel_colors
+    from tests.test_component_selection import EVIDENCE
+
+    curve = {**EVIDENCE, "suggested_one_se": 7, "suggested_min_rmsecv": 15,
+             "suggested_q2_limit": 1, "suggested_f_test": 6, "suggested_q2_lookahead": 6}
+    payload = {"component_curve": curve, "n_components": 6, "target_unit": "1",
+               "components_choice": {"rule": "one_se", "noise_guard": "on", "rule_choice": 7,
+                                     "n_groups": 20}}
+    fig = Figure()
+    _render_components(fig, payload, panel_colors())
+    text = fig.axes[0].texts[0].get_text()
+    assert "noise guard: one SE 7 → 6" in text
+    assert "Q² limit: 1 (Q²₂ = -0.0" in text and "≤ 0.05)" in text, "the failing component"
+    assert "F-test: 6 (PRESS ratio < 1.36)" in text
+    fig = Figure()
+    _render_per_component(fig, payload, panel_colors())
+    q2_bars = fig.axes[0].collections[0]
+    grey = [tuple(c) for c in q2_bars.get_colors()]
+    assert grey[6] == grey[14] != grey[5], "components 7-15 are noise and drawn grey"
+
+
+def test_the_fit_dialog_offers_the_guard_and_warns_about_the_folds(qapp):
+    from enginir.viewer._modeling import FitModelRunDialog
+
+    seen: list[tuple] = []
+
+    def warner(target_id, spec, cv):
+        seen.append((target_id, spec, cv))
+        return ["the ROIs of a data file share one value"]
+
+    dlg = FitModelRunDialog([("t1", "Layer")], default_target_id="t1",
+                            recipe=__import__("enginir").PreprocessingRecipe(),
+                            default_signal_unit="Absorbance",
+                            readiness=lambda _t: ("Ready.", True), fold_warner=warner)
+    try:
+        assert "Validation likely optimistic: the ROIs of a data file" in dlg.readiness_text
+        dlg._auto_check.setChecked(True)
+        spec = dlg.fit_spec
+        assert spec is not None and spec.components_noise_guard == "on"
+        dlg._guard_check.setChecked(False)
+        assert dlg.fit_spec.components_noise_guard == "off"
+        dlg._rule_combo.setCurrentIndex(dlg._rule_combo.findData("f_test"))
+        assert dlg.fit_spec.components_rule == "f_test"
+        calls = len(seen)
+        dlg._group_by_combo.setCurrentIndex(dlg._group_by_combo.findData("sample"))
+        assert len(seen) > calls and seen[-1][1].group_by == "sample", "follows the grouping"
+    finally:
+        dlg.close()
+
+
+def test_every_model_plot_has_help_that_the_user_guide_repeats(qapp):
+    """The ? text and the user guide are one text (model-workspace-diagnostics contract)."""
+    import re
+    from pathlib import Path
+
+    from enginir.viewer._model_diagnostics import ModelDiagnosticsWidget
+    from enginir.viewer._plot_registry import PLOT_SPECS, WORKSPACE_PAGES
+
+    guide = re.sub(r"\s+", " ", (Path(__file__).parents[1] / "docs" / "user_guide"
+                                 / "model_plots.rst").read_text(encoding="utf-8"))
+    model_ids = [slot.plot_id for page in WORKSPACE_PAGES["Model"] for slot in page.slots]
+    for plot_id in model_ids:
+        text = PLOT_SPECS[plot_id].help
+        assert text, f"{plot_id} has no help text"
+        assert re.sub(r"\s+", " ", text) in guide, f"the user guide lacks the help of {plot_id}"
+    widget = ModelDiagnosticsWidget()
+    try:
+        panel = widget.grid.panel(model_ids[0])
+        assert panel is not None and panel._help_button is not None
+        assert panel._help_button.toolTip() == PLOT_SPECS[model_ids[0]].help
+        panel.show_help()  # shows a tooltip; must not raise
+    finally:
+        widget.close()

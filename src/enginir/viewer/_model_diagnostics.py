@@ -12,6 +12,7 @@ each one draws and exports its own part of it. Points are per ROI.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -22,6 +23,7 @@ from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from ..validation import bias, r2_score, rmsecv
 from ._plot_grid import PlotGrid, PlotPage, PlotSlot
+from ._plot_help import MODEL_PLOT_HELP
 from ._plot_panel import PlotColumn, PlotSpec, PlotTable, RoiPoints, draw_placeholder
 from ._plot_registry import PLOT_SPECS, WORKSPACE_PAGES, register_pages, register_plot
 from ._theme import GUIDE_COLOR
@@ -176,7 +178,8 @@ def _render_pred_vs_ref(fig: Figure, payload: Any, colors: Mapping[str, str]
                     (("rmsee", "RMSEE", value_unit), ("r2_adj", "$R^2_{adj}$", ""))
                     if key in statistics)
     ax.text(0.03, 0.97,
-            f"$R^2$ = {r2_score(y_true, y_pred):.4f}\nRMSECV = {rmsecv(y_true, y_pred):.4g}"
+            f"per ROI\n$Q^2$ (CV $R^2$) = {r2_score(y_true, y_pred):.4f}"
+            f"\nRMSECV = {rmsecv(y_true, y_pred):.4g}"
             f"{value_unit}\nBias = {bias(y_true, y_pred):.4g}{value_unit}{extra}",
             transform=ax.transAxes, ha="left", va="top", fontsize=8, color=colors["fg"])
     _label(ax, f"Reference{_suffix(unit)}", f"Predicted (CV){_suffix(unit)}", colors)
@@ -193,7 +196,8 @@ def _table_pred_vs_ref(payload: Any) -> PlotTable:
     return PlotTable(columns=(*_roi_columns(payload, y_true.size),
                               PlotColumn("reference", y_true, unit),
                               PlotColumn("predicted_cv", y_pred, unit)),
-                     metadata={"r2": f"{r2_score(y_true, y_pred):.6g}",
+                     metadata={"level": "per ROI (ROI means)",
+                               "r2": f"{r2_score(y_true, y_pred):.6g}",
                                "rmsecv": f"{rmsecv(y_true, y_pred):.6g}",
                                "bias": f"{bias(y_true, y_pred):.6g}"})
 
@@ -377,27 +381,87 @@ def _curve(payload: Mapping[str, Any]) -> dict[str, np.ndarray] | None:
 
 
 _RULE_LABELS = (("suggested_one_se", "one SE"), ("suggested_min_rmsecv", "lowest RMSECV"),
-                ("suggested_q2_limit", "Q² limit"))
+                ("suggested_q2_limit", "Q² limit"), ("suggested_f_test", "F-test"),
+                ("suggested_q2_lookahead", "Q² look-ahead"))
+_RULE_KEYS = {"one_se": "suggested_one_se", "min_rmsecv": "suggested_min_rmsecv",
+              "q2_limit": "suggested_q2_limit", "f_test": "suggested_f_test",
+              "q2_lookahead": "suggested_q2_lookahead"}
+_NO_CURVE = "No component curve (refit a model from before 1.3)."
+
+
+def _n_groups(payload: Mapping[str, Any]) -> int:
+    choice = payload.get("components_choice") or {}
+    groups = choice.get("n_groups")
+    return int(groups) if isinstance(groups, (int, np.integer)) and groups > 0 else 20
+
+
+def _rule_reasons(curve: Mapping[str, Any], n_groups: int) -> list[str]:
+    """Every rule's suggestion with the number that decided it (contract §7.4)."""
+    from ..validation.components import F_TEST_ALPHA, q2_limit
+
+    rmsecv, se, q2 = curve["rmsecv"], curve.get("rmsecv_se"), curve.get("q2")
+    best = int(np.argmin(rmsecv))
+    limit = q2_limit(n_groups)
+    lines = []
+    for key, label in _RULE_LABELS:
+        if key not in curve:
+            continue
+        chosen = int(curve[key])
+        reason = ""
+        if key == "suggested_one_se" and se is not None:
+            reason = f"RMSECV ≤ {rmsecv[best] + se[best]:.3g}"
+        elif key == "suggested_min_rmsecv":
+            reason = f"{rmsecv[best]:.3g}"
+        elif key == "suggested_q2_limit" and q2 is not None:
+            failing = np.flatnonzero(~(np.nan_to_num(q2, nan=-np.inf) > limit))
+            reason = (f"Q²{_subscript(int(failing[0]) + 1)} = {q2[failing[0]]:.2f} ≤ {limit:g}"
+                      if failing.size else f"all Q²ₐ > {limit:g}")
+        elif key == "suggested_f_test":
+            from scipy.stats import f as f_distribution
+
+            critical = f_distribution.ppf(1 - F_TEST_ALPHA, n_groups, n_groups)
+            reason = f"PRESS ratio < {critical:.2f}"
+        lines.append(f"{label}: {chosen}" + (f" ({reason})" if reason else ""))
+    return lines
+
+
+def _subscript(number: int) -> str:
+    return str(number).translate(str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉"))
 
 
 def _render_components(fig: Figure, payload: Any, colors: Mapping[str, str]) -> None:
     ax = _axes(fig, colors)
     curve = _curve(payload)
     if curve is None:
-        draw_placeholder(ax, "No component curve (refit a model from before 1.3).", colors)
+        draw_placeholder(ax, _NO_CURVE, colors)
         return
     a = np.arange(1, curve["rmsecv"].size + 1)
     ax.errorbar(a, curve["rmsecv"], yerr=curve.get("rmsecv_se"), color=colors["accent"],
-                marker="o", markersize=4, linewidth=1.2, capsize=3)
+                marker="o", markersize=4, linewidth=1.2, capsize=3, label="RMSECV (± SE)")
+    if "rmsee_roi" in curve:
+        ax.plot(a, curve["rmsee_roi"], color=GUIDE_COLOR, marker=".", linewidth=1.0,
+                linestyle="--", label="RMSEE (fit)")
     chosen = payload.get("n_components")
     if isinstance(chosen, (int, np.integer)) and 1 <= int(chosen) <= a.size:
         ax.axvline(int(chosen), color=colors["fg"], linewidth=1.0, alpha=0.6)
-    lines = [f"model: {chosen}"] + [f"{label}: {int(curve[key])}" for key, label in _RULE_LABELS
-                                     if key in curve]
+    lines = [f"model: {chosen}"]
+    choice = payload.get("components_choice") or {}
+    rule_choice = choice.get("rule_choice")
+    if choice.get("noise_guard") == "on" and rule_choice not in (None, chosen):
+        lines.append(f"noise guard: {_RULE_LABEL_OF.get(str(choice.get('rule')), 'rule')} "
+                     f"{rule_choice} → {chosen}")
+    lines += _rule_reasons(curve, _n_groups(payload))
     ax.text(0.97, 0.97, "\n".join(lines), transform=ax.transAxes, ha="right", va="top",
-            fontsize=8, color=colors["fg"])
+            fontsize=7.5, color=colors["fg"], zorder=5,
+            bbox={"facecolor": colors.get("ax_bg", colors["bg"]), "alpha": 0.85,
+                  "edgecolor": "none", "pad": 2})
     ax.set_xticks(a)
-    _label(ax, "Number of components", f"RMSECV{_suffix(_unit(payload))}", colors)
+    _legend(ax, colors, loc="lower left")
+    _label(ax, "Number of components", f"Error per ROI{_suffix(_unit(payload))}", colors)
+
+
+_RULE_LABEL_OF = {"one_se": "one SE", "min_rmsecv": "lowest RMSECV", "q2_limit": "Q² limit",
+                  "f_test": "F-test", "q2_lookahead": "Q² look-ahead"}
 
 
 def _table_components(payload: Any) -> PlotTable:
@@ -409,9 +473,12 @@ def _table_components(payload: Any) -> PlotTable:
     if "rmsecv_se" in curve:  # the ends of the drawn error bars
         columns += [PlotColumn("rmsecv_minus_se", curve["rmsecv"] - curve["rmsecv_se"]),
                     PlotColumn("rmsecv_plus_se", curve["rmsecv"] + curve["rmsecv_se"])]
+    if "rmsee_roi" in curve:
+        columns.append(PlotColumn("rmsee", curve["rmsee_roi"], _unit(payload)))
     return PlotTable(columns=tuple(columns),
-                     metadata={label: str(int(curve[key])) for key, label in _RULE_LABELS
-                               if key in curve})
+                     metadata={"level": "per ROI (ROI means)",
+                               **{label: str(int(curve[key])) for key, label in _RULE_LABELS
+                                  if key in curve}})
 
 
 def _table_r2_q2(payload: Any) -> PlotTable:
@@ -420,23 +487,127 @@ def _table_r2_q2(payload: Any) -> PlotTable:
         return PlotTable()
     return PlotTable(columns=(PlotColumn("n_components", np.arange(1, curve["rmsecv"].size + 1)),
                               *(PlotColumn(key, curve[key]) for key in
-                                ("r2y_cum", "q2_cum", "r2x_cum") if key in curve)))
+                                ("r2y_cum_roi", "q2_cum") if key in curve)),
+                     metadata={"level": "per ROI (ROI means)"})
 
 
 def _render_r2_q2(fig: Figure, payload: Any, colors: Mapping[str, str]) -> None:
     ax = _axes(fig, colors)
     curve = _curve(payload)
     if curve is None:
-        draw_placeholder(ax, "No component curve (refit a model from before 1.3).", colors)
+        draw_placeholder(ax, _NO_CURVE, colors)
         return
     a = np.arange(1, curve["rmsecv"].size + 1)
-    for key, label, style in (("r2y_cum", "R²Y(cum)", "-"), ("q2_cum", "Q²(cum)", "--"),
-                              ("r2x_cum", "R²X(cum)", ":")):
-        if key in curve:
-            ax.plot(a, curve[key], linestyle=style, marker="o", markersize=3, label=label)
+    r2y, q2 = curve.get("r2y_cum_roi"), curve.get("q2_cum")
+    if r2y is not None:
+        ax.plot(a, r2y, marker="o", markersize=3, color=colors["accent"], label="R²Y(cum), fit")
+    if q2 is not None:
+        ax.plot(a, q2, marker="o", markersize=3, linestyle="--", color="#e3a33b",
+                label="Q²(cum), cross-validated")
+    if r2y is not None and q2 is not None:  # the gap: what the fit gains over prediction
+        ax.fill_between(a, q2, r2y, color=GUIDE_COLOR, alpha=0.18, linewidth=0,
+                        label="gap (over-fit)")
     ax.set_xticks(a)
     _legend(ax, colors, loc="lower right")
-    _label(ax, "Number of components", "Fraction", colors)
+    _label(ax, "Number of components", "Fraction of the target, per ROI", colors)
+
+
+def _per_component(payload: Mapping[str, Any]) -> dict[str, np.ndarray] | None:
+    curve = _curve(payload)
+    if curve is None or "q2" not in curve or "r2x_cum" not in curve:
+        return None
+    from ..validation.components import delta_r2x, noise_components
+
+    out = {"a": np.arange(1, curve["rmsecv"].size + 1, dtype=float), "q2": curve["q2"],
+           "delta_r2x": delta_r2x(curve),
+           "noise": np.asarray(curve["noise"], dtype=bool) if "noise" in curve
+           else noise_components(curve, n_samples=_n_groups(payload))}
+    if "dw_weights" in curve:
+        out["dw"] = curve["dw_weights"]
+    return out
+
+
+def _render_per_component(fig: Figure, payload: Any, colors: Mapping[str, str]) -> None:
+    ax = _axes(fig, colors)
+    each = _per_component(payload)
+    if each is None:
+        draw_placeholder(ax, _NO_CURVE, colors)
+        return
+    from ..validation.components import NOISE_R2X, q2_limit
+
+    a, noise = each["a"], each["noise"]
+    q2_colors = np.where(noise, GUIDE_COLOR, colors["accent"]).tolist()
+    ax.vlines(a - 0.17, 0.0, each["q2"], colors=q2_colors, linewidth=7,
+              label="Q²ₐ, per ROI")
+    ax.vlines(a + 0.17, 0.0, each["delta_r2x"], colors=np.where(
+        noise, GUIDE_COLOR, "#3fb27f").tolist(), linewidth=7, label="ΔR²X, per pixel")
+    ax.axhline(q2_limit(_n_groups(payload)), color=colors["fg"], linewidth=0.8,
+               linestyle="--", label="Q² limit L")
+    ax.axhline(NOISE_R2X, color="#3fb27f", linewidth=0.7, linestyle=":",
+               label="ΔR²X 1 %")
+    ax.axhline(0.0, color=GUIDE_COLOR, linewidth=0.6)
+    if "dw" in each:
+        rough = ax.twinx()
+        rough.plot(a, each["dw"], color="#e3a33b", marker="o", markersize=3, linewidth=1.0,
+                   label="Durbin–Watson of the weights")
+        rough.set_ylabel("Durbin–Watson (0 smooth, 2 noise)", color=colors["fg"], fontsize=8)
+        rough.tick_params(colors=colors["fg"], labelsize=7)
+        for side in ("top", "left", "bottom"):
+            rough.spines[side].set_visible(False)
+        handles, labels = ax.get_legend_handles_labels()
+        more, more_labels = rough.get_legend_handles_labels()
+        legend = rough.legend(handles + more, labels + more_labels, fontsize=7,
+                              loc="upper center", frameon=True, labelcolor=colors["fg"],
+                              framealpha=0.85)
+        legend.get_frame().set_facecolor(colors.get("ax_bg", colors["bg"]))
+        legend.get_frame().set_edgecolor("none")
+    else:
+        _legend(ax, colors, loc="upper right")
+    ax.set_xticks(a)
+    _label(ax, "Component (grey: noise)", "Q²ₐ and ΔR²X", colors)
+
+
+def _table_per_component(payload: Any) -> PlotTable:
+    each = _per_component(payload)
+    if each is None:
+        return PlotTable()
+    columns = [PlotColumn("component", each["a"]),
+               PlotColumn("q2_component_roi", each["q2"]),
+               PlotColumn("delta_r2x_pixel", each["delta_r2x"]),
+               PlotColumn("noise", each["noise"].astype(int))]
+    if "dw" in each:
+        columns.append(PlotColumn("durbin_watson_weights", each["dw"]))
+    return PlotTable(columns=tuple(columns),
+                     metadata={"noise": "ΔR²X < 0.01 and Q²ₐ ≤ L (contract §7.4)"})
+
+
+def _render_r2_pixels(fig: Figure, payload: Any, colors: Mapping[str, str]) -> None:
+    ax = _axes(fig, colors)
+    curve = _curve(payload)
+    if curve is None:
+        draw_placeholder(ax, _NO_CURVE, colors)
+        return
+    a = np.arange(1, curve["rmsecv"].size + 1)
+    for key, label, style, color in (("r2x_cum", "R²X(cum), spectra", ":", "#3fb27f"),
+                                     ("r2y_cum", "R²Y(cum), target", "-", colors["accent"])):
+        if key in curve:
+            ax.plot(a, curve[key], linestyle=style, marker="o", markersize=3, color=color,
+                    label=label)
+    ax.text(0.97, 0.05, "single pixels are noisy:\nR²Y per pixel stays below per ROI",
+            transform=ax.transAxes, ha="right", va="bottom", fontsize=7, color=colors["fg"])
+    ax.set_xticks(a)
+    _legend(ax, colors, loc="center right")
+    _label(ax, "Number of components", "Fraction, per pixel", colors)
+
+
+def _table_r2_pixels(payload: Any) -> PlotTable:
+    curve = _curve(payload)
+    if curve is None:
+        return PlotTable()
+    return PlotTable(columns=(PlotColumn("n_components", np.arange(1, curve["rmsecv"].size + 1)),
+                              *(PlotColumn(key, curve[key]) for key in ("r2x_cum", "r2y_cum")
+                                if key in curve)),
+                     metadata={"level": "per pixel (single spectra)"})
 
 
 def _render_loadings(fig: Figure, payload: Any, colors: Mapping[str, str]) -> None:
@@ -743,13 +914,15 @@ def _table_roi_distance(payload: Any) -> PlotTable:
 # ----------------------------------------------------------------------
 
 _SPECS = (
-    PlotSpec("model.pred_vs_ref", "Predicted vs Reference", _render_pred_vs_ref,
+    PlotSpec("model.pred_vs_ref", "Predicted vs Reference, per ROI", _render_pred_vs_ref,
              _table_pred_vs_ref, empty_text=_EMPTY),
-    PlotSpec("model.residuals", "Residuals", _render_residuals, _table_residuals,
+    PlotSpec("model.residuals", "Residuals, per ROI", _render_residuals, _table_residuals,
              empty_text=_EMPTY),
-    PlotSpec("model.target_distribution", "Target Distribution", _render_target_distribution,
+    PlotSpec("model.target_distribution", "Target Distribution, per ROI",
+             _render_target_distribution,
              _table_target_distribution, empty_text=_EMPTY),
-    PlotSpec("model.scores", "Training Scores (LV1 vs LV2)", _render_scores, _table_scores,
+    PlotSpec("model.scores", "Training Scores (LV1 vs LV2), per ROI", _render_scores,
+             _table_scores,
              empty_text=_EMPTY),
     _spectral_spec("coefficients", "model.coefficients", "Regression Coefficients",
                    "Coefficient", "No regression coefficients yet."),
@@ -762,10 +935,14 @@ _SPECS = (
              empty_text=_EMPTY),
     PlotSpec("model.selectivity_ratio", "Selectivity Ratio", _render_selectivity,
              _table_selectivity, empty_text=_EMPTY),
-    PlotSpec("model.components", "RMSECV vs Components", _render_components, _table_components,
+    PlotSpec("model.components", "RMSECV and RMSEE vs Components, per ROI", _render_components,
+             _table_components, empty_text=_EMPTY),
+    PlotSpec("model.r2_q2", "R²Y and Q² vs Components, per ROI", _render_r2_q2, _table_r2_q2,
              empty_text=_EMPTY),
-    PlotSpec("model.r2_q2", "R² and Q² vs Components", _render_r2_q2, _table_r2_q2,
-             empty_text=_EMPTY),
+    PlotSpec("model.per_component", "Each Component: Q²ₐ, ΔR²X, Roughness",
+             _render_per_component, _table_per_component, empty_text=_EMPTY),
+    PlotSpec("model.r2_pixels", "R²X and R²Y vs Components, per pixel", _render_r2_pixels,
+             _table_r2_pixels, empty_text=_EMPTY),
     _distance_spec("dmodx", "dcrit_099", "model.dmodx", "Distance to Model (DModX), per pixel",
                    "Normalised DModX"),
     _distance_spec("t2", "t2_crit_099", "model.t2", "Hotelling T², per pixel", "T²"),
@@ -784,11 +961,14 @@ _PAGES = (
                           PlotSlot("model.vip_sorted", 1, 1),
                           PlotSlot("model.selectivity_ratio", 1, 2))),
     PlotPage("Components", (PlotSlot("model.components", 0, 0),
-                            PlotSlot("model.r2_q2", 0, 1))),
+                            PlotSlot("model.r2_q2", 0, 1),
+                            PlotSlot("model.per_component", 1, 0),
+                            PlotSlot("model.r2_pixels", 1, 1))),
     PlotPage("Distance", (PlotSlot("model.dmodx", 0, 0), PlotSlot("model.t2", 0, 1),
                           PlotSlot("model.roi_distance", 1, 0, column_span=2))),
 )
 
+_SPECS = tuple(replace(spec, help=MODEL_PLOT_HELP.get(spec.plot_id, "")) for spec in _SPECS)
 for _spec in _SPECS:
     register_plot(_spec)
 register_pages(_WORKSPACE, _PAGES)

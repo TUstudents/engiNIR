@@ -58,6 +58,7 @@ from ..validation import (
     aggregate_regression_predictions,
     bias,
     cross_validate,
+    guarded_choice,
     r2_score,
     rmsecv,
     rpd,
@@ -480,7 +481,18 @@ def fit_model_run(
         roi_index=roi_index, n_samples=n_fold_groups)
     if reached != a_max:
         spec = replace(spec, components_max=reached)
-    hyperparameters, spec = _chosen_components(spec, hyperparameters, curve)
+    hyperparameters, spec = _chosen_components(spec, hyperparameters, curve,
+                                               n_samples=n_fold_groups)
+    cv_warnings = fold_warnings(
+        roi_ids=roi_ids_present, roi_index=roi_index, splitter=splitter, X=X_cv,
+        cv_groups=cv_groups,
+        dataset_of={str(r): rois[str(r)].dataset_id for r in np.asarray(roi_ids_present)},
+        value_of={str(r): float(target_assignments[(str(r), sample_set.target_id)].value)
+                  for r in np.asarray(roi_ids_present)},
+        n_groups=n_fold_groups)
+    if cv_warnings:
+        logger.warning("Cross-validation of sample set '{}' is likely optimistic: {}",
+                       sample_set.sample_set_id, "; ".join(fold_warning_text(cv_warnings)))
     n_chosen = int(hyperparameters["n_components"])
 
     if spec.exclusion == "dmodx":
@@ -542,6 +554,7 @@ def fit_model_run(
             **cv_result["cv_scheme"],
             "requested": requested,
             "n_groups": n_fold_groups,
+            "warnings": ",".join(cv_warnings),
             **{key: SAMPLE_SET_SEMANTICS[key] for key in
                ("grouping_unit", "validation_unit", "reporting_level", "roi_aggregation")},
         },
@@ -676,6 +689,9 @@ def _components_request(spec: FitSpec, hyperparameters: dict[str, Any], model_ty
     if requested is None:  # PCR: as many components as the data allow
         requested = limit
     rule = spec.components_rule
+    guard = spec.components_noise_guard
+    if guard == "default":
+        guard = "on" if auto else "off"
     if auto:
         rule = "one_se" if rule == "fixed" else rule
         given = 0
@@ -690,23 +706,122 @@ def _components_request(spec: FitSpec, hyperparameters: dict[str, Any], model_ty
                       "{} bands of the recipe's output allow at most {}", a_max, n_variables,
                       limit)
     params = {**hyperparameters, "n_components": given if given else a_max}
-    return replace(spec, components_rule=rule, components_max=a_max), params, a_max
+    return (replace(spec, components_rule=rule, components_max=a_max,
+                    components_noise_guard=guard), params, a_max)
 
 
 def _chosen_components(spec: FitSpec, hyperparameters: dict[str, Any],
-                       curve: dict[str, Any]) -> tuple[dict[str, Any], FitSpec]:
-    """The run's number of components: given, or chosen by the rule from the curve."""
+                       curve: dict[str, Any], *, n_samples: int
+                       ) -> tuple[dict[str, Any], FitSpec]:
+    """The run's number of components: given, or chosen from the curve (contract §7.4).
+
+    The rule's number, then, with the noise guard on, without trailing noise
+    components and at most the structure ceiling.
+    """
     given = int(hyperparameters["n_components"])
     if spec.components_rule == "fixed":
-        chosen = given
+        chosen = rule_choice = given
     else:
-        chosen = int(curve[f"suggested_{spec.components_rule}"])
+        chosen = rule_choice = int(curve[f"suggested_{spec.components_rule}"])
+        if spec.components_noise_guard == "on":
+            chosen = guarded_choice(curve, rule_choice, n_samples=n_samples)
+            if chosen != rule_choice:
+                logger.info("Noise guard: rule {!r} chose {} components, the run uses {} "
+                            "(trailing noise components or the structure ceiling {})",
+                            spec.components_rule, rule_choice, chosen,
+                            curve.get("structure_ceiling"))
         if spec.components_selected and chosen != spec.components_selected:
             logger.warning("Rule {!r} would now choose {} components; the refit keeps the "
                            "stored {}", spec.components_rule, chosen, spec.components_selected)
             chosen = spec.components_selected
     return ({**hyperparameters, "n_components": chosen},
-            replace(spec, components_selected=chosen))
+            replace(spec, components_selected=chosen, components_rule_choice=rule_choice))
+
+
+#: Plain words of the fold warnings (contract §7.4).
+_FOLD_WARNING_TEXT = {
+    "few_groups": "fewer than 7 independent samples (fold groups)",
+    "one_level_per_file": "the ROIs of a data file share one value but are held out in "
+                          "different folds, so the model can learn the data file; give "
+                          "them one sample label",
+}
+
+
+def fold_warnings(*, roi_ids: Any, roi_index: np.ndarray, splitter: Any, X: np.ndarray,
+                  cv_groups: np.ndarray, dataset_of: Mapping[str, str],
+                  value_of: Mapping[str, float], n_groups: int) -> list[str]:
+    """Conditions that make the cross-validation optimistic (contract §7.4, fold warnings).
+
+    ``few_groups``: fewer than 7 fold groups. ``one_level_per_file``: some
+    data file has at least 2 ROIs that share one target value and are held
+    out in more than one fold, so held-out ROIs have ROIs of their own data
+    file in training.
+    """
+    warnings: list[str] = []
+    if n_groups < 7:
+        warnings.append("few_groups")
+    folds = LeaveOneGroupOut() if isinstance(splitter, str) else splitter
+    fold_of: dict[str, int] = {}
+    ids = [str(roi_id) for roi_id in np.asarray(roi_ids)]
+    for fold, (_train, test) in enumerate(folds.split(X, None, cv_groups)):
+        for position in np.unique(roi_index[test]):
+            fold_of[ids[int(position)]] = fold
+    by_file: dict[str, list[str]] = {}
+    for roi_id in ids:
+        by_file.setdefault(dataset_of[roi_id], []).append(roi_id)
+    for members in by_file.values():
+        values = {float(value_of[roi_id]) for roi_id in members}
+        if len(members) >= 2 and len(values) == 1 \
+                and len({fold_of.get(roi_id) for roi_id in members}) > 1:
+            warnings.append("one_level_per_file")
+            break
+    return warnings
+
+
+def predicted_fold_warnings(*, roi_ids: Sequence[str], target_id: str,
+                            rois: Mapping[str, TrainingROI],
+                            target_assignments: Mapping[tuple[str, str], TargetAssignment],
+                            fit_spec: FitSpec | Mapping[str, Any] | None = None,
+                            cv: int | str | None = None) -> list[str]:
+    """The fold warnings a fit of these ROIs would record, without fitting (§7.4).
+
+    For the fit dialog and the readiness line: the same fold groups and folds
+    as :func:`fit_model_run`, over ROIs instead of pixels. ROIs without a value
+    for ``target_id`` are left out, as the fit leaves them out.
+    """
+    from types import SimpleNamespace
+
+    spec, _requested = resolve_fit_spec(cv, fit_spec)
+    roi_ids = [roi_id for roi_id in roi_ids
+               if (roi_id, target_id) in target_assignments and roi_id in rois]
+    if len(roi_ids) < 2:
+        return []
+    subset: Any = SimpleNamespace(roi_ids=roi_ids, target_id=target_id,
+                                  sample_set_id="(not fitted)")
+    try:
+        groups = _resolved_groups(replace(spec, groups=()), subset, dict(rois),
+                                  dict(target_assignments))
+    except ValueError:
+        return []
+    n_groups = int(np.unique(groups).size)
+    if n_groups < 2:
+        return ["few_groups"]
+    index = np.arange(len(roi_ids))
+    return fold_warnings(
+        roi_ids=np.asarray(roi_ids), roi_index=index, splitter=_splitter(spec, n_groups),
+        X=np.zeros((len(roi_ids), 1)), cv_groups=np.asarray(groups),
+        dataset_of={r: rois[r].dataset_id for r in roi_ids},
+        value_of={r: float(target_assignments[(r, target_id)].value) for r in roi_ids},
+        n_groups=n_groups)
+
+
+def fold_warning_text(codes: Any) -> list[str]:
+    """Plain words for stored or predicted fold warning codes (unknown codes as they are)."""
+    if isinstance(codes, bytes):
+        codes = codes.decode()
+    if isinstance(codes, str):
+        codes = [code for code in codes.split(",") if code]
+    return [_FOLD_WARNING_TEXT.get(str(code), str(code)) for code in codes]
 
 
 def _excluding(model: Any, spec: FitSpec, roi_index: np.ndarray) -> DModXExclusion:

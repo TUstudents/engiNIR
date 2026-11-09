@@ -1,6 +1,6 @@
 # Plan: pixel and ROI metrics kept apart, explained plots, better autofit
 
-Status: decided (2026-11-09), not started; from the walkthrough of the first real model
+Status: implemented (2026-11-09, branch feature/band-selection-vip); contracts reviewed independently. From the walkthrough of the first real model
 (project `Teflon_10p`, 20 ROIs from 4 scans, levels 1/4/7/10, 396,000 pixels,
 176 bands without wavelengths).
 
@@ -143,6 +143,17 @@ group holds a single reference level (the scan confound seen here).
 5. **Warn, do not refuse**, when every fold group holds a single reference
    level or there are fewer than 7 fold groups: the fit dialog and the
    readiness line say so, the run stores the condition, and the fit goes on.
+
+## Deviations agreed in the contract review (2026-11-09)
+
+- The structure ceiling belongs to `noise_guard`: `on` applies the ceiling
+  and then drops trailing noise components; `off` reproduces the 1.3 choice
+  (so refits of 1.3 runs choose as before). Decision 4's "ceiling for every
+  autofit rule" holds for the default (guard on). The cap at G − 2 comes
+  from `components/max`.
+- Decision 5's "every fold group holds a single reference level" is
+  implemented as the condition that matters: a data file whose ROIs share
+  one value and are held out in more than one fold (`one_level_per_file`).
 
 ## Phases
 

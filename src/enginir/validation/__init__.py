@@ -19,7 +19,13 @@ from .cross_val import (
     cross_validate,
     kennard_stone,
 )
-from .components import COMPONENT_CHOICE_RULES, choose_components
+from .components import (
+    COMPONENT_CHOICE_RULES,
+    choose_components,
+    guarded_choice,
+    noise_components,
+    structure_ceiling,
+)
 from .metrics import bias, metrics_report, r2_score, rmsec, rmsecv, rmsep, rpd, rpiq, sep
 from .outliers import (
     dmodx,
@@ -42,6 +48,9 @@ __all__ = [
     "dmodx",
     "dmodx_limit",
     "choose_components",
+    "guarded_choice",
+    "noise_components",
+    "structure_ceiling",
     "COMPONENT_CHOICE_RULES",
     "modelling_power",
     "metrics_report",

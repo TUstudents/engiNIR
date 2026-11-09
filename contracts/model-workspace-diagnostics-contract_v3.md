@@ -115,10 +115,25 @@ Required v3 pages, in this order:
    Runs without the stored selectivity ratio show a "refit" placeholder;
    plots over wavelength leave a gap where a band selection leaves out
    bands
-3. `Components` (1.3 and later; `sample-set-model-run-contract_v3.md` §7.4)
-   - RMSECV with its standard error against the number of components, the
-     model's number and every rule's suggestion marked
-   - R²Y(cum), Q²(cum) and R²X(cum) against the number of components
+3. `Components` (1.3 and later; `sample-set-model-run-contract_v3.md` §7.4),
+   2 × 2, every plot naming its level:
+   - **RMSECV per ROI** with its standard error, RMSEE per ROI (1.4 and
+     later) as a second line, the model's number marked, and every rule's
+     suggestion listed with its reason (e.g. "Q² limit: 1 (Q²₂ = −0.02 ≤
+     0.05)"); with the noise guard, the rule's number and the guarded
+     number both
+   - **R²Y and Q² per ROI**: R²Y(cum) of the ROI means and Q²(cum), the same
+     level, so they are comparable; the gap between them shaded, and drawn
+     as it is when Q² exceeds R²Y (possible: PRESS can be below the RSS of a
+     fit made on pixels)
+   - **per component**: Q²ₐ (bars, per ROI, with the R1 limit *L* as a
+     line), ΔR²X (bars, per pixel) and the Durbin–Watson value of the
+     weights (1.4 and later, line on its own axis); the legend names the
+     level of each; noise components drawn grey
+   - **per pixel**: R²X(cum) and R²Y(cum) over the drawn pixels, with a note
+     that single pixels are noisy, so R²Y per pixel stays below the ROI value
+   Runs from before 1.4 show what they store (no RMSEE line, no
+   Durbin–Watson, no noise flags)
 4. `Distance` (1.3 and later; §7.5)
    - the training pixels' normalised DModX with DCrit (0.99) and the share
      above it next to the 1 % a 0.99 limit expects; bins up to the 99.5th
@@ -130,7 +145,7 @@ Required v3 pages, in this order:
      DModX share, with the expected 1 % as a line; a bar selects its ROI
 
 Runs fitted before engiNIR 1.3 show "refit" placeholders on the new pages.
-The fit summary shows RMSEE and R²adj when the run has them.
+The fit summary shows RMSEE and R²adj, per ROI, when the run has them.
 
 The `Fit` page is shown after a fit and when a saved run is opened. The page
 labels are not contract-frozen; their order and content are. New diagnostics
@@ -149,6 +164,26 @@ Required v3 secondary diagnostics, shown as panels on the center pages:
 - target distribution
 - latent scores
 - spectral diagnostics
+
+### Levels: per ROI and per pixel
+
+Every metric, axis, legend entry, CSV column and summary row names its
+level:
+
+- **per ROI**: computed over ROI means (the target, the folds and the
+  reported model quality): R², Q², RMSECV, RMSEE, bias, RPD, the ROI T²
+  ellipses, the per-ROI shares above the distance limits
+- **per pixel**: computed over single spectra (the observations of the fit):
+  R²X, R²Y over pixels, `pixel_*` metrics, DModX, T² and their limits
+
+A number answering "how good is the model" is per ROI by default. A plot may
+draw both levels only when its legend names the level of every element.
+
+### Plot help
+
+Every Model diagnostics plot has a help text (what is drawn, at which
+level, how to read it, what a bad sign looks like), opened from the plot
+header (Plot Panel Policy); the user guide carries the same text.
 
 ## Required Fit Summary
 
@@ -172,11 +207,17 @@ fit context and block reasons.
 
 v3 primary reported metrics must reflect ROI-grouped validation.
 
-Required displayed metrics:
+Required displayed metrics, in a *Per ROI* group:
 
 - `R²`
 - `RMSECV`
 - `bias`
+
+with `Q²`, `RMSEE`, `R²adj` and `RPD` when the run has them, and, for runs
+that store them, a *Per pixel* group with the `pixel_*` metrics (`R²`,
+`RMSECV`, `RMSEE`, `RPD`) and the pixel count. The `Predicted vs
+Reference` statistics name their level (per ROI). The fit summary shows the
+fold warnings of the run (`cv_spec/@warnings`) in plain words.
 
 Metric definitions in v3:
 

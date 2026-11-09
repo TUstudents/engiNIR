@@ -8,7 +8,7 @@ from dataclasses import replace
 from typing import Any
 
 import numpy as np
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QMenu,
@@ -35,6 +35,7 @@ from .._checks import log_and_raise
 from .._logging import get_logger
 from ..io.project_store import load_model_run_artifact_refs
 from .._workflow import recipe_id_for, resolve_sample_set, resolve_signal_domain
+from ..modeling import fold_warning_text
 from ..preprocessing import PreprocessingRecipe
 from ..preprocessing.recipe import format_ranges, parse_ranges
 from ..project import check_signal_domain_compatibility
@@ -291,11 +292,13 @@ class FitModelRunDialog(QDialog):
         smallest_roi: Callable[[str], int | None] = lambda _target_id: None,
         band_source: Callable[[str, str, PreprocessingRecipe], BandSource | None] | None = None,
         band_proposer: Callable[..., ProposalRun | None] | None = None,
+        fold_warner: Callable[[str, Any, Any], list[str]] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Fit model")
         self._readiness = readiness
+        self._fold_warner = fold_warner
         self._smallest_roi = smallest_roi
         self._band_source = band_source
         self._band_proposer = band_proposer
@@ -377,16 +380,34 @@ class FitModelRunDialog(QDialog):
             "Choose the number from the component curve (RMSECV and Q² against the number "
             "of components) by the rule; the curve is shown on the Components page.")
         self._rule_combo = QComboBox()
-        for label, value in (("one SE (recommended)", "one_se"),
-                             ("lowest RMSECV", "min_rmsecv"), ("Q² limit", "q2_limit")):
+        for label, value, tip in (
+                ("one SE (recommended)", "one_se",
+                 "The fewest components whose RMSECV is within one standard error of the "
+                 "lowest."),
+                ("lowest RMSECV", "min_rmsecv", "The number with the lowest RMSECV; tends to "
+                 "choose too many."),
+                ("Q² limit", "q2_limit", "SIMCA's rule R1: add components while each one's Q² "
+                 "exceeds 0.05; stops at a scatter component that predicts nothing alone."),
+                ("F-test", "f_test", "Haaland and Thomas: the fewest components whose PRESS "
+                 "is not significantly larger than the lowest (F test over the samples)."),
+                ("Q² with look-ahead", "q2_lookahead", "As Q² limit, but a component that "
+                 "fails is kept when the next one passes.")):
             self._rule_combo.addItem(label, value)
+            self._rule_combo.setItemData(self._rule_combo.count() - 1, tip,
+                                         Qt.ItemDataRole.ToolTipRole)
+        self._guard_check = QCheckBox("drop noise")
+        self._guard_check.setChecked(True)
+        self._guard_check.setToolTip(
+            "Noise guard: at most one component more than those explaining at least 0.5 % of "
+            "the spectra, and no trailing component that explains under 1 % of the spectra "
+            "and does not improve the prediction (Q²ₐ ≤ 0.05).")
         self._max_spin = QSpinBox()
         self._max_spin.setRange(0, 128)
         self._max_spin.setSpecialValueText("default")
         self._max_spin.setPrefix("max ")
         components_row = QHBoxLayout()
         for widget in (self._components_spin, self._auto_check, self._rule_combo,
-                       self._max_spin):
+                       self._guard_check, self._max_spin):
             components_row.addWidget(widget)
         layout.addRow("Components:", components_row)
         self._auto_check.toggled.connect(self._update_components)
@@ -408,6 +429,9 @@ class FitModelRunDialog(QDialog):
             "no sample is on both sides of a fold.")
         layout.addRow("Hold out together:", self._group_by_combo)
         layout.addRow(self._fitting_group())
+        # The fold warnings follow the grouping and the folds (contract §7.4).
+        for combo in (self._group_by_combo, self._cv_combo):
+            combo.currentIndexChanged.connect(self._update_readiness)
 
         self._readiness_label = QLabel("")
         self._readiness_label.setWordWrap(True)
@@ -512,6 +536,7 @@ class FitModelRunDialog(QDialog):
         auto = self._auto_check.isChecked()
         self._components_spin.setEnabled(not auto)
         self._rule_combo.setEnabled(auto)
+        self._guard_check.setEnabled(auto)
         self._max_spin.setEnabled(auto)
 
     def apply_model_run(self, model_run: ModelRun) -> None:
@@ -636,6 +661,15 @@ class FitModelRunDialog(QDialog):
         target_id = self._target_combo.currentData()
         text, ready = ("Define a target first.", False) if target_id is None \
             else self._readiness(str(target_id))
+        if target_id is not None and self._fold_warner is not None \
+                and hasattr(self, "_group_by_combo"):
+            try:
+                spec, cv = self.fit_spec, self.cv
+            except ValueError:
+                spec, cv = None, None
+            warnings = self._fold_warner(str(target_id), spec, None if spec else cv)
+            if warnings:
+                text += "\n⚠ Validation likely optimistic: " + "; ".join(warnings) + "."
         self._readiness_label.setText(text)
         ok = self._buttons.button(QDialogButtonBox.StandardButton.Ok)
         if ok is not None:
@@ -743,6 +777,8 @@ class FitModelRunDialog(QDialog):
             FitSpec.from_cv(self.cv),
             components_rule=str(self._rule_combo.currentData()) if auto else "fixed",
             components_max=(self._max_spin.value() or None) if auto else None,
+            components_noise_guard=("on" if self._guard_check.isChecked() else "off")
+            if auto else "default",
             group_by=self.group_by,
             pixels_per_roi=self._pixels_spin.value() if draw else None,
             seed=self._seed_spin.value() if draw else 0,
@@ -766,6 +802,12 @@ def _component_payload(model_run: ModelRun, artifact: dict[str, Any]) -> dict[st
     curve = artifact.get("component_curve")
     if isinstance(curve, dict) and "rmsecv" in curve:
         payload["component_curve"] = curve
+        spec = model_run.fit_specification
+        selected = model_run.hyperparameters.get("n_components")
+        payload["components_choice"] = {
+            "rule": spec.components_rule, "noise_guard": spec.components_noise_guard,
+            "rule_choice": spec.components_rule_choice or selected,
+            "n_groups": model_run.cv_spec.get("n_groups")}
     loadings = artifact.get("x_loadings_", artifact.get("loadings_"))
     if loadings is not None:
         matrix = np.asarray(loadings, dtype=np.float32)
@@ -1159,6 +1201,7 @@ class ModelingView(QWidget):
             smallest_roi=self._smallest_labelled_roi,
             band_source=self._band_source,
             band_proposer=self._band_proposer,
+            fold_warner=self._dialog_fold_warnings,
             parent=self,
         )
         if preset is not None:
@@ -1368,6 +1411,30 @@ class ModelingView(QWidget):
         return (f"these ROIs hold raw counts without references or detector levels, so a "
                 f"model in {required_signal_unit} is not possible; choose DN")
 
+    def fold_warnings_for(self, sample_set: SampleSet, *, fit_spec: Any) -> list[str]:
+        """The fold warnings (in words) a fit of ``sample_set`` with ``fit_spec`` would record."""
+        return self._predicted_warnings(list(sample_set.roi_ids), sample_set.target_id,
+                                        fit_spec, None)
+
+    def _predicted_warnings(self, roi_ids: list[str], target_id: str, fit_spec: Any,
+                            cv: Any) -> list[str]:
+        from ..modeling import predicted_fold_warnings
+
+        try:
+            codes = predicted_fold_warnings(
+                roi_ids=roi_ids, target_id=target_id, rois=self.project_state.rois,
+                target_assignments=self.project_state.target_assignments, fit_spec=fit_spec,
+                cv=cv)
+        except ValueError:  # an impossible request: the fit itself explains it
+            return []
+        return fold_warning_text(codes)
+
+    def _dialog_fold_warnings(self, target_id: str, fit_spec: Any, cv: Any) -> list[str]:
+        """Fold warnings for the fit dialog: all ROIs with a value for the target."""
+        roi_ids = [roi_id for roi_id in self.project_state.rois
+                   if (roi_id, target_id) in self.project_state.target_assignments]
+        return self._predicted_warnings(roi_ids, target_id, fit_spec, cv)
+
     def _sample_set_label(self, sample_set: SampleSet) -> str:
         """``"20 ROIs, SNV"``: the ROI count and the recipe (ids stay in tooltips and exports)."""
         n = len(sample_set.roi_ids)
@@ -1395,7 +1462,7 @@ class ModelingView(QWidget):
         self._invalidate_diagnostics_cache()
         self._update_model_status()
 
-    def workspace_summary(self) -> dict[str, str]:
+    def workspace_summary(self) -> dict[str, Any]:
         model_run = self._resolved_workspace_model_run()
         sample_set = self._resolved_workspace_sample_set(model_run=model_run)
         target = self._resolved_workspace_target(model_run=model_run, sample_set=sample_set)
@@ -1431,6 +1498,7 @@ class ModelingView(QWidget):
                 rmsecv_text = f"{float(model_run.metrics['rmsecv']):.4g}"
             if "bias" in model_run.metrics:
                 bias_text = f"{float(model_run.metrics['bias']):.4g}"
+        roi_metrics, pixel_metrics, warnings = self._level_metrics(model_run)
 
         return {
             "title": "Model Diagnostics",
@@ -1444,8 +1512,48 @@ class ModelingView(QWidget):
             "r2": r2_text,
             "rmsecv": rmsecv_text,
             "bias": bias_text,
+            "roi_metrics": roi_metrics,
+            "pixel_metrics": pixel_metrics,
+            "warnings": warnings,
             "readiness": self._readiness_status.text(),
         }
+
+    def _level_metrics(self, model_run: ModelRun | None
+                       ) -> tuple[list[tuple[str, str]], list[tuple[str, str]], str]:
+        """(label, value) rows *per ROI* and *per pixel*, and the fold warnings in words.
+
+        Per ROI: over ROI means (the model's quality); per pixel: over single
+        spectra (model-workspace-diagnostics contract, Levels).
+        """
+        if model_run is None:
+            return [], [], ""
+        metrics = model_run.metrics
+
+        def value(key: str) -> str | None:
+            number = metrics.get(key)
+            return None if number is None else f"{float(number):.4g}"
+
+        r2y = None
+        payload = self.workspace_diagnostics_payload() or {}  # cached per run
+        curve = payload.get("component_curve")
+        n = model_run.hyperparameters.get("n_components")
+        if isinstance(curve, dict) and curve.get("r2y_cum_roi") is not None \
+                and isinstance(n, (int, np.integer)) \
+                and 1 <= int(n) <= np.size(curve["r2y_cum_roi"]):
+            r2y = f"{float(np.asarray(curve['r2y_cum_roi'])[int(n) - 1]):.4g}"
+        roi = [(label, text) for label, text in (
+            ("R²Y (fit)", r2y), ("Q² (CV R²)", value("r2")), ("RMSEE", value("rmsee")),
+            ("RMSECV", value("rmsecv")), ("Bias", value("bias")), ("RPD", value("rpd")))
+            if text is not None]
+        pixel = [(label, text) for label, text in (
+            ("R² (CV)", value("pixel_r2")), ("RMSEE", value("pixel_rmsee")),
+            ("RMSECV", value("pixel_rmsecv")), ("RPD", value("pixel_rpd")),
+            ("Pixels", None if metrics.get("n_pixels") is None
+             else str(int(metrics["n_pixels"]))))
+            if text is not None]
+        codes = model_run.cv_spec.get("warnings")
+        warnings = "; ".join(fold_warning_text(codes)) if codes else ""
+        return roi, pixel, warnings
 
     def workspace_diagnostics_provenance(self) -> dict[str, str]:
         """Provenance lines for exported diagnostics (Plot Panel Policy)."""
@@ -1688,6 +1796,10 @@ class ModelingView(QWidget):
             stale_message = self.project_state.stale_sample_set_message(model_run.sample_set_id)
             if stale_message is not None:
                 message += f" {stale_message}"
+            codes = model_run.cv_spec.get("warnings")
+            if codes:
+                message += " Validation likely optimistic: " + "; ".join(
+                    fold_warning_text(codes)) + "."
             self._readiness_status.setText(message)
             return
 
@@ -1747,6 +1859,8 @@ class ModelingView(QWidget):
                         details.append(
                             f"Current signal unit {self.state.y_unit_effective} is incompatible: {signal_domain_error}"
                         )
+                    details += [f"Warning: {text}" for text in self.fold_warnings_for(
+                        sample_set, fit_spec=None) if "fewer than 7" not in text]
             message = "Ready: fit a model from the selected sample set."
             if details:
                 message += " " + " ".join(

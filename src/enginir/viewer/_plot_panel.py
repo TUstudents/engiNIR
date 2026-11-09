@@ -37,6 +37,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QSizePolicy,
     QToolButton,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -184,6 +185,8 @@ class PlotSpec:
     render: RenderFn
     table: Callable[[Any], PlotTable]
     empty_text: str = "No data yet."
+    #: How to read the plot (what, at which level, a bad sign); shown by the header's ?.
+    help: str = ""
 
 
 def draw_placeholder(ax: Axes, message: str, colors: Mapping[str, str]) -> None:
@@ -231,10 +234,12 @@ class PlotFrame(QWidget):
         source: PlotSource | None = None,
         *,
         provenance: Callable[[], Mapping[str, Any]] | None = None,
+        help_text: str = "",
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.plot_id = plot_id
+        self.help_text = help_text
         self._source = source
         self._provenance_provider = provenance
         self._provenance: dict[str, Any] = {}
@@ -262,6 +267,12 @@ class PlotFrame(QWidget):
         menu_button.setMenu(self._menu)
         self._header.setFixedHeight(_HEADER_BUTTON + 4)
         self._header_layout.addWidget(self._title, 1)
+        self._help_button: QToolButton | None = None
+        if help_text:
+            self._help_button = self._header_button("?")
+            self._help_button.setToolTip(help_text)
+            self._help_button.clicked.connect(self.show_help)
+            self._header_layout.addWidget(self._help_button)
         self._header_layout.addWidget(self._max_button)
         self._header_layout.addWidget(menu_button)
         self.set_maximized(False)
@@ -279,6 +290,13 @@ class PlotFrame(QWidget):
     # ------------------------------------------------------------------
     # Header
     # ------------------------------------------------------------------
+
+    def show_help(self) -> None:
+        """Show the help text next to the ? button (a tooltip that stays until moved away)."""
+        if self._help_button is None:
+            return
+        anchor = self._help_button.mapToGlobal(self._help_button.rect().bottomLeft())
+        QToolTip.showText(anchor, self.help_text, self._help_button)
 
     @property
     def title(self) -> str:
@@ -456,7 +474,8 @@ class PlotPanel(PlotFrame):
         self._canvas.setMinimumSize(120, 90)
         self._canvas.mpl_connect("button_press_event", self._on_canvas_click)
         self._canvas.mpl_connect("resize_event", self._on_canvas_resize)
-        super().__init__(spec.plot_id, spec.title, self._canvas, parent=parent)
+        super().__init__(spec.plot_id, spec.title, self._canvas, help_text=spec.help,
+                         parent=parent)
 
     # ------------------------------------------------------------------
     # Data and drawing

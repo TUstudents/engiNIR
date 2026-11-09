@@ -24,6 +24,25 @@
   suggestions, Select on plot..., Propose...); Fit again keeps the ranges;
   the Explore preview shows left-out bands as missing.
 - User guide: *Band importance and band selection*.
+- Autofit: rules `f_test` (Haaland–Thomas F test over the fold groups) and
+  `q2_lookahead` (SIMCA R1, but a failing component is kept when the next one
+  passes), and the **noise guard**, on by default with `n_components="auto"`:
+  at most one component more than those explaining ≥ 0.5 % of the spectra,
+  then no trailing component that explains < 1 % of the spectra and does not
+  improve the prediction. `components/rule_choice` stores the rule's number;
+  `noise_guard: off` chooses as 1.3 did. The curve stores `rmsee_roi`,
+  `dw_weights` (Durbin–Watson of each component's weights), `noise` and the
+  structure ceiling.
+- Fold warnings: a fit records and logs `few_groups` and `one_level_per_file`
+  (a data file's ROIs share one value but are held out in different folds)
+  in `cv_spec/@warnings`; the fit dialog, the readiness line and the summary
+  show them.
+- Viewer, Model: metrics **per ROI** and **per pixel** in separate groups,
+  every Model plot names its level, a **?** button explains each plot (the
+  same texts in the new user guide page *Reading the Model plots*), and the
+  Components page shows four plots: RMSECV and RMSEE with every rule's reason,
+  R²Y and Q² per ROI, each component's Q²ₐ, ΔR²X and roughness, and R²X and
+  R²Y per pixel.
 
 ### Changed
 

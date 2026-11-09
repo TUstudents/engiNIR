@@ -402,7 +402,9 @@ spectra and values, new ids) gives the same numbers.
 | `folds/n_folds` | integer ≥ 2, the requested *F* | `7` |
 | `folds/group_by` | `roi`, `sample`, `target` (§4.1) | `roi` |
 | `folds/groups` | one integer per ROI of the sample set, in `roi_ids` order: the index of its fold group in group order (§4.1); a fit output like `checksum` | – |
-| `components/rule` | `fixed` (the number was given), `one_se`, `min_rmsecv`, `q2_limit` (§7.4) | `fixed` with a number; `one_se` with `n_components="auto"` |
+| `components/rule` | `fixed` (the number was given), `one_se`, `min_rmsecv`, `q2_limit`, `f_test`, `q2_lookahead` (§7.4) | `fixed` with a number; `one_se` with `n_components="auto"` |
+| `components/noise_guard` | `on`, `off`: `on` applies the structure ceiling and the noise drop after an autofit rule (§7.4), `off` reproduces the choice of engiNIR 1.3; no effect with `fixed` | `on` with `"auto"`, `off` with a number |
+| `components/rule_choice` | the rule's number before the ceiling and the noise drop (§7.4); equal to `selected` with `fixed` or `noise_guard = off`; a fit output (a value in a request is ignored and replaced by the fit), and on read 1 ≤ `selected` ≤ `rule_choice` ≤ `max` | – |
 | `components/max` | integer ≥ 1, the largest number of components of the curve (*A*max) | max(*n*, min(15, max(1, *G* − 2), *M*)), *n* the given number (0 for `"auto"`), *M* the rank limit (§7.4) |
 | `components/selected` | the number of components of the run (equal to `hyperparameters/n_components`); a fit output | – |
 | `pixels/per_roi` | `all`, or an integer from 1 to the pixel count of the smallest ROI of the sample set | `all` |
@@ -413,6 +415,11 @@ spectra and values, new ids) gives the same numbers.
 | `exclusion/rounds` | `1` or `2` | `1` |
 | `exclusion/max_fraction` | largest share of an ROI's drawn pixels that may be excluded over all rounds, 0 < value < 1 | `0.2` |
 | `exclusion/formula` | DModX definition (§7.2): `dmodx-1` (unweighted) or `dmodx-2` (weighted by the modelling power, SIMCA's default) | `dmodx-1` |
+
+Runs stored before engiNIR 1.4 have neither `noise_guard` nor
+`rule_choice`: an absent `noise_guard` reads `off`, an absent `rule_choice`
+reads as `selected`, and an absent `cv_spec/@warnings` reads as "not
+recorded" (not as "no warnings").
 
 Every key is written for every new run, also when it has no effect (e.g.
 `n_folds` with `leave_one_group_out`, `level` with `method = none`), so that
@@ -639,11 +646,70 @@ Rules (`components/rule`), each choosing a number from 1 to *A*max:
   *L* = 0.05 when *G* ≤ 100 and 0 otherwise, *G* the number of fold groups
   (the independent samples; SIMCA's Autofit rule R1); 1 when Q²₁ ≤ *L*; a
   NaN Q² fails the test
+- `f_test` (Haaland and Thomas 1988): the smallest *a* with
+  PRESS(*a*) / PRESS(*a*\*) < F(0.75; *G*, *G*), *a*\* the `min_rmsecv`
+  choice and *G* the number of fold groups (the independent samples, not
+  pixels); *a*\* always qualifies; when PRESS(*a*\*) < 10⁻¹⁰ the choice is
+  *a*\* (with a logged warning)
+- `q2_lookahead`: as `q2_limit`, but a failing component is kept when the
+  next one passes. With "fails" meaning Q²_b ≤ *L* or NaN: *s* = the
+  smallest *b* that fails and is either *A*max or followed by a failing
+  *b* + 1; the choice is max(1, *s* − 1), or *A*max when there is no such
+  *b*
+
+Per component, from the same curve (engiNIR 1.4 and later):
+
+- ΔR²X(*a*) = R²X(cum)(*a*) − R²X(cum)(*a* − 1), R²X(cum)(0) = 0: the share of
+  the spectra (scaled, centred drawn pixels) component *a* explains
+- `noise`(*a*): ΔR²X(*a*) < 0.01 and Q²ₐ ≤ *L* (*L* as for `q2_limit`; a NaN
+  Q² counts as ≤ *L*): the component explains under 1 % of the spectra and
+  does not improve the prediction (SIMCA's rule N4 combined with R1)
+- the structure ceiling *C* = min(*A*max, 1 + #{*a* ≤ *A*max : ΔR²X(*a*) ≥
+  0.005}): one more than the number of components, anywhere up to *A*max,
+  that each explain at least 0.5 % of the spectra. The cap at *G* − 2 comes
+  from `components/max` (its default); a maximum the user gives overrides it
+- ΔR²X, `noise` and *C* are computed in float64 from the stored `r2x_cum`
+  and `q2`, at fit time and when read, so they agree with what is stored
+- `rmsee_roi`(*a*) = √(RSS(*a*) / (*R* − *a* − 1)) over ROI means, NaN when
+  *R* − *a* − 1 < 1; equal to `metrics/rmsee` at the run's *A* when no
+  pixels are excluded (RSS comes from the *A*max fit without exclusion)
+- `dw_weights`(*a*): the Durbin–Watson statistic
+  Σₖ₌₁ᴷ⁻¹ (wₖ₊₁ − wₖ)² / Σₖ₌₁ᴷ wₖ² of component *a*'s weight vector over
+  the *K* bands of the model axis in order (across a band-selection gap the
+  neighbours are the kept bands), from the fit with *A*max components (PLS:
+  the column of `x_weights_`, in the model's scaled space; PCR: the
+  principal component); NaN when *K* < 2 or Σ wₖ² < 10⁻¹⁰. Near 0 for a
+  smooth, spectrum-like vector, near 2 for white noise; a diagnostic, not a
+  rule
+
+The curve stores `rmsee_roi`, `dw_weights`, `noise` and *C*
+(`@structure_ceiling`); ΔR²X is derived from `r2x_cum`. Runs from before
+1.4 lack them (see §7 for how their keys read).
+
+With `n_components="auto"` the run's number is chosen in this order: *r*,
+the rule's choice (`components/rule_choice`); with `noise_guard = on`,
+*s* = min(*r*, *C*), then while *s* > 1 and `noise`(*s*), *s* − 1; with
+`noise_guard = off`, *r*. A given number is used as given. The guard is on
+by default because a curve from optimistic folds keeps falling slowly with
+components that model noise; the ceiling belongs to the guard so that a
+refit of a 1.3 run (guard `off`) chooses as it did.
 
 Ties are decided by exact comparison; values within floating-point noise of
 each other can choose differently on another platform, which a refit
 reports. The curve stores the suggestion of every rule, so the user sees
 where they disagree.
+
+**Fold warnings.** A fit records, in `cv_spec/@warnings` (codes separated by
+commas, empty when none), conditions that make the cross-validation
+optimistic; it warns in the log and does not refuse:
+
+- `few_groups`: fewer than 7 fold groups
+- `one_level_per_file`: some data file (the ROIs' `dataset_id`) has at least
+  2 ROIs of the sample set, they share one value of the sample set's target
+  (compared as in §4.1, exact float64), and they are held out in more than
+  one fold: held-out ROIs then have ROIs of their own data file in training,
+  so the model can learn the data file instead of the target; giving each
+  such data file's ROIs one sample label holds them out together
 
 ### 7.5 Training diagnostics
 
