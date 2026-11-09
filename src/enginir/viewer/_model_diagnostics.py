@@ -112,9 +112,21 @@ def _suffix(unit: str) -> str:
     return f" ({unit})" if unit else ""
 
 
+#: Up to this many distinct reference values are counted per value, not binned.
+_DISCRETE_VALUES = 12
+
+
 def _target_histogram(y_true: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     n_unique = int(np.unique(y_true).size)
     return np.histogram(y_true, bins=max(1, min(10, n_unique)))
+
+
+def _target_counts(y_true: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
+    """Each distinct value and its ROI count, when there are few (levels such as 1, 4, 7,
+    10); ``None`` for continuous values, which are binned. Equal-width bins over a few
+    levels join into one flat block."""
+    values, counts = np.unique(np.asarray(y_true, dtype=float), return_counts=True)
+    return (values, counts) if values.size <= _DISCRETE_VALUES else None
 
 
 def _axes(fig: Figure, colors: Mapping[str, str]) -> Any:
@@ -148,7 +160,7 @@ def _render_pred_vs_ref(fig: Figure, payload: Any, colors: Mapping[str, str]
     ax.plot([low - pad, high + pad], [low - pad, high + pad], color=GUIDE_COLOR, linewidth=1.0,
             linestyle="--")
     unit = _unit(payload)
-    value_unit = f" {unit}" if unit else ""
+    value_unit = f" {unit}" if unit not in ("", "1") else ""  # "1": dimensionless
     statistics = payload.get("fit_statistics") or {}
     extra = "".join(f"\n{label} = {statistics[key]:.4g}{suffix}" for key, label, suffix in
                     (("rmsee", "RMSEE", value_unit), ("r2_adj", "$R^2_{adj}$", ""))
@@ -212,8 +224,20 @@ def _render_target_distribution(fig: Figure, payload: Any, colors: Mapping[str, 
     if pairs is None:
         draw_placeholder(ax, "No target distribution diagnostics yet.", colors)
         return None
-    counts, edges = _target_histogram(pairs[0])
-    ax.stairs(counts, edges, fill=True, color=colors["accent"], alpha=0.85)
+    levels = _target_counts(pairs[0])
+    if levels is not None:
+        values, counts = levels
+        # Thick vertical lines, as the sorted VIP: the drawn data are the values and counts.
+        ax.vlines(values, 0, counts, colors=colors["accent"], linewidth=14, alpha=0.85)
+        span = float(values[-1] - values[0]) or 1.0
+        ax.set_xlim(values[0] - 0.12 * span - 0.5, values[-1] + 0.12 * span + 0.5)
+        ax.set_ylim(0, float(counts.max()) * 1.08)
+        ax.set_xticks(values)
+        ax.set_xticklabels([f"{v:g}" for v in values])
+    else:
+        counts, edges = _target_histogram(pairs[0])
+        ax.stairs(counts, edges, fill=True, color=colors["accent"], alpha=0.85)
+    ax.yaxis.get_major_locator().set_params(integer=True)
     _label(ax, f"Reference{_suffix(_unit(payload))}", "ROI count", colors)
     return None
 
@@ -222,8 +246,12 @@ def _table_target_distribution(payload: Any) -> PlotTable:
     pairs = _cv_pairs(payload)
     if pairs is None:
         return PlotTable()
-    counts, edges = _target_histogram(pairs[0])
     unit = _unit(payload)
+    levels = _target_counts(pairs[0])
+    if levels is not None:
+        return PlotTable(columns=(PlotColumn("value", levels[0], unit),
+                                  PlotColumn("roi_count", levels[1])))
+    counts, edges = _target_histogram(pairs[0])
     return PlotTable(columns=(PlotColumn("bin_start", edges[:-1], unit),
                               PlotColumn("bin_end", edges[1:], unit),
                               PlotColumn("roi_count", counts)))

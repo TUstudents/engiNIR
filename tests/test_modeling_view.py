@@ -265,7 +265,8 @@ def test_a_fit_stores_its_sample_set_and_a_refit_reuses_it(qapp, state_and_proje
     assert captured[0]["cv"] == "auto" and captured[0]["fit_spec"] is None
     assert captured[0]["hyperparameters"] == {"n_components": 6, "x_scaling": "center",
                                               "y_scaling": "uv"}
-    assert view._service_status.label.text() == "Service: model model_1"
+    named = project.model_runs["model_1"].name or "PLS model"
+    assert view._service_status.label.text() == f"Service: model {named}", "a name, not an id"
 
     _wait_until(qapp, lambda: view._job_thread is None)
     view.fit_model_btn_clicked()  # the same choices: the same sample set
@@ -474,7 +475,8 @@ def test_reopened_model_run_renders_every_diagnostic_and_selects_rois(qapp, tmp_
 
     assert axes("model.pred_vs_ref").collections[0].get_offsets().shape[0] == n_rois
     assert axes("model.residuals").collections[0].get_offsets().shape[0] == n_rois
-    assert axes("model.target_distribution").patches
+    distribution = axes("model.target_distribution")
+    assert distribution.patches or distribution.collections, "drawn as bins or as levels"
     assert axes("model.scores").collections[0].get_offsets().shape[0] == n_rois
     assert "training" in axes("model.scores").get_xlabel()
     for plot_id, key in (("model.coefficients", "coefficients"), ("model.loadings", "loadings")):
@@ -560,3 +562,84 @@ def test_the_diagnostics_payload_carries_the_curve_and_the_training_distances(tm
     assert payload["dmodx_pixels"].shape == payload["t2_pixels"].shape == (96,)
     assert {"t2_crit_2_099", "dcrit_099"} <= set(payload)
     assert "rmsee" in payload["fit_statistics"]
+
+
+def test_the_summary_names_the_model_and_its_validation_and_the_check_logs_no_error(
+        qapp, state_and_project, monkeypatch):
+    """Names, not ids; the stored folds as text; asking whether the Explore signal can be
+    modelled answers in the status line without an ERROR in the log (a refused signal
+    domain used to be logged by its constructor)."""
+    from loguru import logger
+
+    from enginir.viewer._modeling import FitModelRunDialog, ModelingView, describe_cv
+
+    state, project = state_and_project
+    _labelled_rois(state, project)
+
+    def fake_exec(self):
+        self._signal_unit_combo.setCurrentIndex(self._signal_unit_combo.findText("Reflectance"))
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(FitModelRunDialog, "exec", fake_exec)
+    captured: list[dict[str, object]] = []
+    monkeypatch.setattr("enginir.modeling.fit_model_run", _fake_fit(captured))
+    view = ModelingView(state, project)
+    view._selected_target_id = "target_1"
+    view.fit_model_btn_clicked()
+    _wait_until(qapp, lambda: "model_1" in project.model_runs)
+    _wait_until(qapp, lambda: view._job_thread is None)
+    run = project.model_runs["model_1"]
+    run.cv_spec = {"type": "RoundRobinGroups", "n_splits": 2, "n_groups": 2,
+                   "grouping_unit": "roi"}
+    view._invalidate_diagnostics_cache()
+    summary = view.workspace_summary()
+    assert summary["cv"] == "2 folds, round-robin over 2 samples"
+    assert "model_1" not in summary["model"] + summary["readiness"]
+    assert summary["sample_set"] == "2 ROIs"
+    assert describe_cv({"cv": 5}) == "5" and describe_cv({}) == "-"
+
+    errors: list[str] = []
+    sink = logger.add(lambda m: errors.append(m), level="ERROR")
+    try:
+        # These ROIs have references: they cannot be modelled in raw counts.
+        state.set_y_unit("DN")
+        view._update_readiness_status()
+    finally:
+        logger.remove(sink)
+    assert errors == []
+    sample_set = next(iter(project.sample_sets.values()))
+    assert "choose Reflectance or Absorbance" in (view._validate_signal_domain_preflight(
+        sample_set=sample_set, required_signal_unit="DN") or "")
+
+
+def test_few_reference_levels_get_one_bar_each_and_unit_1_is_not_printed():
+    """Four levels (1, 4, 7, 10) in four equal bins over 1-10 made one flat block."""
+    from matplotlib.figure import Figure
+
+    from enginir.viewer._model_diagnostics import (
+        _render_pred_vs_ref,
+        _render_target_distribution,
+        _table_target_distribution,
+    )
+    from enginir.viewer._theme import panel_colors
+
+    y = np.repeat([1.0, 4.0, 7.0, 10.0], 5)
+    payload = {"y_true_roi": y, "y_pred_roi": y + 0.3, "target_unit": "1"}
+    fig = Figure()
+    _render_target_distribution(fig, payload, panel_colors())
+    (bars,) = fig.axes[0].collections
+    segments = bars.get_segments()
+    assert [float(seg[0][0]) for seg in segments] == [1.0, 4.0, 7.0, 10.0], "one bar per level"
+    assert [float(seg[1][1]) for seg in segments] == [5, 5, 5, 5]
+    assert not fig.axes[0].patches, "no binned block"
+    table = _table_target_distribution(payload)
+    assert [c.name for c in table.columns] == ["value", "roi_count"]
+
+    continuous = {"y_true_roi": np.linspace(0, 10, 40), "y_pred_roi": np.linspace(0, 10, 40)}
+    assert _table_target_distribution(continuous).columns[0].name == "bin_start"
+
+    for unit, shown in (("1", False), ("%", True)):
+        fig = Figure()
+        _render_pred_vs_ref(fig, {**payload, "target_unit": unit}, panel_colors())
+        stats = fig.axes[0].texts[0].get_text()
+        assert (f" {unit}\n" in stats) is shown, (unit, stats)

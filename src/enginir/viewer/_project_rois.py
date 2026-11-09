@@ -40,7 +40,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
-    QPushButton,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -736,8 +735,6 @@ class ProjectRoisView(QWidget):
 
     roi_selected = pyqtSignal(str)
     roi_opened = pyqtSignal(str)
-    #: The ROI table is asked for (Target values...), filtered like this tab.
-    roi_table_requested = pyqtSignal()
     #: The data file filter of this tab changed.
     data_file_filter_changed = pyqtSignal()
 
@@ -773,10 +770,6 @@ class ProjectRoisView(QWidget):
         top.addWidget(QLabel("Data file:"))
         top.addWidget(self._file_filter, 1)
         top.addWidget(self._status, 2)
-        values = QPushButton("Target values...")
-        values.setToolTip("Open the ROI table on the ROIs shown here, to enter or paste values")
-        values.clicked.connect(self.roi_table_requested.emit)
-        top.addWidget(values)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(top)

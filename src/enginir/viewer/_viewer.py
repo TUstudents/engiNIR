@@ -334,6 +334,7 @@ class HSIViewer(QMainWindow):
         # Explore: the shown data file, or all ROIs of the project (filled in later).
         self._explore_tabs = QTabWidget()
         self._explore_tabs.setDocumentMode(True)
+        _require_qt_object(self._explore_tabs.tabBar(), "Explore tab bar").setDrawBase(False)
         self._explore_tabs.addTab(self._data_file_page, "Data file")
         self._explore_content_page = self._explore_tabs
         self._project_rois: ProjectRoisView | None = None
@@ -946,7 +947,6 @@ class HSIViewer(QMainWindow):
         self.project_state.project_loaded.connect(self._choose_explore_tab)
         self._explore_tabs.currentChanged.connect(self._show_last_data_file)
         self._explore_tabs.currentChanged.connect(self._on_explore_tab_changed)
-        self._project_rois.roi_table_requested.connect(self.show_roi_table)
         self._project_rois.data_file_filter_changed.connect(self._follow_roi_table_filter)
         self.project_state.project_loaded.connect(self._sync_roi_table)
         self._update_project_rois_tab()

@@ -36,8 +36,7 @@
   Spatial Profile) show only on the Data file tab. The ROI table opens with
   Project ROIs in the right-hand column and is hidden on the Data file tab
   (opened there, it takes the Sensor Frame's place); the choice is kept per
-  tab, and the table shows the page's ROIs. Project ROIs has **Target
-  values...**.
+  tab, and the table shows the page's ROIs.
 - Viewer, ROI mosaic: tiles in a compact grid (ROI grid positions, else scan
   order), text in reserved room that zooms with the tiles, labels without
   the shared name prefix, outlines in the value colour of the mean spectra;
@@ -51,6 +50,16 @@
   while the colour bar showed them in the middle.
 - Viewer: plots of a data file without wavelengths are labelled "Band", not
   "Wavelength (nm)".
+- Viewer, Model: the summary showed "-" for the cross-validation of models
+  fitted since 1.2 (it now reads the stored folds, e.g. "7 folds, round-robin
+  over 20 samples") and ids where names belong (model, sample set,
+  readiness, status lines).
+- Viewer, Model: a few reference levels (1, 4, 7, 10) were binned into one
+  flat block; they get one bar each. A unit of "1" is no longer printed
+  after every statistic.
+- Viewer, Model: checking whether the Explore signal can be modelled (DN for
+  data with references or detector levels) logged an ERROR after every fit;
+  it now only explains it in the readiness line.
 - Viewer on WSLg Wayland: a drop-down list stayed on screen after choosing
   an item (a WSLg fault, microsoft/wslg#1522); the list's native window is
   now released when it closes.

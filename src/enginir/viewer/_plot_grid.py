@@ -183,6 +183,7 @@ class PlotGrid(QWidget):
         tab_bar = self._tabs.tabBar()
         if tab_bar is not None:
             tab_bar.setAutoHide(True)
+            tab_bar.setDrawBase(False)  # the theme draws no base; Qt's would be a white line
         for page in self._pages:
             self._tabs.addTab(QWidget(), page.name)
         self._tabs.currentChanged.connect(self._ensure_page)

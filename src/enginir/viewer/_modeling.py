@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from typing import Any
 
@@ -834,6 +834,39 @@ def _roi_score_payload(artifact: dict[str, Any] | None) -> dict[str, Any]:
             "scores_without_pixels": int(np.sum(~np.isfinite(matrix).all(axis=1)))}
 
 
+#: Readable names of the stored cross-validation splitters.
+_CV_KINDS = {"RoundRobinGroups": "round-robin", "GroupKFold": "group k-fold",
+             "KFold": "k-fold", "LeaveOneGroupOut": "leave one out",
+             "LeaveOneOut": "leave one out"}
+
+
+def describe_cv(cv_spec: Mapping[str, Any]) -> str:
+    """How a model was cross-validated, e.g. ``"7 folds, round-robin over 20 samples"``.
+
+    Reads the stored splitter (``type``, ``n_splits``, ``n_groups``,
+    ``grouping_unit``) and the older one-key form (``{"cv": 7}``); ``"-"``
+    when nothing is recorded.
+    """
+    if not cv_spec:
+        return "-"
+    if "type" not in cv_spec:
+        value = cv_spec.get("cv", next(iter(cv_spec.values())) if len(cv_spec) == 1 else None)
+        return "-" if value is None else str(value)
+    kind = _CV_KINDS.get(str(cv_spec["type"]), str(cv_spec["type"]))
+    n_splits = cv_spec.get("n_splits")
+    text = kind if n_splits is None else f"{n_splits} folds, {kind}"
+    n_groups = cv_spec.get("n_groups")
+    if n_groups is not None:
+        # Fold groups are samples: ROIs with one sample label, or an ROI without one.
+        text += f" over {n_groups} sample{'' if int(n_groups) == 1 else 's'}"
+    return text
+
+
+def model_label(model_run: ModelRun) -> str:
+    """The model's name (e.g. ``"PLS 7 LV, SNV"``), else its type; never its id."""
+    return model_run.name or f"{model_run.model_type} model"
+
+
 class ModelingView(QWidget):
     """Modeling controls for target editing, sample-set builds, and model fitting."""
 
@@ -1310,6 +1343,36 @@ class ModelingView(QWidget):
             required_signal_unit=required_signal_unit,
         )
 
+    def _signal_unit_mismatch(self, sample_set: SampleSet, required_signal_unit: str
+                              ) -> str | None:
+        """Why the ROIs' calibration cannot be modelled in ``required_signal_unit``, if so.
+
+        A model in raw counts (DN) needs raw-count data; data with references,
+        detector levels or calibrated values are modelled as reflectance or
+        absorbance (dataset-calibration contract). Asked before a signal domain
+        is built, so a readiness check does not log a refused domain as an error.
+        """
+        roi = self.project_state.rois.get(sample_set.roi_ids[0]) if sample_set.roi_ids else None
+        calibration = None if roi is None else self.project_state.calibrations.get(
+            roi.calibration_id)
+        if calibration is None:
+            return None
+        if (required_signal_unit == "DN") == (calibration.mode == "raw_dn"):
+            return None
+        if required_signal_unit == "DN":
+            return ("models in DN need data files added as raw counts; these ROIs have "
+                    "references or detector levels, so choose Reflectance or Absorbance")
+        return (f"these ROIs hold raw counts without references or detector levels, so a "
+                f"model in {required_signal_unit} is not possible; choose DN")
+
+    def _sample_set_label(self, sample_set: SampleSet) -> str:
+        """``"20 ROIs, SNV"``: the ROI count and the recipe (ids stay in tooltips and exports)."""
+        n = len(sample_set.roi_ids)
+        recipe = self.project_state.recipes.get(sample_set.preprocessing_recipe_id)
+        described = "none" if recipe is None else PreprocessingRecipe.from_dict(recipe).describe()
+        rois = f"{n} ROI" if n == 1 else f"{n} ROIs"
+        return rois if described == "none" else f"{rois}, {described}"
+
     def _sync_selected_target(self) -> None:
         visible_targets = self.visible_targets()
         visible_target_ids = {target.target_id for target in visible_targets}
@@ -1354,15 +1417,11 @@ class ModelingView(QWidget):
         rmsecv_text = "-"
         bias_text = "-"
         if model_run is not None:
-            model_text = f"{model_run.model_type} [{model_run.model_run_id}]"
+            model_text = model_label(model_run)
             n_components = model_run.hyperparameters.get("n_components")
             if n_components is not None:
                 components_text = str(n_components)
-            cv_value = model_run.cv_spec.get("cv")
-            if cv_value is None and len(model_run.cv_spec) == 1:
-                cv_value = next(iter(model_run.cv_spec.values()))
-            if cv_value is not None:
-                cv_text = str(cv_value)
+            cv_text = describe_cv(model_run.cv_spec)
             if "r2" in model_run.metrics:
                 r2_text = f"{float(model_run.metrics['r2']):.4g}"
             if "rmsecv" in model_run.metrics:
@@ -1373,7 +1432,7 @@ class ModelingView(QWidget):
         return {
             "title": "Model Diagnostics",
             "target": target_text,
-            "sample_set": "none" if sample_set is None else sample_set.sample_set_id,
+            "sample_set": "none" if sample_set is None else self._sample_set_label(sample_set),
             "model": model_text,
             "components": components_text,
             "cv": cv_text,
@@ -1578,23 +1637,23 @@ class ModelingView(QWidget):
     def _update_model_status(self) -> None:
         model_run = self._resolved_workspace_model_run()
         sample_set = self._resolved_workspace_sample_set(model_run=model_run)
-        sample_set_id = None if sample_set is None else sample_set.sample_set_id
-        if sample_set_id is None:
+        if sample_set is None:
             self._sample_set_status.setText("Sample set: none")
         else:
             suffix = (
                 " (stale: deleted ROI)"
-                if self.project_state.missing_roi_ids_for_sample_set(sample_set_id)
+                if self.project_state.missing_roi_ids_for_sample_set(sample_set.sample_set_id)
                 else ""
             )
-            self._sample_set_status.setText(f"Sample set: {sample_set_id}{suffix}")
+            self._sample_set_status.setText(
+                f"Sample set: {self._sample_set_label(sample_set)}{suffix}")
 
         if model_run is None:
             self._model_status.setText("Model: none")
         else:
             metric = model_run.metrics.get("rmsecv")
             suffix = "" if metric is None else f" | RMSECV={float(metric):.4g}"
-            self._model_status.setText(f"Model: {model_run.model_run_id}{suffix}")
+            self._model_status.setText(f"Model: {model_label(model_run)}{suffix}")
         self._update_readiness_status()
         self.view_state_changed.emit()
 
@@ -1622,7 +1681,7 @@ class ModelingView(QWidget):
     def _update_readiness_status(self) -> None:
         model_run = self._resolved_workspace_model_run()
         if model_run is not None:
-            message = f"Ready: model {model_run.model_run_id} is available for prediction."
+            message = f"Ready: model {model_label(model_run)} is available for prediction."
             stale_message = self.project_state.stale_sample_set_message(model_run.sample_set_id)
             if stale_message is not None:
                 message += f" {stale_message}"
@@ -1735,7 +1794,10 @@ class ModelingView(QWidget):
             self._on_job_error("Fit model failed", str(exc))
             return
         self._last_sample_set_id = model_run_result.model_run.sample_set_id
-        self._service_status.set_idle(f"Service: model {model_run_result.model_run.model_run_id}")
+        fitted = model_run_result.model_run
+        if fitted is not None:  # the stored run carries the name given when it was saved
+            stored = self.project_state.model_runs.get(fitted.model_run_id) or fitted
+            self._service_status.set_idle(f"Service: model {model_label(stored)}")
         self._update_model_status()
 
     def _on_job_error(self, title: str, message: str) -> None:
@@ -1843,6 +1905,9 @@ class ModelingView(QWidget):
         stale_message = self._stale_message(sample_set)
         if stale_message is not None:
             return stale_message
+        mismatch = self._signal_unit_mismatch(sample_set, required_signal_unit)
+        if mismatch is not None:
+            return mismatch
         try:
             signal_domain = self._build_signal_domain_contract(
                 sample_set=sample_set,

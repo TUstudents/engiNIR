@@ -194,7 +194,7 @@ absorbance, are counted in the tab's status line.
 The docks that show the data file at the cursor (Histogram, RAW, Sensor
 Frame, Spatial Profile) belong to the Data file tab: on Project ROIs they are
 hidden, and they come back as you left them. The ROI table takes the
-right-hand column instead, on the ROIs shown; **Target values...** brings it
+right-hand column instead, on the ROIs shown; **View > ROI Table** brings it
 back after you closed it.
 
 A project with ROIs opens on this tab. Clicking a tile selects the ROI
@@ -206,10 +206,13 @@ Model
 
 Model shows the selected model and its diagnostics:
 
-- summary cards for target, sample set, model, components, cross-validation,
-  ROI and pixel counts, R², RMSECV and bias
+- summary cards for target, sample set (its ROI count and preprocessing),
+  model (by name), components, cross-validation (for example "7 folds,
+  round-robin over 20 samples"), ROI and pixel counts, R², RMSECV and bias
 - the **Fit** page: predicted vs reference (with R², RMSECV, bias, and RMSEE
-  and adjusted R²), residuals, the distribution of reference values, and the
+  and adjusted R²; a unit of ``1`` is not repeated after each number),
+  residuals, the distribution of reference values (one bar per value when
+  there are at most 12 distinct values, as for levels 1, 4, 7, 10), and the
   training scores of the first two latent variables with the Hotelling T²
   ellipses (0.95 dotted, 0.99 dashed); one point per ROI, the mean of the
   pixels the model was fitted on (the drawn pixels with a pixel sample,
@@ -244,7 +247,7 @@ opened. A maximized plot stays maximized the next time the viewer opens, and
 **View > Reset Layout** restores the default layout.
 
 Reference values are typed in the **ROI table**, opened from **Target
-values...** in Model or on the Project ROIs tab, from **ROI table** in
+values...** in Model, from **ROI table** in
 Explore, or from the View menu. It opens by itself with the Project ROIs
 tab, in the right-hand column of the window, and is not shown on the Data
 file tab; opened there, it takes the Sensor Frame's place as a tab. Closing
