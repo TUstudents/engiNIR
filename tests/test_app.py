@@ -61,7 +61,7 @@ def test_apply_qt_theme_persists_panel_colors_and_preference(qapp, tmp_path, mon
     thememod.apply_qt_theme(qapp, dark=False)
 
     assert thememod.is_dark() is False
-    assert thememod.panel_colors()["fg"] == "#2e3742"
+    assert thememod.panel_colors()["fg"] == thememod._SURFACE_COLORS[False]["text"]
     assert thememod.load_preference() is False
 
 

@@ -51,7 +51,7 @@ from .._logging import get_logger
 from .._workflow import DEFAULT_BLACK_LEVEL, DEFAULT_WHITE_LEVEL, data_file_labels, read_frames
 from ..io import load_spectra
 from ..project import CalibrationSpec, DatasetRef
-from ._theme import panel_colors, secondary_text_style
+from ._theme import GUIDE_COLOR, panel_colors, secondary_text_style
 from ._ui_helpers import style_axes
 
 logger = get_logger(__name__)
@@ -384,7 +384,7 @@ class AddDataFileDialog(QDialog):
         if data is not None:
             ax.plot(wavelengths, data, color=colors["fg"], linewidth=1.0, label="Data (mean)")
         if choice == REFERENCES:
-            for source, color in ((self._dark, "#7f7f7f"), (self._white, colors["accent"])):
+            for source, color in ((self._dark, GUIDE_COLOR), (self._white, colors["accent"])):
                 try:
                     raw = self._raw_reference(source)
                 except (OSError, ValueError, KeyError) as exc:
@@ -403,11 +403,11 @@ class AddDataFileDialog(QDialog):
                 lines.append(f"References copied from {self._shared.currentText()}.")
                 means = self._shared_means.get(str(self._shared.currentData()))
                 if means is not None:
-                    ax.plot(wavelengths, means[0], color="#7f7f7f", label="Dark")
+                    ax.plot(wavelengths, means[0], color=GUIDE_COLOR, label="Dark")
                     ax.plot(wavelengths, means[1], color=colors["accent"], label="White")
         elif choice == LEVELS and not self._precalibrated:
             black, white = self._black.value(), self._white_level.value()
-            ax.axhline(black, color="#7f7f7f", linestyle="--", label=f"Black level {black:g}")
+            ax.axhline(black, color=GUIDE_COLOR, linestyle="--", label=f"Black level {black:g}")
             ax.axhline(white, color=colors["accent"], linestyle="--",
                        label=f"White level {white:g}")
             if white > black:

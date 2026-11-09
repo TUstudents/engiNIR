@@ -23,11 +23,11 @@ from ..validation import bias, r2_score, rmsecv
 from ._plot_grid import PlotGrid, PlotPage, PlotSlot
 from ._plot_panel import PlotColumn, PlotSpec, PlotTable, RoiPoints, draw_placeholder
 from ._plot_registry import PLOT_SPECS, WORKSPACE_PAGES, register_pages, register_plot
+from ._theme import GUIDE_COLOR
 from ._ui_helpers import style_axes
 
 _EMPTY = "No fitted model diagnostics yet."
 _WORKSPACE = "Model"
-_GUIDE = "#9aa3ad"  # reference lines, readable on light and dark backgrounds
 
 
 # ----------------------------------------------------------------------
@@ -128,7 +128,7 @@ def _render_pred_vs_ref(fig: Figure, payload: Any, colors: Mapping[str, str]
     low = float(min(y_true.min(), y_pred.min()))
     high = float(max(y_true.max(), y_pred.max()))
     pad = 0.05 * (high - low) if high > low else 1.0
-    ax.plot([low - pad, high + pad], [low - pad, high + pad], color=_GUIDE, linewidth=1.0,
+    ax.plot([low - pad, high + pad], [low - pad, high + pad], color=GUIDE_COLOR, linewidth=1.0,
             linestyle="--")
     unit = _unit(payload)
     value_unit = f" {unit}" if unit else ""
@@ -169,7 +169,7 @@ def _render_residuals(fig: Figure, payload: Any, colors: Mapping[str, str]
     y_true, y_pred = pairs
     residuals = y_pred - y_true
     ax.scatter(y_true, residuals, s=30, alpha=0.75, edgecolors="none", color=colors["accent"])
-    ax.axhline(0.0, color=_GUIDE, linewidth=0.8, linestyle="--")
+    ax.axhline(0.0, color=GUIDE_COLOR, linewidth=0.8, linestyle="--")
     unit = _unit(payload)
     _label(ax, f"Reference{_suffix(unit)}", f"Residual{_suffix(unit)}", colors)
     ids = _roi_ids(payload, y_true.size)
@@ -226,8 +226,8 @@ def _render_scores(fig: Figure, payload: Any, colors: Mapping[str, str]
         ax.text(0.01, 0.97, f"{missing} ROI(s) without fitted pixels not shown",
                 transform=ax.transAxes, va="top", fontsize=8, color=colors["fg"])
     ax.scatter(scores[:, 0], scores[:, 1], c=pairs[0], s=36, alpha=0.8, edgecolors="none")
-    ax.axhline(0.0, color=_GUIDE, linewidth=0.6, linestyle="--")
-    ax.axvline(0.0, color=_GUIDE, linewidth=0.6, linestyle="--")
+    ax.axhline(0.0, color=GUIDE_COLOR, linewidth=0.6, linestyle="--")
+    ax.axvline(0.0, color=GUIDE_COLOR, linewidth=0.6, linestyle="--")
     variances = payload.get("score_variances")
     if variances is not None:  # Hotelling T² ellipses of the training pixels (§7.5)
         angle = np.linspace(0.0, 2.0 * np.pi, 200)
@@ -235,7 +235,7 @@ def _render_scores(fig: Figure, payload: Any, colors: Mapping[str, str]
             limit = payload.get(key)
             if limit is not None:
                 radii = np.sqrt(float(limit) * np.asarray(variances, dtype=float))
-                ax.plot(radii[0] * np.cos(angle), radii[1] * np.sin(angle), color=_GUIDE,
+                ax.plot(radii[0] * np.cos(angle), radii[1] * np.sin(angle), color=GUIDE_COLOR,
                         linewidth=0.9, linestyle=style)
     _label(ax, "LV1 training score", "LV2 training score", colors)
     ids = _roi_ids(payload, pairs[0].size)
@@ -268,7 +268,7 @@ def _spectral_spec(key: str, plot_id: str, title: str, ylabel: str, empty: str) 
             return
         x, y, xlabel = spectrum
         ax.plot(x, y, linewidth=1.2, color=colors["accent"])
-        ax.axhline(0.0, color=_GUIDE, linewidth=0.6, linestyle="--")
+        ax.axhline(0.0, color=GUIDE_COLOR, linewidth=0.6, linestyle="--")
         _label(ax, xlabel, ylabel, colors)
 
     def table(payload: Any) -> PlotTable:
@@ -364,7 +364,7 @@ def _render_loadings(fig: Figure, payload: Any, colors: Mapping[str, str]) -> No
          else np.arange(matrix.shape[0], dtype=float))
     for c in range(matrix.shape[1]):
         ax.plot(x, matrix[:, c], linewidth=1.1, label=f"LV{c + 1}")
-    ax.axhline(0.0, color=_GUIDE, linewidth=0.6, linestyle="--")
+    ax.axhline(0.0, color=GUIDE_COLOR, linewidth=0.6, linestyle="--")
     ax.legend(fontsize=7)
     _label(ax, "Wavelength" if axis is not None else "Band", "Loading", colors)
 

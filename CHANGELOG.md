@@ -53,7 +53,12 @@
   combo boxes show their arrows; tables no longer draw a rounded box around
   their headers; check boxes and radio buttons have a visible outline in the
   dark theme and an accent fill when checked; the progress bar is visible in
-  the light theme; a focused field has an accent border.
+  the light theme; a focused field has an accent border; the default
+  button of a dialog stands out; secondary text is sized in points (85 % of
+  the UI font) instead of a fixed 9 px; the light theme's selection is
+  stronger and an unfocused selection is grey; slim scroll bars, themed
+  tooltips, a splitter handle on hover; plot backgrounds follow the window
+  colours and reference lines share one guide colour.
 - Viewer: closing the viewer after a project window was open no longer ends
   the process with a segmentation fault (exit code 139). PyQt's exit cleanup
   crashed when the application-wide event filter ran during it; the filter is

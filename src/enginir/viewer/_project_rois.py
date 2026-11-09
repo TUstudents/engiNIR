@@ -49,7 +49,7 @@ from ._plot_panel import (
 )
 from ._plot_registry import register_plot
 from ._state import ProjectState, ViewerState
-from ._theme import panel_colors, print_colors, secondary_text_style
+from ._theme import GUIDE_COLOR, panel_colors, print_colors, secondary_text_style
 from ._ui_helpers import style_axes
 
 logger = get_logger(__name__)
@@ -58,7 +58,6 @@ logger = get_logger(__name__)
 _RGB_NM = (1650.0, 1300.0, 1050.0)
 _TILE_BATCH = 40
 _ALL_FILES = "__all__"
-_NO_VALUE_COLOR = "#9aa3ad"
 
 
 def rgb_band_indices(wavelengths: np.ndarray) -> list[int]:
@@ -351,7 +350,7 @@ class RoiMosaic(QWidget):
             ax.imshow(np.transpose(rgb, (1, 0, 2)), extent=(x, x + w, y + h, y),
                       interpolation="nearest")
         for roi_id, (x, y, w, h) in self._places.items():
-            ax.add_patch(Rectangle((x, y), w, h, fill=False, edgecolor="#888888",
+            ax.add_patch(Rectangle((x, y), w, h, fill=False, edgecolor=GUIDE_COLOR,
                                    linewidth=0.5))
             ax.text(x, y + h, self._labels.get(roi_id, ""), fontsize=5, va="top",
                     color=colors["fg"])
@@ -389,7 +388,7 @@ def _render_means(fig: Figure, payload: Any, colors: Mapping[str, str]) -> None:
     x = np.asarray(payload["wavelengths"])
     for roi_id, mean in means.items():
         value = values.get(roi_id)
-        color = cmap(norm(value)) if value is not None and norm is not None else _NO_VALUE_COLOR
+        color = cmap(norm(value)) if value is not None and norm is not None else GUIDE_COLOR
         ax.plot(x, mean, color=color, linewidth=0.8, alpha=0.85)
     if norm is not None:
         mappable = fig.colorbar(colormaps_mappable(norm, cmap), ax=ax, fraction=0.05, pad=0.02)

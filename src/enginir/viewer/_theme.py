@@ -26,6 +26,7 @@ __all__ = [
     "is_dark",
     "load_preference",
     "panel_colors",
+    "GUIDE_COLOR",
     "print_colors",
     "secondary_text_style",
     "theme_applied",
@@ -36,21 +37,6 @@ _THEME_PROPERTY = "_enginir_theme_applied"
 _THEME_MODE_PROPERTY = "_enginir_theme_dark"
 _PREFERENCE_FILE = "theme.json"
 _current_dark = True
-
-_PANEL_COLORS = {
-    True: {
-        "bg": "#1f2328",
-        "ax_bg": "#272d34",
-        "fg": "#f3f6fb",
-        "accent": "#7c8cff",
-    },
-    False: {
-        "bg": "#f3f5f8",
-        "ax_bg": "#ffffff",
-        "fg": "#2e3742",
-        "accent": "#4660d9",
-    },
-}
 
 _SURFACE_COLORS = {
     True: {
@@ -82,12 +68,30 @@ _SURFACE_COLORS = {
         "muted": "#65707d",
         "accent": "#4660d9",
         "accent_active": "#5b73e5",
-        "selection": "#dfe6ff",
+        "selection": "#c7d3ff",
         "disabled_text": "#a3acb8",
         "disabled_bg": "#f1f4f8",
         "progress": "#9aa9ef",
     },
 }
+
+
+#: Plot colours follow the widget colours: the figure is the window, the axes
+#: are a surface, so plots sit in the shell without a visible seam.
+_PANEL_COLORS = {
+    dark: {
+        "bg": colors["window"],
+        "ax_bg": colors["surface"],
+        "fg": colors["text"],
+        "accent": colors["accent"],
+    }
+    for dark, colors in _SURFACE_COLORS.items()
+}
+
+#: Reference lines and "no value" marks in plots (zero lines, the identity
+#: line, confidence ellipses, ROIs without a value, dark references); one
+#: neutral grey readable on the light and the dark plot background.
+GUIDE_COLOR = "#9aa3ad"
 
 
 def _preference_path() -> Path:
@@ -169,8 +173,16 @@ def print_colors() -> dict[str, str]:
 
 
 def secondary_text_style() -> str:
-    """Return a shared compact secondary-label style fragment."""
-    return "font-size: 9px;"
+    """Return a shared secondary-label style fragment: 85 % of the UI font, in points.
+
+    Points follow the display scaling; a fixed pixel size stays tiny on
+    high-resolution screens.
+    """
+    app = QApplication.instance()
+    size = app.font().pointSizeF() if isinstance(app, QApplication) else -1.0
+    if size <= 0:
+        size = 9.0
+    return f"font-size: {0.85 * size:.1f}pt;"
 
 
 def _build_palette(dark: bool) -> QPalette:
@@ -262,6 +274,11 @@ QPushButton, QToolButton {{
 
 QFileDialog QToolButton {{
     padding: 2px;
+}}
+
+QPushButton:default {{
+    border: 1px solid {colors["accent"]};
+    font-weight: 600;
 }}
 
 QPushButton:hover, QToolButton:hover {{
@@ -421,6 +438,8 @@ QTabBar::tab {{
 QTabBar::tab:selected {{
     background: {colors["surface"]};
     border-color: {colors["border"]};
+    margin-bottom: -1px;
+    padding-bottom: 4px;
 }}
 
 QTabBar::tab:hover:!selected {{
@@ -485,6 +504,66 @@ QCheckBox::indicator:disabled, QRadioButton::indicator:disabled {{
 
 QCheckBox:disabled, QRadioButton:disabled, QLabel:disabled {{
     color: {colors["disabled_text"]};
+}}
+
+QAbstractItemView::item:selected:!active {{
+    background: {colors["surface_pressed"]};
+    color: {colors["text"]};
+}}
+
+QToolTip {{
+    background: {colors["surface_alt"]};
+    color: {colors["text"]};
+    border: 1px solid {colors["border"]};
+    border-radius: 4px;
+    padding: 3px 6px;
+}}
+
+QSplitter::handle {{
+    background: transparent;
+}}
+
+QSplitter::handle:hover {{
+    background: {colors["border"]};
+}}
+
+QScrollBar:vertical {{
+    background: transparent;
+    width: 10px;
+    margin: 0;
+}}
+
+QScrollBar:horizontal {{
+    background: transparent;
+    height: 10px;
+    margin: 0;
+}}
+
+QScrollBar::handle:vertical, QScrollBar::handle:horizontal {{
+    background: {colors["border_subtle"]};
+    border-radius: 4px;
+    margin: 2px;
+}}
+
+QScrollBar::handle:vertical {{
+    min-height: 24px;
+}}
+
+QScrollBar::handle:horizontal {{
+    min-width: 24px;
+}}
+
+QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover {{
+    background: {colors["border"]};
+}}
+
+QScrollBar::add-line, QScrollBar::sub-line {{
+    width: 0;
+    height: 0;
+}}
+
+QScrollBar::add-page, QScrollBar::sub-page {{
+    background: transparent;
 }}
 
 QHeaderView {{

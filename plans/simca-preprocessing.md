@@ -1,6 +1,6 @@
 # Plan: SIMCA preprocessing (AsLS baseline correction, Savitzky-Golay without edges)
 
-Status: implemented (2026-11-07, branch feature/weekend-plans); DN treated like reflectance (to be confirmed by the user)
+Status: implemented (2026-11-07, branch feature/weekend-plans); DN treated like reflectance (confirmed 2026-11-09)
 
 ## Goal
 
@@ -28,7 +28,7 @@ matched, SIMCA dropping the edges.
    it is used as is (p small: the baseline lies under the spectrum). In
    reflectance, where absorption bands are dips, it is flipped (weights
    1 − p: the baseline lies over the spectrum). Raw DN is treated like
-   reflectance (absorption lowers the counts); to be confirmed by the user.
+   reflectance (absorption lowers the counts); confirmed 2026-11-09.
 3. **AsLS has no viewer controls.** Its options exist only in scripts
    (`PreprocessingRecipe(asls=True, asls_lambda=..., asls_p=...,
    asls_iterations=...)`). The viewer shows such a recipe (label "AsLS")
