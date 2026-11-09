@@ -38,6 +38,27 @@
   only; the viewer shows and keeps it.
 - `SavitzkyGolay(edges="drop")` and `PreprocessingRecipe.output_wavelengths`.
 
+### Fixed
+
+- Viewer: a new project (and an exported CSV) gets its extension (`.h5`,
+  `.csv`) when the name was typed without one; the file dialog did not add
+  it on some platforms, and the open dialog, filtering on `.h5`, then hid
+  the project. The open dialog also offers *All files*. `Project.create`
+  documents that it replaces an existing file.
+- Viewer on Linux: the file dialogs' toolbar buttons (back, up, new folder,
+  list or detail view) show their icons again; the theme's button padding
+  left no room for them.
+- Viewer theme: disabled buttons, fields and lists are greyed out (the
+  style sheet's text colour had hidden the disabled state); spin boxes and
+  combo boxes show their arrows; tables no longer draw a rounded box around
+  their headers; check boxes and radio buttons have a visible outline in the
+  dark theme and an accent fill when checked; the progress bar is visible in
+  the light theme; a focused field has an accent border.
+- Viewer: closing the viewer after a project window was open no longer ends
+  the process with a segmentation fault (exit code 139). PyQt's exit cleanup
+  crashed when the application-wide event filter ran during it; the filter is
+  now removed before that cleanup. Project data was never affected.
+
 ### Changed
 
 - PCR computes its principal components with a full SVD (reproducible);

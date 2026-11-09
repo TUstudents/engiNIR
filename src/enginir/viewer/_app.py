@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import atexit
 import os
 import sys
 
+from PyQt6 import sip
 from PyQt6.QtCore import QEvent, QObject
 from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtWidgets import QApplication, QDialog
@@ -82,6 +84,28 @@ def _install_dialog_centering(app: QApplication) -> None:
     if _dialog_centering is None:
         _dialog_centering = _DialogCentering()
         app.installEventFilter(_dialog_centering)
+        # atexit runs hooks last-registered-first, so this runs before PyQt's
+        # exit cleanup (registered when PyQt6.QtCore was imported).
+        atexit.register(_remove_dialog_centering)
+
+
+def _remove_dialog_centering() -> None:
+    """Remove the application-wide event filter before PyQt's exit cleanup.
+
+    At interpreter exit PyQt deletes the remaining top-level Qt objects while
+    walking sip's table of wrappers. A Python event filter on the application
+    runs for the events of every object being deleted and creates wrappers,
+    which can reallocate the table mid-walk; the walk then reads freed memory
+    and the process ends with a segmentation fault (sip issue, unfixed in
+    PyQt6-sip 13.13). Without Python code in that path the walk is safe.
+    """
+    global _dialog_centering
+    centering, _dialog_centering = _dialog_centering, None
+    if centering is None or sip.isdeleted(centering):
+        return
+    app = QApplication.instance()
+    if app is not None and not sip.isdeleted(app):
+        app.removeEventFilter(centering)
 
 
 def enable_viewer_logging() -> None:

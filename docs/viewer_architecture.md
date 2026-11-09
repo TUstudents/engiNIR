@@ -278,6 +278,10 @@ frame, signal unit, or preprocessing parameters.
 - `tests/test_plot_performance.py` (opt-in, `ENGINIR_PERF=1`) times the Model diagnostics against the single-figure baseline.
 - Welcome-screen startup loads dataset/project payloads in a worker thread and only constructs Qt widgets on the GUI thread after loading completes.
 
+### Process exit
+
+- At interpreter exit PyQt deletes the remaining top-level Qt objects while walking sip's wrapper table. Python code that runs during those deletions can reallocate the table and crash the process (a sip bug, unfixed in PyQt6-sip 13.13). `_app._remove_dialog_centering` therefore removes the application-wide dialog-centering event filter in an `atexit` hook that runs before PyQt's cleanup. Do not add another Python event filter on the `QApplication` without removing it the same way; `tests/test_viewer_exit.py` checks that a closed project viewer exits cleanly.
+
 ---
 
 ## Plot panels

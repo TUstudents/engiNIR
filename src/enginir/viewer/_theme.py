@@ -7,6 +7,7 @@ control instead of fighting large upstream defaults with overrides.
 
 from __future__ import annotations
 
+import importlib.resources
 import json
 import os
 import tempfile
@@ -65,6 +66,9 @@ _SURFACE_COLORS = {
         "accent": "#7c8cff",
         "accent_active": "#98a6ff",
         "selection": "#3f4fbe",
+        "disabled_text": "#6f7985",
+        "disabled_bg": "#20252c",
+        "progress": "#4f5fd0",
     },
     False: {
         "window": "#eef2f7",
@@ -79,6 +83,9 @@ _SURFACE_COLORS = {
         "accent": "#4660d9",
         "accent_active": "#5b73e5",
         "selection": "#dfe6ff",
+        "disabled_text": "#a3acb8",
+        "disabled_bg": "#f1f4f8",
+        "progress": "#9aa9ef",
     },
 }
 
@@ -198,8 +205,27 @@ def _build_palette(dark: bool) -> QPalette:
     return palette
 
 
+def _resource_url(name: str) -> str:
+    """A bundled image as a style-sheet path, or "" when it is not a plain file."""
+    try:
+        path = Path(str(importlib.resources.files("enginir._resources").joinpath(name)))
+    except (ModuleNotFoundError, TypeError) as exc:
+        logger.debug("No theme image {}: {}", name, exc)
+        return ""
+    return path.as_posix() if path.is_file() else ""
+
+
+def _image(name: str) -> str:
+    """The ``image:`` declaration for a bundled image, empty when it is unavailable."""
+    url = _resource_url(name)
+    return f'image: url("{url}");' if url else ""
+
+
 def _app_stylesheet(dark: bool) -> str:
     colors = _SURFACE_COLORS[dark]
+    mode = "dark" if dark else "light"
+    up, down = _image(f"arrow-up-{mode}.svg"), _image(f"arrow-down-{mode}.svg")
+    up_off, down_off = _image("arrow-up-disabled.svg"), _image("arrow-down-disabled.svg")
     return f"""
 QWidget {{
     color: {colors["text"]};
@@ -234,6 +260,10 @@ QPushButton, QToolButton {{
     font-weight: 500;
 }}
 
+QFileDialog QToolButton {{
+    padding: 2px;
+}}
+
 QPushButton:hover, QToolButton:hover {{
     background: {colors["surface_hover"]};
     border-color: {colors["accent"]};
@@ -255,9 +285,94 @@ QTreeView, QTreeWidget, QAbstractItemView {{
     selection-background-color: {colors["selection"]};
 }}
 
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus,
+QPlainTextEdit:focus, QTextEdit:focus {{
+    border-color: {colors["accent"]};
+}}
+
+QPushButton:disabled, QToolButton:disabled, QLineEdit:disabled, QComboBox:disabled,
+QSpinBox:disabled, QDoubleSpinBox:disabled, QPlainTextEdit:disabled, QTextEdit:disabled {{
+    color: {colors["disabled_text"]};
+    background: {colors["disabled_bg"]};
+    border-color: {colors["border_subtle"]};
+}}
+
 QComboBox::drop-down {{
     border: 0;
     width: 18px;
+}}
+
+QComboBox::down-arrow {{
+    {down}
+    width: 8px;
+    height: 5px;
+}}
+
+QComboBox::down-arrow:disabled {{
+    {down_off}
+}}
+
+QSpinBox, QDoubleSpinBox {{
+    padding-right: 18px;
+}}
+
+QSpinBox::up-button, QDoubleSpinBox::up-button,
+QSpinBox::down-button, QDoubleSpinBox::down-button {{
+    subcontrol-origin: border;
+    width: 16px;
+    border: 0;
+    border-left: 1px solid {colors["border_subtle"]};
+    background: transparent;
+}}
+
+QSpinBox::up-button, QDoubleSpinBox::up-button {{
+    subcontrol-position: top right;
+    border-top-right-radius: 6px;
+}}
+
+QSpinBox::down-button, QDoubleSpinBox::down-button {{
+    subcontrol-position: bottom right;
+    border-bottom-right-radius: 6px;
+}}
+
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
+    background: {colors["surface_hover"]};
+}}
+
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+    {up}
+    width: 8px;
+    height: 5px;
+}}
+
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+    {down}
+    width: 8px;
+    height: 5px;
+}}
+
+QSpinBox::up-arrow:disabled, QDoubleSpinBox::up-arrow:disabled,
+QSpinBox::up-arrow:off, QDoubleSpinBox::up-arrow:off {{
+    {up_off}
+}}
+
+QSpinBox::down-arrow:disabled, QDoubleSpinBox::down-arrow:disabled,
+QSpinBox::down-arrow:off, QDoubleSpinBox::down-arrow:off {{
+    {down_off}
+}}
+
+QProgressBar {{
+    background: {colors["surface"]};
+    border: 1px solid {colors["border"]};
+    border-radius: 6px;
+    text-align: center;
+    min-height: 16px;
+}}
+
+QProgressBar::chunk {{
+    background: {colors["progress"]};
+    border-radius: 5px;
 }}
 
 QMenuBar {{
@@ -327,8 +442,63 @@ QCheckBox, QRadioButton {{
 }}
 
 QCheckBox::indicator, QRadioButton::indicator {{
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
+    border: 1px solid {colors["border"]};
+    background: {colors["surface"]};
+}}
+
+QCheckBox::indicator {{
+    border-radius: 3px;
+}}
+
+QRadioButton::indicator {{
+    border-radius: 7px;
+}}
+
+QCheckBox::indicator:hover, QRadioButton::indicator:hover {{
+    border-color: {colors["accent"]};
+}}
+
+QCheckBox::indicator:checked {{
+    background: {colors["accent"]};
+    border-color: {colors["accent"]};
+    {_image("check.svg")}
+}}
+
+QCheckBox::indicator:indeterminate {{
+    background: {colors["surface_pressed"]};
+    border-color: {colors["accent"]};
+}}
+
+QRadioButton::indicator:checked {{
+    background: qradialgradient(cx: 0.5, cy: 0.5, radius: 0.5, fx: 0.5, fy: 0.5,
+        stop: 0 {colors["text"]}, stop: 0.45 {colors["text"]},
+        stop: 0.5 {colors["accent"]}, stop: 1 {colors["accent"]});
+    border-color: {colors["accent"]};
+}}
+
+QCheckBox::indicator:disabled, QRadioButton::indicator:disabled {{
+    border-color: {colors["border_subtle"]};
+    background: {colors["disabled_bg"]};
+}}
+
+QCheckBox:disabled, QRadioButton:disabled, QLabel:disabled {{
+    color: {colors["disabled_text"]};
+}}
+
+QHeaderView {{
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    background: {colors["surface_alt"]};
+}}
+
+QTableCornerButton::section {{
+    background: {colors["surface_alt"]};
+    border: 0;
+    border-bottom: 1px solid {colors["border_subtle"]};
+    border-right: 1px solid {colors["border_subtle"]};
 }}
 
 QHeaderView::section {{

@@ -27,6 +27,7 @@ from . import _is_project_file
 from ._jobs import BusyStatusWidget
 from ._recent import load as _load_recent
 from ._theme import secondary_text_style
+from ._ui_helpers import PROJECT_OPEN_FILTER, PROJECT_SAVE_FILTER, ask_save_path
 
 logger = get_logger(__name__)
 
@@ -190,7 +191,7 @@ class WelcomeWindow(QMainWindow):
 
     def _on_open_project_clicked(self) -> None:
         dialog_started = time.perf_counter()
-        path, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "HDF5 (*.h5 *.hdf5)")
+        path, _ = QFileDialog.getOpenFileName(self, "Open Project", "", PROJECT_OPEN_FILTER)
         logger.debug(
             "Startup timing: project file dialog returned in {:.3f}s (selected={})",
             time.perf_counter() - dialog_started,
@@ -201,7 +202,7 @@ class WelcomeWindow(QMainWindow):
 
     def _on_new_project_clicked(self) -> None:
         dialog_started = time.perf_counter()
-        path, _ = QFileDialog.getSaveFileName(self, "Create Project", "", "HDF5 (*.h5 *.hdf5)")
+        path = ask_save_path(self, "Create Project", PROJECT_SAVE_FILTER, ".h5", (".hdf5",))
         logger.debug(
             "Startup timing: create-project dialog returned in {:.3f}s (selected={})",
             time.perf_counter() - dialog_started,

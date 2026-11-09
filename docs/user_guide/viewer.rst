@@ -107,7 +107,8 @@ fitted with it shows "AsLS" in its name, and **Fit again...** keeps it.
 
 To record training data:
 
-1. Create or open a project (**Project > New** or **Open**).
+1. Create or open a project (**Project > New** or **Open**). A new project
+   gets the ``.h5`` extension even when you type the name without it.
 2. Choose the target to model with **Target...** (or define a new one).
 3. Click **Add ROI** and drag a rectangle on the Spatial Image.
 4. Name the ROI and, optionally, enter its reference value.

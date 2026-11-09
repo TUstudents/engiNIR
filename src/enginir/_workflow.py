@@ -95,7 +95,7 @@ class Project:
 
     @classmethod
     def create(cls, path: str | os.PathLike[str]) -> Project:
-        """Create an empty project file (an existing file is not overwritten)."""
+        """Create an empty project file (an existing file at ``path`` is replaced)."""
         store.create_project(path)
         return cls(path)
 

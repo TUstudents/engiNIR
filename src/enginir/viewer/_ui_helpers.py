@@ -11,11 +11,46 @@ from typing import Any
 
 from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtWidgets import QFileDialog, QMessageBox, QWidget
 
 from .._logging import get_logger
 from ._theme import panel_colors
 
 logger = get_logger(__name__)
+
+
+#: File-dialog filters of project files: saving offers only the project
+#: extensions; opening also lists every file, so a project saved without an
+#: extension is not hidden.
+PROJECT_SAVE_FILTER = "engiNIR project (*.h5 *.hdf5)"
+PROJECT_OPEN_FILTER = "engiNIR project (*.h5 *.hdf5);;All files (*)"
+
+
+def ask_save_path(parent: QWidget | None, title: str, file_filter: str, suffix: str,
+                  accepted: tuple[str, ...] = ()) -> str | None:
+    """Ask for a file to write; add ``suffix`` when the name has none of the accepted ones.
+
+    File dialogs on some platforms return the typed name without the
+    extension of the chosen filter, and an open dialog filtering on that
+    extension would then hide the file. When the suffix is added and that
+    file exists, the user confirms replacing it (the dialog only checked the
+    typed name). Returns ``None`` when cancelled.
+    """
+    name, _ = QFileDialog.getSaveFileName(parent, title, "", file_filter)
+    if not name:
+        return None
+    path = Path(name)
+    if path.suffix.lower() in {suffix, *accepted}:
+        return str(path)
+    path = path.with_name(path.name + suffix)
+    if path.exists():
+        answer = QMessageBox.question(
+            parent, title, f"'{path.name}' already exists.\nDo you want to replace it?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            return None
+    return str(path)
 
 
 def style_axes(ax: Any, colors: Mapping[str, str] | None = None) -> None:

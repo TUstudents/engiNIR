@@ -42,6 +42,7 @@ from ._grid_settings import load_grid_defaults
 from ._roi_grid import RoiGridDialog
 from ._state import DEFAULT_SOURCE_MODALITY, ProjectState, ViewerState
 from ._theme import secondary_text_style
+from ._ui_helpers import PROJECT_OPEN_FILTER, PROJECT_SAVE_FILTER, ask_save_path
 from ..project._ids import now_iso
 
 logger = get_logger(__name__)
@@ -373,7 +374,7 @@ class EDAView(QWidget):
         self.state.set_x_spatial_unit("mm" if mm else "pixel")
 
     def export_csv_btn_clicked(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(self, "Export CSV", "", "CSV (*.csv)")
+        path = ask_save_path(self, "Export CSV", "CSV (*.csv)", ".csv")
         if not path:
             return
         try:
@@ -425,24 +426,15 @@ class EDAView(QWidget):
                  columns={"roi_name": names, "data_file": files})
 
     def new_project_btn_clicked(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(self, "New Project", "", "HDF5 (*.h5)")
+        # The dialog (or ask_save_path, for an added extension) confirms replacing a file.
+        path = ask_save_path(self, "New Project", PROJECT_SAVE_FILTER, ".h5", (".hdf5",))
         if not path:
             return
-        if pathlib.Path(path).exists():
-            result = QMessageBox.warning(
-                self,
-                "File exists",
-                f"'{pathlib.Path(path).name}' already exists.\n"
-                "Creating a new project will permanently overwrite it.\nContinue?",
-                QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
-            )
-            if result != QMessageBox.StandardButton.Ok:
-                return
         self.project_state.new_project(path)
         self._set_project_active()
 
     def open_project_btn_clicked(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "HDF5 (*.h5)")
+        path, _ = QFileDialog.getOpenFileName(self, "Open Project", "", PROJECT_OPEN_FILTER)
         if not path:
             return
         self.open_project_btn_clicked_with_path(path)
