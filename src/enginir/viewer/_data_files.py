@@ -52,7 +52,7 @@ from .._workflow import DEFAULT_BLACK_LEVEL, DEFAULT_WHITE_LEVEL, data_file_labe
 from ..io import load_spectra
 from ..project import CalibrationSpec, DatasetRef
 from ._theme import GUIDE_COLOR, panel_colors, secondary_text_style
-from ._ui_helpers import style_axes
+from ._ui_helpers import spectral_axis_label, style_axes
 
 logger = get_logger(__name__)
 
@@ -265,7 +265,8 @@ class AddDataFileDialog(QDialog):
             if self._shared.count() == 0:
                 self._choice[SHARED].setEnabled(False)
                 self._shared.setEnabled(False)
-            self._choice[REFERENCES].setChecked(True)
+            # The instrument's own levels need nothing else; references are a deliberate step.
+            self._choice[LEVELS].setChecked(True)
         layout.addWidget(calibration)
         if self._precalibrated:
             # The only case where the unit is a fact about the file rather than a view of it.
@@ -417,7 +418,8 @@ class AddDataFileDialog(QDialog):
                 ok = False
         elif choice == RAW:
             lines.append("Raw counts; ROIs keep no reference spectra.")
-        ax.set_xlabel("Wavelength (nm)", color=colors["fg"], fontsize=8)
+        ax.set_xlabel(spectral_axis_label(self._header.wavelengths)[0], color=colors["fg"],
+                      fontsize=8)
         ax.set_ylabel("Values" if self._precalibrated else "Counts", color=colors["fg"],
                       fontsize=8)
         if ax.get_lines():

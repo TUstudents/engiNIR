@@ -143,3 +143,49 @@ def test_launcher_returns_expected_exit_codes(qapp, monkeypatch):
     monkeypatch.setattr("enginir.viewer.open_project", lambda path: object())
     monkeypatch.setattr("enginir.viewer._app.run", lambda: None)
     assert launcher._main(["--project", "/tmp/project.h5"]) == 0
+
+
+def test_combo_popups_release_their_surface_on_wslg_wayland(qapp, monkeypatch):
+    """WSLg keeps a popup the app hid on screen (microsoft/wslg#1522); destroying the hidden
+    popup's native window removes it. The combo must still open again afterwards."""
+    import time
+
+    from PyQt6.QtWidgets import QComboBox
+
+    from enginir.viewer import _app
+
+    monkeypatch.setenv("WSL_DISTRO_NAME", "Ubuntu")
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    assert not _app._releases_combo_popups(qapp), "only with Qt's Wayland platform"
+
+    released = []
+
+    def spy(popup):
+        released.append(popup)
+        _app.release_popup_surface.__wrapped__(popup)
+
+    spy.__wrapped__ = _app.release_popup_surface
+    monkeypatch.setattr(_app, "release_popup_surface", spy)
+    fix = _app._DialogCentering(release_combo_popups=True)
+    qapp.installEventFilter(fix)
+    combo = QComboBox()
+    combo.addItems(["Reflectance", "Absorbance", "DN"])
+    combo.show()
+    try:
+        for index in (1, 2):
+            combo.showPopup()
+            popup = combo.view().window()
+            assert popup.isVisible(), "opens again after its surface was released"
+            combo.setCurrentIndex(index)
+            combo.hidePopup()
+            deadline = time.monotonic() + 2
+            while len(released) < index and time.monotonic() < deadline:
+                qapp.processEvents()
+            assert released[-1] is popup and not popup.isVisible()
+        assert combo.currentText() == "DN"
+        QComboBox().hide()  # an ordinary widget hiding is not a combo popup
+        qapp.processEvents()
+        assert len(released) == 2
+    finally:
+        qapp.removeEventFilter(fix)
+        combo.close()

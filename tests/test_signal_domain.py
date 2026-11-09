@@ -237,3 +237,27 @@ def test_signal_domain_for_training_data_follows_the_contract_writer_rules():
         SignalDomainContract.for_training_data(dataset=dataset,
                                                calibration=replace(levels, dataset_id="other"),
                                                required_signal_unit="Absorbance")
+
+
+def test_a_repeated_clip_is_warned_once():
+    """The viewer converts the same ROI on every redraw; the warning must not repeat."""
+    from loguru import logger
+
+    wavelengths = np.linspace(1000.0, 1100.0, 4)
+    calibration = _calibration()  # detector levels 0 and 100
+    domain = _signal_domain(wavelengths=wavelengths, requires_dark_ref=False,
+                            requires_white_ref=False)
+    raw = np.array([[20, 130, 50, 110]], dtype=np.uint16)  # two counts above the white level
+    records: list[str] = []
+    sink = logger.add(lambda m: records.append(m.record["level"].name), level="DEBUG",
+                      filter=lambda r: "clipped" in r["message"])
+    try:
+        for _ in range(3):
+            stats = CalibrationStats()
+            transform_spectra_to_signal_domain(raw, dataset=_dataset(wavelengths=wavelengths),
+                                               calibration=calibration, signal_domain=domain,
+                                               stats=stats)
+            assert stats.clip_high_count == 2, "every conversion still counts its clips"
+    finally:
+        logger.remove(sink)
+    assert records == ["WARNING", "DEBUG", "DEBUG"]

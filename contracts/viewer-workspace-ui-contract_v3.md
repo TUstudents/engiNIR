@@ -301,7 +301,10 @@ Required visual elements:
 - spatial profile
 - spectral profile
 - ROI mosaic: one tile per stored ROI, grouped by data file, with name and
-  current target value
+  current target value; tiles in a compact grid (ROI grid positions, else
+  scan order) or at their scan positions; text in mosaic units in reserved
+  room, so it never covers a tile; outlines in the value colour of the ROI
+  mean spectra; contrast stretched over all tiles or per data file
 - ROI mean spectra coloured by the current target value
 - pixel spectra of the selected ROI
 
@@ -321,6 +324,16 @@ Required behavior:
 
 - a project with ROIs opens on `Project ROIs`; that tab works in project-only
   mode and with every data file missing
+- the docks that show the data file at the cursor (histogram, DC3/band
+  slice, sensor frame, spatial profile) are shown only in `Data file`; in
+  `Project ROIs`, Model and Predict they are hidden, and returning to
+  `Data file` restores the ones the user had shown
+- the ROI table is shown with `Project ROIs` (the right dock column alone)
+  and not in `Data file`; opened there, it takes the sensor frame's place as
+  a tab. The user's choice per tab is kept; Model and Predict leave it as it
+  is. It shows the ROIs of the page (the shown data file in `Data file`, the
+  tab's data file filter in `Project ROIs`, all data files in Model and
+  Predict)
 - selecting an ROI in the mosaic, the ROI table, the browser or a Model plot
   selects it everywhere; opening an ROI from the mosaic shows its data file in
   `Data file` with the ROI highlighted

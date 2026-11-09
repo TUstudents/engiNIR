@@ -221,6 +221,7 @@ def test_the_dialog_asks_the_unit_only_for_calibrated_files(qapp, tmp_path, tray
     path_c, _cube = tray_c
     counts = AddDataFileDialog(str(path_c), read_header(str(path_c)), {}, {})
     assert not counts._unit.isVisibleTo(counts)
+    assert counts.choice() == "levels", "the instrument's detector levels are preselected"
     for choice, unit in (("references", "Absorbance"), ("levels", "Absorbance"),
                          ("raw", "DN")):
         counts.set_choice(choice)

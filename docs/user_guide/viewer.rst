@@ -34,7 +34,10 @@ load in the background with a progress indicator.
 
 On Linux the viewer picks the display system itself. Under WSL (Windows
 Subsystem for Linux, WSLg) it uses Wayland, so menus stay in front of the
-window; Qt draws the title bar with the engiNIR icon. On other Linux
+window; Qt draws the title bar with the engiNIR icon. WSLg leaves a
+drop-down list on screen after you choose an item (a WSLg fault, reported as
+microsoft/wslg#1522); the viewer works around it, so lists close as usual.
+On other Linux
 desktops that offer both Wayland and X11 it uses X11. To choose yourself, set
 ``QT_QPA_PLATFORM``, for example ``QT_QPA_PLATFORM=xcb enginir-viewer`` for
 X11.
@@ -165,9 +168,18 @@ it.
 The **Project ROIs** tab of Explore shows every ROI stored in the project,
 from the project file alone; the data files are not needed:
 
-- **ROI mosaic:** each ROI's stored pixels are redrawn as a tile at its
-  place in its data file, one block per file, with its name and the value of
-  the target selected in Model. A data file filter narrows it down.
+- **ROI mosaic:** each ROI's stored pixels are redrawn as a tile, one block
+  per data file, with its name and the value of the target selected in Model.
+  The tiles sit in a compact grid: the rows and columns of the ROI grid that
+  made them (an empty well keeps its place), or for ROIs drawn by hand, rows
+  and columns in scan order. Each tile is outlined in the colour of its value,
+  on the scale of the ROI mean spectra (grey without a value). Labels leave
+  out what all shown ROIs share (``API_10p_L1_01`` becomes ``L1_01``);
+  text grows and shrinks with the tiles when you zoom. **View** in the plot
+  header shows the tiles at their positions in the scan instead, and
+  stretches the contrast of each data file on its own instead of all tiles
+  together (the default, for comparing samples). A data file filter narrows
+  the mosaic down.
 - **ROI mean spectra:** one line per ROI, coloured by that value (ROIs
   without a value in grey).
 - **Selected ROI pixels:** the median and the 5–95 % band of the selected
@@ -178,6 +190,12 @@ ROI is converted with its own stored references, by the same function the
 model fit uses. In **Raw DN** you see the stored counts. ROIs that cannot be
 shown in the chosen unit, for example raw counts without references in
 absorbance, are counted in the tab's status line.
+
+The docks that show the data file at the cursor (Histogram, RAW, Sensor
+Frame, Spatial Profile) belong to the Data file tab: on Project ROIs they are
+hidden, and they come back as you left them. The ROI table takes the
+right-hand column instead, on the ROIs shown; **Target values...** brings it
+back after you closed it.
 
 A project with ROIs opens on this tab. Clicking a tile selects the ROI
 everywhere; double-clicking it opens its data file with the ROI selected.
@@ -226,7 +244,11 @@ opened. A maximized plot stays maximized the next time the viewer opens, and
 **View > Reset Layout** restores the default layout.
 
 Reference values are typed in the **ROI table**, opened from **Target
-values...** in Model, from **ROI table** in Explore, or from the View menu:
+values...** in Model or on the Project ROIs tab, from **ROI table** in
+Explore, or from the View menu. It opens by itself with the Project ROIs
+tab, in the right-hand column of the window, and is not shown on the Data
+file tab; opened there, it takes the Sensor Frame's place as a tab. Closing
+or opening it on either tab is kept for that tab.
 
 - One row per ROI (data file, name, pixel count, sample) and one column per
   target.
@@ -235,8 +257,10 @@ values...** in Model, from **ROI table** in Explore, or from the View menu:
   so that a fit can hold them out together. Labels are text; surrounding
   spaces are removed and an empty cell means the ROI is its own sample.
   **Ctrl+V** pastes a column of labels.
-- It opens on the shown data file and the target selected in Model. The
-  filters choose a data file, or only ROIs that still lack a value.
+- It opens on the ROIs of the page and the target selected in Model: the
+  shown data file on the Data file tab, the data files chosen on the Project
+  ROIs tab, all data files in Model and Predict. The filters choose a data
+  file, or only ROIs that still lack a value.
 - Type a value and press **Enter**: it is stored at once and the next row
   is edited. A decimal comma is accepted.
 - Clear a cell to remove a value; the ROI is then left out of models for
@@ -327,7 +351,9 @@ project in the same window and asks how it is calibrated:
   file itself, such as a white tile or shutter-closed frames at the start of
   the tray;
 - **Same references as another data file**, for one reference set per session;
-- **Detector levels**, black and white, editable (default 128 and 3500);
+- **Detector levels**, black and white, editable: the levels stored in the
+  file, else the instrument defaults 128 and 3500. This is the preselected
+  choice;
 - **Raw counts**, without references or levels (only DN can be shown and
   modelled).
 
@@ -389,9 +415,10 @@ white references recorded once. From an empty project to a model:
    pick where the project file goes. The window opens on Explore with no data
    file.
 2. **Add the first tray.** **File > Add Data File...** opens the file and
-   asks for its calibration. If the tray has a white tile and shutter-closed
-   frames, choose them as frame ranges of the file itself; otherwise choose
-   the dark and white reference files. Check the mean spectra and the share
+   asks for its calibration. **Detector levels** (the instrument defaults) is
+   preselected. If the tray has a white tile and shutter-closed frames,
+   choose **Dark and white references** and pick them as frame ranges of the
+   file itself, or choose the reference files. Check the mean spectra and the share
    of saturated values, then **OK**: the data file and its calibration are
    stored together.
 3. **Draw the samples.** Set your tray holder once in **Options > ROI Grid

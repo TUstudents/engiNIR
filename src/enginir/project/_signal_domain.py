@@ -343,6 +343,11 @@ def _reference_layout(
     return (n_frames, height, n_bands)
 
 
+#: Clipping results already warned about (bounded, so a long session cannot grow it).
+_REPORTED_CLIPS: set[tuple[str, tuple[int, ...], int, int]] = set()
+_MAX_REPORTED_CLIPS = 10_000
+
+
 def _clip_reflectance(out: np.ndarray, calibration: CalibrationSpec,
                       stats: CalibrationStats) -> None:
     n_low = int(np.count_nonzero(out < REFLECTANCE_MIN))
@@ -350,9 +355,14 @@ def _clip_reflectance(out: np.ndarray, calibration: CalibrationSpec,
     stats.clip_low_count += n_low
     stats.clip_high_count += n_high
     if n_low or n_high:
-        logger.warning("Calibration '{}': clipped {} reflectance value(s) below {} and {} "
-                       "above {}", calibration.calibration_id, n_low, float(REFLECTANCE_MIN),
-                       n_high, float(REFLECTANCE_MAX))
+        # The viewer converts the same ROI on every redraw: warn once per result, repeat in debug.
+        key = (calibration.calibration_id, out.shape, n_low, n_high)
+        log = logger.debug if key in _REPORTED_CLIPS else logger.warning
+        if len(_REPORTED_CLIPS) < _MAX_REPORTED_CLIPS:
+            _REPORTED_CLIPS.add(key)
+        log("Calibration '{}': clipped {} reflectance value(s) below {:g} and {} above {:g} "
+            "(spectra of shape {})", calibration.calibration_id, n_low, float(REFLECTANCE_MIN),
+            n_high, float(REFLECTANCE_MAX), out.shape)
     np.clip(out, REFLECTANCE_MIN, REFLECTANCE_MAX, out=out)
 
 

@@ -30,6 +30,30 @@
 - The prediction check compares restored MSC/EMSC state with the band count
   after Savitzky-Golay (before a band selection) and the model with the
   selected bands.
+- Viewer, Add data file: **Detector levels** (the file's levels, else the
+  instrument defaults) is preselected; references are chosen deliberately.
+- Viewer, Explore: the data-file docks (Histogram, RAW, Sensor Frame,
+  Spatial Profile) show only on the Data file tab. The ROI table opens with
+  Project ROIs in the right-hand column and is hidden on the Data file tab
+  (opened there, it takes the Sensor Frame's place); the choice is kept per
+  tab, and the table shows the page's ROIs. Project ROIs has **Target
+  values...**.
+- Viewer, ROI mosaic: tiles in a compact grid (ROI grid positions, else scan
+  order), text in reserved room that zooms with the tiles, labels without
+  the shared name prefix, outlines in the value colour of the mean spectra;
+  **View** offers the scan positions and a contrast stretch per data file.
+- A repeated reflectance clipping warning (the same ROI converted again) is
+  logged once, then at debug level.
+
+### Fixed
+
+- Viewer: ROIs with equal target values took the lowest colour of the scale
+  while the colour bar showed them in the middle.
+- Viewer: plots of a data file without wavelengths are labelled "Band", not
+  "Wavelength (nm)".
+- Viewer on WSLg Wayland: a drop-down list stayed on screen after choosing
+  an item (a WSLg fault, microsoft/wslg#1522); the list's native window is
+  now released when it closes.
 
 ## 1.3.0 (2026-11-09)
 

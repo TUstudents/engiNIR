@@ -229,6 +229,11 @@ Project ROIs
 
 .. autofunction:: enginir.viewer._project_rois.mosaic_layout
 
+.. autoclass:: enginir.viewer._project_rois.MosaicLayout
+   :no-members:
+
+.. autofunction:: enginir.viewer._project_rois.grid_cells
+
 ROI table
 ---------
 

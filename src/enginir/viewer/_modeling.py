@@ -55,6 +55,7 @@ from ._band_ranges import (
 from ._jobs import BusyStatusWidget, BackgroundWorker, start_background_job
 from ._state import ProjectState, ViewerState
 from ._theme import secondary_text_style
+from ._ui_helpers import spectral_axis_label
 from ..project._ids import now_iso
 
 logger = get_logger(__name__)
@@ -1091,11 +1092,8 @@ class ModelingView(QWidget):
             if values is not None and axis is not None and np.size(values) == np.size(axis):
                 guide = (np.asarray(axis, dtype=float), np.asarray(values, dtype=float), label)
                 break
-        wavelengths = np.asarray(rois[0].wavelengths, dtype=float)
-        band_axis = wavelengths.size > 1 and np.allclose(wavelengths,
-                                                         np.arange(wavelengths.size))
         return BandSource(load=load, guide=guide,
-                          axis_label="Band" if band_axis else "Wavelength (nm)")
+                          axis_label=spectral_axis_label(rois[0].wavelengths)[0])
 
     def fit_model_btn_clicked(self, preset: ModelRun | None = None) -> None:
         if self._job_thread is not None:

@@ -629,8 +629,18 @@ class HSIViewer(QMainWindow):
         self._roi_table_dock.setWidget(self._roi_table)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._roi_table_dock)
         self._roi_table_dock.hide()
+        #: ROI table per Explore tab: shown with Project ROIs, not on the Data file tab;
+        #: the user's choice on each tab is kept. Model and Predict leave it as it is.
+        self._default_roi_table_visibility = {"data_file": False, "project_rois": True}
+        self._roi_table_visibility = dict(self._default_roi_table_visibility)
+        self._roi_table_dock.visibilityChanged.connect(self._on_roi_table_visibility_changed)
 
+        #: Docks that show the data file at the cursor: only on Explore's Data file tab.
+        self._data_file_docks = {"histogram": self._hist_dock, "raw": self._dc3_dock,
+                                 "sensor": self._sensor_dock, "spatial": self._spatial_dock}
         self._default_explore_plot_visibility = {
+            "histogram": False,
+            "raw": False,
             "sensor": True,
             "spatial": True,
             "spectrum": True,
@@ -914,8 +924,9 @@ class HSIViewer(QMainWindow):
         self._prediction_view._service_status.status_changed.connect(
             self.schedule_workspace_content_refresh
         )
-        self._sensor_dock.visibilityChanged.connect(self._on_sensor_dock_visibility_changed)
-        self._spatial_dock.visibilityChanged.connect(self._on_spatial_dock_visibility_changed)
+        for name, dock in self._data_file_docks.items():
+            dock.visibilityChanged.connect(
+                lambda _visible, name=name: self._on_data_file_dock_visibility_changed(name))
 
         self.project_state.project_loaded.connect(self._refresh_data_file_choices)
         self.project_state.datasets_changed.connect(self._refresh_data_file_choices)
@@ -934,6 +945,10 @@ class HSIViewer(QMainWindow):
         self.project_state.project_loaded.connect(self._update_project_rois_tab)
         self.project_state.project_loaded.connect(self._choose_explore_tab)
         self._explore_tabs.currentChanged.connect(self._show_last_data_file)
+        self._explore_tabs.currentChanged.connect(self._on_explore_tab_changed)
+        self._project_rois.roi_table_requested.connect(self.show_roi_table)
+        self._project_rois.data_file_filter_changed.connect(self._follow_roi_table_filter)
+        self.project_state.project_loaded.connect(self._sync_roi_table)
         self._update_project_rois_tab()
         self._choose_explore_tab()
         self._modeling_view.roi_table_requested.connect(self.show_roi_table)
@@ -992,18 +1007,83 @@ class HSIViewer(QMainWindow):
             self.show_data_file(dataset_id)
 
     def show_roi_table(self) -> None:
-        """Show the ROI table on the shown data file and the target selected in Model."""
-        self._roi_table.show_data_file(self._eda_view.shown_dataset_id())
+        """Show the ROI table on the ROIs of the current page and the target selected in Model.
+
+        The table takes the right dock column: alone on Project ROIs, Model and
+        Predict (the data-file docks are hidden there), as a tab next to the
+        Sensor Frame on the Data file tab.
+        """
+        self._roi_table.show_data_file(self._roi_table_data_file())
         target = self._modeling_view.current_target()
         self._roi_table.focus_target(None if target is None else target.target_id)
         was_hidden = self._roi_table_dock.isHidden()
         self._roi_table_dock.show()
+        self._place_roi_table()
         self._roi_table_dock.raise_()
         if was_hidden and not self._roi_table_dock.isFloating():
-            # Next to the Explore docks it would get a few rows only.
-            self.resizeDocks([self._roi_table_dock], [max(360, self.height() // 2)],
-                             Qt.Orientation.Vertical)
             self.resizeDocks([self._roi_table_dock], [460], Qt.Orientation.Horizontal)
+
+    def _on_data_file_page(self) -> bool:
+        return (self._workspace_tabs.currentWidget() is self._eda_view
+                and self._explore_tabs.currentWidget() is self._data_file_page)
+
+    def _roi_table_data_file(self) -> str | None:
+        """The data file the ROI table shows: the page's (``None``: all files)."""
+        if self._on_data_file_page():
+            return self._eda_view.shown_dataset_id()
+        if self._workspace_tabs.currentWidget() is self._eda_view \
+                and self._project_rois is not None:
+            return self._project_rois.shown_dataset_id()
+        return None
+
+    def _follow_roi_table_filter(self, *_args: Any) -> None:
+        if not self._roi_table_dock.isHidden():
+            self._roi_table.show_data_file(self._roi_table_data_file())
+
+    def _place_roi_table(self) -> None:
+        """On the Data file tab, tab a docked ROI table with the Sensor Frame (full slot)."""
+        table, sensor = self._roi_table_dock, self._sensor_dock
+        if (not self._on_data_file_page() or table.isHidden() or table.isFloating()
+                or sensor.isHidden() or sensor.isFloating()
+                or table in self.tabifiedDockWidgets(sensor)):
+            return
+        self.tabifyDockWidget(sensor, table)
+        table.raise_()
+
+    def _on_explore_tab_changed(self, *_args: Any) -> None:
+        self._sync_data_file_docks()
+        self._follow_roi_table_filter()
+
+    def _explore_page_key(self) -> str | None:
+        """``"data_file"`` or ``"project_rois"`` in Explore, ``None`` in Model and Predict."""
+        if self._workspace_tabs.currentWidget() is not self._eda_view:
+            return None
+        return "data_file" if self._on_data_file_page() else "project_rois"
+
+    def _sync_roi_table(self, *_args: Any) -> None:
+        """Show or hide the ROI table as last chosen on the current Explore tab."""
+        key = self._explore_page_key()
+        if key is None or self.project_state.project_path is None:
+            return
+        wanted = self._roi_table_visibility[key]
+        if wanted == (not self._roi_table_dock.isHidden()):
+            return
+        self._syncing_roi_table = True
+        try:
+            if wanted:
+                self.show_roi_table()
+            else:
+                self._roi_table_dock.hide()
+        finally:
+            self._syncing_roi_table = False
+
+    def _on_roi_table_visibility_changed(self, _visible: bool) -> None:
+        """Remember the user opening or closing the ROI table on an Explore tab."""
+        key = self._explore_page_key()
+        if key is None or getattr(self, "_syncing_roi_table", False) \
+                or getattr(self, "_syncing_data_file_docks", False):
+            return
+        self._roi_table_visibility[key] = not self._roi_table_dock.isHidden()
 
     def _on_project_browser_selection_changed(self) -> None:
         payload = self._selected_project_browser_payload()
@@ -1073,21 +1153,9 @@ class HSIViewer(QMainWindow):
         else:
             self._workspace_content_stack.setCurrentWidget(self._predict_content_page)
 
-        if is_explore:
-            self._sensor_dock.setVisible(self._explore_plot_visibility["sensor"])
-            self._spatial_dock.setVisible(self._explore_plot_visibility["spatial"])
-        else:
-            if self._maximized_dock is not None:  # a floating dock would cover Model/Predict
-                self._restore_dock(self._maximized_dock)
-            self._sensor_dock.hide()
-            self._spatial_dock.hide()
+        self._sync_data_file_docks()
+        self._follow_roi_table_filter()
         self._apply_explore_page_layout()
-        _require_qt_object(
-            self._sensor_dock.toggleViewAction(), "sensor dock toggle action"
-        ).setEnabled(is_explore)
-        _require_qt_object(
-            self._spatial_dock.toggleViewAction(), "spatial dock toggle action"
-        ).setEnabled(is_explore)
         self._spectrum_toggle_action.setEnabled(is_explore)
         self._spectrum_toggle_action.blockSignals(True)
         self._spectrum_toggle_action.setChecked(self._explore_plot_visibility["spectrum"])
@@ -1188,11 +1256,33 @@ class HSIViewer(QMainWindow):
         self._explore_plot_visibility[plot_name] = visible
         self._schedule_bottom_dock_resize()
 
-    def _on_sensor_dock_visibility_changed(self, visible: bool) -> None:
-        self._on_explore_plot_visibility_changed("sensor", visible)
+    def _sync_data_file_docks(self) -> None:
+        """Show the data-file docks (as last chosen) on the Data file tab, hide them elsewhere."""
+        on_page = self._on_data_file_page()
+        maximized = self._maximized_dock
+        if not on_page and maximized is not None and maximized in self._data_file_docks.values():
+            self._restore_dock(maximized)  # a floating dock would cover the page
+        self._syncing_data_file_docks = True
+        try:
+            for name, dock in self._data_file_docks.items():
+                dock.setVisible(on_page and self._explore_plot_visibility[name])
+                _require_qt_object(dock.toggleViewAction(),
+                                   f"{dock.windowTitle()} toggle action").setEnabled(on_page)
+        finally:
+            self._syncing_data_file_docks = False
+        self._sync_roi_table()
+        self._place_roi_table()
 
-    def _on_spatial_dock_visibility_changed(self, visible: bool) -> None:
-        self._on_explore_plot_visibility_changed("spatial", visible)
+    def _on_data_file_dock_visibility_changed(self, name: str) -> None:
+        """Remember a dock the user shows or closes on the Data file tab.
+
+        ``isHidden`` rather than the signal's flag: a dock behind another dock's
+        tab is not visible but still shown.
+        """
+        if getattr(self, "_syncing_data_file_docks", False) or not self._on_data_file_page():
+            return
+        self._explore_plot_visibility[name] = not self._data_file_docks[name].isHidden()
+        self._schedule_bottom_dock_resize()
 
     def _on_spectrum_panel_visibility_action(self, visible: bool) -> None:
         self._on_explore_plot_visibility_changed("spectrum", visible)
@@ -1817,6 +1907,7 @@ class HSIViewer(QMainWindow):
             self._predict_graph_panel.restore()
         layout_settings.clear()
         self._explore_plot_visibility = dict(self._default_explore_plot_visibility)
+        self._roi_table_visibility = dict(self._default_roi_table_visibility)
         self.restoreState(self._default_layout_state)
         self._sync_workspace_content_host()
 
