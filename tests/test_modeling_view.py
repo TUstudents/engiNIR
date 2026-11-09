@@ -672,3 +672,28 @@ def test_the_roi_ellipse_is_the_t2_limit_of_the_rois_and_both_are_in_the_legend(
     _render_scores(fig, payload, panel_colors())
     labels = [text.get_text() for text in fig.axes[0].get_legend().get_texts()]
     assert labels == ["T² 95 % pixels", "T² 99 % pixels", "T² 95 % ROIs", "T² 99 % ROIs"]
+
+
+def test_band_importance_plots_keep_the_theme_and_name_band_axes():
+    """The mean spectrum's twin axes lay a white background over VIP in the dark theme, and
+    a file without wavelengths was labelled 'Wavelength' / '175 nm'."""
+    from matplotlib.colors import to_rgba
+    from matplotlib.figure import Figure
+
+    from enginir.viewer._model_diagnostics import _render_vip, _render_vip_sorted
+    from enginir.viewer._theme import panel_colors
+
+    colors = panel_colors()
+    bands = np.arange(30.0)
+    payload = {"vip": np.linspace(2.0, 0.5, 30), "spectral_axis": bands,
+               "mean_spectrum": np.sin(bands / 5.0)}
+    fig = Figure()
+    _render_vip(fig, payload, colors)
+    for ax in fig.axes:
+        assert to_rgba(ax.get_facecolor()) == to_rgba(colors["ax_bg"]) \
+            or not ax.patch.get_visible()
+    assert fig.axes[0].get_xlabel() == "Band"
+    fig = Figure()
+    _render_vip_sorted(fig, payload, colors)
+    listing = " ".join(t.get_text() for t in fig.axes[0].texts)
+    assert "band 0" in listing and "nm" not in listing

@@ -25,7 +25,7 @@ from ._plot_grid import PlotGrid, PlotPage, PlotSlot
 from ._plot_panel import PlotColumn, PlotSpec, PlotTable, RoiPoints, draw_placeholder
 from ._plot_registry import PLOT_SPECS, WORKSPACE_PAGES, register_pages, register_plot
 from ._theme import GUIDE_COLOR
-from ._ui_helpers import style_axes
+from ._ui_helpers import is_band_index_axis, style_axes
 
 _EMPTY = "No fitted model diagnostics yet."
 _WORKSPACE = "Model"
@@ -84,8 +84,17 @@ def _spectrum(payload: Mapping[str, Any], key: str) -> tuple[np.ndarray, np.ndar
     if axis is not None:
         x = np.asarray(axis, dtype=float).squeeze()
         if x.ndim == 1 and x.size == y.size:
-            return x, y, "Wavelength"
+            # A file without wavelengths carries band numbers 0..n-1 as its axis.
+            return x, y, "Band" if is_band_index_axis(x) else "Wavelength"
     return np.arange(y.size, dtype=float), y, "Band"
+
+
+def _legend(ax: Any, colors: Mapping[str, str], **kwargs: Any) -> None:
+    """A legend in the plot's colours (matplotlib's default box is white in the dark theme)."""
+    legend = ax.legend(fontsize=7, frameon=True, labelcolor=colors["fg"], framealpha=0.85,
+                       **kwargs)
+    legend.get_frame().set_facecolor(colors.get("ax_bg", colors["bg"]))
+    legend.get_frame().set_edgecolor("none")
 
 
 def _gapped(x: np.ndarray, *ys: np.ndarray) -> tuple[np.ndarray, ...]:
@@ -314,10 +323,7 @@ def _render_scores(fig: Figure, payload: Any, colors: Mapping[str, str]
             ax.plot(ellipse[:, 0], ellipse[:, 1], color=colors["accent"], linewidth=1.1,
                     linestyle=style, label=f"T² {level:.0%} ROIs".replace("%", " %"))
     if ax.get_legend_handles_labels()[0]:
-        legend = ax.legend(fontsize=7, loc="upper right", ncols=2, frameon=True,
-                           labelcolor=colors["fg"], handlelength=2.2, framealpha=0.85)
-        legend.get_frame().set_facecolor(colors.get("ax_bg", colors["bg"]))
-        legend.get_frame().set_edgecolor("none")
+        _legend(ax, colors, loc="upper right", ncols=2, handlelength=2.2)
     _label(ax, "LV1 training score", "LV2 training score", colors)
     ids = _roi_ids(payload, pairs[0].size)
     return None if ids is None else [RoiPoints(ax, scores[:, 0], scores[:, 1], ids)]
@@ -429,7 +435,7 @@ def _render_r2_q2(fig: Figure, payload: Any, colors: Mapping[str, str]) -> None:
         if key in curve:
             ax.plot(a, curve[key], linestyle=style, marker="o", markersize=3, label=label)
     ax.set_xticks(a)
-    ax.legend(fontsize=7, loc="lower right")
+    _legend(ax, colors, loc="lower right")
     _label(ax, "Number of components", "Fraction", colors)
 
 
@@ -447,8 +453,9 @@ def _render_loadings(fig: Figure, payload: Any, colors: Mapping[str, str]) -> No
     for c in range(matrix.shape[1]):
         ax.plot(gapped_x, gapped[:, c], linewidth=1.1, label=f"LV{c + 1}")
     ax.axhline(0.0, color=GUIDE_COLOR, linewidth=0.6, linestyle="--")
-    ax.legend(fontsize=7)
-    _label(ax, "Wavelength" if axis is not None else "Band", "Loading", colors)
+    _legend(ax, colors)
+    band_axis = axis is None or is_band_index_axis(x)
+    _label(ax, "Band" if band_axis else "Wavelength", "Loading", colors)
 
 
 def _table_loadings(payload: Any) -> PlotTable:
@@ -464,12 +471,15 @@ def _table_loadings(payload: Any) -> PlotTable:
                                 for c in range(matrix.shape[1]))))
 
 
-def _mean_behind(ax: Any, payload: Mapping[str, Any], x: np.ndarray) -> None:
+def _mean_behind(ax: Any, payload: Mapping[str, Any], x: np.ndarray,
+                 colors: Mapping[str, str]) -> None:
     """Shade the model's mean spectrum behind a band-importance plot (own, hidden y scale)."""
     mean = payload.get("mean_spectrum")
     if mean is None or np.size(mean) != x.size:
         return
     behind = ax.twinx()
+    # The twin axes lie below the plot and carry its background (matplotlib's is white).
+    behind.set_facecolor(colors.get("ax_bg", colors["bg"]))
     gx, gy = _gapped(x, np.asarray(mean, dtype=float).reshape(-1))
     behind.fill_between(gx, np.nanmin(gy), gy, color=GUIDE_COLOR, alpha=0.18, linewidth=0)
     behind.set_yticks([])
@@ -486,7 +496,7 @@ def _render_vip(fig: Figure, payload: Any, colors: Mapping[str, str]) -> None:
         draw_placeholder(ax, "VIP exists for PLS models.", colors)
         return
     x, y, xlabel = spectrum
-    _mean_behind(ax, payload, x)
+    _mean_behind(ax, payload, x, colors)
     ax.plot(*_gapped(x, y), linewidth=1.2, color=colors["accent"])
     ax.axhline(1.0, color=colors["fg"], linewidth=0.8, alpha=0.7)
     ax.axhline(0.8, color=GUIDE_COLOR, linewidth=0.8, linestyle="--")
@@ -528,10 +538,12 @@ def _render_vip_sorted(fig: Figure, payload: Any, colors: Mapping[str, str]) -> 
     width = max(0.6, min(4.0, 300.0 / y.size))
     ax.vlines(rank, 0.0, y, colors=np.where(y > 1.0, colors["accent"], GUIDE_COLOR).tolist(),
               linewidth=width)
-    for r, value, band in zip(rank[:5], y[:5], x[:5], strict=True):
-        label = f"{band:.0f} nm" if xlabel == "Wavelength" else f"band {band:g}"
-        ax.annotate(label, (r, value), textcoords="offset points", xytext=(3, 2),
-                    fontsize=7, color=colors["fg"])
+    # The five largest, listed where the short bars leave room (labels on the bars overlap).
+    top = "\n".join(f"{band:.0f} nm  {value:.2f}" if xlabel == "Wavelength"
+                     else f"band {band:g}  {value:.2f}" for band, value in zip(x[:5], y[:5],
+                                                                              strict=True))
+    ax.text(0.97, 0.97, f"Largest VIP\n{top}", transform=ax.transAxes, ha="right", va="top",
+            fontsize=7, color=colors["fg"], family="monospace")
     ax.axhline(1.0, color=colors["fg"], linewidth=0.8, alpha=0.7)
     ax.axhline(0.8, color=GUIDE_COLOR, linewidth=0.8, linestyle="--")
     ax.set_xlim(0.5, y.size + 0.5)
@@ -556,7 +568,7 @@ def _render_selectivity(fig: Figure, payload: Any, colors: Mapping[str, str]) ->
         draw_placeholder(ax, "No selectivity ratio (refit a model from before 1.4).", colors)
         return
     x, y, xlabel = spectrum
-    _mean_behind(ax, payload, x)
+    _mean_behind(ax, payload, x, colors)
     ax.plot(*_gapped(x, y), linewidth=1.2, color=colors["accent"])
     _label(ax, xlabel, "Selectivity ratio", colors)
 

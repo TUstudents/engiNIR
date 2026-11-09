@@ -57,6 +57,10 @@
   fitted since 1.2 (it now reads the stored folds, e.g. "7 folds, round-robin
   over 20 samples") and ids where names belong (model, sample set,
   readiness, status lines).
+- Viewer, Model, Spectral page: VIP and the selectivity ratio had a white
+  background in the dark theme (the mean spectrum's axes), files without
+  wavelengths were labelled "Wavelength" and "175 nm", the five largest VIP
+  labels overlapped (now listed in one corner), and legends had white boxes.
 - Viewer, Model: a few reference levels (1, 4, 7, 10) were binned into one
   flat block; they get one bar each. A unit of "1" is no longer printed
   after every statistic.
