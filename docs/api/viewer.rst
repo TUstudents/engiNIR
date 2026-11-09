@@ -158,6 +158,8 @@ Workspace surfaces
 .. autoclass:: enginir.viewer._model_diagnostics.ModelDiagnosticsWidget
    :no-members:
 
+.. autofunction:: enginir.viewer._model_diagnostics.roi_t2_ellipse
+
 .. autoclass:: enginir.viewer._prediction.PredictionMapWidget
    :members: layer, set_layer, update_data
 

@@ -41,6 +41,9 @@
   order), text in reserved room that zooms with the tiles, labels without
   the shared name prefix, outlines in the value colour of the mean spectra;
   **View** offers the scan positions and a contrast stretch per data file.
+- Viewer, Model: the score plot adds the ROI-level Hotelling T² ellipses
+  (the ROI means as observations, with their covariance) next to the pixel
+  ellipses, and a legend names both.
 - A repeated reflectance clipping warning (the same ROI converted again) is
   logged once, then at debug level.
 

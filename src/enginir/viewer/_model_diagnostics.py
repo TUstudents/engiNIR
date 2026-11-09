@@ -16,6 +16,7 @@ from typing import Any
 
 import numpy as np
 from matplotlib.figure import Figure
+from scipy.stats import f as f_distribution
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
@@ -257,6 +258,31 @@ def _table_target_distribution(payload: Any) -> PlotTable:
                               PlotColumn("roi_count", counts)))
 
 
+def roi_t2_ellipse(scores: np.ndarray, level: float, n_points: int = 200
+                   ) -> np.ndarray | None:
+    """The ROI-level Hotelling T² ellipse of two score columns, as ``(n_points, 2)``.
+
+    The ROIs are the observations: centred on their mean scores, shaped by
+    their covariance (ROI means of PLS scores need not be uncorrelated), with
+    the limit ``2 (n − 1) / (n − 2) · F(level; 2, n − 2)`` for ``n`` ROIs.
+    ``None`` with fewer than 4 ROIs or no spread. An ROI outside it is unusual
+    among the ROIs; the pixel ellipse is the limit for single pixels.
+    """
+    finite = np.asarray(scores, dtype=float)[:, :2]
+    finite = finite[np.all(np.isfinite(finite), axis=1)]
+    n = finite.shape[0]
+    if n < 4:
+        return None
+    variances, axes = np.linalg.eigh(np.cov(finite, rowvar=False))
+    if not np.all(np.isfinite(variances)) or variances.min() <= 1e-12 * max(variances.max(), 0):
+        return None
+    limit = 2.0 * (n - 1) / (n - 2) * float(f_distribution.ppf(level, 2, n - 2))
+    angle = np.linspace(0.0, 2.0 * np.pi, n_points)
+    circle = np.stack([np.cos(angle), np.sin(angle)])
+    return (finite.mean(axis=0)[:, None]
+            + axes @ (np.sqrt(limit * variances)[:, None] * circle)).T
+
+
 def _render_scores(fig: Figure, payload: Any, colors: Mapping[str, str]
                    ) -> Sequence[RoiPoints] | None:
     ax = _axes(fig, colors)
@@ -276,12 +302,22 @@ def _render_scores(fig: Figure, payload: Any, colors: Mapping[str, str]
     variances = payload.get("score_variances")
     if variances is not None:  # Hotelling T² ellipses of the training pixels (§7.5)
         angle = np.linspace(0.0, 2.0 * np.pi, 200)
-        for key, style in (("t2_crit_2_095", ":"), ("t2_crit_2_099", "--")):
+        for key, style, level in (("t2_crit_2_095", ":", 95), ("t2_crit_2_099", "--", 99)):
             limit = payload.get(key)
             if limit is not None:
                 radii = np.sqrt(float(limit) * np.asarray(variances, dtype=float))
                 ax.plot(radii[0] * np.cos(angle), radii[1] * np.sin(angle), color=GUIDE_COLOR,
-                        linewidth=0.9, linestyle=style)
+                        linewidth=0.9, linestyle=style, label=f"T² {level} % pixels")
+    for level, style in ((0.95, ":"), (0.99, "--")):  # the ROIs as observations
+        ellipse = roi_t2_ellipse(scores, level)
+        if ellipse is not None:
+            ax.plot(ellipse[:, 0], ellipse[:, 1], color=colors["accent"], linewidth=1.1,
+                    linestyle=style, label=f"T² {level:.0%} ROIs".replace("%", " %"))
+    if ax.get_legend_handles_labels()[0]:
+        legend = ax.legend(fontsize=7, loc="upper right", ncols=2, frameon=True,
+                           labelcolor=colors["fg"], handlelength=2.2, framealpha=0.85)
+        legend.get_frame().set_facecolor(colors.get("ax_bg", colors["bg"]))
+        legend.get_frame().set_edgecolor("none")
     _label(ax, "LV1 training score", "LV2 training score", colors)
     ids = _roi_ids(payload, pairs[0].size)
     return None if ids is None else [RoiPoints(ax, scores[:, 0], scores[:, 1], ids)]
@@ -668,4 +704,4 @@ class ModelDiagnosticsWidget(QWidget):
         self.grid.restyle_theme()
 
 
-__all__ = ["ModelDiagnosticsWidget"]
+__all__ = ["ModelDiagnosticsWidget", "roi_t2_ellipse"]

@@ -213,10 +213,16 @@ Model shows the selected model and its diagnostics:
   and adjusted R²; a unit of ``1`` is not repeated after each number),
   residuals, the distribution of reference values (one bar per value when
   there are at most 12 distinct values, as for levels 1, 4, 7, 10), and the
-  training scores of the first two latent variables with the Hotelling T²
-  ellipses (0.95 dotted, 0.99 dashed); one point per ROI, the mean of the
-  pixels the model was fitted on (the drawn pixels with a pixel sample,
-  without the excluded ones). Models fitted with an earlier version show no
+  training scores of the first two latent variables with Hotelling T²
+  ellipses at 0.95 (dotted) and 0.99 (dashed); one point per ROI, the mean of
+  the pixels the model was fitted on (the drawn pixels with a pixel sample,
+  without the excluded ones). There are two pairs of ellipses, named in the
+  legend. The grey **pixel** ellipses are the limits for single training
+  pixels; an ROI mean averages thousands of pixels and sits well inside
+  them. The coloured **ROI** ellipses treat the ROI means as the
+  observations (centred on them and tilted with their covariance, with
+  limits for the number of ROIs, from 4 ROIs): an ROI outside them is
+  unusual among the ROIs. Models fitted with an earlier version show no
   scores until they are fitted again
 - the **Spectral** page: the regression coefficients, the scaled
   coefficients (CoeffCS) and the loadings of the first three latent variables,

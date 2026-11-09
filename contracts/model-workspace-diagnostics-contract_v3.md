@@ -97,7 +97,11 @@ Required v3 pages, in this order:
    - `Residuals`
    - target distribution
    - latent scores, with the Hotelling T² ellipses at 0.95 and 0.99 of the
-     first two components (engiNIR 1.3 and later)
+     first two components (engiNIR 1.3 and later): of the training pixels
+     (the pixels are the observations of the fit), and of the ROIs (their
+     mean scores as observations: centred on their mean, shaped by their
+     covariance, limit `2(n−1)/(n−2)·F(level; 2, n−2)` for `n` ROIs, at
+     least 4), with a legend naming both
 2. `Spectral`
    - regression coefficients
    - scaled coefficients (CoeffCS, 1.3 and later)

@@ -643,3 +643,32 @@ def test_few_reference_levels_get_one_bar_each_and_unit_1_is_not_printed():
         _render_pred_vs_ref(fig, {**payload, "target_unit": unit}, panel_colors())
         stats = fig.axes[0].texts[0].get_text()
         assert (f" {unit}\n" in stats) is shown, (unit, stats)
+
+
+def test_the_roi_ellipse_is_the_t2_limit_of_the_rois_and_both_are_in_the_legend():
+    """ROI mean scores can be correlated: every ellipse point has the ROI-level T² limit
+    under the ROIs' own covariance (an axis-aligned ellipse would not)."""
+    from matplotlib.figure import Figure
+    from scipy.stats import f
+
+    from enginir.viewer._model_diagnostics import _render_scores, roi_t2_ellipse
+    from enginir.viewer._theme import panel_colors
+
+    rng = np.random.default_rng(4)
+    lv1 = rng.normal(0, 1.0, 20)
+    scores = np.column_stack([lv1, -0.4 * lv1 + rng.normal(0, 0.1, 20)])
+    ellipse = roi_t2_ellipse(scores, 0.99)
+    assert ellipse is not None
+    centred = ellipse - scores.mean(axis=0)
+    t2 = np.einsum("ij,jk,ik->i", centred, np.linalg.inv(np.cov(scores, rowvar=False)), centred)
+    np.testing.assert_allclose(t2, 2 * 19 / 18 * f.ppf(0.99, 2, 18), rtol=1e-9)
+    assert roi_t2_ellipse(scores[:3], 0.99) is None, "too few ROIs for a limit"
+
+    y = np.linspace(1, 10, 20)
+    payload = {"y_true_roi": y, "y_pred_roi": y, "scores_roi": scores,
+               "score_variances": np.array([4.0, 1.0]), "t2_crit_2_095": 5.99,
+               "t2_crit_2_099": 9.21}
+    fig = Figure()
+    _render_scores(fig, payload, panel_colors())
+    labels = [text.get_text() for text in fig.axes[0].get_legend().get_texts()]
+    assert labels == ["T² 95 % pixels", "T² 99 % pixels", "T² 95 % ROIs", "T² 99 % ROIs"]
