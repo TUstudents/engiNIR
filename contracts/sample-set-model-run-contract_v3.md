@@ -178,12 +178,13 @@ once before cross-validation. A recipe with MSC or EMSC is fitted and
 applied inside every fold (all its steps, through the fold pipeline);
 either way the result equals applying the whole recipe per fold. AsLS
 takes its direction from the signal domain's signal unit
-(`project-schema-contract_v3.md` §4). A recipe with `sg_edges = drop` gives
-`X` the recipe's output axis (fewer bands than the signal domain); the
+(`project-schema-contract_v3.md` §4). A recipe with `sg_edges = drop` or a
+band selection gives `X` the recipe's output axis (fewer bands than the
+signal domain, with gaps after a selection); the
 model's coefficients, loadings, projection data (`x_mean`, `x_std`,
-`rotations`, `loadings`), MSC/EMSC state and the stored wavelengths of
-`prediction_model` and `diagnostics` use that axis, and K in §7.2 and §7.5
-is its band count.
+`rotations`, `loadings`) and the stored wavelengths of `prediction_model`
+and `diagnostics` use that axis, and K in §7.2 and §7.5 is its band count.
+MSC/EMSC state uses the axis after Savitzky-Golay, before the selection.
 
 Memory-aware v3 rules:
 
@@ -672,6 +673,24 @@ it was fitted on):
   pixel has NaN scores and 0. The fit computes them because only the fit
   knows which row belongs to which ROI
 - per ROI the share of its drawn pixels above DCrit and above T²Crit (0.99)
+- band importance, on the model's axis (runs of engiNIR 1.4 and later):
+  `mean_spectrum`, the mean preprocessed spectrum of the N fitted pixels
+  (the model's `x_mean` in the units of X; stored with the diagnostics,
+  which plots load without the prediction model); for PLS `vip`,
+  VIPⱼ = √(K Σₐ SSₐ (wⱼₐ/‖wₐ‖)² / Σₐ SSₐ) with w the X weights W
+  (`x_weights_`, not the rotations) and SSₐ = tₐᵀtₐ Σₖ qₖₐ², N the pixels
+  of the final fit (after exclusion) (Chong and Jun; mean of VIP² is 1;
+  summed over targets for several); for PLS and PCR with one target
+  `selectivity_ratio` (Rajalahti et al.): in the model's scaled, centred X
+  space (Z, rows the N fitted pixels) the target-projection weight
+  w = b / ‖b‖ with b = coef · x_std (the regression vector in that space),
+  t = Z w, p = Zᵀt / tᵀt, and per band SRⱼ = pⱼ² tᵀt / (Σᵢ Zᵢⱼ² − pⱼ² tᵀt),
+  i.e. Σᵢ (tᵢ pⱼ)² / Σᵢ (Zᵢⱼ − tᵢ pⱼ)² (explained over residual variance;
+  computed in one chunked pass). A band whose residual is below 10⁻¹⁰ times
+  its sum of squares (at least 10⁻¹⁰), or with zero variance, gets NaN with
+  a warning. Both are computed from the final model without a refit. PLS
+  runs from before 1.4 get VIP in the viewer from their stored `x_weights_`,
+  `x_scores_` and `y_loadings_`; the selectivity ratio needs a refit
 
 PCR computes its principal components with a deterministic full SVD, so a
 fit is reproducible and its first *a* components are those of an

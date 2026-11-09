@@ -21,6 +21,7 @@ from enginir._logging import get_logger
 from .baseline import AsLSBaseline, Detrend
 from .derivatives import SG_EDGES, SavitzkyGolay
 from .scatter import EMSC, MSC, SNV
+from .selection import BandSelection
 
 logger = get_logger(__name__)
 
@@ -35,6 +36,14 @@ _ASLS_FIELDS = ("asls_lambda", "asls_p", "asls_iterations")
 _ASLS_DEFAULTS = {"asls_lambda": 1e4, "asls_p": 0.001, "asls_iterations": 10}
 #: Signal units whose peaks point up (AsLS as is); other units are flipped.
 _PEAKS_UP = ("absorbance",)
+_BAND_FIELDS = ("bands_keep", "bands_exclude")
+#: A band lies in a range when low - tau <= wavelength <= high + tau, with tau
+#: this share of the smallest band spacing (contract §4: typed bounds match
+#: float32 wavelengths), or _SINGLE_BAND_TOL for a one-band axis.
+_RANGE_TOL_SHARE = 1e-3
+_SINGLE_BAND_TOL = 1e-6
+#: Ranges already reported as selecting nothing (one warning per range and axis).
+_WARNED_EMPTY: set[tuple[str, tuple[float, float], int, float, float]] = set()
 
 
 @dataclass(frozen=True)
@@ -49,6 +58,7 @@ class PreprocessingRecipe:
     4. MSC
     5. EMSC (mean reference, quadratic baseline)
     6. Detrend (polynomial of degree ``detrend_order``)
+    7. Band selection (``bands_keep``, ``bands_exclude``)
 
     Parameters
     ----------
@@ -82,6 +92,15 @@ class PreprocessingRecipe:
         λ), asymmetry p (``0 < p < 0.5``, default ``0.001``) and number of
         weighted solves (``>= 1``, default ``10``). No effect without
         ``asls``.
+    bands_keep, bands_exclude:
+        Inclusive ``(low, high)`` ranges on the axis after the Savitzky-Golay
+        step (wavelengths in nm; band numbers 0 … K − 1 for data without
+        wavelengths). A band is kept when it lies in a keep range (or no keep
+        range is given) and in no exclude range, e.g. ``bands_exclude=[(1400,
+        1500)]`` leaves out a water band. The selection is the last step: SNV,
+        MSC, EMSC and Detrend see every band, the model only the selected
+        ones (:meth:`output_wavelengths`). Normalized: each pair ordered, the
+        ranges sorted, overlapping or touching ranges merged.
 
     Raises
     ------
@@ -102,8 +121,12 @@ class PreprocessingRecipe:
     asls_lambda: float = 1e4
     asls_p: float = 0.001
     asls_iterations: int = 10
+    bands_keep: tuple[tuple[float, float], ...] = ()
+    bands_exclude: tuple[tuple[float, float], ...] = ()
 
     def __post_init__(self) -> None:
+        for name in _BAND_FIELDS:
+            object.__setattr__(self, name, _normalize_ranges(getattr(self, name), name))
         check_choice(self.filter, "filter", _FILTERS)
         for name in _BOOLEAN_FIELDS:
             value = getattr(self, name)
@@ -151,14 +174,83 @@ class PreprocessingRecipe:
             return self.sg_window // 2
         return 0
 
-    def output_wavelengths(self, wavelengths: np.ndarray) -> np.ndarray:
-        """The wavelength axis of the preprocessed spectra (shorter with ``sg_edges="drop"``)."""
-        wavelengths = np.asarray(wavelengths)
+    @property
+    def has_band_selection(self) -> bool:
+        """``True`` if ``bands_keep`` or ``bands_exclude`` holds a range."""
+        return bool(self.bands_keep or self.bands_exclude)
+
+    def _trimmed(self, wavelengths: np.ndarray) -> np.ndarray:
+        """The axis after the Savitzky-Golay step (shorter with ``sg_edges="drop"``)."""
         trim = self.sg_trim
         if trim and wavelengths.shape[-1] <= 2 * trim:
             log_and_raise("sg_window={} leaves no band of the {} available", self.sg_window,
-                          wavelengths.shape[-1])
+                          wavelengths.shape[-1], depth=3)
         return wavelengths[..., trim:wavelengths.shape[-1] - trim] if trim else wavelengths
+
+    def selected_columns(self, axis: np.ndarray) -> np.ndarray:
+        """Indices into ``axis`` (the axis after Savitzky-Golay) of the selected bands.
+
+        Every band without a band selection. Raises ``ValueError`` when the
+        ranges select no band; a range that selects nothing is logged once.
+        """
+        axis = np.asarray(axis, dtype=np.float64).reshape(-1)
+        if not self.has_band_selection:
+            return np.arange(axis.size)
+        spacing = np.abs(np.diff(axis))
+        spacing = spacing[spacing > 0]
+        tol = _RANGE_TOL_SHARE * float(spacing.min()) if spacing.size else _SINGLE_BAND_TOL
+        keep = np.ones(axis.size, dtype=bool)
+        if self.bands_keep:
+            keep = np.zeros(axis.size, dtype=bool)
+            for low, high in self.bands_keep:
+                keep |= self._in_range(axis, low, high, tol, "bands_keep")
+        for low, high in self.bands_exclude:
+            keep &= ~self._in_range(axis, low, high, tol, "bands_exclude")
+        if not keep.any():
+            log_and_raise("The band selection (keep {}, exclude {}) selects none of the {} bands "
+                          "({:g} to {:g})", list(self.bands_keep), list(self.bands_exclude),
+                          axis.size, float(axis.min()) if axis.size else 0.0,
+                          float(axis.max()) if axis.size else 0.0, depth=2)
+        return np.flatnonzero(keep)
+
+    @staticmethod
+    def _in_range(axis: np.ndarray, low: float, high: float, tol: float,
+                  name: str) -> np.ndarray:
+        inside = (axis >= low - tol) & (axis <= high + tol)
+        if not inside.any() and axis.size:
+            key = (name, (low, high), axis.size, float(axis[0]), float(axis[-1]))
+            if key not in _WARNED_EMPTY:
+                _WARNED_EMPTY.add(key)
+                logger.warning("{} range {:g}-{:g} selects none of the {} bands ({:g} to {:g})",
+                               name, low, high, axis.size, float(axis.min()), float(axis.max()))
+        return inside
+
+    def output_band_indices(self, wavelengths: np.ndarray) -> np.ndarray:
+        """Indices into the input axis of the bands the preprocessed spectra keep.
+
+        Without Savitzky-Golay edge dropping and band selection, every band.
+        """
+        wavelengths = np.asarray(wavelengths).reshape(-1)
+        trimmed = self._trimmed(np.arange(wavelengths.size))
+        if not self.has_band_selection:
+            return trimmed
+        return trimmed[self.selected_columns(wavelengths[trimmed])]
+
+    def output_wavelengths(self, wavelengths: np.ndarray) -> np.ndarray:
+        """The wavelength axis of the preprocessed spectra.
+
+        Shorter with ``sg_edges="drop"``, and only the selected bands (with
+        gaps) with a band selection.
+        """
+        wavelengths = np.asarray(wavelengths)
+        trimmed = self._trimmed(wavelengths)
+        if not self.has_band_selection:
+            return trimmed
+        return trimmed[..., self.selected_columns(trimmed)]
+
+    def n_bands_before_selection(self, n_bands: int) -> int:
+        """Bands after the Savitzky-Golay step (what MSC, EMSC and Detrend see)."""
+        return int(n_bands) - 2 * self.sg_trim
 
     @property
     def requires_fitting(self) -> bool:
@@ -182,15 +274,16 @@ class PreprocessingRecipe:
         Returns
         -------
         list of (str, transformer)
-            Steps named ``"asls"``, ``"sg"``, ``"snv"``, ``"msc"``, ``"emsc"``
-            and ``"detrend"``, in application order, suitable for
+            Steps named ``"asls"``, ``"sg"``, ``"snv"``, ``"msc"``, ``"emsc"``,
+            ``"detrend"`` and ``"bands"``, in application order, suitable for
             :class:`sklearn.pipeline.Pipeline`.
 
         Raises
         ------
         ValueError
-            If ``sg_window`` exceeds the number of wavelengths, or ``asls``
-            is enabled without a signal unit.
+            If ``sg_window`` exceeds the number of wavelengths, ``asls``
+            is enabled without a signal unit, or the band selection selects
+            no band.
         """
         wavelengths = np.asarray(wavelengths, dtype=np.float64)
         if wavelengths.ndim != 1:
@@ -223,6 +316,8 @@ class PreprocessingRecipe:
             steps.append(("emsc", EMSC()))
         if self.detrend:
             steps.append(("detrend", Detrend(order=self.detrend_order, wavelengths=wavelengths)))
+        if self.has_band_selection:
+            steps.append(("bands", BandSelection(indices=self.selected_columns(wavelengths))))
         return steps
 
     def asls_direction(self, signal_unit: str | None) -> str:
@@ -245,15 +340,23 @@ class PreprocessingRecipe:
         parts.extend(name.upper() for name in ("snv", "msc", "emsc") if getattr(self, name))
         if self.detrend:
             parts.append(f"Detrend (order={self.detrend_order})")
+        if self.has_band_selection:
+            parts.append(f"Bands ({self.describe_bands()})")
         return " > ".join(parts) if parts else "none"
+
+    def describe_bands(self) -> str:
+        """The band selection as text, e.g. ``"keep 1100-1350, 1500-2300; exclude 1400-1500"``."""
+        parts = [f"{name} {format_ranges(ranges)}" for name, ranges in
+                 (("keep", self.bands_keep), ("exclude", self.bands_exclude)) if ranges]
+        return "; ".join(parts) or "all"
 
     def to_dict(self) -> dict[str, Any]:
         """Return the recipe as a plain dict (the persisted HDF5 representation).
 
-        The fields added in engiNIR 1.3 are included only when they change
-        what the recipe does (``sg_edges="drop"`` with a Savitzky-Golay
-        filter; the AsLS fields with ``asls``), so recipes stored before keep
-        their content and id.
+        The fields added in engiNIR 1.3 and 1.4 are included only when they
+        change what the recipe does (``sg_edges="drop"`` with a Savitzky-Golay
+        filter; the AsLS fields with ``asls``; band ranges when given), so
+        recipes stored before keep their content and id.
         """
         payload = {name: value for name, value in asdict(self).items() if name in _REQUIRED}
         if self.filter in SG_FILTERS and self.sg_edges == "drop":
@@ -261,6 +364,9 @@ class PreprocessingRecipe:
         if self.asls:
             payload["asls"] = True
             payload.update({name: getattr(self, name) for name in _ASLS_FIELDS})
+        for name in _BAND_FIELDS:
+            if getattr(self, name):
+                payload[name] = [list(pair) for pair in getattr(self, name)]
         return payload
 
     @classmethod
@@ -277,7 +383,8 @@ class PreprocessingRecipe:
         filled from defaults. The fields added in 1.3 mean what a recipe
         stored before does when absent: no ``sg_edges`` is ``"interp"``, no
         ``asls`` is ``False``; with ``asls`` the three AsLS parameters are
-        required. Unknown keys are ignored with a warning.
+        required. No ``bands_keep``/``bands_exclude`` selects every band.
+        Unknown keys are ignored with a warning.
 
         Parameters
         ----------
@@ -309,9 +416,66 @@ class PreprocessingRecipe:
         return cls(**values)
 
 
+def _normalize_ranges(value: Any, name: str) -> tuple[tuple[float, float], ...]:
+    """Ranges as sorted, merged ``(low, high)`` float pairs (project-schema contract §4)."""
+    if value is None:
+        return ()
+    if isinstance(value, (str, bytes, Mapping)):
+        log_and_raise("{} must be a list of (low, high) pairs, got {!r}", name, value, depth=3)
+    try:
+        array = np.asarray(value, dtype=np.float64)
+    except (TypeError, ValueError):
+        log_and_raise("{} must be a list of (low, high) number pairs, got {!r}", name, value,
+                      depth=3)
+    if array.size == 0:
+        return ()
+    if array.ndim == 1 and array.size == 2:
+        array = array.reshape(1, 2)
+    if array.ndim != 2 or array.shape[1] != 2:
+        log_and_raise("{} must be a list of (low, high) pairs, got shape {}", name, array.shape,
+                      depth=3)
+    if not np.all(np.isfinite(array)):
+        log_and_raise("{} must hold finite numbers, got {}", name, array.tolist(), depth=3)
+    pairs = sorted((float(min(a, b)), float(max(a, b))) for a, b in array)
+    merged: list[list[float]] = [list(pairs[0])]
+    for low, high in pairs[1:]:
+        if low <= merged[-1][1]:  # overlapping or touching
+            merged[-1][1] = max(merged[-1][1], high)
+        else:
+            merged.append([low, high])
+    return tuple((low, high) for low, high in merged)
+
+
+def format_ranges(ranges: Any) -> str:
+    """Ranges as text, ``"1100-1350, 1500-2300"`` (the viewer's input format)."""
+    return ", ".join(f"{low:g}-{high:g}" for low, high in ranges)
+
+
+def parse_ranges(text: str, name: str = "ranges") -> tuple[tuple[float, float], ...]:
+    """Parse ``"1100-1350, 1500-2300"`` (a dash or en dash between the numbers).
+
+    Raises ``ValueError`` for anything else; an empty text is no range.
+    """
+    ranges: list[tuple[float, float]] = []
+    for part in str(text).replace(";", ",").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        bounds = part.replace("–", "-").replace("—", "-")
+        # A minus sign may start a number (band axes are not negative, but be exact).
+        split = bounds.find("-", 1)
+        if split <= 0:
+            log_and_raise("{}: '{}' is not a range like 1100-1350", name, part, depth=2)
+        try:
+            ranges.append((float(bounds[:split]), float(bounds[split + 1:])))
+        except ValueError:
+            log_and_raise("{}: '{}' is not a range like 1100-1350", name, part, depth=2)
+    return _normalize_ranges(ranges, name)
+
+
 def _truthy(value: Any) -> bool:
     """A stored boolean (``bool`` or ``numpy.bool_``); anything else is left to validation."""
     return isinstance(value, (bool, np.bool_)) and bool(value)
 
 
-__all__ = ["PreprocessingRecipe", "SG_FILTERS"]
+__all__ = ["PreprocessingRecipe", "SG_FILTERS", "format_ranges", "parse_ranges"]

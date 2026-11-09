@@ -212,6 +212,26 @@ and its id:
   (float64 attributes), `asls_iterations` to int, before the id is computed,
   so `10000` and `10000.0` give the same recipe and id.
 
+A third group was added by engiNIR 1.4 (band selection), again written
+only when set:
+
+- `bands_keep`, `bands_exclude`: lists of inclusive `[low, high]` ranges on
+  the recipe's axis after the Savitzky-Golay step (wavelengths in nm; for
+  data without wavelengths, the band numbers of the data file, i.e. the
+  input index 0 … K − 1, so dropping edges does not renumber). A band is
+  selected when it lies in a keep range (or no keep list is given) and in
+  no exclude range. λ is the axis value as stored (float32 for a signal
+  domain) converted to float64; a band lies in a range when
+  low − τ ≤ λ ≤ high + τ, with τ = 10⁻³ times the smallest band spacing of
+  the axis (10⁻⁶ for a single band), so a typed bound equal to a stored
+  float32 wavelength matches it. Normalized before the id is computed,
+  independent of any axis: each pair ordered (low ≤ high), the ranges
+  sorted by low, a range merged with the previous one when its low ≤ the
+  previous high (exact float64 comparison; ranges one band apart stay
+  separate), values finite and float; an empty list is the same as an
+  absent field and is not written. Stored as float64 datasets of shape
+  (n, 2). A recipe without them selects every band.
+
 Reading: an explicit `sg_edges = interp` equals an absent field; `sg_edges`
 without a Savitzky-Golay filter and AsLS parameters with `asls = false` are
 accepted and normalized; an `sg_edges` value other than `drop` or `interp`
@@ -219,8 +239,8 @@ is rejected; `asls = true` with any of the three parameters missing is a
 missing-field error, never filled from defaults. "The same content" below
 compares the normalized stored recipe with the normalized new one.
 
-The execution order is AsLS, Savitzky-Golay, SNV, MSC, EMSC, then
-detrending for the enabled steps. AsLS fits, for every spectrum z, the
+The execution order is AsLS, Savitzky-Golay, SNV, MSC, EMSC, detrending,
+then band selection for the enabled steps. AsLS fits, for every spectrum z, the
 baseline b that minimizes Σᵢ wᵢ(zᵢ − bᵢ)² + λ Σᵢ ((Δ²b)ᵢ)², i.e. solves
 (W + λDᵀD) b = W z, with Δ² (D) the second difference over the band index
 (unit spacing; wavelength values are not used) and weights from the
@@ -238,19 +258,32 @@ stiffness grows roughly with K⁴, so a camera with more bands needs a larger
 output are float32, the solver works in float64. AsLS and Savitzky-Golay
 act on each spectrum alone (stateless).
 
-A recipe with `sg_edges = drop` changes the number of bands: its output
-axis is the input axis without the dropped bands (`output_wavelengths`).
-Later steps (MSC and EMSC references, Detrend), the model (coefficients,
+Band selection is the last step: SNV, MSC and EMSC references and Detrend
+see every band after Savitzky-Golay, and the selection keeps the selected
+columns (stateless, no effect on the MSC or EMSC state). A range that
+selects no band of the axis is logged as a warning, once per range and
+axis in a session (fit, prediction or replay); a recipe that selects no
+band is refused when it is applied, and a fit refuses a given (fixed)
+number of components larger than the selected band count. The selected
+axis may have gaps.
+
+A recipe with `sg_edges = drop` or a band selection changes the number of
+bands: its output axis is the input axis without the dropped and the
+unselected bands (`output_wavelengths`, with the input band indices
+`output_band_indices`).
+SNV, MSC and EMSC references and Detrend use the axis after Savitzky-Golay
+(fewer bands only with `sg_edges = drop`); the model (coefficients,
 loadings, `x_mean`, `x_std`, `rotations`, stored `wavelengths` of
 `prediction_model` and `diagnostics`), K in the DModX, s0, DCrit and DModXPS
 formulas (as SIMCA's K = 86 of 100 bands for a 15-point window),
 preprocessed ROI spectrum summaries and plots, and prediction use the
-output axis; the signal domain keeps the input bands.
+output axis after band selection; the signal domain keeps the input bands.
 
 Projects with these fields need the release that introduced them or later:
 an older version would discard them as unknown fields and replay a
-different recipe (with `drop` its band check fails; without, AsLS would be
-skipped silently).
+different recipe (with `drop` its band check fails; the band ranges are
+datasets, which 1.3 skips without a message, but its band check fails;
+without, AsLS would be skipped silently).
 
 Recipe timestamps and other additional recipe parameters are not part of
 the v3 recipe schema. They follow the project extra-field policy: warn and
@@ -498,6 +531,7 @@ project.h5
 |   +-- @detrend
 |   +-- @detrend_order
 |   +-- @sg_edges, @asls, @asls_lambda, @asls_p, @asls_iterations (optional, §4)
+|   +-- bands_keep, bands_exclude (optional float64 (n, 2) datasets, §4)
 |
 +-- /signal_domains/{signal_domain_id}/
 |   +-- signal-domain fields / attrs

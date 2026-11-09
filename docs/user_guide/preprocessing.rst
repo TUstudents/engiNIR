@@ -259,8 +259,8 @@ from Python defaults; unknown fields are logged and discarded. The recipe id
 is supplied by its ``/recipes/{recipe_id}`` project path.
 
 Steps are applied in a fixed order: AsLS, Savitzky-Golay, SNV, MSC, EMSC,
-Detrend. Two groups of fields are written only when they change what the
-recipe does, so recipes stored before keep their ids:
+Detrend, band selection. Three groups of fields are written only when they
+change what the recipe does, so recipes stored before keep their ids:
 
 - ``sg_edges="drop"`` (the default of new recipes with a Savitzky-Golay
   filter) leaves out the edge bands; a stored recipe without the field
@@ -270,6 +270,9 @@ recipe does, so recipes stored before keep their ids:
   the model's coefficients and loadings and its stored wavelengths use the
   shorter axis (:meth:`~enginir.preprocessing.PreprocessingRecipe.output_wavelengths`);
   the scans to predict keep all their bands.
+- ``bands_keep`` and ``bands_exclude`` (engiNIR 1.4) select bands as the
+  last step, so the model sees only the chosen bands while normalization
+  sees the whole spectrum; see :doc:`band_selection`.
 - ``asls=True`` with ``asls_lambda``, ``asls_p`` and ``asls_iterations``
   adds AsLS baseline correction:
 

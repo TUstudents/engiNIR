@@ -102,6 +102,15 @@ Required v3 pages, in this order:
    - regression coefficients
    - scaled coefficients (CoeffCS, 1.3 and later)
    - loadings of the first (up to) three components
+   - VIP (PLS; engiNIR 1.4 and later, and PLS runs from before from their
+     stored weights): VIP over
+     wavelength with lines at 1.0 and 0.8 and the model's mean spectrum
+     shaded behind it, and VIP sorted from the largest value (bands as bars)
+   - selectivity ratio (PLS and PCR; 1.4 and later) over wavelength with
+     the mean spectrum behind it
+   Runs without the stored selectivity ratio show a "refit" placeholder;
+   plots over wavelength leave a gap where a band selection leaves out
+   bands
 3. `Components` (1.3 and later; `sample-set-model-run-contract_v3.md` §7.4)
    - RMSECV with its standard error against the number of components, the
      model's number and every rule's suggestion marked
@@ -261,9 +270,16 @@ Required v3 spectral diagnostic families:
 - regression coefficients
 - loadings
 
-Optional but recommended in v3:
+Optional but recommended in v3, stored by runs of engiNIR 1.4 and later
+(`sample-set-model-run-contract_v3.md` §7.5):
 
-- VIP
+- VIP (PLS)
+- selectivity ratio (PLS and PCR)
+
+What changes VIP and the selectivity ratio, and the docs must say so: the
+number of components, the preprocessing (derivatives move importance to
+the flanks of a band) and X scaling (the selectivity ratio only through the
+fitted regression vector).
 
 Required axis:
 

@@ -56,6 +56,7 @@ def test_export_plots_writes_every_model_plot_including_unopened_pages(fitted_vi
     written, skipped = fitted_viewer.export_workspace_plots(out)
     plots = ("model.pred_vs_ref", "model.residuals", "model.target_distribution",
              "model.scores", "model.coefficients", "model.loadings", "model.coef_cs",
+             "model.vip", "model.vip_sorted", "model.selectivity_ratio",
              "model.components", "model.r2_q2", "model.dmodx", "model.t2")
     assert sorted(written) == sorted(f"{p}{s}" for p in plots for s in (".png", ".csv"))
     assert skipped == []

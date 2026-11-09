@@ -211,6 +211,60 @@ def projection_data(model: Any) -> dict[str, np.ndarray]:
     log_and_raise("Projection data exist for PLS and PCR models, got {}", type(model).__name__)
 
 
+def band_importance(fitted: Any, X: np.ndarray, kept: np.ndarray) -> dict[str, np.ndarray]:
+    """Mean spectrum, VIP (PLS) and selectivity ratio of a fitted model (contract §7.5).
+
+    The selectivity ratio (Rajalahti et al., *Chemometrics and Intelligent
+    Laboratory Systems* 95 (2009) 35-48) uses the target projection in the
+    model's scaled, centred X space Z over the fitted pixels: w = b / ‖b‖ with
+    b = coef · x_std, t = Z w, p = Zᵀt / tᵀt, and per band
+    SRⱼ = pⱼ² tᵀt / (Σᵢ Zᵢⱼ² − pⱼ² tᵀt). Computed chunk by chunk in one pass.
+    The selectivity ratio only for one target; VIP for every PLS model.
+    """
+    steps = fitted[:-1] if isinstance(fitted, Pipeline) else None
+    model: Any = fitted[-1] if isinstance(fitted, Pipeline) else fitted
+    result: dict[str, np.ndarray] = {
+        "mean_spectrum": projection_data(model)["x_mean"].astype(np.float32)}
+    if isinstance(model, PLSRegression):
+        result["vip"] = np.asarray(model.vip_scores(), dtype=np.float32)
+    coef = np.asarray(model.coef_, dtype=np.float64)
+    if coef.ndim != 1 and not (coef.ndim == 2 and coef.shape[1] == 1):
+        logger.debug("The selectivity ratio is computed for one target only")
+        return result
+    centre, _rotations, _loadings = _model_space(model)
+    b = coef.reshape(-1) * np.asarray(model.x_std_, dtype=np.float64)
+    norm = float(np.linalg.norm(b))
+    if norm < _EPS:
+        logger.warning("Selectivity ratio undefined: the regression vector is zero")
+        return result
+    w = b / norm
+    rows = np.flatnonzero(kept)
+    tt = 0.0
+    zt = np.zeros(b.size)
+    zz = np.zeros(b.size)
+    for start in range(0, rows.size, _CHUNK_ROWS):
+        block = X[rows[start:start + _CHUNK_ROWS]]
+        z = centre(steps.transform(block) if steps is not None else block)
+        t = z @ w
+        tt += float(t @ t)
+        zt += z.T @ t
+        zz += np.einsum("ij,ij->j", z, z)
+    if tt < _EPS:
+        logger.warning("Selectivity ratio undefined: the target-projection scores are zero")
+        return result
+    p = zt / tt
+    explained = p ** 2 * tt
+    residual = zz - explained
+    zero = residual <= _EPS * np.maximum(zz, 1.0)
+    if np.any(zero):
+        logger.warning("Selectivity ratio of {} band(s) is infinite (no residual variance); "
+                       "stored as NaN", int(zero.sum()))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = np.where(zero, np.nan, explained / np.where(zero, 1.0, residual))
+    result["selectivity_ratio"] = ratio.astype(np.float32)
+    return result
+
+
 def training_diagnostics(fitted: Any, X: np.ndarray, y: np.ndarray, kept: np.ndarray,
                          roi_index: np.ndarray, *, y_divisor: float) -> tuple[
                              dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -275,6 +329,7 @@ def training_diagnostics(fitted: Any, X: np.ndarray, y: np.ndarray, kept: np.nda
     diagnostics["roi_score_pixels"] = fitted_counts.astype(np.int64)
     coef = np.asarray(model.coef_, dtype=np.float64)
     diagnostics["coef_cs"] = (coef * np.asarray(model.x_std_) / y_divisor).astype(np.float32)
+    diagnostics.update(band_importance(fitted, X, kept))
 
     fitted_values = np.asarray(fitted.predict(X), dtype=np.float64).reshape(X.shape[0])
     y = np.asarray(y, dtype=np.float64)
@@ -297,5 +352,6 @@ def training_diagnostics(fitted: Any, X: np.ndarray, y: np.ndarray, kept: np.nda
     return metrics, diagnostics, projection_fields
 
 
-__all__ = ["AllComponents", "Projection", "component_curve", "component_predictions",
+__all__ = ["AllComponents", "Projection", "band_importance", "component_curve",
+           "component_predictions",
            "default_max", "project", "projection_data", "rank_limit", "training_diagnostics"]

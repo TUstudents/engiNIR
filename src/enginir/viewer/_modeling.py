@@ -11,6 +11,7 @@ import numpy as np
 from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QMenu,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -22,6 +23,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPushButton,
     QSizePolicy,
     QSpinBox,
     QToolButton,
@@ -34,6 +36,7 @@ from .._logging import get_logger
 from ..io.project_store import load_model_run_artifact_refs
 from .._workflow import recipe_id_for, resolve_sample_set, resolve_signal_domain
 from ..preprocessing import PreprocessingRecipe
+from ..preprocessing.recipe import format_ranges, parse_ranges
 from ..project import check_signal_domain_compatibility
 from ..project import (
     FitSpec,
@@ -41,6 +44,13 @@ from ..project import (
     SampleSet,
     SignalDomainContract,
     TargetDefinition,
+)
+from ._band_ranges import (
+    WATER_BANDS,
+    BandRangeDialog,
+    BandSource,
+    ProposalRun,
+    ProposeBandsDialog,
 )
 from ._jobs import BusyStatusWidget, BackgroundWorker, start_background_job
 from ._state import ProjectState, ViewerState
@@ -278,12 +288,16 @@ class FitModelRunDialog(QDialog):
         default_signal_unit: str,
         readiness: Callable[[str], tuple[str, bool]],
         smallest_roi: Callable[[str], int | None] = lambda _target_id: None,
+        band_source: Callable[[str, str, PreprocessingRecipe], BandSource | None] | None = None,
+        band_proposer: Callable[..., ProposalRun | None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Fit model")
         self._readiness = readiness
         self._smallest_roi = smallest_roi
+        self._band_source = band_source
+        self._band_proposer = band_proposer
         layout = QFormLayout(self)
 
         self._target_combo = QComboBox()
@@ -345,6 +359,7 @@ class FitModelRunDialog(QDialog):
         self._filter_combo.currentIndexChanged.connect(self._update_enabled)
         self._detrend.toggled.connect(self._update_enabled)
         self._update_enabled()
+        layout.addRow("Bands:", self._bands_row(recipe))
         hint = QLabel("Starts from the Explore preview; the model is trained with this.")
         hint.setStyleSheet(secondary_text_style())
         layout.addRow("", hint)
@@ -404,6 +419,93 @@ class FitModelRunDialog(QDialog):
         self._buttons.rejected.connect(self.reject)
         layout.addRow(self._buttons)
         self._update_readiness()
+
+    def _bands_row(self, recipe: PreprocessingRecipe) -> QWidget:
+        """Keep and exclude ranges (project-schema contract §4; viewer contract)."""
+        unit = "nm"
+        self._keep_edit = QLineEdit(format_ranges(recipe.bands_keep))
+        self._keep_edit.setPlaceholderText("all bands")
+        self._keep_edit.setToolTip(f"Ranges to keep, e.g. 1100-1350, 1500-2300 ({unit}; band "
+                                   "numbers for data without wavelengths). Empty: every band.")
+        self._exclude_edit = QLineEdit(format_ranges(recipe.bands_exclude))
+        self._exclude_edit.setPlaceholderText("none")
+        self._exclude_edit.setToolTip("Ranges to leave out, e.g. 1400-1500. Applied after "
+                                      "every other step, so normalization sees all bands.")
+        water = QToolButton()
+        water.setText("Water bands")
+        water.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(water)
+        for low, high in WATER_BANDS:
+            action = menu.addAction(f"Exclude {low:.0f}-{high:.0f} nm")
+            if action is not None:
+                action.triggered.connect(
+                    lambda _checked=False, r=(low, high): self._add_exclude(r))
+        water.setMenu(menu)
+        water.setToolTip("Common NIR water bands; added to Exclude only when chosen.")
+        self._select_bands = QPushButton("Select on plot...")
+        self._select_bands.clicked.connect(self._select_bands_on_plot)
+        self._select_bands.setEnabled(self._band_source is not None)
+        self._propose_bands = QPushButton("Propose...")
+        self._propose_bands.setToolTip(
+            "Propose keep ranges by forward interval PLS with nested validation, using this "
+            "dialog's target, preprocessing, model and fitting choices.")
+        self._propose_bands.clicked.connect(self._propose_bands_clicked)
+        self._propose_bands.setEnabled(self._band_proposer is not None)
+        row = QWidget()
+        grid = QGridLayout(row)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.addWidget(QLabel("Keep"), 0, 0)
+        grid.addWidget(self._keep_edit, 0, 1)
+        grid.addWidget(QLabel("Exclude"), 1, 0)
+        grid.addWidget(self._exclude_edit, 1, 1)
+        grid.addWidget(water, 0, 2)
+        grid.addWidget(self._select_bands, 1, 2)
+        grid.addWidget(self._propose_bands, 0, 3)
+        return row
+
+    def _propose_bands_clicked(self) -> None:
+        if self._band_proposer is None:
+            return
+        try:
+            base = replace(self.recipe, bands_keep=(), bands_exclude=())
+            run = self._band_proposer(self.target_id, base, self.model_type,
+                                      self.hyperparameters, self.fit_spec)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Propose bands", str(exc))
+            return
+        if run is None:
+            QMessageBox.information(self, "Propose bands", "Open a project first.")
+            return
+        dialog = ProposeBandsDialog(run, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.proposal is not None:
+            self._keep_edit.setText(format_ranges(dialog.proposal.ranges))
+            self._exclude_edit.setText("")
+            if dialog.proposal.n_components:
+                self._auto_check.setChecked(False)
+                self._components_spin.setValue(dialog.proposal.n_components)
+
+    def _add_exclude(self, bounds: tuple[float, float]) -> None:
+        current = parse_ranges(self._exclude_edit.text(), "Exclude")
+        self._exclude_edit.setText(format_ranges(current + (bounds,)))
+
+    def _select_bands_on_plot(self) -> None:
+        if self._band_source is None:
+            return
+        try:
+            keep = parse_ranges(self._keep_edit.text(), "Keep")
+            exclude = parse_ranges(self._exclude_edit.text(), "Exclude")
+            base = replace(self.recipe, bands_keep=(), bands_exclude=())
+        except ValueError as exc:
+            QMessageBox.warning(self, "Bands", str(exc))
+            return
+        source = self._band_source(self.target_id, self.signal_unit, base)
+        if source is None:
+            QMessageBox.information(self, "Bands", "No ROI has a value for this target.")
+            return
+        dialog = BandRangeDialog(source, keep=keep, exclude=exclude, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._keep_edit.setText(format_ranges(dialog.ranges("keep")))
+            self._exclude_edit.setText(format_ranges(dialog.ranges("exclude")))
 
     def _update_components(self, *_args: Any) -> None:
         auto = self._auto_check.isChecked()
@@ -565,7 +667,9 @@ class FitModelRunDialog(QDialog):
             msc=self._msc.isChecked(), emsc=self._emsc.isChecked(),
             detrend=self._detrend.isChecked(), detrend_order=self._detrend_order.value(),
             sg_edges=kept.sg_edges, asls=kept.asls, asls_lambda=kept.asls_lambda,
-            asls_p=kept.asls_p, asls_iterations=kept.asls_iterations)
+            asls_p=kept.asls_p, asls_iterations=kept.asls_iterations,
+            bands_keep=parse_ranges(self._keep_edit.text(), "Keep"),
+            bands_exclude=parse_ranges(self._exclude_edit.text(), "Exclude"))
 
     def _show_kept_recipe(self) -> None:
         kept = self._kept_recipe
@@ -587,6 +691,8 @@ class FitModelRunDialog(QDialog):
                            (self._emsc, recipe.emsc), (self._detrend, recipe.detrend)):
             box.setChecked(value)
         self._detrend_order.setValue(recipe.detrend_order)
+        self._keep_edit.setText(format_ranges(recipe.bands_keep))
+        self._exclude_edit.setText(format_ranges(recipe.bands_exclude))
         self._kept_recipe = recipe
         self._show_kept_recipe()
 
@@ -669,6 +775,15 @@ def _component_payload(model_run: ModelRun, artifact: dict[str, Any]) -> dict[st
         values = np.asarray(coef_cs, dtype=np.float32).squeeze()
         if values.ndim == 1:
             payload["coef_cs"] = values
+    for key in ("selectivity_ratio", "mean_spectrum"):
+        values = artifact.get(key)
+        if values is not None and np.ndim(np.squeeze(values)) == 1:
+            payload[key] = np.asarray(values, dtype=np.float32).reshape(-1)
+    vip = artifact.get("vip")
+    if vip is None:
+        vip = _vip_from_weights(artifact)  # PLS runs from before 1.4 (contract §7.5)
+    if vip is not None and np.ndim(np.squeeze(vip)) == 1:
+        payload["vip"] = np.asarray(vip, dtype=np.float32).reshape(-1)
     scores = artifact.get("x_scores_", artifact.get("scores_"))
     if scores is not None:
         matrix = np.asarray(scores, dtype=np.float64)
@@ -681,6 +796,25 @@ def _component_payload(model_run: ModelRun, artifact: dict[str, Any]) -> dict[st
         if artifact.get(key) is not None:
             payload[key] = float(np.asarray(artifact[key]))
     return payload
+
+
+def _vip_from_weights(artifact: dict[str, Any]) -> np.ndarray | None:
+    """VIP from a stored PLS run's X weights, X scores and Y loadings (no refit)."""
+    try:
+        weights = np.asarray(artifact["x_weights_"], dtype=np.float64)
+        scores = np.asarray(artifact["x_scores_"], dtype=np.float64)
+        y_loadings = np.asarray(artifact["y_loadings_"], dtype=np.float64)
+    except KeyError:
+        return None
+    if weights.ndim != 2 or scores.ndim != 2 or y_loadings.ndim != 2:
+        return None
+    if not weights.shape[1] == scores.shape[1] == y_loadings.shape[1]:
+        return None
+    explained = np.sum(scores ** 2, axis=0) * np.sum(y_loadings ** 2, axis=0)
+    norms = np.linalg.norm(weights, axis=0)
+    if explained.sum() <= 0 or np.any(norms <= 0):
+        return None
+    return np.sqrt(weights.shape[0] * ((weights / norms) ** 2 @ explained) / explained.sum())
 
 
 def _roi_score_payload(artifact: dict[str, Any] | None) -> dict[str, Any]:
@@ -900,6 +1034,69 @@ class ModelingView(QWidget):
             return
         self.fit_model_btn_clicked(preset=model_run)
 
+    def _show_bands_in_explore(self, recipe: PreprocessingRecipe) -> None:
+        """The Explore preview shows the fit's band selection (unselected bands blank)."""
+        state = self.state
+        if (state.bands_keep, state.bands_exclude) == (recipe.bands_keep, recipe.bands_exclude):
+            return
+        state.bands_keep, state.bands_exclude = recipe.bands_keep, recipe.bands_exclude
+        state._image_cache = None
+        state.units_changed.emit()
+
+    def _band_proposer(self, target_id: str, recipe: PreprocessingRecipe, model_type: str,
+                       hyperparameters: dict[str, Any], fit_spec: FitSpec | None
+                       ) -> ProposalRun | None:
+        """A band proposal through the facade (headless contract, Band proposal)."""
+        project = self.project_state.project
+        target = self.project_state.targets.get(target_id)
+        if project is None or target is None:
+            return None
+
+        def run(progress: Callable[[int, int], None], cancel: Callable[[], bool]) -> Any:
+            return project.propose_bands(target, recipe=recipe, model=model_type,
+                                         fit_spec=fit_spec, progress=progress, cancel=cancel,
+                                         **hyperparameters)
+
+        return run
+
+    def _band_source(self, target_id: str, signal_unit: str,
+                     recipe: PreprocessingRecipe) -> BandSource | None:
+        """Mean spectrum of the target's ROIs and the selected model's VIP or coefficients."""
+        state = self.project_state
+        rois = [roi for roi_id, roi in state.rois.items()
+                if (assignment := state.target_assignments.get((roi_id, target_id))) is not None
+                and assignment.value is not None]
+        path = state.project_path
+        if not rois or path is None:
+            return None
+        datasets, calibrations = dict(state.datasets), dict(state.calibrations)
+        from ..modeling import roi_spectrum_summaries
+
+        def load() -> tuple[np.ndarray, np.ndarray]:
+            summaries, skipped = roi_spectrum_summaries(
+                str(path), rois, datasets=datasets, calibrations=calibrations,
+                signal_unit=signal_unit, recipe=recipe)
+            if not summaries:
+                log_and_raise("No ROI gives {} spectra: {}", signal_unit,
+                              "; ".join(sorted(set(skipped.values()))) or "no spectra")
+            means = np.stack([np.asarray(s.mean, dtype=np.float64)
+                              for s in summaries.values()])
+            return recipe.output_wavelengths(np.asarray(rois[0].wavelengths)), means.mean(axis=0)
+
+        guide = None
+        payload = self.workspace_diagnostics_payload() or {}
+        axis = payload.get("spectral_axis")
+        for key, label in (("vip", "VIP"), ("coefficients", "Coefficient")):
+            values = payload.get(key)
+            if values is not None and axis is not None and np.size(values) == np.size(axis):
+                guide = (np.asarray(axis, dtype=float), np.asarray(values, dtype=float), label)
+                break
+        wavelengths = np.asarray(rois[0].wavelengths, dtype=float)
+        band_axis = wavelengths.size > 1 and np.allclose(wavelengths,
+                                                         np.arange(wavelengths.size))
+        return BandSource(load=load, guide=guide,
+                          axis_label="Band" if band_axis else "Wavelength (nm)")
+
     def fit_model_btn_clicked(self, preset: ModelRun | None = None) -> None:
         if self._job_thread is not None:
             return
@@ -926,6 +1123,8 @@ class ModelingView(QWidget):
             default_signal_unit=self.state.y_unit,
             readiness=self.fit_readiness,
             smallest_roi=self._smallest_labelled_roi,
+            band_source=self._band_source,
+            band_proposer=self._band_proposer,
             parent=self,
         )
         if preset is not None:
@@ -933,6 +1132,7 @@ class ModelingView(QWidget):
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         self._selected_target_id = dlg.target_id
+        self._show_bands_in_explore(dlg.recipe)
         planned = self._plan_fit_sample_set(dlg.target_id, dlg.recipe)
         if planned is None:
             return

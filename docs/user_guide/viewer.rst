@@ -200,7 +200,11 @@ Model shows the selected model and its diagnostics:
 - the **Spectral** page: the regression coefficients, the scaled
   coefficients (CoeffCS) and the loadings of the first three latent variables,
   to see which components are concentration and which are physics (scatter,
-  particle size)
+  particle size); below them VIP (PLS) with lines at 1.0 and 0.8 and the
+  mean spectrum shaded behind, VIP sorted from the largest value with the top
+  bands labelled, and the selectivity ratio (PLS and PCR); see
+  :doc:`band_selection`. Plots over wavelength leave a gap where a band
+  selection leaves out bands
 - the **Components** page: RMSECV (with its standard error) and R²Y, Q², R²X
   against the number of components, with the model's number and each rule's
   suggestion; **Fit again...** opens the fit dialog with the model's settings
@@ -249,7 +253,12 @@ the signal unit, the preprocessing (it starts from the Explore preview, but
 what the dialog shows is what the model is trained with), PLS or PCR, the
 number of components, the validation and which ROIs are held out together
 (**Hold out together**: each ROI, ROIs with the same **Sample** label, or
-ROIs with the same target value). **Components** takes a number, or **Auto**
+ROIs with the same target value). **Bands** sets **Keep** and **Exclude**
+ranges (``1100-1350, 1500-2300``, applied after every other step), with a
+**Water bands** menu, **Select on plot...** to drag the ranges on the mean
+spectrum of the target's ROIs, and **Propose...** to run the band proposal
+with nested validation and take its ranges (:doc:`band_selection`); the
+Explore preview then shows the left-out bands as missing. **Components** takes a number, or **Auto**
 to choose it from the component curve by a rule (one SE by default). The
 **Fitting** group sets how the
 model is fitted: the same number of pixels from every ROI (at most the

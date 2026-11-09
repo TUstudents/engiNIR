@@ -1,6 +1,6 @@
 # Plan: band selection and VIP plots
 
-Status: decided (2026-11-09), not started
+Status: implemented (2026-11-09, branch feature/band-selection-vip); contracts reviewed independently. Deviation: the Spectral page is 2 × 3 with VIP, VIP sorted (its own plot) and the selectivity ratio in the second row; the proposal runs from the fit dialog's Propose... button.
 
 ## Goal
 

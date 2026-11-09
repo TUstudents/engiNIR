@@ -798,6 +798,9 @@ class ViewerState(QObject):
         self.preprocess_emsc = False
         self.preprocess_detrend = False
         self.detrend_order = 1
+        #: Band selection of the preview (the last fit dialog's ranges).
+        self.bands_keep: tuple[tuple[float, float], ...] = ()
+        self.bands_exclude: tuple[tuple[float, float], ...] = ()
         self._image_cache = None
 
     # ------------------------------------------------------------------
@@ -1014,6 +1017,8 @@ class ViewerState(QObject):
             emsc=self.preprocess_emsc,
             detrend=self.preprocess_detrend,
             detrend_order=self.detrend_order,
+            bands_keep=self.bands_keep,
+            bands_exclude=self.bands_exclude,
         )
 
     def apply_recipe(self, recipe: PreprocessingRecipe) -> None:
@@ -1031,6 +1036,8 @@ class ViewerState(QObject):
         self.preprocess_emsc = recipe.emsc
         self.preprocess_detrend = recipe.detrend
         self.detrend_order = recipe.detrend_order
+        self.bands_keep = recipe.bands_keep
+        self.bands_exclude = recipe.bands_exclude
         self._image_cache = None
         self.units_changed.emit()
 
@@ -1111,17 +1118,17 @@ class ViewerState(QObject):
     def _apply_preprocessing(self, img: np.ndarray) -> np.ndarray:
         """Apply the current recipe to one frame, fitting MSC/EMSC on that frame.
 
-        Bands a Savitzky-Golay filter drops (``sg_edges="drop"``) are returned
-        as NaN (missing), so band indices stay those of the data file.
+        Bands a Savitzky-Golay filter drops (``sg_edges="drop"``) and bands a
+        band selection leaves out are returned as NaN (missing), so band
+        indices stay those of the data file.
         """
         n_bands = img.shape[1]
         for _, transformer in self.recipe.build_steps(self.wavelengths,
                                                       signal_unit=self.y_unit):
             img = np.asarray(transformer.fit_transform(img), dtype=_WORKING_DTYPE)
-        trim = self.recipe.sg_trim
-        if trim and img.shape[1] != n_bands:
+        if img.shape[1] != n_bands:
             padded = np.full((img.shape[0], n_bands), np.nan, dtype=_WORKING_DTYPE)
-            padded[:, trim:n_bands - trim] = img
+            padded[:, self.recipe.output_band_indices(self.wavelengths)] = img
             img = padded
         return img
 

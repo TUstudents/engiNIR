@@ -163,6 +163,59 @@ and writes nothing they would reject.
   handles expose their typed object (`.ref`) and the essentials (`model.metrics`,
   `model.diagnostics`)
 
+### Band proposal
+
+- `project.propose_bands(target, *, recipe=None, model="PLS",
+  n_intervals=20, max_steps=None, fit_spec=None, progress=None,
+  cancel=None)` proposes band ranges by forward interval PLS (iPLS; PCR
+  with `model="PCR"`) and returns a `BandProposal` (`ranges`, the RMSECV
+  after each step with its standard error, `nested_rmsecv`,
+  `all_bands_rmsecv`, the intervals and the chosen number of components per
+  step). It writes nothing to the project and logs one entry
+- the search works on the recipe's axis after Savitzky-Golay (a band
+  selection already in `recipe` is ignored), split into `n_intervals`
+  contiguous intervals as `numpy.array_split` of its band indices (the
+  first K mod n intervals get one band more); 2 ≤ `n_intervals` ≤ K, and
+  `max_steps=None` means `n_intervals`
+- a candidate is the recipe with `bands_keep` = the chosen intervals plus
+  one more; preprocessing runs on the whole spectrum after Savitzky-Golay,
+  as in a fit, so stateful preprocessing is fitted once per fold and
+  reused for every candidate. Its number of components is chosen by the
+  component rule of `fit_spec` (default `one_se`) with
+  Amax = min(the `fit_spec` maximum, or the default of
+  `sample-set-model-run-contract_v3.md` §7.4 with the fold groups and rank
+  limit of the current training part, the candidate's band count); a
+  `fixed` number is capped at that Amax with a warning. The RMSECV and SE
+  of a candidate are the §7.4 values at that number
+- forward: step 0 is the mean predictor (the training-fold mean of y,
+  its RMSECV and SE by §7.4); each step adds the interval whose candidate
+  has the lowest RMSECV (ties: the lower interval index). The search stops
+  when that RMSECV is not lower than the current RMSECV minus the current
+  SE (the one-SE idea), when `max_steps` intervals are chosen, or when
+  every interval is chosen. Each proposed range is [λ of its first band,
+  λ of its last band] of a run of adjacent chosen intervals
+- the RMSECV of every candidate uses the run's fold scheme (`fit_spec`
+  folds and fold groups, ROI-grouped; `sample-set-model-run-contract_v3.md`
+  §4.1) on ROI means, with stateful preprocessing fitted inside the folds,
+  like a fit; the pixel sample of `fit_spec` is applied once before the
+  search; no DModX exclusion is used in the search, the outer refits or
+  `all_bands_rmsecv`, so `all_bands_rmsecv` can differ from a run's RMSECV.
+  `propose_bands` refuses fewer than 3 fold groups
+- nested validation: for each outer fold of that scheme, the whole search
+  runs on the outer training ROIs only, with inner folds built from them
+  by the same rule (k = min(F, inner fold groups)); the chosen ranges are
+  fitted on those ROIs with the number of components of the inner
+  search's last step and predict the held-out ROIs; `nested_rmsecv` is the
+  RMSECV of these held-out predictions. It estimates the error of the
+  whole procedure (selection included) and is reported next to
+  `all_bands_rmsecv`, the RMSECV of the recipe without a band selection.
+  The proposed `ranges` come from the search on all ROIs
+- the proposal only proposes: a fit with the ranges is an ordinary fit
+  with `bands_keep`, and a refit never searches again
+- cost: about `n_intervals` × steps × (outer folds + 1) × inner folds × the
+  component curve's fits; `progress(done, total)` reports candidate
+  evaluations and `cancel()` returning true stops with a cancellation error
+
 ### Names and ids
 
 - every object has a generated stable id; ids are its only identity and what
@@ -188,10 +241,12 @@ and writes nothing they would reject.
 - the name-based calls released in 1.0 stay supported
 - `recipe` is a `PreprocessingRecipe` or a mapping; a mapping is the
   persisted form (`project-schema-contract_v3.md` §4), where an absent
-  `sg_edges` means `interp` and an absent `asls` means no AsLS
+  `sg_edges` means `interp`, an absent `asls` means no AsLS and absent
+  `bands_keep`/`bands_exclude` select every band
 - `fit` names a model `"{model} {n} LV, {recipe summary}"` (e.g.
-  `"PLS 2 LV, SNV"`; the summary names AsLS and marks a Savitzky-Golay
-  filter that keeps its edges) unless `name` is given, adding ` (2)`, ` (3)`, … when the
+  `"PLS 2 LV, SNV"`; the summary names AsLS, marks a Savitzky-Golay
+  filter that keeps its edges and ends with `bands` when a band selection
+  is set) unless `name` is given, adding ` (2)`, ` (3)`, … when the
   name exists
 
 ### Derived objects

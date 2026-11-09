@@ -404,6 +404,23 @@ Required controls:
   of preprocessed spectra (spectrum, sensor frame, histogram) the dropped
   bands are missing (blank), so band indices stay those of the data file;
   the Project ROIs spectra are drawn on the recipe's output axis
+- band selection (engiNIR 1.4): the fit dialog has **Keep**
+  and **Exclude** band ranges (`project-schema-contract_v3.md` §4) as
+  editable text (`1100-1350, 1500-2300`, in nm, or band numbers without
+  wavelengths) and a **Select on plot...** dialog: the mean spectrum of the
+  sample set's ROIs on the recipe's axis after Savitzky-Golay, with the
+  selected model's VIP (PLS) or coefficients as a guide when one is
+  selected, where dragged regions become keep or exclude ranges. The
+  common NIR water bands (1400-1500 and 1900-2000 nm) are offered as
+  suggestions and added to Exclude only when clicked, never automatically.
+  **Fit again...** keeps the stored ranges. In the Explore preview,
+  unselected bands are missing (blank) like dropped Savitzky-Golay edges
+- **Propose bands...** (PLS and PCR, engiNIR 1.4) runs the forward iPLS proposal with nested validation
+  (`headless-workflow-contract_v3.md`, Band proposal) on the chosen
+  target and recipe, with its cost estimate, progress and cancel; it shows
+  the proposed ranges, the RMSECV over the steps, the nested RMSECV and the
+  RMSECV with all bands, and can put the ranges into the fit dialog as keep
+  ranges. The proposal is not stored
 - the inspector shows how a model run was fitted: folds and fold groups,
   pixel sample, scaling, exclusion settings, excluded pixels per ROI,
   flagged ROIs and DCrit

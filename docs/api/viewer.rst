@@ -98,6 +98,21 @@ Modeling view
    :members: target_id, recipe, set_recipe, model_type, n_components, signal_unit, cv,
       group_by, hyperparameters, fit_spec, apply_model_run
 
+Band ranges
+-----------
+
+.. automodule:: enginir.viewer._band_ranges
+   :no-members:
+
+.. autoclass:: enginir.viewer._band_ranges.BandSource
+   :no-members:
+
+.. autoclass:: enginir.viewer._band_ranges.BandRangeDialog
+   :members: add_region, clear_regions, ranges
+
+.. autoclass:: enginir.viewer._band_ranges.ProposeBandsDialog
+   :no-members:
+
 Inspector
 ---------
 

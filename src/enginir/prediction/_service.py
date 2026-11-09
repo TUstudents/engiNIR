@@ -281,7 +281,8 @@ def preflight_prediction(
 
     wavelengths = np.asarray(signal_domain.wavelengths, dtype=_WORKING_DTYPE)
     steps = recipe.build_steps(wavelengths, signal_unit=signal_domain.required_signal_unit)
-    # The model sees the recipe's output bands (fewer with sg_edges="drop").
+    # The model sees the recipe's output bands (fewer with sg_edges="drop" or a
+    # band selection).
     model_bands = int(recipe.output_wavelengths(wavelengths).shape[0])
     predictor = model_registry.get(model_run.model_run_id)
     model_blob = None
@@ -307,12 +308,16 @@ def preflight_prediction(
             steps = restore_fitted_preprocessing_steps(
                 steps, recipe=recipe, state=model_blob.get("preprocessing_state")
             )
+            # MSC/EMSC see every band after Savitzky-Golay, before a band selection.
+            state_bands = recipe.n_bands_before_selection(wavelengths.shape[0])
             for name, transformer in steps:
-                n_features = getattr(transformer, "n_features_in_", model_bands)
-                if n_features != model_bands:
-                    log_and_raise("Saved {} state of model run '{}' has {} bands, the model "
+                if name not in ("msc", "emsc"):
+                    continue
+                n_features = getattr(transformer, "n_features_in_", state_bands)
+                if n_features != state_bands:
+                    log_and_raise("Saved {} state of model run '{}' has {} bands, the recipe "
                                   "needs {}", name.upper(), model_run.model_run_id, n_features,
-                                  model_bands)
+                                  state_bands)
     logger.info("Prediction preflight: {} chunks of {} frames, cube shape {}", n_chunks,
                 chunk_size, dataset.cube_shape)
     return PredictionPreflight(

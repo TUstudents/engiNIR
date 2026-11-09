@@ -686,7 +686,7 @@ def test_reopened_stateful_preprocessing_replays_persisted_training_state(tmp_pa
 
 @pytest.mark.parametrize(
     ("damage", "match"),
-    [("delete", "missing its fitted state"), ("wrong_length", "has 4 bands, the model needs 3")],
+    [("delete", "missing its fitted state"), ("wrong_length", "has 4 bands, the recipe needs 3")],
 )
 def test_reopened_stateful_preprocessing_rejects_missing_or_malformed_training_state(
     tmp_path, qapp, damage, match

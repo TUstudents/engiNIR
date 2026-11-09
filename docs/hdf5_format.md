@@ -300,7 +300,9 @@ logged and ignored.
 ├── @asls                optional: true (with the three below)
 ├── @asls_lambda
 ├── @asls_p
-└── @asls_iterations
+├── @asls_iterations
+├── bands_keep          optional: float64 (n, 2), inclusive [low, high] ranges to keep
+└── bands_exclude       optional: float64 (n, 2), inclusive ranges to leave out
 ```
 
 Recipes are replayed during sample-set building, model fitting, and prediction.
@@ -312,10 +314,14 @@ baseline correction, so recipes stored before keep their ids
 (`project-schema-contract_v3.md` §4). With `@sg_edges = "drop"` the
 preprocessed spectra have 2⌊`sg_window`/2⌋ fewer bands: the model run's
 arrays over bands (`prediction_model`: `wavelengths`, `coef_`, `x_mean`,
-`x_std`, `rotations`, `loadings`, MSC/EMSC state; `diagnostics`:
-`wavelengths`, loadings, coefficients, VIP) use that shorter axis (the
-"model bands" below). `@asls_lambda` and `@asls_p` are float64,
-`@asls_iterations` an integer. Unknown fields are logged and discarded
+`x_std`, `rotations`, `loadings`; `diagnostics`: `wavelengths`, loadings,
+coefficients, VIP) use that shorter axis (the "model bands" below); MSC/EMSC
+state uses the axis after Savitzky-Golay, before a band selection. `@asls_lambda` and `@asls_p` are float64,
+`@asls_iterations` an integer. `bands_keep` and `bands_exclude` (band
+selection, the last step) are written only when they hold a range; their
+values are on the axis after Savitzky-Golay (nm, or band numbers for data
+without wavelengths), ordered, sorted and merged, and the model and its
+stored wavelengths use the selected bands. Unknown fields are logged and discarded
 rather than treated as executable parameters.
 Recipe content is immutable under one `{recipe_id}`: re-saving identical
 content is allowed, while changed executable content requires a new id.
@@ -566,6 +572,14 @@ roi_share_above_dcrit    float32 per ROI (cv_outputs/roi_ids order), share of pi
 roi_share_above_t2crit   float32 per ROI, share of pixels above T²Crit (0.99)
 roi_scores               float32 (n_rois, A), mean training score of each ROI's fitted pixels
 roi_score_pixels         int (n_rois,), fitted pixels behind each ROI score (0: NaN scores)
+```
+
+Both, for runs of engiNIR 1.4 and later (band importance, §7.5; one target):
+
+```text
+mean_spectrum            float32, mean preprocessed spectrum of the fitted pixels (model axis)
+vip                      float32, VIP per band (PLS only; mean of VIP² is 1)
+selectivity_ratio        float32, explained / residual variance of the target projection per band (one target; NaN: no residual)
 ```
 
 #### `artifact_refs/component_curve`

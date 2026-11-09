@@ -160,9 +160,11 @@ v3 band-mapping rule:
 - `exact` and `reject` both mean the band count and band order are accepted as
   already aligned by the import/modeling workflow
 - the scan's band count is compared with the signal domain (the recipe's
-  input); the saved model's coefficients and projection data and any
-  restored MSC/EMSC state are compared with the recipe's output band count
-  (fewer bands with `sg_edges = drop`), and preflight refuses a mismatch
+  input); the saved model's coefficients and projection data are compared
+  with the recipe's output band count (fewer bands with `sg_edges = drop` or
+  a band selection), any restored MSC/EMSC state with the band count after
+  the Savitzky-Golay step (the references see every band before the
+  selection), and preflight refuses a mismatch
 - a future contract version must introduce a separate executable remapping
   contract before `band_mapping_policy` can imply interpolation
 

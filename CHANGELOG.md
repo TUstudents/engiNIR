@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Band importance: every new PLS and PCR model stores VIP (PLS), the
+  selectivity ratio (target projection, PLS and PCR) and the mean spectrum of
+  the fitted pixels (`model.diagnostics`). The viewer's Spectral page shows
+  VIP with lines at 1.0 and 0.8 and the mean spectrum behind it, VIP sorted
+  with the top bands labelled, and the selectivity ratio; PLS runs from
+  before get VIP from their stored weights.
+- Band selection: `PreprocessingRecipe(bands_keep=..., bands_exclude=...)`
+  keeps or leaves out inclusive ranges (nm, or band numbers without
+  wavelengths) as the last recipe step, so normalization and MSC/EMSC see
+  the whole spectrum and the model only the selected bands; ranges are
+  normalized before the recipe id, and recipes stored before keep their ids.
+  `enginir.preprocessing.BandSelection`, `output_band_indices`.
+- `project.propose_bands(target, ...)` proposes keep ranges by forward
+  interval PLS (one-SE stop) and reports `nested_rmsecv`, the error of the
+  whole procedure with the search repeated inside every outer fold, next to
+  the RMSECV with all bands. Nothing is stored.
+- Viewer: the fit dialog's **Bands** row (Keep, Exclude, Water bands
+  suggestions, Select on plot..., Propose...); Fit again keeps the ranges;
+  the Explore preview shows left-out bands as missing.
+- User guide: *Band importance and band selection*.
+
+### Changed
+
+- The prediction check compares restored MSC/EMSC state with the band count
+  after Savitzky-Golay (before a band selection) and the model with the
+  selected bands.
+
 ## 1.3.0 (2026-11-09)
 
 ### Added

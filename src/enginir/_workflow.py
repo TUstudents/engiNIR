@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -21,7 +21,7 @@ from ._checks import log_and_raise
 from ._logging import get_logger
 from .io import file_format, load_spectra
 from .io import project_store as store
-from .modeling import fit_model_run, plan_sample_set
+from .modeling import BandProposal, fit_model_run, plan_sample_set, propose_bands
 from .modeling._service import fold_groups
 from .prediction import (
     PredictionResult,
@@ -287,6 +287,81 @@ class Project:
         assignment = TargetAssignment(roi_id=roi_ref.roi_id, target_id=target_ref.target_id,
                                       value=value, assigned_at=now_iso())
         self.save_assignment(assignment)
+
+    def propose_bands(
+        self,
+        target: str | TargetDefinition,
+        *,
+        recipe: PreprocessingRecipe | Mapping[str, Any] | None = None,
+        model: str = "PLS",
+        n_intervals: int = 20,
+        max_steps: int | None = None,
+        fit_spec: FitSpec | Mapping[str, Any] | None = None,
+        progress: Callable[[int, int], None] | None = None,
+        cancel: Callable[[], bool] | None = None,
+        **hyperparameters: Any,
+    ) -> BandProposal:
+        """Propose band ranges for ``target`` by forward interval PLS, validated nested.
+
+        The search runs on the recipe's axis after Savitzky-Golay (a band
+        selection in ``recipe`` is ignored), split into ``n_intervals``
+        intervals; each step adds the interval that lowers the RMSECV most
+        and the search stops when the gain is within one standard error. The
+        whole search is repeated inside every outer fold, so
+        ``nested_rmsecv`` estimates the error of the procedure including the
+        selection; compare it with ``all_bands_rmsecv``. Nothing is written
+        to the project (``headless-workflow-contract_v3.md``, Band proposal).
+
+        Parameters
+        ----------
+        target, recipe, model, fit_spec, **hyperparameters:
+            As for :meth:`fit`; the folds, fold groups, pixel sample and
+            component rule of ``fit_spec`` are used (no DModX exclusion).
+            Without a number of components the rule chooses it.
+        n_intervals:
+            Number of contiguous intervals (2 to the band count).
+        max_steps:
+            Largest number of intervals to choose (default: all).
+        progress, cancel:
+            ``progress(done, total)`` after each candidate (``total`` is an
+            upper bound); ``cancel()`` returning ``True`` stops with
+            :class:`~enginir.modeling.BandProposalCancelledError`.
+
+        Returns
+        -------
+        BandProposal
+            ``ranges`` (for ``PreprocessingRecipe(bands_keep=...)``),
+            ``steps``, ``intervals``, ``nested_rmsecv``, ``all_bands_rmsecv``
+            and ``n_components``.
+
+        Examples
+        --------
+        >>> proposal = project.propose_bands("API", recipe=PreprocessingRecipe(snv=True))
+        ... # doctest: +SKIP
+        >>> project.fit("API", recipe=PreprocessingRecipe(snv=True, bands_keep=proposal.ranges),
+        ...             n_components=proposal.n_components)  # doctest: +SKIP
+        """
+        ws = self.workspace
+        if fit_spec is not None and FitSpec.coerce(fit_spec).groups:
+            log_and_raise("fit_spec folds/groups is written by the fit; leave it out and choose "
+                          "folds/group_by instead")
+        target_ref = self._target_of(target)
+        recipe_obj = _as_recipe(recipe)
+        recipe_id = _recipe_id(recipe_obj)
+        recipes = {**ws.recipes, recipe_id: recipe_obj.to_dict()}
+        sample_set, _new = resolve_sample_set(
+            rois=ws.rois, target_assignments=ws.target_assignments,
+            target_id=target_ref.target_id, recipe_id=recipe_id, sample_sets=ws.sample_sets)
+        domain = resolve_signal_domain(self._training_signal_domain(sample_set),
+                                       ws.signal_domains)
+        return propose_bands(
+            project_path=self.path, sample_set=sample_set, datasets=ws.datasets,
+            calibrations=ws.calibrations, rois=ws.rois,
+            target_assignments=ws.target_assignments, recipes=recipes,
+            signal_domains={**ws.signal_domains, domain.signal_domain_id: domain},
+            signal_domain_id=domain.signal_domain_id, model_type=model,
+            hyperparameters=hyperparameters, n_intervals=n_intervals, max_steps=max_steps,
+            fit_spec=fit_spec, progress=progress, cancel=cancel)
 
     def fit(
         self,
@@ -1657,7 +1732,8 @@ def _recipe_label(recipe: PreprocessingRecipe) -> str:
         sg = {"sg_smooth": "SG", "sg_d1": "SG 1st der.", "sg_d2": "SG 2nd der."}[recipe.filter]
         steps.append(sg if recipe.sg_edges == "drop" else f"{sg} (edges kept)")
     steps += [label for label, on in (("SNV", recipe.snv), ("MSC", recipe.msc),
-                                      ("EMSC", recipe.emsc), ("detrend", recipe.detrend)) if on]
+                                      ("EMSC", recipe.emsc), ("detrend", recipe.detrend),
+                                      ("bands", recipe.has_band_selection)) if on]
     return " + ".join(steps) or "raw"
 
 

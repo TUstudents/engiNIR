@@ -277,6 +277,96 @@ def build_sample_set(
     return SampleSetData(sample_set, X, y, groups, wavelengths, roi_slices)
 
 
+@dataclass(frozen=True)
+class _TrainingData:
+    """The training matrix and fold scheme of a sample set, as a fit prepares them."""
+
+    spec: FitSpec
+    requested: Any
+    signal_domain: SignalDomainContract
+    data: SampleSetData
+    X_signal: np.ndarray
+    n_fold_groups: int
+    roi_ids_present: np.ndarray
+    roi_index: np.ndarray
+    cv_groups: np.ndarray
+    splitter: Any
+
+
+def _training_data(
+    *,
+    project_path: str,
+    sample_set: SampleSet,
+    datasets: dict[str, DatasetRef],
+    calibrations: dict[str, CalibrationSpec],
+    rois: dict[str, TrainingROI],
+    target_assignments: dict[tuple[str, str], TargetAssignment],
+    recipes: dict[str, dict[str, Any]],
+    signal_domains: dict[str, SignalDomainContract],
+    signal_domain_id: str,
+    cv: int | str | None,
+    fit_spec: FitSpec | Mapping[str, Any] | None,
+) -> _TrainingData:
+    """Resolve the fit specification and build the signal-domain matrix and folds.
+
+    Shared by :func:`fit_model_run` and the band proposal, so both see the same
+    pixels, signal domain and fold groups.
+    """
+    spec, requested = resolve_fit_spec(cv, fit_spec)
+    if sample_set.preprocessing_recipe_id not in recipes:
+        log_and_raise("Sample set '{}' references the unknown recipe '{}'",
+                      sample_set.sample_set_id, sample_set.preprocessing_recipe_id)
+    if signal_domain_id not in signal_domains:
+        log_and_raise("Unknown signal domain '{}'", signal_domain_id)
+    signal_domain = signal_domains[signal_domain_id]
+    _check_fit_spec_feasible(spec, sample_set, rois)
+    groups = _resolved_groups(spec, sample_set, rois, target_assignments)
+    n_fold_groups = int(np.unique(groups).size)
+    if n_fold_groups < 2:
+        log_and_raise("Cross-validation needs at least 2 fold groups; grouping the {} ROIs of "
+                      "sample set '{}' by {} gives {}", len(sample_set.roi_ids),
+                      sample_set.sample_set_id, spec.group_by, n_fold_groups)
+    spec = spec.with_groups(groups)
+
+    data = build_sample_set(
+        project_path=project_path,
+        rois=rois,
+        target_assignments=target_assignments,
+        target_id=sample_set.target_id,
+        preprocessing_recipe_id=sample_set.preprocessing_recipe_id,
+        roi_ids=sample_set.roi_ids,
+        sample_set_id=sample_set.sample_set_id,
+        created_at=sample_set.created_at,
+    )
+    unlabelled = [roi_id for roi_id in sample_set.roi_ids if roi_id not in data.roi_slices]
+    if unlabelled:
+        log_and_raise("Sample set '{}' includes ROI(s) without a value for target '{}': {}; "
+                      "build a new sample set", sample_set.sample_set_id, sample_set.target_id,
+                      unlabelled)
+    if signal_domain.wavelengths.shape != data.wavelengths.shape or not np.allclose(
+        signal_domain.wavelengths, data.wavelengths, atol=1e-6, rtol=0.0
+    ):
+        log_and_raise("Signal domain '{}' has a different wavelength axis than sample set '{}'",
+                      signal_domain_id, sample_set.sample_set_id)
+    data, checksum = _pixel_sample(data, spec, project_path, rois)
+    spec = spec.with_checksum(checksum)
+    X_signal = _signal_domain_matrix(project_path, data, datasets, calibrations, rois,
+                                     signal_domain)
+
+    # ROI ids are random, so the splitter gets each ROI's fold-group index
+    # (its position in the sample set with group_by "roi") instead: folds
+    # follow the recorded ROI order or target values and are the same
+    # whenever the analysis is repeated (contract §4.1).
+    roi_ids_present, roi_index = np.unique(data.groups, return_inverse=True)
+    group_of = {roi_id: int(groups[i]) for i, roi_id in enumerate(sample_set.roi_ids)}
+    cv_groups = np.array([group_of[roi_id] for roi_id in roi_ids_present])[roi_index]
+    splitter = _splitter(spec, n_fold_groups)
+    return _TrainingData(spec=spec, requested=requested, signal_domain=signal_domain,
+                         data=data, X_signal=X_signal, n_fold_groups=n_fold_groups,
+                         roi_ids_present=roi_ids_present, roi_index=roi_index,
+                         cv_groups=cv_groups, splitter=splitter)
+
+
 def fit_model_run(
     *,
     project_path: str,
@@ -349,48 +439,16 @@ def fit_model_run(
         If the inputs are inconsistent, ``cv`` is not ROI-grouped, or the
         model type is unknown.
     """
-    spec, requested = resolve_fit_spec(cv, fit_spec)
+    prepared = _training_data(
+        project_path=project_path, sample_set=sample_set, datasets=datasets,
+        calibrations=calibrations, rois=rois, target_assignments=target_assignments,
+        recipes=recipes, signal_domains=signal_domains, signal_domain_id=signal_domain_id,
+        cv=cv, fit_spec=fit_spec)
+    spec, requested, signal_domain = prepared.spec, prepared.requested, prepared.signal_domain
+    data, X_signal, n_fold_groups = prepared.data, prepared.X_signal, prepared.n_fold_groups
+    roi_ids_present, roi_index = prepared.roi_ids_present, prepared.roi_index
+    cv_groups, splitter = prepared.cv_groups, prepared.splitter
     model_type = _model_type(model_type)
-    if sample_set.preprocessing_recipe_id not in recipes:
-        log_and_raise("Sample set '{}' references the unknown recipe '{}'",
-                      sample_set.sample_set_id, sample_set.preprocessing_recipe_id)
-    if signal_domain_id not in signal_domains:
-        log_and_raise("Unknown signal domain '{}'", signal_domain_id)
-    signal_domain = signal_domains[signal_domain_id]
-    _check_fit_spec_feasible(spec, sample_set, rois)
-    groups = _resolved_groups(spec, sample_set, rois, target_assignments)
-    n_fold_groups = int(np.unique(groups).size)
-    if n_fold_groups < 2:
-        log_and_raise("Cross-validation needs at least 2 fold groups; grouping the {} ROIs of "
-                      "sample set '{}' by {} gives {}", len(sample_set.roi_ids),
-                      sample_set.sample_set_id, spec.group_by, n_fold_groups)
-    spec = spec.with_groups(groups)
-
-    data = build_sample_set(
-        project_path=project_path,
-        rois=rois,
-        target_assignments=target_assignments,
-        target_id=sample_set.target_id,
-        preprocessing_recipe_id=sample_set.preprocessing_recipe_id,
-        roi_ids=sample_set.roi_ids,
-        sample_set_id=sample_set.sample_set_id,
-        created_at=sample_set.created_at,
-    )
-    unlabelled = [roi_id for roi_id in sample_set.roi_ids if roi_id not in data.roi_slices]
-    if unlabelled:
-        log_and_raise("Sample set '{}' includes ROI(s) without a value for target '{}': {}; "
-                      "build a new sample set", sample_set.sample_set_id, sample_set.target_id,
-                      unlabelled)
-    if signal_domain.wavelengths.shape != data.wavelengths.shape or not np.allclose(
-        signal_domain.wavelengths, data.wavelengths, atol=1e-6, rtol=0.0
-    ):
-        log_and_raise("Signal domain '{}' has a different wavelength axis than sample set '{}'",
-                      signal_domain_id, sample_set.sample_set_id)
-    data, checksum = _pixel_sample(data, spec, project_path, rois)
-    spec = spec.with_checksum(checksum)
-    X_signal = _signal_domain_matrix(project_path, data, datasets, calibrations, rois,
-                                     signal_domain)
-
     recipe = PreprocessingRecipe.from_dict(recipes[sample_set.preprocessing_recipe_id])
     signal_unit = signal_domain.required_signal_unit  # AsLS direction (schema contract §4)
     model_wavelengths = recipe.output_wavelengths(data.wavelengths)
@@ -409,18 +467,11 @@ def fit_model_run(
             return make_model_pipeline(recipe=recipe, wavelengths=data.wavelengths,
                                        estimator=estimator, signal_unit=signal_unit)
         return estimator
-    # ROI ids are random, so the splitter gets each ROI's fold-group index
-    # (its position in the sample set with group_by "roi") instead: folds
-    # follow the recorded ROI order or target values and are the same
-    # whenever the analysis is repeated (contract §4.1).
-    roi_ids_present, roi_index = np.unique(data.groups, return_inverse=True)
-    group_of = {roi_id: int(groups[i]) for i, roi_id in enumerate(sample_set.roi_ids)}
-    cv_groups = np.array([group_of[roi_id] for roi_id in roi_ids_present])[roi_index]
-    splitter = _splitter(spec, n_fold_groups)
 
     # The component curve (contract §7.4): A_max components per fold, once.
     spec, hyperparameters, a_max = _components_request(spec, hyperparameters, model_type,
-                                                       X_cv, cv_groups, splitter, n_fold_groups)
+                                                       X_cv, cv_groups, splitter, n_fold_groups,
+                                                       n_variables=model_wavelengths.size)
     lowest = int(hyperparameters["n_components"]) if spec.components_rule == "fixed" else 1
     base_params: dict[str, Any] = dict(hyperparameters)
     curve, curve_predictions, curve_scheme, reached = _curve_up_to(
@@ -608,8 +659,12 @@ def _curve_up_to(make: Any, X: np.ndarray, y: np.ndarray, *, a_max: int, lowest:
 
 def _components_request(spec: FitSpec, hyperparameters: dict[str, Any], model_type: str,
                         X: np.ndarray, cv_groups: np.ndarray, splitter: Any,
-                        n_groups: int) -> tuple[FitSpec, dict[str, Any], int]:
-    """Resolve ``n_components`` ("auto" or a number), the rule and A_max (contract §7, §7.4)."""
+                        n_groups: int, *, n_variables: int) -> tuple[FitSpec, dict[str, Any], int]:
+    """Resolve ``n_components`` ("auto" or a number), the rule and A_max (contract §7, §7.4).
+
+    ``n_variables`` is the model's band count (the recipe's output axis; ``X``
+    still has every band when MSC or EMSC is fitted inside the folds).
+    """
     requested = hyperparameters.get("n_components",
                                     _ESTIMATORS[model_type]().get_params()["n_components"])
     auto = isinstance(requested, str)
@@ -617,7 +672,7 @@ def _components_request(spec: FitSpec, hyperparameters: dict[str, Any], model_ty
         log_and_raise("n_components must be a number or 'auto', got {!r}", requested)
     folds = (LeaveOneGroupOut() if isinstance(splitter, str) else splitter)
     sizes = [len(train) for train, _test in folds.split(X, None, cv_groups)] + [X.shape[0]]
-    limit = rank_limit(sizes, X.shape[1])
+    limit = rank_limit(sizes, n_variables)
     if requested is None:  # PCR: as many components as the data allow
         requested = limit
     rule = spec.components_rule
@@ -631,8 +686,9 @@ def _components_request(spec: FitSpec, hyperparameters: dict[str, Any], model_ty
                           "n_components='auto'", given, rule)
     a_max = max(spec.components_max or default_max(given, n_groups, limit), given)
     if a_max > limit:
-        log_and_raise("Cannot fit {} components: the smallest training set of a fold allows "
-                      "at most {}", a_max, limit)
+        log_and_raise("Cannot fit {} components: the smallest training set of a fold and the "
+                      "{} bands of the recipe's output allow at most {}", a_max, n_variables,
+                      limit)
     params = {**hyperparameters, "n_components": given if given else a_max}
     return replace(spec, components_rule=rule, components_max=a_max), params, a_max
 

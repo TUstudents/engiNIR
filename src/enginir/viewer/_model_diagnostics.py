@@ -87,6 +87,23 @@ def _spectrum(payload: Mapping[str, Any], key: str) -> tuple[np.ndarray, np.ndar
     return np.arange(y.size, dtype=float), y, "Band"
 
 
+def _gapped(x: np.ndarray, *ys: np.ndarray) -> tuple[np.ndarray, ...]:
+    """Insert NaN where a band selection leaves out bands, so lines do not bridge the gap.
+
+    A gap is a step larger than 1.5 times the median step of ``x``.
+    """
+    x = np.asarray(x, dtype=float)
+    if x.size < 3:
+        return (x, *(np.asarray(y, dtype=float) for y in ys))
+    steps = np.diff(x)
+    typical = float(np.median(np.abs(steps)))
+    gaps = np.flatnonzero(np.abs(steps) > 1.5 * typical) + 1 if typical > 0 else np.array([], int)
+    if gaps.size == 0:
+        return (x, *(np.asarray(y, dtype=float) for y in ys))
+    xs = np.insert(x, gaps, np.nan)
+    return (xs, *(np.insert(np.asarray(y, dtype=float), gaps, np.nan, axis=0) for y in ys))
+
+
 def _unit(payload: Mapping[str, Any]) -> str:
     return str(payload.get("target_unit", ""))
 
@@ -267,7 +284,7 @@ def _spectral_spec(key: str, plot_id: str, title: str, ylabel: str, empty: str) 
             draw_placeholder(ax, empty, colors)
             return
         x, y, xlabel = spectrum
-        ax.plot(x, y, linewidth=1.2, color=colors["accent"])
+        ax.plot(*_gapped(x, y), linewidth=1.2, color=colors["accent"])
         ax.axhline(0.0, color=GUIDE_COLOR, linewidth=0.6, linestyle="--")
         _label(ax, xlabel, ylabel, colors)
 
@@ -362,8 +379,9 @@ def _render_loadings(fig: Figure, payload: Any, colors: Mapping[str, str]) -> No
     matrix = np.asarray(matrix, dtype=float)
     x = (np.asarray(axis, dtype=float) if axis is not None and np.size(axis) == matrix.shape[0]
          else np.arange(matrix.shape[0], dtype=float))
+    gapped_x, gapped = _gapped(x, matrix)
     for c in range(matrix.shape[1]):
-        ax.plot(x, matrix[:, c], linewidth=1.1, label=f"LV{c + 1}")
+        ax.plot(gapped_x, gapped[:, c], linewidth=1.1, label=f"LV{c + 1}")
     ax.axhline(0.0, color=GUIDE_COLOR, linewidth=0.6, linestyle="--")
     ax.legend(fontsize=7)
     _label(ax, "Wavelength" if axis is not None else "Band", "Loading", colors)
@@ -380,6 +398,111 @@ def _table_loadings(payload: Any) -> PlotTable:
     return PlotTable(columns=(PlotColumn("wavelength" if axis is not None else "band", x),
                               *(PlotColumn(f"lv{c + 1}_loading", matrix[:, c])
                                 for c in range(matrix.shape[1]))))
+
+
+def _mean_behind(ax: Any, payload: Mapping[str, Any], x: np.ndarray) -> None:
+    """Shade the model's mean spectrum behind a band-importance plot (own, hidden y scale)."""
+    mean = payload.get("mean_spectrum")
+    if mean is None or np.size(mean) != x.size:
+        return
+    behind = ax.twinx()
+    gx, gy = _gapped(x, np.asarray(mean, dtype=float).reshape(-1))
+    behind.fill_between(gx, np.nanmin(gy), gy, color=GUIDE_COLOR, alpha=0.18, linewidth=0)
+    behind.set_yticks([])
+    for side in ("top", "right", "left", "bottom"):
+        behind.spines[side].set_visible(False)
+    ax.set_zorder(behind.get_zorder() + 1)
+    ax.patch.set_visible(False)
+
+
+def _render_vip(fig: Figure, payload: Any, colors: Mapping[str, str]) -> None:
+    ax = _axes(fig, colors)
+    spectrum = _spectrum(payload, "vip")
+    if spectrum is None:
+        draw_placeholder(ax, "VIP exists for PLS models.", colors)
+        return
+    x, y, xlabel = spectrum
+    _mean_behind(ax, payload, x)
+    ax.plot(*_gapped(x, y), linewidth=1.2, color=colors["accent"])
+    ax.axhline(1.0, color=colors["fg"], linewidth=0.8, alpha=0.7)
+    ax.axhline(0.8, color=GUIDE_COLOR, linewidth=0.8, linestyle="--")
+    above = float(np.mean(y > 1.0))
+    ax.text(0.97, 0.97, f"VIP > 1: {above:.0%} of bands", transform=ax.transAxes, ha="right",
+            va="top", fontsize=8, color=colors["fg"])
+    _label(ax, xlabel, "VIP", colors)
+
+
+def _table_vip(payload: Any) -> PlotTable:
+    spectrum = _spectrum(payload, "vip")
+    if spectrum is None:
+        return PlotTable()
+    x, y, xlabel = spectrum
+    columns = [PlotColumn(xlabel.lower(), x), PlotColumn("vip", y)]
+    mean = payload.get("mean_spectrum")
+    if mean is not None and np.size(mean) == x.size:
+        columns.append(PlotColumn("mean_spectrum", np.asarray(mean, dtype=float).reshape(-1)))
+    return PlotTable(columns=tuple(columns))
+
+
+def _sorted_vip(payload: Mapping[str, Any]) -> tuple[np.ndarray, np.ndarray, str] | None:
+    spectrum = _spectrum(payload, "vip")
+    if spectrum is None:
+        return None
+    x, y, xlabel = spectrum
+    order = np.argsort(-y, kind="stable")
+    return x[order], y[order], xlabel
+
+
+def _render_vip_sorted(fig: Figure, payload: Any, colors: Mapping[str, str]) -> None:
+    ax = _axes(fig, colors)
+    ranked = _sorted_vip(payload)
+    if ranked is None:
+        draw_placeholder(ax, "VIP exists for PLS models.", colors)
+        return
+    x, y, xlabel = ranked
+    rank = np.arange(1, y.size + 1)
+    width = max(0.6, min(4.0, 300.0 / y.size))
+    ax.vlines(rank, 0.0, y, colors=np.where(y > 1.0, colors["accent"], GUIDE_COLOR).tolist(),
+              linewidth=width)
+    for r, value, band in zip(rank[:5], y[:5], x[:5], strict=True):
+        label = f"{band:.0f} nm" if xlabel == "Wavelength" else f"band {band:g}"
+        ax.annotate(label, (r, value), textcoords="offset points", xytext=(3, 2),
+                    fontsize=7, color=colors["fg"])
+    ax.axhline(1.0, color=colors["fg"], linewidth=0.8, alpha=0.7)
+    ax.axhline(0.8, color=GUIDE_COLOR, linewidth=0.8, linestyle="--")
+    ax.set_xlim(0.5, y.size + 0.5)
+    _label(ax, "Bands, from the largest VIP", "VIP", colors)
+
+
+def _table_vip_sorted(payload: Any) -> PlotTable:
+    ranked = _sorted_vip(payload)
+    if ranked is None:
+        return PlotTable()
+    x, y, xlabel = ranked
+    # The bands of each rank as metadata: the plot draws ranks, not wavelengths.
+    return PlotTable(columns=(PlotColumn("rank", np.arange(1, y.size + 1)),
+                              PlotColumn("vip", y)),
+                     metadata={f"{xlabel.lower()}_by_rank": ", ".join(f"{v:g}" for v in x)})
+
+
+def _render_selectivity(fig: Figure, payload: Any, colors: Mapping[str, str]) -> None:
+    ax = _axes(fig, colors)
+    spectrum = _spectrum(payload, "selectivity_ratio")
+    if spectrum is None:
+        draw_placeholder(ax, "No selectivity ratio (refit a model from before 1.4).", colors)
+        return
+    x, y, xlabel = spectrum
+    _mean_behind(ax, payload, x)
+    ax.plot(*_gapped(x, y), linewidth=1.2, color=colors["accent"])
+    _label(ax, xlabel, "Selectivity ratio", colors)
+
+
+def _table_selectivity(payload: Any) -> PlotTable:
+    spectrum = _spectrum(payload, "selectivity_ratio")
+    if spectrum is None:
+        return PlotTable()
+    x, y, xlabel = spectrum
+    return PlotTable(columns=(PlotColumn(xlabel.lower(), x), PlotColumn("selectivity_ratio", y)))
 
 
 def _histogram(values: Any) -> tuple[np.ndarray, np.ndarray]:
@@ -441,6 +564,11 @@ _SPECS = (
              empty_text=_EMPTY),
     _spectral_spec("coef_cs", "model.coef_cs", "Scaled Coefficients (CoeffCS)", "CoeffCS",
                    "No scaled coefficients (refit a model from before 1.3)."),
+    PlotSpec("model.vip", "VIP", _render_vip, _table_vip, empty_text=_EMPTY),
+    PlotSpec("model.vip_sorted", "VIP, sorted", _render_vip_sorted, _table_vip_sorted,
+             empty_text=_EMPTY),
+    PlotSpec("model.selectivity_ratio", "Selectivity Ratio", _render_selectivity,
+             _table_selectivity, empty_text=_EMPTY),
     PlotSpec("model.components", "RMSECV vs Components", _render_components, _table_components,
              empty_text=_EMPTY),
     PlotSpec("model.r2_q2", "R² and Q² vs Components", _render_r2_q2, _table_r2_q2,
@@ -456,7 +584,10 @@ _PAGES = (
                      PlotSlot("model.scores", 1, 1))),
     PlotPage("Spectral", (PlotSlot("model.coefficients", 0, 0),
                           PlotSlot("model.coef_cs", 0, 1),
-                          PlotSlot("model.loadings", 1, 0))),
+                          PlotSlot("model.loadings", 0, 2),
+                          PlotSlot("model.vip", 1, 0),
+                          PlotSlot("model.vip_sorted", 1, 1),
+                          PlotSlot("model.selectivity_ratio", 1, 2))),
     PlotPage("Components", (PlotSlot("model.components", 0, 0),
                             PlotSlot("model.r2_q2", 0, 1))),
     PlotPage("Distance", (PlotSlot("model.dmodx", 0, 0), PlotSlot("model.t2", 0, 1))),
