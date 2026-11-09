@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 from PyQt6.QtWidgets import QApplication
 
@@ -64,17 +66,25 @@ def test_apply_qt_theme_persists_panel_colors_and_preference(qapp, tmp_path, mon
 
 
 @pytest.mark.parametrize(
-    ("explicit_platform", "wayland", "display", "expected"),
+    ("explicit_platform", "wayland", "display", "wsl", "expected"),
     [
-        (None, "wayland-0", ":0", "xcb"),
-        ("offscreen", "wayland-0", ":0", None),
-        (None, "wayland-0", None, None),
+        (None, "wayland-0", ":0", None, "xcb"),
+        ("offscreen", "wayland-0", ":0", None, None),
+        (None, "wayland-0", None, None, None),
+        (None, "wayland-0", ":0", "Ubuntu", "wayland"),     # WSLg: menus stay in front
+        ("xcb", "wayland-0", ":0", "Ubuntu", None),         # an explicit choice wins
+        (None, None, ":0", "Ubuntu", None),                 # WSL without WSLg
     ],
 )
 def test_recommended_qt_platform_linux_wayland_cases(
-    monkeypatch, explicit_platform, wayland, display, expected
+    monkeypatch, explicit_platform, wayland, display, wsl, expected
 ):
     import enginir.viewer._app as appmod
+
+    if wsl is None:
+        monkeypatch.delenv("WSL_DISTRO_NAME", raising=False)
+    else:
+        monkeypatch.setenv("WSL_DISTRO_NAME", wsl)
 
     if explicit_platform is None:
         monkeypatch.delenv("QT_QPA_PLATFORM", raising=False)
@@ -91,6 +101,20 @@ def test_recommended_qt_platform_linux_wayland_cases(
     monkeypatch.setattr(appmod.sys, "platform", "linux")
 
     assert appmod._recommended_qt_platform() == expected
+
+
+def test_wslg_uses_wayland_with_qts_title_bar(monkeypatch):
+    import enginir.viewer._app as appmod
+
+    for name in ("QT_QPA_PLATFORM", "QT_WAYLAND_DISABLE_WINDOWDECORATION"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    monkeypatch.setenv("WSL_DISTRO_NAME", "Ubuntu")
+    monkeypatch.setattr(appmod.sys, "platform", "linux")
+    appmod._configure_qt_platform()
+    assert os.environ["QT_QPA_PLATFORM"] == "wayland"
+    # WSLg's own frame has no icon; Qt's title bar shows it.
+    assert "QT_WAYLAND_DISABLE_WINDOWDECORATION" not in os.environ
 
 
 def test_run_is_noop_in_jupyter(qapp, monkeypatch):

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import atexit
+import importlib.resources
 import os
 import sys
 
 from PyQt6 import sip
 from PyQt6.QtCore import QEvent, QObject
-from PyQt6.QtGui import QGuiApplication
+from PyQt6.QtGui import QGuiApplication, QIcon
 from PyQt6.QtWidgets import QApplication, QDialog
 
 from .._logging import enable_logging, get_logger, logging_enabled
@@ -22,30 +23,60 @@ _app: QApplication | None = None
 logger = get_logger(__name__)
 
 
+def _is_wslg() -> bool:
+    """Whether the session is WSLg (Windows Subsystem for Linux with GUI apps)."""
+    return bool(os.environ.get("WSL_DISTRO_NAME")) and bool(os.environ.get("WAYLAND_DISPLAY"))
+
+
 def _recommended_qt_platform() -> str | None:
-    """Return a safer Qt platform plugin for the current session, if needed."""
+    """Return the Qt platform plugin for the current session, if it needs a choice.
+
+    On WSLg the viewer uses native Wayland: under X11 WSLg shows every popup
+    as its own Windows window, and menus fall behind the main window. On other
+    Linux sessions with both Wayland and X11, X11 is kept (Qt draws its own
+    window decorations on Wayland, and Wayland start-up crashed there). An
+    explicit ``QT_QPA_PLATFORM`` always wins.
+    """
     if os.environ.get("QT_QPA_PLATFORM"):
         return None
     if not sys.platform.startswith("linux"):
         return None
     if not os.environ.get("WAYLAND_DISPLAY"):
         return None
+    if _is_wslg():
+        return "wayland"
     if not os.environ.get("DISPLAY"):
         return None
     return "xcb"
 
 
 def _configure_qt_platform() -> None:
-    """Apply conservative platform-plugin overrides before QApplication starts."""
+    """Choose the platform plugin before QApplication starts."""
     platform = _recommended_qt_platform()
     if platform is None:
         return
     os.environ["QT_QPA_PLATFORM"] = platform
+    if platform == "wayland":
+        # Qt draws the title bar (with the window icon); WSLg's own frame has none.
+        logger.info("WSLg session: using QT_QPA_PLATFORM=wayland (set QT_QPA_PLATFORM=xcb "
+                    "to use X11 instead)")
+        return
     logger.warning(
         "Wayland session detected with DISPLAY={}; forcing QT_QPA_PLATFORM={} to avoid viewer startup crashes",
         os.environ.get("DISPLAY"),
         platform,
     )
+
+
+def app_icon() -> QIcon:
+    """The engiNIR window icon (empty when the bundled file is unavailable)."""
+    try:
+        resource = importlib.resources.files("enginir._resources").joinpath("enginir.ico")
+        with importlib.resources.as_file(resource) as path:
+            return QIcon(str(path))
+    except (ModuleNotFoundError, FileNotFoundError, OSError) as exc:
+        logger.debug("Window icon unavailable: {}", exc)
+        return QIcon()
 
 
 class _DialogCentering(QObject):
@@ -131,6 +162,8 @@ def ensure_app() -> QApplication:
     enable_viewer_logging()
     existing = QApplication.instance()
     if isinstance(existing, QApplication):
+        if existing.windowIcon().isNull():
+            existing.setWindowIcon(app_icon())
         _install_dialog_centering(existing)
         dark = load_preference()
         if theme_applied(existing, dark=dark):
@@ -140,6 +173,7 @@ def ensure_app() -> QApplication:
         return apply_qt_theme(existing, dark=dark)
     _configure_qt_platform()
     _app = QApplication([])
+    _app.setWindowIcon(app_icon())
     _install_dialog_centering(_app)
     return apply_qt_theme(_app, dark=load_preference())
 

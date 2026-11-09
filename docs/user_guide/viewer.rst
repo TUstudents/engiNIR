@@ -32,6 +32,13 @@ From Python:
 The welcome screen opens a scan, opens a project or creates a new one. Files
 load in the background with a progress indicator.
 
+On Linux the viewer picks the display system itself. Under WSL (Windows
+Subsystem for Linux, WSLg) it uses Wayland, so menus stay in front of the
+window; Qt draws the title bar with the engiNIR icon. On other Linux
+desktops that offer both Wayland and X11 it uses X11. To choose yourself, set
+``QT_QPA_PLATFORM``, for example ``QT_QPA_PLATFORM=xcb enginir-viewer`` for
+X11.
+
 Window
 ------
 

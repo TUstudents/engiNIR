@@ -58,6 +58,11 @@
   the process with a segmentation fault (exit code 139). PyQt's exit cleanup
   crashed when the application-wide event filter ran during it; the filter is
   now removed before that cleanup. Project data was never affected.
+- Viewer under WSL (WSLg): uses native Wayland instead of X11, so menus no
+  longer fall behind the main window after a few seconds; Qt draws the title
+  bar with the engiNIR icon. Other Linux sessions with both Wayland and X11
+  keep X11; `QT_QPA_PLATFORM` still overrides. The window icon is set once
+  for the application, so dialogs carry it too.
 
 ### Changed
 

@@ -32,8 +32,7 @@ from PyQt6.QtWidgets import (
     QMenuBar,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QActionGroup, QFont, QIcon, QCloseEvent, QKeySequence, QShortcut
-import importlib.resources
+from PyQt6.QtGui import QAction, QActionGroup, QFont, QCloseEvent, QKeySequence, QShortcut
 
 from .._checks import log_and_raise
 from .._workflow import read_header
@@ -219,12 +218,6 @@ class HSIViewer(QMainWindow):
         super().__init__()
         self.setWindowTitle("engiNIR - HSI Viewer")
 
-        try:
-            icon_file = importlib.resources.files("enginir._resources").joinpath("enginir.ico")
-            with importlib.resources.as_file(icon_file) as icon_path:
-                self.setWindowIcon(QIcon(str(icon_path)))
-        except (ModuleNotFoundError, FileNotFoundError, OSError) as exc:
-            logger.debug("Window icon unavailable: {}", exc)
         _mark_init_step("window")
 
         _meta = meta or {}

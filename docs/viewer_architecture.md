@@ -10,7 +10,7 @@ Developer reference for the `src/enginir/viewer/` module.
 |------|----------------|
 | `__init__.py` | Public API: `open_viewer()`, `open_project()` |
 | `__main__.py` | CLI entry point `enginir-viewer` |
-| `_app.py` | QApplication singleton, Wayland workaround |
+| `_app.py` | QApplication singleton, platform choice (Wayland on WSLg, X11 on other mixed sessions), application icon |
 | `_theme.py` | Shared Qt stylesheet (Fusion + light palette) |
 | `_state.py` | `ViewerState` (UI) + `ProjectState` (Qt adapter over `enginir.Project`) |
 | `_canvas.py` | `FalseColourCanvas` (pyqtgraph image surface, crosshair, ROI draw/selection) |

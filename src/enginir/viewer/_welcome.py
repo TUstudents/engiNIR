@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import importlib.resources
 import os
 import time
 
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtGui import QFont, QIcon
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QCheckBox,
     QFileDialog,
@@ -51,12 +50,6 @@ class WelcomeWindow(QMainWindow):
         self.setWindowTitle("engiNIR — HSI Viewer")
         self.setFixedSize(680, 500)
 
-        try:
-            icon_file = importlib.resources.files("enginir._resources").joinpath("enginir.ico")
-            with importlib.resources.as_file(icon_file) as icon_path:
-                self.setWindowIcon(QIcon(str(icon_path)))
-        except Exception as exc:
-            logger.debug("WelcomeWindow icon load failed: {}", exc)
 
         self._dark_path: str | None = None
         self._white_path: str | None = None
