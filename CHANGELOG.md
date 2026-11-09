@@ -41,6 +41,11 @@
   order), text in reserved room that zooms with the tiles, labels without
   the shared name prefix, outlines in the value colour of the mean spectra;
   **View** offers the scan positions and a contrast stretch per data file.
+- Viewer, Model, Distance page: the DModX and T² histograms show bins up to
+  the 99.5th percentile and the tail as one bar (a few far pixels put every
+  other pixel into one bin), the share above each limit is shown next to the
+  expected 1 %, and a new plot shows each ROI's share of pixels above the
+  limits, sorted, with clickable bars.
 - Viewer, Model: the score plot adds the ROI-level Hotelling T² ellipses
   (the ROI means as observations, with their covariance) next to the pixel
   ellipses, and a legend names both.

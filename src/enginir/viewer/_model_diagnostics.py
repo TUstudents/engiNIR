@@ -581,10 +581,34 @@ def _table_selectivity(payload: Any) -> PlotTable:
     return PlotTable(columns=(PlotColumn(xlabel.lower(), x), PlotColumn("selectivity_ratio", y)))
 
 
-def _histogram(values: Any) -> tuple[np.ndarray, np.ndarray]:
+#: Share of the pixels the distance histograms show bin by bin; the rest is one overflow bar.
+_SHOWN_QUANTILE = 99.5
+#: The share of training pixels expected above a 0.99 limit.
+_EXPECTED_ABOVE = 0.01
+
+
+def _histogram(values: Any) -> tuple[np.ndarray, np.ndarray, int, float]:
+    """40 bins up to the 99.5th percentile, the count above it and the largest value.
+
+    Pixel distances have long tails (a few glints far out); bins over the whole
+    range put almost every pixel into one bar.
+    """
     finite = np.asarray(values, dtype=float)
     finite = finite[np.isfinite(finite)]
-    return np.histogram(finite, bins=40) if finite.size else (np.zeros(1), np.array([0.0, 1.0]))
+    if not finite.size:
+        return np.zeros(1), np.array([0.0, 1.0]), 0, 0.0
+    top = float(np.percentile(finite, _SHOWN_QUANTILE))
+    if top <= float(finite.min()):
+        top = float(finite.max())
+    counts, edges = np.histogram(finite[finite <= top], bins=40,
+                                 range=(float(finite.min()), top))
+    return counts, edges, int(np.sum(finite > top)), float(finite.max())
+
+
+def _overflow_bin(edges: np.ndarray) -> tuple[float, float]:
+    """Where the overflow bar is drawn: one bin width right of the last bin."""
+    width = float(edges[-1] - edges[-2]) if edges.size > 1 else 1.0
+    return float(edges[-1]), float(edges[-1]) + width
 
 
 def _distance_spec(key: str, limit_key: str, plot_id: str, title: str, xlabel: str) -> PlotSpec:
@@ -595,30 +619,123 @@ def _distance_spec(key: str, limit_key: str, plot_id: str, title: str, xlabel: s
             draw_placeholder(ax, "No training distances (refit a model from before 1.3).",
                              colors)
             return
-        counts, edges = _histogram(values)
+        counts, edges, overflow, largest = _histogram(values)
         ax.stairs(counts, edges, fill=True, color=colors["accent"], alpha=0.85)
+        lines = []
+        if overflow:
+            start, end = _overflow_bin(edges)
+            ax.stairs([overflow], [start, end], fill=True, color=GUIDE_COLOR, alpha=0.85)
+            lines.append(f"last bar: {overflow} pixels > {start:.3g} (max {largest:.3g})")
         values = np.asarray(values, dtype=float)
         limit = payload.get(limit_key)
         if limit is not None:
             ax.axvline(float(limit), color=colors["fg"], linewidth=1.0, linestyle="--")
             share = float(np.mean(values > float(limit)))
-            ax.text(0.97, 0.97, f"limit (0.99) = {float(limit):.3g}\nabove: {share:.1%}",
-                    transform=ax.transAxes, ha="right", va="top", fontsize=8,
-                    color=colors["fg"])
+            lines[:0] = [f"limit (0.99) = {float(limit):.3g}",
+                         f"above: {share:.1%} (expected {_EXPECTED_ABOVE:.0%})"]
+        if lines:
+            ax.text(0.97, 0.97, "\n".join(lines), transform=ax.transAxes, ha="right",
+                    va="top", fontsize=8, color=colors["fg"])
         _label(ax, xlabel, "Training pixels", colors)
 
     def table(payload: Any) -> PlotTable:
         values = payload.get(f"{key}_pixels")
         if values is None:
             return PlotTable()
-        counts, edges = _histogram(values)
+        counts, edges, overflow, largest = _histogram(values)
+        starts, ends, pixel_counts = list(edges[:-1]), list(edges[1:]), list(counts)
+        metadata: dict[str, str] = {}
+        if overflow:  # the drawn overflow bar; its values reach up to the largest one
+            start, end = _overflow_bin(edges)
+            starts, ends, pixel_counts = starts + [start], ends + [end], pixel_counts + [overflow]
+            metadata["last_row"] = f"pixels above {start:.6g}, up to {largest:.6g}"
         limit = payload.get(limit_key)
-        return PlotTable(columns=(PlotColumn("bin_start", edges[:-1]),
-                                  PlotColumn("bin_end", edges[1:]),
-                                  PlotColumn("pixel_count", counts)),
-                         metadata={} if limit is None else {"limit_099": f"{float(limit):.6g}"})
+        if limit is not None:
+            metadata["limit_099"] = f"{float(limit):.6g}"
+        return PlotTable(columns=(PlotColumn("bin_start", np.asarray(starts)),
+                                  PlotColumn("bin_end", np.asarray(ends)),
+                                  PlotColumn("pixel_count", np.asarray(pixel_counts))),
+                         metadata=metadata)
 
     return PlotSpec(plot_id, title, render, table, empty_text=_EMPTY)
+
+
+def _roi_shares(payload: Mapping[str, Any]
+                ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray, tuple[str, ...]] | None:
+    """Per ROI, sorted from the largest DModX share: (DModX share, T² share or None,
+    reference values, ROI ids)."""
+    pairs = _cv_pairs(payload)
+    dmodx = payload.get("roi_share_above_dcrit")
+    if pairs is None or dmodx is None:
+        return None
+    dmodx = np.asarray(dmodx, dtype=float).reshape(-1)
+    ids = _roi_ids(payload, pairs[0].size)
+    if dmodx.size != pairs[0].size or ids is None:
+        return None
+    t2 = payload.get("roi_share_above_t2crit")
+    t2 = None if t2 is None or np.size(t2) != dmodx.size else np.asarray(t2, float).reshape(-1)
+    order = np.argsort(-dmodx, kind="stable")
+    return (dmodx[order], None if t2 is None else t2[order], pairs[0][order],
+            tuple(ids[i] for i in order))
+
+
+def _roi_labels(payload: Mapping[str, Any], ids: tuple[str, ...]) -> list[str]:
+    """Short ROI names (the shared prefix dropped, as in the ROI mosaic)."""
+    from ._project_rois import _short_names
+
+    names: Sequence[Any] = payload.get("roi_names") or ()
+    all_ids = _roi_ids(payload, len(names)) or ()
+    by_id = {str(roi_id): str(name) for roi_id, name in zip(all_ids, names, strict=False)}
+    short = _short_names({roi_id: by_id.get(roi_id, roi_id) for roi_id in ids}, {})
+    return [short[roi_id] for roi_id in ids]
+
+
+def _render_roi_distance(fig: Figure, payload: Any, colors: Mapping[str, str]
+                         ) -> Sequence[RoiPoints] | None:
+    ax = _axes(fig, colors)
+    shares = _roi_shares(payload)
+    if shares is None:
+        draw_placeholder(ax, "No per-ROI distance shares (refit a model from before 1.3).",
+                         colors)
+        return None
+    dmodx, t2, reference, ids = shares
+    from matplotlib import colormaps
+    from matplotlib.colors import Normalize
+
+    x = np.arange(1, dmodx.size + 1, dtype=float)
+    low, high = float(np.min(reference)), float(np.max(reference))
+    norm = Normalize(low - 1, high + 1) if low == high else Normalize(low, high)
+    width = max(2.0, min(14.0, 320.0 / dmodx.size))
+    ax.vlines(x, 0.0, dmodx * 100.0, colors=[colormaps["viridis"](norm(v)) for v in reference],
+              linewidth=width, label="DModX > limit")
+    if t2 is not None:
+        ax.scatter(x, t2 * 100.0, marker="D", s=18, color=colors["fg"], zorder=3,
+                   label="T² > limit")
+    ax.axhline(_EXPECTED_ABOVE * 100.0, color=GUIDE_COLOR, linewidth=0.9, linestyle="--",
+               label="expected 1 %")
+    ax.set_xticks(x)
+    ax.set_xticklabels(_roi_labels(payload, ids), rotation=60, ha="right", fontsize=7)
+    ax.set_xlim(0.3, dmodx.size + 0.7)
+    _legend(ax, colors, loc="upper right")
+    _label(ax, "ROI, from the largest DModX share (bar colour: reference value)",
+           "Pixels above the 0.99 limit (%)", colors)
+    return [RoiPoints(ax, x, dmodx * 100.0, ids)]
+
+
+def _table_roi_distance(payload: Any) -> PlotTable:
+    shares = _roi_shares(payload)
+    if shares is None:
+        return PlotTable()
+    dmodx, t2, _reference, ids = shares
+    columns = [PlotColumn("roi_id", list(ids)),
+               PlotColumn("rank", np.arange(1, dmodx.size + 1)),
+               PlotColumn("dmodx_share_above_percent", dmodx * 100.0)]
+    if t2 is not None:
+        columns.append(PlotColumn("t2_share_above_percent", t2 * 100.0))
+    return PlotTable(columns=tuple(columns),
+                     metadata={"limits": "0.99 limits of the training pixels",
+                               "expected_percent": "1",
+                               "bar_colour": "reference value of the ROI"})
 
 
 # ----------------------------------------------------------------------
@@ -649,9 +766,11 @@ _SPECS = (
              empty_text=_EMPTY),
     PlotSpec("model.r2_q2", "R² and Q² vs Components", _render_r2_q2, _table_r2_q2,
              empty_text=_EMPTY),
-    _distance_spec("dmodx", "dcrit_099", "model.dmodx", "Distance to Model (DModX)",
+    _distance_spec("dmodx", "dcrit_099", "model.dmodx", "Distance to Model (DModX), per pixel",
                    "Normalised DModX"),
-    _distance_spec("t2", "t2_crit_099", "model.t2", "Hotelling T²", "T²"),
+    _distance_spec("t2", "t2_crit_099", "model.t2", "Hotelling T², per pixel", "T²"),
+    PlotSpec("model.roi_distance", "Pixels Above the Limits, per ROI", _render_roi_distance,
+             _table_roi_distance, empty_text=_EMPTY),
 )
 
 _PAGES = (
@@ -666,7 +785,8 @@ _PAGES = (
                           PlotSlot("model.selectivity_ratio", 1, 2))),
     PlotPage("Components", (PlotSlot("model.components", 0, 0),
                             PlotSlot("model.r2_q2", 0, 1))),
-    PlotPage("Distance", (PlotSlot("model.dmodx", 0, 0), PlotSlot("model.t2", 0, 1))),
+    PlotPage("Distance", (PlotSlot("model.dmodx", 0, 0), PlotSlot("model.t2", 0, 1),
+                          PlotSlot("model.roi_distance", 1, 0, column_span=2))),
 )
 
 for _spec in _SPECS:

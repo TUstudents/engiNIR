@@ -121,8 +121,13 @@ Required v3 pages, in this order:
    - R²Y(cum), Q²(cum) and R²X(cum) against the number of components
 4. `Distance` (1.3 and later; §7.5)
    - the training pixels' normalised DModX with DCrit (0.99) and the share
-     above it
-   - their Hotelling T² with T²Crit (0.99) and the share above it
+     above it next to the 1 % a 0.99 limit expects; bins up to the 99.5th
+     percentile and the pixels above it as one overflow bar (count and
+     largest value stated), so a long tail does not hide the distribution
+   - their Hotelling T² with T²Crit (0.99), drawn the same way
+   - per ROI: the share of its training pixels above DCrit (bars, coloured
+     by reference value) and above T²Crit (markers), sorted from the largest
+     DModX share, with the expected 1 % as a line; a bar selects its ROI
 
 Runs fitted before engiNIR 1.3 show "refit" placeholders on the new pages.
 The fit summary shows RMSEE and R²adj when the run has them.

@@ -237,7 +237,15 @@ Model shows the selected model and its diagnostics:
   suggestion; **Fit again...** opens the fit dialog with the model's settings
   to try another number
 - the **Distance** page: the distance to the model (DModX) and Hotelling T²
-  of the training pixels, with their 0.99 limits and the share above them
+  of the training pixels, with their 0.99 limits and the share above them.
+  A 0.99 limit expects 1 % of the pixels above it; much more means the
+  pixels are not one homogeneous population. The histograms show bins up to
+  the 99.5th percentile and the rest as one grey bar, with the largest value
+  stated. Below them, **Pixels Above the Limits, per ROI** shows for every
+  ROI the share of its pixels above each limit, sorted from the largest, with
+  bars coloured by the reference value: ROIs whose spectra the model does
+  not describe (a different substrate, saturation, drift along a scan) stand
+  out there. Click a bar to select the ROI.
 - click a point to select its ROI
 
 Each plot has a header with its title. The maximize button, or a double-click

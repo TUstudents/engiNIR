@@ -53,6 +53,8 @@ def _model_payload() -> dict:
         "t2_crit_2_095": 6.1, "t2_crit_2_099": 9.4, "t2_crit_099": 11.5, "dcrit_099": 1.3,
         "t2_pixels": rng.chisquare(3, 500).astype(np.float32),
         "dmodx_pixels": rng.gamma(4.0, 0.25, 500).astype(np.float32),
+        "roi_share_above_dcrit": rng.uniform(0.0, 0.2, n_rois).astype(np.float32),
+        "roi_share_above_t2crit": rng.uniform(0.0, 0.1, n_rois).astype(np.float32),
     }
 
 

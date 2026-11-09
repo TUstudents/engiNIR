@@ -697,3 +697,44 @@ def test_band_importance_plots_keep_the_theme_and_name_band_axes():
     _render_vip_sorted(fig, payload, colors)
     listing = " ".join(t.get_text() for t in fig.axes[0].texts)
     assert "band 0" in listing and "nm" not in listing
+
+
+def test_distance_histograms_show_the_tail_as_one_bar_and_rois_by_their_share():
+    """One far pixel put every other pixel into the first of 40 bins; the per-ROI shares
+    (stored by the fit) are sorted, clickable and exported."""
+    from matplotlib.figure import Figure
+
+    from enginir.viewer._model_diagnostics import (
+        _distance_spec,
+        _render_roi_distance,
+        _table_roi_distance,
+    )
+    from enginir.viewer._theme import panel_colors
+
+    rng = np.random.default_rng(1)
+    pixels = np.concatenate([rng.gamma(4.0, 0.2, 5000), [35.0]])
+    spec = _distance_spec("dmodx", "dcrit_099", "x", "x", "DModX")
+    payload = {"dmodx_pixels": pixels, "dcrit_099": 1.5}
+    fig = Figure()
+    spec.render(fig, payload, panel_colors())
+    main, overflow = fig.axes[0].patches
+    edges = main.get_data().edges
+    assert edges[-1] < 5.0, "the bins stop at the 99.5th percentile, not at the far pixel"
+    assert overflow.get_data().values[0] == int(np.sum(pixels > edges[-1]))
+    text = fig.axes[0].texts[0].get_text()
+    assert "(expected 1%)" in text and "max 35" in text
+    rows = spec.table(payload).columns[2].values
+    assert int(np.sum(rows)) == pixels.size, "every pixel is in the CSV"
+
+    ids = np.array(["a", "b", "c"], dtype=object)
+    rois = {"y_true_roi": np.array([1.0, 4.0, 7.0]), "y_pred_roi": np.array([1.0, 4.0, 7.0]),
+            "roi_ids": ids, "roi_names": ("API_L1_01", "API_L4_01", "API_L7_01"),
+            "roi_share_above_dcrit": np.array([0.02, 0.9, 0.05]),
+            "roi_share_above_t2crit": np.array([0.01, 0.3, 0.02])}
+    fig = Figure()
+    (points,) = _render_roi_distance(fig, rois, panel_colors())
+    assert points.roi_ids == ("b", "c", "a") and list(points.y) == [90.0, 5.0, 2.0]
+    labels = [t.get_text() for t in fig.axes[0].get_xticklabels()]
+    assert labels == ["L4_01", "L7_01", "L1_01"]
+    table = _table_roi_distance(rois)
+    assert [c.name for c in table.columns][:3] == ["roi_id", "rank", "dmodx_share_above_percent"]

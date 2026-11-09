@@ -796,6 +796,9 @@ def _component_payload(model_run: ModelRun, artifact: dict[str, Any]) -> dict[st
     for key in ("t2_crit_099", "t2_crit_2_095", "t2_crit_2_099", "dcrit_099"):
         if artifact.get(key) is not None:
             payload[key] = float(np.asarray(artifact[key]))
+    for key in ("roi_share_above_dcrit", "roi_share_above_t2crit"):  # per ROI, as stored
+        if artifact.get(key) is not None:
+            payload[key] = np.asarray(artifact[key], dtype=np.float32).reshape(-1)
     return payload
 
 
