@@ -23,7 +23,7 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_modeling.py` | `ModelingView` — target, target values (ROI table), the fit dialog (components or Auto with a rule; Fitting group: pixel sample, scaling, DModX exclusion → `FitSpec` and hyperparameters) and Fit again (dialog preset from a stored run; the preset recipe's AsLS fields and `sg_edges` are kept, as the dialog has no controls for them); `_component_payload` adds curve, loadings, CoeffCS, VIP (computed from the stored weights for runs before 1.4), selectivity ratio, mean spectrum and training distances to the diagnostics payload; the fit dialog's Bands row (keep/exclude text, water-band menu, Select on plot, Propose) feeds the recipe and, after OK, the Explore preview (`ViewerState.bands_keep/bands_exclude`); `_roi_score_payload` passes the ROI scores the fit stored (`diagnostics/roi_scores`) and never rebuilds them from pixel counts |
 | `_model_diagnostics.py` | Model workspace diagnostics surface (Spectral page: coefficients, CoeffCS, loadings, VIP, VIP sorted, selectivity ratio; lines over wavelength break at band-selection gaps) |
 | `_band_ranges.py` | `BandRangeDialog` (drag keep/exclude ranges on the mean spectrum of the target's ROIs, loaded in a job, with the selected model's VIP or coefficients as a guide) and `ProposeBandsDialog` (runs `Project.propose_bands` in a job, progress through a polled counter, cancel flag) |
-| `_prediction.py` | `PredictionView` (Predict ROIs and Predict map jobs, the ROI predictions of the session and their statistics for the current DModX exclusion, recalculated without predicting again) and `PredictionMapWidget` (colour scale from the training range or user limits, ROI outlines, removed pixels greyed) |
+| `_prediction.py` | `PredictionView` (Predict ROIs and Predict map jobs, the ROI predictions of the session and their statistics for the current DModX exclusion, recalculated without predicting again) and `PredictionMapWidget` (colour scale from the training range or user limits, ROI outlines, removed pixels greyed, the Uncertainty layer of the 95 % pixel prediction intervals) |
 | `_predict_dialogs.py` | `PredictRoisDialog`, `PredictMapDialog` (models by name, the chain read-only, refusal with the reason), the `predict.roi_results` plot spec |
 | `_browser.py` | Read-only workspace object tree |
 | `_inspector.py` | Selection-driven metadata display; `fit_summary` describes how a model run was fitted (reads the stored exclusion arrays on demand) |
@@ -320,11 +320,15 @@ implement `PlotSource` (`plot_table()`, `print_figure()`) and are shown in a
 - The canvas redraws its current view with matplotlib.
 - `PredictionMapWidget` is a source too. Its header controls (layer, output,
   pan, zoom, reset) are added to its frame. The layers are `MAP_LAYERS`
-  (Prediction, DModX, T²); a diagnostics layer marks the pixels above its
-  0.99 limit and is disabled for a model without projection data. It emits
-  `displayed_map_changed` (values, quantity, limit) and `hovered(text)`
-  (`describe_pixel`: true frame and row, prediction, DModX against DCrit and
-  the removal limit, T², ROI), which the window shows in its status line;
+  (Prediction, DModX, T², Uncertainty); a diagnostics layer marks the pixels
+  above its 0.99 limit and is disabled for a model without projection data.
+  Uncertainty is `PredictionResult.half_width(INTERVAL_LEVEL)` (computed in
+  `_map_previews`, with `interval_summary` for the median and the pixels
+  without an interval), on its own scale, with the pixels outside the model
+  in the marking colour; it is disabled for a model without interval inputs.
+  It emits `displayed_map_changed` (values, quantity, limit) and
+  `hovered(text)` (`describe_pixel`: true frame and row, prediction with its
+  ± half-width, DModX against DCrit and the removal limit, T², ROI), which the window shows in its status line;
   `PlotPanel.roi_hovered` does the same for the per-ROI plot
   (`PredictionView.roi_hover_text`). On Predict the idle status line is
   `PredictionView.status_text()`. The `predict.histogram`

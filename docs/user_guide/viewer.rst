@@ -393,11 +393,13 @@ bar and the CSV record the scale. The prediction ROIs are outlined with
 their mean; with the pixel removal on, removed pixels are greyed. **Map** in
 the Controls dock turns the outlines and the greying off. Hovering the map
 shows the pixel in the status line at the bottom of the window: its frame and
-row, the prediction (and whether it is outside the colour scale), DModX
-against DCrit (and whether the pixel is removed), T² and the prediction ROI
-under it. Hovering a tablet in the per-ROI plot shows its values there. The map header has the **Layer** selector (the
+row, the prediction (and whether it is outside the colour scale) with its
+95 % interval, DModX against DCrit (and whether the pixel is removed), T²
+and the prediction ROI under it. Hovering a tablet in the per-ROI plot shows its values there. The map header has the **Layer** selector (the
 prediction, **DModX** and **T²**, with the pixels above the 0.99 limits
-marked), the output selector (models with several targets), **Pan**,
+marked, and **Uncertainty**, the ± half-width of each pixel's 95 %
+prediction interval with the pixels outside the model, which have none,
+marked; see :ref:`prediction-intervals`), the output selector (models with several targets), **Pan**,
 **Zoom** and **Reset View**. Large maps are shown as a preview that keeps
 every n-th frame and row; the axes, hover readout and CSV give the true
 frame and row. Models fitted before engiNIR 1.3 have no DModX and T²: fit
@@ -414,8 +416,8 @@ The summary on the right starts with one line naming what is shown (the data
 file and the model), then groups the **Prediction ROIs** (RMSEP and bias per
 model, refused ROIs), the **Chain** (signal unit and recipe, target, bands,
 input), the **Scan** (calibration, map shape and range, clipped reflectance
-values) and the **Applicability** (share of pixels above the limits,
-wavelengths). The per-ROI values are in the ROI table.
+values) and the **Applicability** (share of pixels above the limits, the
+median 95 % interval and the share without one, wavelengths). The per-ROI values are in the ROI table.
 
 Predictions are not stored: the project keeps the data files, their ROIs and
 the models, and a prediction is a result to inspect and export. The last

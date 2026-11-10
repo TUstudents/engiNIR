@@ -4,6 +4,9 @@
 
 ### Added
 
+- Prediction intervals (leverage formula, ASTM E1655): `prediction.uncertainty_map(level=0.95)` gives each pixel's ± half-width q · pixel RMSEE · √(1 + h), with h from T²PS and the training ROIs as the samples; `model.predict_rois()` gives each prediction ROI's mean interval (`row.interval`), following the pixel removal. Pixels and ROIs outside the model (above the 0.99 limits) get no interval. Nothing is stored.
+- Fit: `interval_coverage_roi` and `interval_coverage_pixel` metrics, the share of the run's held-out predictions inside their 0.95 intervals.
+- Viewer: the Predict map's **Uncertainty** layer (± half-width at 95 %, pixels outside the model marked), the interval in the hover readout and the median interval in the summary.
 - Band importance: every new PLS and PCR model stores VIP (PLS), the
   selectivity ratio (target projection, PLS and PCR) and the mean spectrum of
   the fitted pixels (`model.diagnostics`). The viewer's Spectral page shows

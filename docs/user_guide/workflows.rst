@@ -40,10 +40,12 @@ One call per step:
      - ``model.metrics``, ``model.diagnostics``
    * - Predict a new scan
      - ``model.predict(path)``, then ``prediction.map``, ``prediction.dmodx_map``,
-       ``prediction.t2_map`` or ``prediction.diagnostics``
+       ``prediction.t2_map``, ``prediction.uncertainty_map()`` or
+       ``prediction.diagnostics``
    * - Predict tablets (prediction ROIs)
      - ``dataset.add_roi(name, ..., use="prediction")``, then
-       ``model.predict_rois()``: per-ROI statistics, RMSEP over ROIs with a value
+       ``model.predict_rois()``: per-ROI statistics with the mean's prediction
+       interval, RMSEP over ROIs with a value
 
 References need not be separate files. ``dark_frames=(first, last)`` and
 ``white_frames=(first, last)`` average frames of the same file (a white tile
@@ -70,7 +72,7 @@ predicts them from the project file alone, each ROI with its own calibration:
        tray.add_roi(f"tablet{i + 1}", frames=(first, last), rows=(70, 179), use="prediction")
    result = model.predict_rois(exclude_dmodx=0.99)   # leave glare and substrate out
    for row in result.rois:
-       print(project.workspace.rois[row.roi_id].name, row.mean, row.sd, row.n_removed)
+       print(project.workspace.rois[row.roi_id].name, row.mean, row.interval, row.n_removed)
    result.rmsep, result.bias, result.n_reference      # over ROIs with a value
 
 ``exclude_dmodx`` defaults to the model's own fit specification;
@@ -141,6 +143,42 @@ The layers below :class:`~enginir.Project` (:mod:`enginir.project`,
 :mod:`enginir.modeling`, :mod:`enginir.prediction`) remain available for
 advanced use. The project file layout is in :doc:`/hdf5_format`, the objects
 and their rules in :doc:`/workspace_domain_model`.
+
+.. _prediction-intervals:
+
+Prediction intervals
+--------------------
+
+A prediction ŷ comes with an interval ŷ ± q · s · √(1 + h) that says how
+precise it is: the leverage formula of ASTM E1655 and ISO 12099, for PLS and
+PCR models with one target. *s* is the model's fit error (RMSEE), *q* the
+Student t quantile with R − A − 1 degrees of freedom (R training ROIs, A
+components) and *h* the leverage, which grows with the distance of the
+spectrum from the centre of the training data. Nothing is stored; the
+interval is computed on demand.
+
+- **Pixels** (``prediction.uncertainty_map(level)``): s is the pixel RMSEE
+  and h = 1/R + T²PS / (R − 1). The leverage counts the ROIs, not the
+  pixels, as the samples: the reference values, and with them what the model
+  has learnt, come from the R ROIs. Counting the pixels would make the
+  leverage vanish (with 400 000 pixels every pixel gets the same interval).
+  This departs from the letter of the standards, which assume independent
+  samples.
+- **ROI means** (``model.predict_rois()``, ``row.interval``): s is the
+  ROI-level RMSEE and the leverage compares the ROI's mean scores with the
+  training ROIs' (``roi_scores``). It follows the pixel removal, like the
+  mean.
+- **Outside the model there is no interval** (NaN): a pixel above DCrit or
+  T²Crit (0.99), or an ROI mean beyond the ROI-level T² limit. The formula
+  assumes the spectrum resembles the training spectra; beyond the limits a
+  number would mislead.
+
+RMSEE is a fit error, so the fit checks the interval on its own
+cross-validation: ``model.metrics["interval_coverage_roi"]`` and
+``["interval_coverage_pixel"]`` are the shares of held-out predictions that
+fall inside their 0.95 intervals. Well below 0.95 means the interval is too
+narrow for new data. SIMCA's prediction intervals (YPredPS confidence
+intervals) are computed by jack-knifing and are a different number.
 
 Names and ids
 -------------

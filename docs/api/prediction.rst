@@ -40,6 +40,19 @@ Prediction ROIs
 .. autoclass:: enginir.prediction.RoiPredictionSummary
    :no-members:
 
+Prediction intervals
+--------------------
+
+.. automodule:: enginir.prediction._uncertainty
+   :no-members:
+
+.. autofunction:: enginir.prediction.pixel_half_width
+
+.. autofunction:: enginir.prediction.mean_half_width
+
+.. autoclass:: enginir.prediction.IntervalInputs
+   :no-members:
+
 Results and progress
 --------------------
 

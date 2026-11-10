@@ -90,6 +90,16 @@ def chunk_diagnostics(X: np.ndarray, projection: Projection) -> tuple[np.ndarray
     return t2, distance
 
 
+def chunk_scores(X: np.ndarray, projection: Projection) -> np.ndarray:
+    """Scores t = z R of every row of a preprocessed chunk, ``(n_rows, A)`` float32."""
+    scores = np.empty((X.shape[0], projection.n_components), dtype=np.float32)
+    for start in range(0, X.shape[0], _BLOCK_ROWS):
+        z = (np.asarray(X[start:start + _BLOCK_ROWS], dtype=np.float64)
+             - projection.x_mean) / projection.x_std
+        scores[start:start + len(z)] = z @ projection.rotations
+    return scores
+
+
 @dataclass
 class DiagnosticsSummary:
     """Pixels above the limits and the mean prediction inside and outside them."""

@@ -14,6 +14,7 @@ from ._rois import (
     predict_rois,
     roi_prediction_statistics,
 )
+from ._uncertainty import IntervalInputs, mean_half_width, pixel_half_width
 from ._service import (
     DEFAULT_CHUNK_SIZE,
     PredictionCancelCallback,
@@ -29,6 +30,9 @@ from ._service import (
 )
 
 __all__ = [
+    "IntervalInputs",
+    "mean_half_width",
+    "pixel_half_width",
     "RoiPixels",
     "RoiPrediction",
     "RoiPredictionSummary",

@@ -150,14 +150,18 @@ and writes nothing they would reject.
 - `model.predict(path, *, dark=None, white=None, checksum=False)` predicts a
   data file and returns an in-memory `Prediction` (`enginir._workflow.Prediction`: `map`, `y_pred`,
   `dmodx_map`, `t2_map`, `diagnostics` with limits and summary,
-  `provenance`); it writes nothing to the project (the file is not
+  `provenance`, and `uncertainty_map(level=0.95)`, the pixel prediction
+  interval's half-width as an image, NaN outside the model, `None` without
+  the interval inputs; `prediction-runtime-contract_v3.md`, Prediction
+  Intervals); it writes nothing to the project (the file is not
   registered, the prediction not stored) and logs one entry
   (`prediction-runtime-contract_v3.md`, Result Handling). Persisting a
   prediction is a low-level operation (`enginir.io.project_store`)
 - `model.predict_rois(rois=None, *, exclude_dmodx=None)` predicts the
   prediction ROIs (all, or the given ones) from the project file alone and
   returns per-ROI results (`prediction-runtime-contract_v3.md`, Prediction
-  ROIs); `exclude_dmodx` a level, `False` for none, `None` the model's own
+  ROIs), each with its mean interval's half-width at 0.95 (`interval`);
+  `exclude_dmodx` a level, `False` for none, `None` the model's own
   setting. `roi_prediction_statistics(...)` recalculates them for another
   exclusion without predicting again. `project.set_use(roi, use)` marks an
   ROI; `scan.add_roi(..., use="prediction")` creates one

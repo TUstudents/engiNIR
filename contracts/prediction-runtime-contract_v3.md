@@ -384,6 +384,92 @@ A run without projection data predicts as before and has no diagnostics
 (the viewer says to refit; the summary has the prediction statistics only). Nothing of the diagnostics depends on the whole
 image, so they are computed in the single chunked pass.
 
+## Prediction Intervals
+
+A prediction has an interval ŷ ± q · s · √(1 + h) that says how precise it
+is: the leverage formula of ASTM E1655 and ISO 12099. Only this formula is
+used (no jack-knife, bootstrap or conformal intervals; SIMCA's YPredPS
+confidence intervals are jack-knifed, a different number). Pixels and ROI
+means have different errors, so there are two intervals with the same
+formula and different inputs. Intervals exist for regression runs of PLS
+and PCR with projection data and a single target; other models have none.
+They are computed on demand and not stored: the pixel interval at a chosen
+`level` (`uncertainty_map(level)`, default 0.95), the mean interval of
+prediction ROIs at 0.95. A `level` outside (0, 1) raises.
+
+Inputs, all stored with the model run (an input that is missing or not
+finite counts as missing, and a run without one has no interval of that
+kind, and says so):
+
+- *A* `n_components`, T²Crit `t2_crit_099` and DCrit `dcrit_099` from
+  `prediction_model` (with *N* `n_train`, the kept training pixels, behind
+  the score variances)
+- *R* the metric `n_rois`, the training ROIs
+- s for pixels: the metric `pixel_rmsee`, √(RSS / (N − A − 1)) over the
+  fitted pixels; s for means: the metric `rmsee`, √(RSS / (R − A − 1)) over
+  the ROI means of the fitted values (`sample-set-model-run-contract_v3.md`
+  §5, §7.5). RMSEE is a fit error, as in ASTM E1655; the coverage metrics
+  (§5 of that contract) say how well it holds on held-out data. A run whose
+  ROI means are not all fitted (R′ < R, e.g. every pixel of a ROI excluded
+  by DModX) can have a NaN `rmsee` and then has no mean interval
+- `roi_scores` (§7.5 of that contract) for the mean interval
+- q the two-sided Student t quantile, t(1 − (1 − level)/2; R − A − 1). For
+  both intervals q uses R − A − 1, also when s = `pixel_rmsee` (computed
+  with N − A − 1): the ROIs are the independent samples, pixels of one ROI
+  are not, and the smaller degrees of freedom widen the pixel interval
+  (the pixel leverage counts the ROIs too).
+  With R − A − 1 < 1 there is no interval
+
+**Pixel interval** (the Uncertainty map): an interval for the reference
+value of a sample measured as that single pixel (training pixels carry
+their ROI's reference value). h = 1/R + T²PS / (R − 1), from the pixel's
+T²PS (Applicability Diagnostics). With the score variances over the N kept
+pixels (N − 1) and scores centred and orthogonal on them, T²PS / (N − 1) is
+tᵀ(TᵀT)⁻¹t, so the standards' leverage would be 1/N + T²PS / (N − 1). The
+ROIs replace the pixels as the independent samples (decided 2026-11-10): the
+reference values, and with them the uncertainty of the model's
+coefficients, come from R ROIs, as the degrees of freedom of q already
+assume. With N pixels the leverage would vanish (N = 396 000 gives at most
+5·10⁻⁵ on a real model) and every pixel would get the same interval. This
+departs from the letter of ASTM E1655, which assumes independent samples.
+The half-width
+q · s · √(1 + h) is NaN when the prediction or T²PS is not finite, when
+T²PS > T²Crit, or when DModXPS > DCrit (a missing limit is not checked; a
+NaN DModXPS with DCrit present is not checked either, as in Applicability
+Diagnostics). A score variance below `1e-10` is stored as NaN and makes
+every T²PS NaN, so such a run has no pixel interval. The leverage formula
+assumes the spectrum resembles the
+training spectra; beyond the limits a number would mislead. Reported with
+the map: the median half-width over the pixels that have one and the share
+of finite predictions without one ("outside the model").
+
+**Mean interval** (a prediction ROI): with the training ROI scores
+(`roi_scores`, the rows with a fitted pixel, R′ of them), their mean m and
+covariance C (R′ − 1), and t̄ the mean score over the ROI's kept pixels
+(the same pixels as its reported mean). The mean interval treats the model
+as if it had been fitted on the R′ training ROI means (the ROIs are the
+independent samples); this is a working assumption, not a property of the
+pixel fit.
+
+- d² = (t̄ − m)ᵀ C⁻¹ (t̄ − m), C⁻¹ the pseudo-inverse with a warning when C
+  is singular (rank below A, e.g. collinear ROI scores)
+- h̄ = 1/R′ + d² / (R′ − 1); half-width q · s · √(1 + h̄)
+- NaN without a kept pixel, with R′ − A < 1, or when d² is above the
+  ROI-level limit A(R′ − 1)/(R′ − A) · F(0.99; A, R′ − A) (outside the
+  model at the ROI level). DModX is judged per pixel (the exclusion and the
+  shares), not for the mean
+- the mean interval follows the pixel exclusion, like the mean: the
+  pixels' scores (n × A) are kept in memory per ROI, so a recalculated
+  exclusion needs no new prediction
+
+For a linear model on per-pixel preprocessing, the ROI mean of the pixel
+predictions equals the prediction of the mean preprocessed spectrum, whose
+scores are t̄; `roi_scores` are the same kind of mean for the training ROIs.
+The arithmetic is `float64`; half-widths are returned as `float32` for maps
+and `float` for ROIs, and tests compare with an independent dense
+computation (the hat matrix of the centred training scores: for pixels its
+diagonal term scaled by (N − 1)/(R − 1)).
+
 ## Prediction ROIs
 
 ROIs whose `use` is `prediction` (`roi-target-contract_v3.md`) mark the
@@ -437,11 +523,16 @@ predicting again. A model without projection data (fitted before 1.3) has
 no DModXPS: the statistics without them are reported, the shares and the
 exclusion are unavailable ("–") and said so.
 
-For comparison, the range (minimum and maximum) of the training ROIs'
-stored share of pixels above DCrit (`roi_share_above_dcrit`, §7.5 of the
-model-run contract) is shown next to the removed share, at level 0.99 only
-(the training share uses training DModX and the drawn pixels); unavailable
+For comparison, the 10th, 50th and 90th percentiles of the training ROIs'
+stored shares of pixels above DCrit (`roi_share_above_dcrit`, §7.5 of the
+model-run contract) are kept with the result, at level 0.99 only (the
+training share uses training DModX and the drawn pixels); a prediction ROI
+whose share is above the 90th percentile is marked as unusual. Unavailable
 for runs without it.
+
+Per ROI the half-width of the mean interval at 0.95 (Prediction Intervals)
+is part of the per-ROI result in the library (NaN where there is none); the
+viewer does not show it.
 
 A prediction of ROIs writes one log entry: the project file, the models
 (id and name), the ROI ids, the exclusion and its level, and the summary
@@ -585,6 +676,10 @@ Required behavior:
   display
 - a layer selector shows the prediction, DModXPS or T²PS; on the diagnostics
   layers the pixels above the 0.99 limit are marked and their share is shown
+- with the interval inputs, an Uncertainty layer shows the pixel
+  half-width at 0.95 (Prediction Intervals); pixels without an interval are
+  marked as outside the model, and the median half-width and the share
+  without an interval are shown
 - clicking the map must expose at least frame, row, and predicted value
 - map interaction must not require loading unrelated model diagnostics or ROI
   spectra

@@ -118,11 +118,48 @@ _MAP_PREVIEW_PIXELS = 512 * 512
 
 #: Map layers of the Predict workspace; the diagnostics come with the saved model's
 #: projection data (prediction-runtime contract, Applicability Diagnostics).
-MAP_LAYERS = ("Prediction", "DModX", "T²")
+MAP_LAYERS = ("Prediction", "DModX", "T²", "Uncertainty")
 _LAYER_LIMITS = {"DModX": ("dcrit_099", "n_above_dcrit", "share_above_dcrit", "DCrit"),
                  "T²": ("t2_crit_099", "n_above_t2crit", "share_above_t2crit", "T²Crit")}
 _NO_DIAGNOSTICS = ("No {} map: this model has no projection data (fitted before engiNIR 1.3). "
                    "Refit it to get the DModX and T² maps.")
+_NO_INTERVAL = ("No Uncertainty map: this model has no prediction-interval inputs (a PLS or "
+                "PCR model with one target, its pixel RMSEE and at least A + 2 training ROIs).")
+#: Level of the prediction intervals the viewer shows (prediction-runtime contract).
+INTERVAL_LEVEL = 0.95
+
+
+def interval_summary(result: PredictionResult) -> dict[str, Any] | None:
+    """Median half-width and the pixels without an interval over the whole map, or ``None``."""
+    half = result.half_width(INTERVAL_LEVEL)
+    if half is None or result.y_pred is None:
+        return None
+    predicted = np.isfinite(np.asarray(result.y_pred, dtype=np.float64))
+    with_interval = predicted & np.isfinite(half)
+    n_predicted, n_without = int(predicted.sum()), int((predicted & ~with_interval).sum())
+    return {"level": INTERVAL_LEVEL,
+            "median": float(np.median(half[with_interval])) if with_interval.any() else None,
+            "n_without": n_without,
+            "share_without": n_without / n_predicted if n_predicted else 0.0}
+
+
+def interval_text(summary: dict[str, Any] | None) -> str:
+    """``95 % interval: median ± 0.42; no interval for 120 pixels (3.1 %), outside the model``."""
+    if summary is None:
+        return ""
+    level = f"{100 * summary['level']:.0f} %"
+    median = summary.get("median")
+    text = (f"{level} interval: median ± {median:.3g}" if median is not None
+            else f"{level} interval: none")
+    if summary["n_without"]:
+        count = f"{summary['n_without']:,}".replace(",", " ")
+        text += (f"; no interval for {count} pixels ({100 * summary['share_without']:.2g} %), "
+                 "outside the model (whole map, background included)")
+    return text
+
+
+def _missing_layer_reason(layer: str) -> str:
+    return _NO_INTERVAL if layer == "Uncertainty" else _NO_DIAGNOSTICS.format(layer)
 
 
 def _map_previews(result: PredictionResult) -> dict[str, Any]:
@@ -134,10 +171,12 @@ def _map_previews(result: PredictionResult) -> dict[str, Any]:
         return {}
     full = tuple(int(n) for n in spatial_map.shape[:2])
     step = _preview_step(full, _MAP_PREVIEW_PIXELS)
-    layers = {"DModX": result.diagnostic_map(result.dmodx), "T²": result.diagnostic_map(result.t2)}
+    layers = {"DModX": result.diagnostic_map(result.dmodx), "T²": result.diagnostic_map(result.t2),
+              "Uncertainty": result.diagnostic_map(result.half_width(INTERVAL_LEVEL))}
     return {"spatial_map": np.ascontiguousarray(spatial_map[::step, ::step, ...]),
             "layers": {name: np.ascontiguousarray(values[::step, ::step])
                        for name, values in layers.items() if values is not None},
+            "interval": interval_summary(result),
             "map_step": step, "full_map_shape": full}
 
 
@@ -148,7 +187,8 @@ class PredictionMapWidget(QWidget):
     plot frame and puts :meth:`header_widgets` (layer and output selectors,
     pan, zoom, reset view) into the frame header. The layer is the prediction
     or one of the applicability diagnostics (DModX, T²), whose pixels above
-    the 0.99 limit are overlaid. Large maps are shown as a subsampled
+    the 0.99 limit are overlaid, or the half-width of the 95 % prediction
+    interval (Uncertainty; pixels outside the model marked). Large maps are shown as a subsampled
     preview; the axes, the hover readout and the CSV use the true frame and
     row of each shown pixel (``map_step`` in the payload).
     """
@@ -185,9 +225,11 @@ class PredictionMapWidget(QWidget):
         self._output_combo.setVisible(False)
         self._layer_combo = QComboBox()
         self._layer_combo.addItems(list(MAP_LAYERS))
-        self._layer_combo.setToolTip("Map layer: the prediction, or the distance to the model "
+        self._layer_combo.setToolTip("Map layer: the prediction; the distance to the model "
                                      "(DModX) or within it (T²) with the pixels above the "
-                                     "0.99 limit marked")
+                                     "0.99 limit marked; or the ± half-width of the 95 % "
+                                     "prediction interval (Uncertainty), none outside the "
+                                     "model")
         self._layer_combo.currentIndexChanged.connect(self._on_output_changed)
         self._overlay: Any = None
         #: Colour limits the user set (⋯ menu); ``None``: the training range of the target.
@@ -244,7 +286,7 @@ class PredictionMapWidget(QWidget):
                 continue
             available = name in layers
             item.setEnabled(available)
-            item.setToolTip("" if available else _NO_DIAGNOSTICS.format(name))
+            item.setToolTip("" if available else _missing_layer_reason(name))
 
     def _mode_button(self, text: str, tip: str, toggle: Any) -> QToolButton:
         button = QToolButton()
@@ -298,7 +340,7 @@ class PredictionMapWidget(QWidget):
             values = (payload.get("layers") or {}).get(layer)
             arr = None if values is None else self._display_spatial_map(values)
             if values is None:
-                self._show_missing_layer(payload, _NO_DIAGNOSTICS.format(layer))
+                self._show_missing_layer(payload, _missing_layer_reason(layer))
                 return
         if arr is None:
             self.clear(empty_reason=empty_reason or "No spatial prediction map for this run.")
@@ -314,7 +356,14 @@ class PredictionMapWidget(QWidget):
         extent = (-0.5, arr.shape[1] * step - 0.5, arr.shape[0] * step - 0.5, -0.5)
         limits = None
         cmap: Any = "viridis" if layer == "Prediction" else "magma"
-        if layer == "Prediction":
+        if layer == "Uncertainty":
+            # Its own scale over the shown half-widths (they never fall below q · s, so a
+            # scale from zero would hide their spread); pixels outside the model marked.
+            finite = arr[np.isfinite(arr)]
+            limits = ((float(finite.min()), float(finite.max()))
+                      if finite.size and finite.max() > finite.min() else None)
+            cmap = colormaps["cividis"].with_extremes(bad=panel_colors()["accent"])
+        elif layer == "Prediction":
             # The training range (or the user's limits); values outside get their own colours.
             limits = self.user_limits or payload.get("colour_range")
             if limits is not None and limits[1] > limits[0]:
@@ -347,7 +396,8 @@ class PredictionMapWidget(QWidget):
         self._step = step
         self._rendered_output_index = output_index
         self._rendered_layer = layer
-        units = str(payload.get("target_unit", "")) if layer == "Prediction" else ""
+        units = (str(payload.get("target_unit", "")) if layer in ("Prediction", "Uncertainty")
+                 else "")
         unit_suffix = f" ({units})" if units else ""
         limit = self._layer_limit(payload, layer)
         if limit is not None:
@@ -356,11 +406,13 @@ class PredictionMapWidget(QWidget):
                 above, cmap=ListedColormap([panel_colors()["accent"]]), alpha=0.9,
                 origin="upper", aspect="auto", interpolation="nearest",
                 extent=(-0.5, arr.shape[1] * step - 0.5, arr.shape[0] * step - 0.5, -0.5))
-        self._set_title(f"{layer} Map{unit_suffix}")
+        self._set_title(f"± {100 * INTERVAL_LEVEL:.0f} % Prediction Interval{unit_suffix}"
+                        if layer == "Uncertainty" else f"{layer} Map{unit_suffix}")
         self._ax.set_xlabel("Frame", color=colors["fg"])
         self._ax.set_ylabel("Row", color=colors["fg"])
-        self._colorbar = self._fig.colorbar(image, ax=self._ax, fraction=0.046, pad=0.04,
-                                            extend="both" if limits is not None else "neither")
+        self._colorbar = self._fig.colorbar(
+            image, ax=self._ax, fraction=0.046, pad=0.04,
+            extend="both" if limits is not None and layer == "Prediction" else "neither")
         self._style_colorbar(unit_suffix=unit_suffix)
 
         finite = arr[np.isfinite(arr)]
@@ -404,6 +456,9 @@ class PredictionMapWidget(QWidget):
     @staticmethod
     def _limit_text(payload: dict[str, Any], layer: str) -> str:
         """`` | above DCrit 2.1: 40 pixels (1.3 %)`` over the whole scan, or ``""``."""
+        if layer == "Uncertainty":
+            text = interval_text(payload.get("interval"))
+            return f" | {text}" if text else ""
         summary = payload.get("diagnostics") or {}
         if layer not in _LAYER_LIMITS or summary.get(_LAYER_LIMITS[layer][0]) is None:
             return ""
@@ -571,7 +626,7 @@ class PredictionMapWidget(QWidget):
                                                output_index=output_index)
         if prediction is not None and prediction.shape == shape:
             layers["Prediction"] = prediction
-        for name in ("DModX", "T²"):
+        for name in ("DModX", "T²", "Uncertainty"):
             values = (payload.get("layers") or {}).get(name)
             shown = None if values is None else self._display_spatial_map(values)
             if shown is not None and shown.shape == shape:
@@ -604,6 +659,14 @@ class PredictionMapWidget(QWidget):
                 elif value > limits[1]:
                     text += " (above the colour range)"
             parts.append(text)
+        if "Uncertainty" in layers:
+            half = float(layers["Uncertainty"][shown_row, shown_column])
+            text = (f"± {half:.3g} ({100 * INTERVAL_LEVEL:.0f} %)" if np.isfinite(half)
+                    else "no interval (outside the model)")
+            if parts[-1].startswith("Prediction"):
+                parts[-1] += f" {text}" if np.isfinite(half) else f", {text}"
+            else:
+                parts.append(text)
         if "DModX" in layers:
             value = float(layers["DModX"][shown_row, shown_column])
             text = f"DModX {value:.3g}"
@@ -1621,6 +1684,9 @@ class PredictionView(QWidget):
             means.append(f"{float(outside):.4g} outside")
         if means:
             lines.append("Mean prediction: " + ", ".join(means))
+        interval = interval_text(interval_summary(result))
+        if interval:
+            lines.append(interval[0].upper() + interval[1:])
         return "\n".join(lines) or "-"
 
     def _invalidate_prediction_workspace_cache(self, *_args) -> None:
