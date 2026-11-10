@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 import types
 from threading import Event
 
 import numpy as np
 import pytest
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QMessageBox
 
+from enginir import Project
 from enginir.project import CalibrationSpec, ModelRun, PredictionRun
 from enginir.viewer._app import ensure_app
 
@@ -164,7 +167,7 @@ def test_a_subsampled_map_shows_and_exports_true_frames_and_rows(qapp, tmp_path)
     assert widget._ax.get_xlim()[1] == pytest.approx(12 * 3 - 0.5)
 
     widget._on_motion(types.SimpleNamespace(inaxes=widget._ax, xdata=7.2, ydata=4.0))
-    assert widget._cursor_label.text().startswith("Frame 6 | Row 3 |")  # preview pixel (2, 1)
+    assert widget.hover_text.startswith("Frame 6 | Row 3 |")  # preview pixel (2, 1)
 
     frame.export_csv(tmp_path / "map.csv")
     lines = (tmp_path / "map.csv").read_text(encoding="utf-8").splitlines()
@@ -472,3 +475,132 @@ def test_a_map_of_a_file_without_prediction_rois_drops_the_old_roi_results(
     payload = view.roi_results_payload()
     assert not payload["roi_rows"] and "No prediction ROIs on" in payload["message"]
     assert view.workspace_summary()["rois"].startswith("No prediction ROIs on")
+
+
+def test_hovering_a_map_pixel_describes_it_in_the_status_line(qapp):
+    """Frame, row, prediction against the colour range, DModX against DCrit and the
+    removal limit, T² and the prediction ROI under the cursor; leaving clears it."""
+    from enginir.viewer._prediction import PredictionMapWidget
+
+    widget = PredictionMapWidget()
+    shown: list[str] = []
+    widget.hovered.connect(shown.append)
+    prediction = np.array([[2.0, 12.0], [5.0, 0.5], [4.0, 6.0]], dtype=np.float32)
+    dmodx = np.array([[0.5, 3.0], [1.2, 0.1], [0.2, 0.9]], dtype=np.float32)
+    widget.update_data({"spatial_map": prediction, "layers": {"DModX": dmodx, "T²": dmodx * 2},
+                        "diagnostics": {"dcrit_099": 1.0}, "colour_range": (1.0, 10.0),
+                        "removed_limit": 2.0,
+                        "roi_overlays": [((0, 0, 1, 1), "03  12", "03")]})
+    # spatial_map is (frames, rows): the shown map is (rows, frames).
+    text = widget.describe_pixel(1, 0)
+    assert text == ("Frame 1 | Row 0 | Prediction 5 | DModX 1.2 (DCrit 0.99 1: above, "
+                    "removal limit 2) | T² 2.4")
+    text = widget.describe_pixel(0, 1)
+    assert "Prediction 12 (above the colour range)" in text
+    assert "DModX 3 (DCrit 0.99 1: above, removal limit 2: removed)" in text
+    assert text.endswith("ROI 03")
+    widget._on_motion(types.SimpleNamespace(inaxes=widget._ax, xdata=0.0, ydata=1.0))
+    widget._on_motion(types.SimpleNamespace(inaxes=None, xdata=None, ydata=None))
+    assert shown[-2].endswith("ROI 03") and shown[-1] == ""
+
+
+def test_the_roi_table_shows_the_session_results_and_sorts_by_them(qapp, fitted_tray):
+    """Per model: mean, SD, % removed, % above DCrit, residual; read-only, following the
+    pixel removal, sortable, and gone with another project (never stored)."""
+    from enginir.viewer._prediction import PredictionView
+    from enginir.viewer._roi_table import RoiTableModel
+
+    project, model, state, _path = fitted_tray
+    table = RoiTableModel(state)
+    n_columns = table.columnCount()
+    view = PredictionView(state)
+    prediction = model.roi_prediction()
+    glare = prediction.pixels[project.roi("t09").roi_id]
+    dmodx = glare.dmodx.copy()
+    dmodx[:4] = 1e3  # four pixels far outside the model
+    prediction.pixels[project.roi("t09").roi_id] = type(glare)(y=glare.y, dmodx=dmodx,
+                                                               t2=glare.t2)
+    view._set_roi_predictions([prediction], scope="tray")
+    assert table.columnCount() == n_columns + 5
+    headers = [table.headerData(c, Qt.Orientation.Horizontal) for c in
+               range(n_columns, n_columns + 5)]
+    assert headers == [f"{model.name}: {h}" for h in
+                       ("mean", "SD", "% removed", "% above DCrit", "residual")]
+    mean_column = n_columns
+    row = table.row_of(project.roi("t09").roi_id)
+    assert row is not None
+    expected = next(r for r in view._roi_summaries[0].rois
+                    if r.roi_id == project.roi("t09").roi_id)
+    assert table.data(table.index(row, mean_column)) == f"{expected.mean:.3g}"
+    assert not table.flags(table.index(row, mean_column)) & Qt.ItemFlag.ItemIsEditable
+    training_row = table.row_of(project.roi("t01").roi_id)
+    assert training_row is not None and table.data(table.index(training_row, mean_column)) == ""
+
+    assert table.data(table.index(row, n_columns + 2)) == "0"
+    view._exclusion_check.setChecked(True)
+    removed = float(table.data(table.index(row, n_columns + 2)))
+    assert removed >= 100 * 4 / glare.y.size - 0.5, "the table follows the pixel removal"
+
+    table.sort(mean_column, Qt.SortOrder.DescendingOrder)
+    means = [table.data(table.index(r, mean_column)) for r in range(table.rowCount())]
+    filled = [float(m) for m in means if m]
+    assert filled == sorted(filled, reverse=True) and means[len(filled):] == [""] * (
+        len(means) - len(filled)), "by value, empty cells last"
+
+    other = Project.create(Path(project.path).parent / "other.h5")
+    state.open_project(str(other.path))
+    assert state.roi_results == [] and table.columnCount() == len(
+        ("Data file", "ROI", "Pixels", "Predict", "Sample"))
+
+
+def test_the_per_roi_plot_rings_unusual_tablets_and_has_no_share_axis(qapp):
+    from matplotlib.figure import Figure
+
+    from enginir.viewer._predict_dialogs import _render_roi_results
+    from enginir.viewer._theme import panel_colors
+
+    def row(name, share):
+        return {"roi": name, "roi_id": name, "model": "PLS", "mean": 5.0, "p05": 4.0,
+                "p95": 6.0, "reference": None, "share_above_dcrit": share}
+
+    def legend_texts(rows):
+        fig = Figure()
+        _render_roi_results(fig, {"roi_rows": rows, "training_share": (0.02, 0.1, 0.3)},
+                            panel_colors())
+        assert len(fig.axes) == 1, "no right axis"
+        return [text.get_text() for text in fig.axes[0].get_legend().get_texts()]
+
+    assert not any("unusual" in t for t in legend_texts([row("01", 0.05), row("02", 0.29)]))
+    assert any("unusual" in t for t in legend_texts([row("01", 0.05), row("02", 0.6)]))
+
+
+def test_the_summary_names_file_and_model_once_and_controls_change_the_map(
+        qapp, fitted_tray, monkeypatch):
+    from enginir.viewer._predict_dialogs import PredictMapDialog
+    from enginir.viewer._prediction import PredictionView
+
+    _project, model, state, _path = fitted_tray
+    monkeypatch.setattr(PredictMapDialog, "exec", lambda self: self.DialogCode.Accepted)
+    view = PredictionView(state)
+    view.predict_btn_clicked()
+    _wait_until(qapp, lambda: bool(state.predictions) and bool(view._roi_predictions),
+                timeout=30)
+    summary = view.workspace_summary()
+    assert summary["headline"].startswith("Map of tray.h5 with " + model.name)
+    shown = "\n".join(summary[key] for key in ("headline", "rois", "signal", "target",
+                                                 "calibration", "map_shape", "clipping"))
+    assert shown.count("tray.h5") == 1 and shown.count(model.name) == 1
+    assert "Map: tray.h5" in view.status_text() and model.name in view.status_text()
+
+    before = view.workspace_visual_payload()
+    assert before is not None and before["show_roi_outlines"]
+    view.set_colour_limits((2.0, 4.0))
+    assert view.colour_limits == (2.0, 4.0) and view._colour_mode.currentData() == "own"
+    view._show_outlines.setChecked(False)
+    after = view.workspace_visual_payload()
+    assert after is not before and not after["show_roi_outlines"]
+    view._histogram_source.setCurrentIndex(view._histogram_source.findData("map"))
+    map_payload = {"values": np.ones((2, 2)), "provenance": {}}
+    assert view.histogram_payload(map_payload) is map_payload
+    view.set_colour_limits(None)
+    assert view.colour_limits is None

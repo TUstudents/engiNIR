@@ -462,6 +462,8 @@ class PlotPanel(PlotFrame):
     """The frame of one :class:`PlotSpec`: draws its payload and exports it."""
 
     roi_selected = pyqtSignal(str)
+    #: The ROI point under the cursor (its id), or ``""`` when there is none.
+    roi_hovered = pyqtSignal(str)
 
     def __init__(self, spec: PlotSpec, parent: QWidget | None = None) -> None:
         self.spec = spec
@@ -478,7 +480,9 @@ class PlotPanel(PlotFrame):
         self._canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._canvas.setMinimumSize(120, 90)
         self._canvas.mpl_connect("button_press_event", self._on_canvas_click)
+        self._canvas.mpl_connect("motion_notify_event", self._on_canvas_motion)
         self._canvas.mpl_connect("resize_event", self._on_canvas_resize)
+        self._hovered_roi = ""
         super().__init__(spec.plot_id, spec.title, self._canvas, help_text=spec.help,
                          parent=parent)
 
@@ -592,9 +596,10 @@ class PlotPanel(PlotFrame):
     # ROI picking
     # ------------------------------------------------------------------
 
-    def _on_canvas_click(self, event: Any) -> None:
+    def _roi_at(self, event: Any) -> str:
+        """The id of the ROI point within the pick radius of a mouse event, or ``""``."""
         if event.x is None or event.y is None:
-            return
+            return ""
         for points in self._roi_points:
             if event.inaxes is not points.ax or points.x.size == 0:
                 continue
@@ -602,8 +607,19 @@ class PlotPanel(PlotFrame):
             distances = np.linalg.norm(positions - np.array([event.x, event.y]), axis=1)
             nearest = int(np.nanargmin(distances)) if np.isfinite(distances).any() else -1
             if nearest >= 0 and distances[nearest] <= _PICK_RADIUS_PX:
-                self.roi_selected.emit(points.roi_ids[nearest])
-            return
+                return points.roi_ids[nearest]
+        return ""
+
+    def _on_canvas_click(self, event: Any) -> None:
+        roi_id = self._roi_at(event)
+        if roi_id:
+            self.roi_selected.emit(roi_id)
+
+    def _on_canvas_motion(self, event: Any) -> None:
+        roi_id = self._roi_at(event)
+        if roi_id != self._hovered_roi:
+            self._hovered_roi = roi_id
+            self.roi_hovered.emit(roi_id)
 
 
 def print_copy(fig: Figure) -> Figure:

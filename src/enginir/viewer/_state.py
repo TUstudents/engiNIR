@@ -36,7 +36,7 @@ from ..project import (
 )
 from ..preprocessing import PreprocessingRecipe
 from ..preprocessing.recipe import SG_FILTERS
-from ..prediction import PredictionResult, predict_with_model_run
+from ..prediction import PredictionResult, RoiPredictionSummary, predict_with_model_run
 from .._checks import log_and_raise
 from .._logging import get_logger
 from ..io.project_store import as_roi_storage_array
@@ -118,6 +118,8 @@ class ProjectState(QObject):
     model_fitted = pyqtSignal(str)
     active_model_changed = pyqtSignal(str)
     prediction_completed = pyqtSignal(str)
+    #: The per-ROI prediction results of this session changed (:attr:`roi_results`).
+    roi_results_changed = pyqtSignal()
     #: A short message after a user-visible write, e.g. "ROI 'A01' saved to project".
     saved = pyqtSignal(str)
 
@@ -138,6 +140,9 @@ class ProjectState(QObject):
         self.model_runs: dict[str, ModelRun] = {}
         #: Predictions of this session, newest last (never stored in the project).
         self.predictions: dict[str, PredictionResult] = {}
+        #: Per-ROI prediction statistics of this session, one summary per model (never
+        #: stored); the ROI table shows them. Set by the Predict workspace.
+        self.roi_results: list[RoiPredictionSummary] = []
         #: Display label per dataset id: the file name, with its folder when names repeat.
         self.data_file_labels: dict[str, str] = {}
         self.model_registry: dict[str, Any] = {}
@@ -210,6 +215,7 @@ class ProjectState(QObject):
         self.model_registry.clear()
         self.active_model_name = None
         self.predictions.clear()
+        self.set_roi_results([])
 
     # -- writing -------------------------------------------------------------------
 
@@ -528,6 +534,13 @@ class ProjectState(QObject):
             active_calibration_ids=dict(self.active_calibration_ids),
             model_registry=dict(self.model_registry),
         )
+
+    def set_roi_results(self, summaries: list[RoiPredictionSummary]) -> None:
+        """Show per-ROI prediction statistics of this session (nothing is written)."""
+        if not summaries and not self.roi_results:
+            return
+        self.roi_results = list(summaries)
+        self.roi_results_changed.emit()
 
     def add_prediction(self, result: PredictionResult) -> None:
         """Keep a computed prediction for this session and show it (nothing is written)."""

@@ -353,11 +353,13 @@ of them with one or more models. It reads only the project file: each ROI's
 stored pixels are converted with its own calibration, exactly as the fit
 converts training ROIs, and predicted with the model's recipe. The **Prediction
 per ROI** plot shows each ROI's mean prediction (the reported value) with
-the 5–95 % range of its pixels, one colour per model, the reference value
-(×) when the ROI has one, and the share of its pixels above the DModX limit
-(◆) against the model's own training ROIs (the band is their 10–90 % range,
-the dotted line their median). Each mean is written next to its dot. Its CSV
-is the per-ROI table: ROI, data file, model, pixels, removed pixels, mean, median,
+the 5–95 % range of its pixels, one colour per model, and the reference value
+(×) when the ROI has one. Each mean is written next to its dot. A ring marks
+unusual spectra: a tablet with a larger share of pixels above the DModX limit
+(0.99) than 90 % of the model's own training ROIs. The **ROI table** gets
+columns per model while there are results: mean, SD, % removed, % above
+DCrit and residual (read-only, not stored); click a header to sort the
+tablets, for example by predicted value. Its CSV is the per-ROI table: ROI, data file, model, pixels, removed pixels, mean, median,
 SD, 5 % and 95 %, mean DModX and T², shares above the limits, reference and
 residual, with RMSEP and bias per model.
 
@@ -365,7 +367,8 @@ residual, with RMSEP and bias per model.
 exposed substrate and direct reflections out of every ROI statistic; the
 statistics are recalculated at once, without predicting again. It starts as
 the model was fitted: on at its level for a model fitted with DModX
-exclusion, off otherwise.
+exclusion, off otherwise. Next to the level, the Controls dock shows the
+DModX limit (DCrit) it gives for each model.
 
 **Predict map...** predicts every pixel of one project data file with one
 model and shows the results of its prediction ROIs, computed from their
@@ -384,10 +387,15 @@ preprocessing state stored at training.
 The map's colour scale is the target's range in the model's training values;
 predictions below and above it have their own colours (cyan, pink), so the
 substrate and other material the model never saw do not flatten the scale.
-**Colour limits...** in the map's ⋯ menu sets your own limits, for one scale
-over a series of trays; the colour bar and the CSV record the scale. The
-prediction ROIs are outlined with their mean; with the pixel removal on,
-removed pixels are greyed. The map header has the **Layer** selector (the
+**Colour scale** in the Controls dock (or **Colour limits...** in the map's ⋯
+menu) sets your own limits, for one scale over a series of trays; the colour
+bar and the CSV record the scale. The prediction ROIs are outlined with
+their mean; with the pixel removal on, removed pixels are greyed. **Map** in
+the Controls dock turns the outlines and the greying off. Hovering the map
+shows the pixel in the status line at the bottom of the window: its frame and
+row, the prediction (and whether it is outside the colour scale), DModX
+against DCrit (and whether the pixel is removed), T² and the prediction ROI
+under it. Hovering a tablet in the per-ROI plot shows its values there. The map header has the **Layer** selector (the
 prediction, **DModX** and **T²**, with the pixels above the 0.99 limits
 marked), the output selector (models with several targets), **Pan**,
 **Zoom** and **Reset View**. Large maps are shown as a preview that keeps
@@ -397,17 +405,17 @@ them again to get the layers and the pixel removal.
 
 The **Prediction Distribution** histogram shows the pixels behind the per-ROI
 numbers: the kept pixels of the prediction ROIs, one outline per model, and
-it follows the pixel removal. Without ROI results it shows the pixels of the
-shown map. Map and per-ROI results always describe the same data file: a map
+it follows the pixel removal. Without ROI results, or with **Histogram: Whole
+map** in the Controls dock, it shows the pixels of the shown map. Map and per-ROI results always describe the same data file: a map
 of a file without prediction ROIs drops the earlier per-ROI results and says
 so; the Predict map file list shows each file's prediction ROIs.
 
-The summary on the right groups the **Prediction ROIs** (scope, RMSEP per
-model, refused ROIs, and each ROI's value: mean ± SD per model, the share of
-pixels removed and the reference value), the **Chain** (model, signal unit and recipe, target),
-the **Scan** (data file, its calibration, map shape and range, clipped
-reflectance values) and the **Applicability** (share of pixels above the
-limits, wavelengths).
+The summary on the right starts with one line naming what is shown (the data
+file and the model), then groups the **Prediction ROIs** (RMSEP and bias per
+model, refused ROIs), the **Chain** (signal unit and recipe, target, bands,
+input), the **Scan** (calibration, map shape and range, clipped reflectance
+values) and the **Applicability** (share of pixels above the limits,
+wavelengths). The per-ROI values are in the ROI table.
 
 Predictions are not stored: the project keeps the data files, their ROIs and
 the models, and a prediction is a result to inspect and export. The last

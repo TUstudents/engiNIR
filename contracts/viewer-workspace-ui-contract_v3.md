@@ -322,7 +322,10 @@ Required controls:
   column), the browser, the mosaic (dashed outline) and the ROI spectra
   (dashed lines, still coloured by value); counts of ROIs with a value name
   training and prediction ROIs separately
-- ROI table (sample labels and target values)
+- ROI table (sample labels and target values; while the session has per-ROI
+  prediction results, read-only columns per model: mean, SD, % removed,
+  % above DCrit, residual, never stored; a header click sorts the rows,
+  numbers by value, empty cells last, and an edit never moves its row)
 - ROI export
 
 Required behavior:
@@ -522,8 +525,14 @@ Required controls:
   calibration, the model's signal unit, its recipe and the model; an
   incompatible file is refused before running, with the reason
 - **Remove pixels above the DModX limit** with its level, defaulting to the
-  model's fit specification; the per-ROI results follow without predicting
-  again
+  model's fit specification, and the resulting DCrit per model; the per-ROI
+  results follow without predicting again
+- display settings of the session (not stored): the colour scale (training
+  range, or own low and high limits; the map's ⋯ menu sets the same), ROI
+  outlines and greyed removed pixels on the map, and the histogram's pixels
+  (the ROI pixels or the whole map)
+- the Controls dock holds the controls and the progress, not the summary's
+  status texts
 
 Required prediction-map interaction:
 
@@ -531,25 +540,34 @@ Required prediction-map interaction:
   `Row` on y
 - a color scale/legend must be visible for numeric prediction values; the
   scale is the target's range in the model's training values, values outside
-  in their own colours, or limits the user sets (⋯ menu); the colour bar and
-  the CSV record the scale
+  in their own colours, or limits the user sets (Controls dock or ⋯ menu);
+  the colour bar and the CSV record the scale
 - the prediction ROIs of the shown data file are drawn on the map with their
   mean; with the exclusion on, removed pixels are greyed
-- a per-ROI plot (a plot panel): each ROI's mean with its 5–95 % range, the
-  share of pixels above DCrit (0.99) against the training ROIs' 10–90 %
-  range and median (like for like; the removed count is in the table),
-  the value at each mean, the reference value when
-  present; a bar selects its ROI; with several models, one bar per ROI and
+- a per-ROI plot (a plot panel): each ROI's mean with its 5–95 % range,
+  the value at each mean and the reference value when present, ROIs in name
+  order; a ring marks a tablet with a larger share of pixels above DCrit
+  (0.99) than 90 % of the model's training ROIs (like for like; the shares
+  and the removed counts are in the ROI table and the CSV); a bar selects
+  its ROI; with several models, one bar per ROI and
   model, grouped by ROI and coloured by model. Its CSV is the per-ROI table
   in long format, one row per ROI and model (ROI name and id, data file,
   model name and id, pixels, removed, mean, median, SD, 5 %, 95 %, mean
   DModXPS and T²PS, shares above the limits, reference, residual), with the
   exclusion and its level, and RMSEP, bias and *n* per model, as metadata
 - the pixel histogram shows the kept pixels of the prediction ROIs (all
-  pixels of the map when the data file has no prediction ROI)
-- the summary names the model and data file (never ids) and groups the
-  chain, the scan and the applicability; it lists each prediction ROI's
-  value (mean ± SD per model, the removed share, the reference value)
+  pixels of the map when the data file has no prediction ROI, or when the
+  user chooses the whole map)
+- the summary has one headline naming what is shown (the data file and the
+  model, never ids) and the groups Prediction ROIs (RMSEP and bias per
+  model, refused ROIs), chain, scan and applicability; no group repeats the
+  headline, and the per-ROI values are in the ROI table
+- the global status line on Predict names the shown map's data file, the
+  signal and recipe, the model and the target; hovering a map pixel shows
+  its true frame and row, the prediction (and whether it is outside the
+  colour scale), DModXPS against DCrit and the removal limit, T²PS and the
+  prediction ROI under it; hovering a tablet in the per-ROI plot shows its
+  values
 - multi-output prediction artifacts must expose an explicit target/output
   selector before the map is rendered
 - a layer selector shows the prediction, the distance to the model (DModXPS)

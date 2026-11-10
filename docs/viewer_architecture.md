@@ -107,6 +107,7 @@ Runtime collections include:
 - `project_path`, `project_meta`
 - Collections: `datasets`, `calibrations`, `rois`, `targets`, `target_assignments`, `recipes`, `signal_domains`, `sample_sets`, `model_runs`
 - `predictions`: the in-memory `PredictionResult`s of this session (newest last, at most `SESSION_PREDICTIONS` = 3, cleared on a project switch); stored `/predictions` runs are not shown
+- `roi_results`: the per-ROI prediction statistics of this session, one `RoiPredictionSummary` per model (`set_roi_results`, signal `roi_results_changed`); `PredictionView` sets them after every recompute and the ROI table shows them as read-only columns; cleared on a project switch, never stored
 - `model_registry` (in-memory fitted model objects)
 
 **Signals:** `project_loaded()`, `datasets_changed()`, `calibrations_changed()`, `rois_changed()`, `targets_changed()`, `target_assignments_changed()`, `recipes_changed()`, `signal_domains_changed()`, `sample_sets_changed()`, `model_runs_changed()`, `predictions_changed()`, `model_fitted(str)`, `active_model_changed(str)`, `prediction_completed(str)`
@@ -321,7 +322,12 @@ implement `PlotSource` (`plot_table()`, `print_figure()`) and are shown in a
   pan, zoom, reset) are added to its frame. The layers are `MAP_LAYERS`
   (Prediction, DModX, T²); a diagnostics layer marks the pixels above its
   0.99 limit and is disabled for a model without projection data. It emits
-  `displayed_map_changed` (values, quantity, limit). The `predict.histogram`
+  `displayed_map_changed` (values, quantity, limit) and `hovered(text)`
+  (`describe_pixel`: true frame and row, prediction, DModX against DCrit and
+  the removal limit, T², ROI), which the window shows in its status line;
+  `PlotPanel.roi_hovered` does the same for the per-ROI plot
+  (`PredictionView.roi_hover_text`). On Predict the idle status line is
+  `PredictionView.status_text()`. The `predict.histogram`
   spec draws `PredictionView.histogram_payload(shown)`: the kept pixels of
   the prediction ROIs per model when there are ROI results (following the
   exclusion), else the shown map, with its limit.

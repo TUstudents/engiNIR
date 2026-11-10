@@ -510,11 +510,10 @@ class HSIViewer(QMainWindow):
         layout.setSpacing(8)
 
         self._predict_content_title = QLabel("Prediction Results")
-        self._predict_summary_status = QLabel("Prediction: none")
-        self._predict_summary_status.setWordWrap(True)
-        self._predict_summary_readiness = QLabel("Ready: fit or load a model run.")
-        self._predict_summary_readiness.setWordWrap(True)
-        self._predict_summary_service = BusyStatusWidget(idle_text="Service: idle", parent=page)
+        # One headline names what is shown (data file, model); the groups below never
+        # repeat it. Progress is in the Controls dock.
+        self._predict_headline = QLabel("No prediction yet.")
+        self._predict_headline.setWordWrap(True)
         self._predict_workspace_splitter = QSplitter(Qt.Orientation.Horizontal)
         self._predict_workspace_splitter.setChildrenCollapsible(False)
 
@@ -529,7 +528,12 @@ class HSIViewer(QMainWindow):
         self._predict_roi_results.roi_selected.connect(self._on_canvas_roi_selected)
         self._predict_map_frame.add_menu_action("Colour limits...", self._ask_colour_limits)
         self._predict_shown_map: dict[str, Any] | None = None
+        # Hovering a map pixel or a tablet's dot fills the window's status line.
+        self._predict_map_widget.hovered.connect(self._show_hover_status)
+        self._predict_roi_results.roi_hovered.connect(
+            lambda roi_id: self._show_hover_status(self._prediction_view.roi_hover_text(roi_id)))
         self._predict_map_widget.displayed_map_changed.connect(self._on_predict_map_shown)
+        self._prediction_view.display_changed.connect(self._on_predict_display_changed)
         self._predict_graph_panel = PlotPageWidget(
             PlotPage("Prediction", (PlotSlot("predict.map", 0, 0, row_span=2, column_span=3),
                                     PlotSlot("predict.roi_results", 2, 0, column_span=2),
@@ -561,25 +565,20 @@ class HSIViewer(QMainWindow):
             return box, form
 
         summary_box, summary_layout = group("Chain")
-        self._predict_card_model_value = wrapped("none")
         self._predict_contract_signal_value = wrapped()
         self._predict_card_target_value = wrapped("none")
         self._predict_contract_bands_value = wrapped()
         self._predict_contract_format_value = wrapped()
-        summary_layout.addRow("Model", self._predict_card_model_value)
         summary_layout.addRow("Signal, recipe", self._predict_contract_signal_value)
         summary_layout.addRow("Target", self._predict_card_target_value)
         summary_layout.addRow("Bands", self._predict_contract_bands_value)
         summary_layout.addRow("Input", self._predict_contract_format_value)
 
         compatibility_box, compatibility_layout = group("Scan")
-        self._predict_card_prediction_value = wrapped("none")
-        self._predict_card_dataset_value = wrapped("none")
         self._predict_card_calibration_value = wrapped("none")
         self._predict_map_shape_value = wrapped()
         self._predict_map_range_value = wrapped()
         self._predict_clipping_value = wrapped()
-        compatibility_layout.addRow("Data file", self._predict_card_dataset_value)
         compatibility_layout.addRow("Calibration", self._predict_card_calibration_value)
         compatibility_layout.addRow("Map shape", self._predict_map_shape_value)
         compatibility_layout.addRow("Map range", self._predict_map_range_value)
@@ -594,15 +593,9 @@ class HSIViewer(QMainWindow):
         rois_box, rois_layout = group("Prediction ROIs")
         self._predict_rois_value = wrapped("none")
         rois_layout.addRow(self._predict_rois_value)
-        # The numbers behind the per-ROI plot: mean ± SD per model, reference value.
-        self._predict_roi_values = QFormLayout()
-        self._predict_roi_values.setSpacing(2)
-        rois_layout.addRow(self._predict_roi_values)
 
         layout.addWidget(self._predict_content_title)
-        predict_text_layout.addWidget(self._predict_summary_status)
-        predict_text_layout.addWidget(self._predict_summary_readiness)
-        predict_text_layout.addWidget(self._predict_summary_service)
+        predict_text_layout.addWidget(self._predict_headline)
         predict_text_layout.addWidget(rois_box)
         predict_text_layout.addWidget(summary_box)
         predict_text_layout.addWidget(compatibility_box)
@@ -617,18 +610,21 @@ class HSIViewer(QMainWindow):
         layout.addWidget(self._predict_workspace_splitter, 1)
         return page
 
-    def _set_roi_value_rows(self, rows: list[tuple[str, str]]) -> None:
-        """One line per prediction ROI in the summary (rebuilt only when the rows change)."""
-        if rows == getattr(self, "_shown_roi_value_rows", None):
+    def _on_predict_display_changed(self) -> None:
+        """Colour scale, overlays or histogram source changed in the Predict controls."""
+        widget = self._predict_map_widget
+        if widget is None:
             return
-        self._shown_roi_value_rows = rows
-        while self._predict_roi_values.rowCount():
-            self._predict_roi_values.removeRow(0)
-        for name, text in rows:
-            value = QLabel(text)
-            value.setWordWrap(True)
-            value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            self._predict_roi_values.addRow(name, value)
+        if widget.user_limits != self._prediction_view.colour_limits:
+            widget.user_limits = self._prediction_view.colour_limits
+        self.schedule_workspace_content_refresh()
+
+    def _show_hover_status(self, text: str) -> None:
+        """A hover readout in the status line; ``""`` restores the idle line."""
+        if text:
+            self._status_label.setText(text)
+        else:
+            self._update_status_strip()
 
     def _on_predict_map_shown(self, shown: dict[str, Any] | None) -> None:
         self._predict_shown_map = shown
@@ -942,6 +938,12 @@ class HSIViewer(QMainWindow):
         project_label = "none"
         if self.project_state.project_path:
             project_label = os.path.basename(self.project_state.project_path)
+        tabs = getattr(self, "_workspace_tabs", None)
+        if tabs is not None and tabs.currentWidget() is self._prediction_view:
+            # Predict: what the shown map is (the hover readout replaces it on the map).
+            self._status_label.setText(
+                f"Project: {project_label} | {self._prediction_view.status_text()}")
+            return
 
         dataset_label = "none"
         if self._cube_path:
@@ -1221,6 +1223,7 @@ class HSIViewer(QMainWindow):
         self._refresh_workspace_content_pages()
 
     def _on_workspace_tab_changed(self, _index: int) -> None:
+        self._update_status_strip()
         self._sync_workspace_content_host()
         self._refresh_workspace_content_pages()
 
@@ -1302,16 +1305,8 @@ class HSIViewer(QMainWindow):
         if predict_map_widget is None:
             return
         prediction_summary = self._prediction_view.workspace_summary()
-        service_text, service_busy = self._prediction_view.service_status_snapshot()
         self._predict_content_title.setText(prediction_summary["title"])
-        self._predict_summary_status.setText(prediction_summary["status"])
-        self._predict_summary_readiness.setText(prediction_summary["readiness"])
-        self._set_busy_status_widget(
-            self._predict_summary_service, text=service_text, busy=service_busy
-        )
-        self._predict_card_prediction_value.setText(prediction_summary["prediction"])
-        self._predict_card_model_value.setText(prediction_summary["model"])
-        self._predict_card_dataset_value.setText(prediction_summary["dataset"])
+        self._predict_headline.setText(prediction_summary["headline"])
         self._predict_card_calibration_value.setText(prediction_summary["calibration"])
         self._predict_card_target_value.setText(prediction_summary["target"])
         self._predict_contract_format_value.setText(prediction_summary["format"])
@@ -1323,11 +1318,12 @@ class HSIViewer(QMainWindow):
         self._predict_diagnostics_value.setText(prediction_summary["diagnostics"])
         self._predict_wavelengths_value.setText(prediction_summary["wavelengths"])
         self._predict_rois_value.setText(prediction_summary.get("rois", "none"))
-        self._set_roi_value_rows(self._prediction_view.roi_value_rows())
         self._predict_roi_results.update_data(
             self._prediction_view.roi_results_payload(),
             provenance=self._prediction_view.workspace_provenance())
         self._update_predict_histogram()
+        if not predict_map_widget.hover_text:
+            self._update_status_strip()
         predict_map_widget.update_data(
             self._prediction_view.workspace_visual_payload(),
             empty_reason=prediction_summary["readiness"],
@@ -1434,13 +1430,8 @@ class HSIViewer(QMainWindow):
             self._inspector.show_workspace_summary(
                 self._predict_content_title.text(),
                 [
-                    self._predict_summary_status.text(),
-                    self._predict_summary_readiness.text(),
-                    self._predict_summary_service.label.text(),
+                    self._predict_headline.text(),
                     f"Prediction ROIs: {self._predict_rois_value.text()}",
-                    f"Shown: {self._predict_card_prediction_value.text()}",
-                    f"Model: {self._predict_card_model_value.text()}",
-                    f"Dataset: {self._predict_card_dataset_value.text()}",
                     f"Calibration: {self._predict_card_calibration_value.text()}",
                     f"Target: {self._predict_card_target_value.text()}",
                     f"Input contract: {self._predict_contract_format_value.text()}",
@@ -2036,7 +2027,7 @@ class HSIViewer(QMainWindow):
         if limits is not None and not limits[1] > limits[0]:
             QMessageBox.warning(self, "Colour limits", "The high limit must be above the low.")
             return
-        widget.set_user_limits(limits)
+        self._prediction_view.set_colour_limits(limits)  # the Controls dock shows them too
 
     def _add_prediction_data_file(self, model_run_id: str) -> str | None:
         """Add a scan for prediction with the Add data file dialog, noting the model's training."""

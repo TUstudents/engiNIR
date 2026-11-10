@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
     QDoubleSpinBox,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -156,6 +157,8 @@ class PredictionMapWidget(QWidget):
     title_changed = pyqtSignal(str)
     #: The shown map changed: a payload for the prediction histogram, or ``None``.
     displayed_map_changed = pyqtSignal(object)
+    #: The pixel under the cursor, as one status-line text (``""``: the cursor left the map).
+    hovered = pyqtSignal(str)
     plot_title = "Prediction Map"
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -173,8 +176,9 @@ class PredictionMapWidget(QWidget):
         self._rendered_layer = "Prediction"
         self._stats_label = QLabel("")
         self._stats_label.setStyleSheet(secondary_text_style())
-        self._cursor_label = QLabel("")
-        self._cursor_label.setStyleSheet(secondary_text_style())
+        #: The last hover text (the window's status line shows it).
+        self.hover_text = ""
+        self._hover: dict[str, Any] = {}
         self._output_combo = QComboBox()
         self._output_combo.setToolTip("Prediction output shown in the map")
         self._output_combo.currentIndexChanged.connect(self._on_output_changed)
@@ -210,7 +214,6 @@ class PredictionMapWidget(QWidget):
         info = QHBoxLayout()
         info.setContentsMargins(6, 0, 6, 2)
         info.addWidget(self._stats_label, 1)
-        info.addWidget(self._cursor_label)
         layout.addLayout(info)
 
         self.clear()
@@ -325,14 +328,16 @@ class PredictionMapWidget(QWidget):
             vmax=None if limits is None else float(limits[1]))
         removed_limit = payload.get("removed_limit")
         dmodx = (payload.get("layers") or {}).get("DModX")
-        if layer == "Prediction" and removed_limit is not None and dmodx is not None:
+        if layer == "Prediction" and removed_limit is not None and dmodx is not None \
+                and payload.get("grey_removed", True):
             removed = self._display_spatial_map(dmodx)
             if removed is not None and removed.shape == arr.shape:
                 self._ax.imshow(np.ma.masked_where(~(removed > removed_limit),
                                                    np.ones_like(arr)),
                                 cmap=ListedColormap([GUIDE_COLOR]), alpha=0.85, origin="upper",
                                 aspect="auto", interpolation="nearest", extent=extent)
-        for (f0, f1, r0, r1), label in payload.get("roi_overlays") or ():
+        outlines = payload.get("roi_overlays") if payload.get("show_roi_outlines", True) else ()
+        for (f0, f1, r0, r1), label, *_name in outlines or ():
             self._ax.add_patch(Rectangle((f0 - 0.5, r0 - 0.5), f1 - f0 + 1, r1 - r0 + 1,
                                          fill=False, edgecolor=colors["fg"], linewidth=1.0,
                                          linestyle="--"))
@@ -370,7 +375,8 @@ class PredictionMapWidget(QWidget):
                 f"mean={float(np.mean(finite)):.4g} | "
                 f"max={float(np.max(finite)):.4g}{self._limit_text(payload, layer)}{preview}"
             )
-        self._cursor_label.setText("")
+        self._hover = self._hover_layers(payload, output_index, arr.shape)
+        self._set_hover("")
         self._last_layout_size = maybe_tight_layout(
             self._fig,
             self._canvas,
@@ -430,7 +436,8 @@ class PredictionMapWidget(QWidget):
         self._ax.set_ylabel("Row", color=colors["fg"])
         draw_placeholder(self._ax, empty_reason or "No prediction in this session yet.", colors)
         self._stats_label.setText("")
-        self._cursor_label.setText("")
+        self._hover = {}
+        self._set_hover("")
         self._last_layout_size = maybe_tight_layout(
             self._fig,
             self._canvas,
@@ -556,19 +563,79 @@ class PredictionMapWidget(QWidget):
             return None
         return row, column
 
+    def _hover_layers(self, payload: dict[str, Any], output_index: int,
+                      shape: tuple[int, ...]) -> dict[str, Any]:
+        """What the hover readout needs, shaped like the shown map."""
+        layers: dict[str, Any] = {}
+        prediction = self._display_spatial_map(payload.get("spatial_map"),
+                                               output_index=output_index)
+        if prediction is not None and prediction.shape == shape:
+            layers["Prediction"] = prediction
+        for name in ("DModX", "T²"):
+            values = (payload.get("layers") or {}).get(name)
+            shown = None if values is None else self._display_spatial_map(values)
+            if shown is not None and shown.shape == shape:
+                layers[name] = shown
+        limits = self.user_limits or payload.get("colour_range")
+        return {"layers": layers, "limits": limits,
+                "dcrit": self._layer_limit(payload, "DModX"),
+                "removed": payload.get("removed_limit"),
+                "rois": [(entry[0], entry[2] if len(entry) > 2 else str(entry[1]).split()[0])
+                         for entry in payload.get("roi_overlays") or ()]}
+
+    def describe_pixel(self, frame: int, row: int) -> str:
+        """``Frame f | Row r | Prediction 6.12 | DModX 1.8 (DCrit 1.4: removed) | T² 3.2 |
+        ROI 03`` for the shown pixel at a true frame and row (``""`` outside the map)."""
+        layers = self._hover.get("layers") or {}
+        shown_row, shown_column = row // self._step, frame // self._step
+        first = next(iter(layers.values()), None)
+        if first is None or not (0 <= shown_row < first.shape[0]
+                                 and 0 <= shown_column < first.shape[1]):
+            return ""
+        frame, row = shown_column * self._step, shown_row * self._step
+        parts = [f"Frame {frame}", f"Row {row}"]
+        if "Prediction" in layers:
+            value = float(layers["Prediction"][shown_row, shown_column])
+            text = f"Prediction {value:.4g}"
+            limits = self._hover.get("limits")
+            if limits is not None and np.isfinite(value):
+                if value < limits[0]:
+                    text += " (below the colour range)"
+                elif value > limits[1]:
+                    text += " (above the colour range)"
+            parts.append(text)
+        if "DModX" in layers:
+            value = float(layers["DModX"][shown_row, shown_column])
+            text = f"DModX {value:.3g}"
+            dcrit, removed = self._hover.get("dcrit"), self._hover.get("removed")
+            notes = []
+            if dcrit is not None:
+                notes.append(f"DCrit 0.99 {dcrit:.3g}" + (": above" if value > dcrit else ""))
+            if removed is not None:
+                notes.append(f"removal limit {removed:.3g}"
+                             + (": removed" if value > removed else ""))
+            parts.append(text + (f" ({', '.join(notes)})" if notes else ""))
+        if "T²" in layers:
+            parts.append(f"T² {float(layers['T²'][shown_row, shown_column]):.3g}")
+        for (f0, f1, r0, r1), name in self._hover.get("rois") or ():
+            if f0 <= frame <= f1 and r0 <= row <= r1:
+                parts.append(f"ROI {name}")
+                break
+        return " | ".join(parts)
+
+    def _set_hover(self, text: str) -> None:
+        if text != self.hover_text:
+            self.hover_text = text
+            self.hovered.emit(text)
+
     def _on_motion(self, event: Any) -> None:
-        arr = self._current_display_map
-        if arr is None or event.inaxes is not self._ax or event.xdata is None or event.ydata is None:
-            self._cursor_label.setText("")
+        if self._current_display_map is None or event.inaxes is not self._ax \
+                or event.xdata is None or event.ydata is None:
+            self._set_hover("")
             return
         pixel = self._pixel_at(float(event.xdata), float(event.ydata))
-        if pixel is None:
-            self._cursor_label.setText("")
-            return
-        row, column = pixel
-        value = float(arr[row, column])
-        self._cursor_label.setText(
-            f"Frame {column * self._step} | Row {row * self._step} | Value {value:.4g}")
+        self._set_hover("" if pixel is None else
+                        self.describe_pixel(pixel[1] * self._step, pixel[0] * self._step))
 
     def _remove_colorbar(self) -> None:
         if self._colorbar is None:
@@ -682,6 +749,8 @@ class PredictionView(QWidget):
 
     #: The ROI results changed (a prediction, or another exclusion).
     results_changed = pyqtSignal()
+    #: A display setting changed (colour scale, overlays, histogram source).
+    display_changed = pyqtSignal()
 
     def __init__(
         self,
@@ -705,6 +774,7 @@ class PredictionView(QWidget):
         self._roi_scope = ""
         self._roi_note: str | None = None
         self._results_revision = 0
+        self._display_revision = 0
         self._roi_payload_cache: tuple[Any, dict[str, Any]] | None = None
         self._histogram_cache: tuple[Any, dict[str, Any] | None] | None = None
         self._data_file_adder: Callable[[str], str | None] | None = None
@@ -720,6 +790,8 @@ class PredictionView(QWidget):
         self.project_state.prediction_completed.connect(self._on_prediction_completed)
         # A changed reference value changes residuals and RMSEP.
         self.project_state.target_assignments_changed.connect(self._recompute_if_results)
+        self._results_project = project_state.project_path
+        self.project_state.project_loaded.connect(self._on_project_loaded)
         self._update_status()
 
     def _build_group(self) -> QGroupBox:
@@ -727,14 +799,9 @@ class PredictionView(QWidget):
         layout = QVBoxLayout(box)
         layout.setSpacing(2)
 
+        # Status texts for the summary headline; the dock shows only controls and progress.
         self._prediction_status = QLabel("Prediction: none")
-        self._prediction_status.setStyleSheet(secondary_text_style())
-        layout.addWidget(self._prediction_status)
-
         self._readiness_status = QLabel("Ready: fit or load a model run.")
-        self._readiness_status.setStyleSheet(secondary_text_style())
-        self._readiness_status.setWordWrap(True)
-        layout.addWidget(self._readiness_status)
 
         button_row = QHBoxLayout()
         self._btn_predict_rois = QToolButton()
@@ -773,12 +840,126 @@ class PredictionView(QWidget):
         self._exclusion_level.valueChanged.connect(self._recompute_roi_results)
         exclusion_row.addWidget(self._exclusion_check)
         exclusion_row.addWidget(self._exclusion_level)
+        self._dcrit_label = QLabel("")
+        self._dcrit_label.setStyleSheet(secondary_text_style())
+        self._dcrit_label.setToolTip("The DModX limit at this level, per model: pixels above "
+                                     "it are removed")
+        exclusion_row.addWidget(self._dcrit_label)
         exclusion_row.addStretch(1)
         layout.addLayout(exclusion_row)
+        layout.addLayout(self._build_display_rows())
 
         self._service_status = BusyStatusWidget(idle_text="Service: idle", parent=self)
         layout.addWidget(self._service_status)
         return box
+
+    def _build_display_rows(self) -> QGridLayout:
+        """Colour scale, map overlays and histogram source (session settings, not stored)."""
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(2)
+        self._colour_mode = QComboBox()
+        self._colour_mode.addItem("Training range", "training")
+        self._colour_mode.addItem("Own limits", "own")
+        self._colour_mode.setToolTip("Map colours: the target's range in the model's training "
+                                     "values, or your own limits (one scale over a series of "
+                                     "trays); values outside get their own colours")
+        self._colour_low, self._colour_high = QDoubleSpinBox(), QDoubleSpinBox()
+        for spin, prefix in ((self._colour_low, "low "), (self._colour_high, "high ")):
+            spin.setRange(-1e6, 1e6)
+            spin.setDecimals(3)
+            spin.setPrefix(prefix)
+            spin.setEnabled(False)
+            spin.valueChanged.connect(self._on_display_changed)
+        self._colour_mode.currentIndexChanged.connect(self._on_colour_mode_changed)
+        grid.addWidget(QLabel("Colour scale"), 0, 0)
+        grid.addWidget(self._colour_mode, 0, 1)
+        grid.addWidget(self._colour_low, 0, 2)
+        grid.addWidget(self._colour_high, 0, 3)
+        self._show_outlines = QCheckBox("ROI outlines")
+        self._show_outlines.setToolTip("Outline the prediction ROIs on the map, with their mean")
+        self._grey_removed = QCheckBox("Grey removed pixels")
+        self._grey_removed.setToolTip("Grey the pixels above the DModX limit when pixels are "
+                                      "removed")
+        for check in (self._show_outlines, self._grey_removed):
+            check.setChecked(True)
+            check.toggled.connect(self._on_display_changed)
+        grid.addWidget(QLabel("Map"), 1, 0)
+        grid.addWidget(self._show_outlines, 1, 1)
+        grid.addWidget(self._grey_removed, 1, 2, 1, 2)
+        self._histogram_source = QComboBox()
+        self._histogram_source.addItem("ROI pixels", "rois")
+        self._histogram_source.addItem("Whole map", "map")
+        self._histogram_source.setToolTip("The histogram's pixels: the kept pixels of the "
+                                          "prediction ROIs (when there are ROI results), or "
+                                          "every pixel of the shown map")
+        self._histogram_source.currentIndexChanged.connect(self._on_display_changed)
+        grid.addWidget(QLabel("Histogram"), 2, 0)
+        grid.addWidget(self._histogram_source, 2, 1)
+        grid.setColumnStretch(4, 1)
+        return grid
+
+    @property
+    def colour_limits(self) -> tuple[float, float] | None:
+        """The user's colour limits, or ``None`` for the training range."""
+        if self._colour_mode.currentData() != "own":
+            return None
+        low, high = self._colour_low.value(), self._colour_high.value()
+        return (low, high) if high > low else None
+
+    def set_colour_limits(self, limits: tuple[float, float] | None) -> None:
+        """Set own colour limits (``None``: the training range), e.g. from the map's menu."""
+        for widget in (self._colour_mode, self._colour_low, self._colour_high):
+            widget.blockSignals(True)
+        if limits is not None:
+            self._colour_low.setValue(limits[0])
+            self._colour_high.setValue(limits[1])
+        self._colour_mode.setCurrentIndex(0 if limits is None else 1)
+        for spin in (self._colour_low, self._colour_high):
+            spin.setEnabled(limits is not None)
+        for widget in (self._colour_mode, self._colour_low, self._colour_high):
+            widget.blockSignals(False)
+        self._on_display_changed()
+
+    def _on_colour_mode_changed(self, *_args: Any) -> None:
+        own = self._colour_mode.currentData() == "own"
+        if own and not self._colour_high.value() > self._colour_low.value():
+            # Start from the training range, so the map does not jump.
+            payload = self.workspace_visual_payload() or {}
+            low, high = payload.get("colour_range") or (0.0, 1.0)
+            for spin, value in ((self._colour_low, low), (self._colour_high, high)):
+                spin.blockSignals(True)
+                spin.setValue(float(value))
+                spin.blockSignals(False)
+        for spin in (self._colour_low, self._colour_high):
+            spin.setEnabled(own)
+        self._on_display_changed()
+
+    @property
+    def show_roi_outlines(self) -> bool:
+        return self._show_outlines.isChecked()
+
+    @property
+    def histogram_source(self) -> str:
+        """``"rois"`` or ``"map"``."""
+        return str(self._histogram_source.currentData())
+
+    def _on_display_changed(self, *_args: Any) -> None:
+        self._display_revision += 1
+        self.display_changed.emit()
+
+    def _update_dcrit_label(self) -> None:
+        """The DModX limit at the chosen level, per model (empty without results)."""
+        level = self._exclusion_level.value()
+        limits = [(p.model_name, p.dmodx_limit_at(level)) for p in self._roi_predictions]
+        limits = [(name, limit) for name, limit in limits if limit is not None]
+        if not limits:
+            self._dcrit_label.setText("")
+        elif len(limits) == 1:
+            self._dcrit_label.setText(f"DCrit at {level:g}: {limits[0][1]:.3g}")
+        else:
+            self._dcrit_label.setText(f"DCrit at {level:g}: " + ", ".join(
+                f"{name} {limit:.3g}" for name, limit in limits))
 
     # -- choices ----------------------------------------------------------
 
@@ -916,8 +1097,19 @@ class PredictionView(QWidget):
         self._roi_summaries = [roi_prediction_statistics(
             prediction, target_assignments=self.project_state.target_assignments,
             exclude_dmodx=level) for prediction in self._roi_predictions]
+        self.project_state.set_roi_results(self._roi_summaries)  # the ROI table shows them
+        self._update_dcrit_label()
         self._results_revision += 1
         self.results_changed.emit()
+
+    def _on_project_loaded(self) -> None:
+        """Another project: the ROI results of the last one go (they are never stored)."""
+        if self.project_state.project_path == self._results_project:
+            return
+        self._results_project = self.project_state.project_path
+        if self._roi_predictions or self._roi_note:
+            self._roi_predictions, self._roi_note = [], None
+            self._recompute_roi_results()
 
     def _recompute_if_results(self, *_args: Any) -> None:
         if self._roi_predictions:
@@ -977,54 +1169,63 @@ class PredictionView(QWidget):
                     "Predict ROIs to see one result per tablet.")}
 
     def roi_summary_lines(self) -> list[str]:
-        """Plain lines for the summary panel: scope, refused ROIs, RMSEP per model."""
+        """Plain lines for the summary panel: RMSEP and refused ROIs per model (the scope and
+        the models are in the headline, the per-ROI values in the ROI table)."""
         if not self._roi_predictions:
             return []
-        lines = [f"{sum(len(p.pixels) for p in self._roi_predictions[:1])} ROI(s) of "
-                 f"{self._roi_scope}"]
+        lines = []
+        several = len(self._roi_predictions) > 1
         for prediction, summary in zip(self._roi_predictions, self._roi_summaries, strict=True):
-            text = prediction.model_name
-            if summary.rmsep is not None:
-                text += (f": RMSEP {summary.rmsep:.3g}, bias {summary.bias:.3g} "
-                         f"(n {summary.n_reference})")
+            text = (f"RMSEP {summary.rmsep:.3g}, bias {summary.bias:.3g} "
+                    f"(n {summary.n_reference})" if summary.rmsep is not None
+                    else "no reference values: no RMSEP")
             if prediction.refused:
                 text += f"; {len(prediction.refused)} ROI(s) refused"
-            lines.append(text)
+            lines.append(f"{prediction.model_name}: {text}" if several else text)
+        lines.append("Values per ROI: ROI table")
         for prediction in self._roi_predictions[:1]:
             lines += [f"Wavelengths of {self.project_state.data_file_label(d)}: {w}"
                       for d, w in prediction.wavelength_warnings.items()]
         return lines
 
-    def roi_value_rows(self) -> list[tuple[str, str]]:
-        """One row per prediction ROI: its name, and per model the mean with SD and the
-        removed pixels, then the reference value (the numbers behind the per-ROI plot)."""
-        state = self.project_state
-        by_roi: dict[str, list[str]] = {}
-        reference: dict[str, float | None] = {}
-        for summary in self._roi_summaries:
-            for row in summary.rois:
-                text = "-" if not np.isfinite(row.mean) else (
-                    f"{row.mean:.3g}" + (f" ± {row.sd:.2g}" if np.isfinite(row.sd) else ""))
-                if row.n_removed:
-                    text += f" ({100 * row.n_removed / max(row.n_pixels, 1):.0f} % removed)"
-                by_roi.setdefault(row.roi_id, []).append(text)
-                reference[row.roi_id] = row.reference
-        from ._project_rois import _short_names
+    def status_text(self) -> str:
+        """The status line on Predict without hovering: the shown map's data file, the
+        model's signal and recipe, the model and the target."""
+        summary = self.workspace_summary()
+        result = self._resolved_workspace_prediction()
+        shown = (f"Map: {summary['dataset']}" if result is not None else
+                 f"ROIs: {self._roi_scope}" if self._roi_predictions else "Map: none")
+        return " | ".join((shown, f"Signal: {summary['signal']}",
+                           f"Model: {summary['model']}", f"Target: {summary['target']}"))
 
-        names = _short_names({roi_id: (roi_id if state.rois.get(roi_id) is None
-                                       else state.rois[roi_id].name) for roi_id in by_roi}, {})
-        rows = []
-        for roi_id, texts in by_roi.items():
-            ref = reference.get(roi_id)
-            rows.append((names[roi_id],
-                         " | ".join(texts) + ("" if ref is None else f"; ref {ref:.3g}")))
-        return sorted(rows, key=lambda row: row[0])
+    def roi_hover_text(self, roi_id: str) -> str:
+        """``ROI 03 | <model> 6.05 ± 0.93, 6 % removed, 12 % above DCrit | ref 4`` (or "")."""
+        if not roi_id:
+            return ""
+        roi = self.project_state.rois.get(roi_id)
+        parts = [f"ROI {roi_id if roi is None else roi.name}"]
+        reference = None
+        for summary in self._roi_summaries:
+            row = next((r for r in summary.rois if r.roi_id == roi_id), None)
+            if row is None:
+                continue
+            reference = row.reference
+            text = f"{summary.model_name} {row.mean:.4g}"
+            if np.isfinite(row.sd):
+                text += f" ± {row.sd:.2g}"
+            text += f", {100 * row.n_removed / max(row.n_pixels, 1):.0f} % removed"
+            if np.isfinite(row.share_above_dcrit):
+                text += f", {100 * row.share_above_dcrit:.0f} % above DCrit"
+            parts.append(text)
+        if reference is not None:
+            parts.append(f"ref {reference:.4g}")
+        return " | ".join(parts) if len(parts) > 1 else ""
 
     def histogram_payload(self, shown: dict[str, Any] | None) -> dict[str, Any] | None:
         """The histogram's payload: per model the kept pixels of the prediction ROIs (the
         pixels behind the per-ROI statistics), or ``shown`` (the shown map) without ROI
         results. Follows the DModX exclusion; the same object while nothing changed."""
-        token = (self._results_revision, id(shown))
+        token = (self._results_revision, self._display_revision, id(shown))
         if self._histogram_cache is not None and self._histogram_cache[0] == token:
             return self._histogram_cache[1]
         payload = self._build_histogram_payload(shown)
@@ -1032,6 +1233,8 @@ class PredictionView(QWidget):
         return payload
 
     def _build_histogram_payload(self, shown: dict[str, Any] | None) -> dict[str, Any] | None:
+        if self.histogram_source == "map":
+            return shown
         level = self._exclusion_level.value() if self._exclusion_check.isChecked() else None
         series = []
         for prediction in self._roi_predictions:
@@ -1192,9 +1395,13 @@ class PredictionView(QWidget):
     def workspace_summary(self) -> dict[str, str]:
         result = self._resolved_workspace_prediction()
         run = None if result is None else result.prediction_run
-        model_run = None if run is None else self.project_state.model_runs.get(run.model_run_id)
-        signal_domain = (None if run is None
-                         else self.project_state.signal_domains.get(run.signal_domain_id))
+        # The chain is the map's, or else the (first) model of the ROI results.
+        model_run_id = (run.model_run_id if run is not None else
+                        self._roi_predictions[0].model_run_id if self._roi_predictions else None)
+        model_run = (None if model_run_id is None
+                     else self.project_state.model_runs.get(model_run_id))
+        signal_domain = (None if model_run is None
+                         else self.project_state.signal_domains.get(model_run.signal_domain_id))
 
         target_text = "none"
         if model_run is not None:
@@ -1245,12 +1452,20 @@ class PredictionView(QWidget):
 
         status_text = self._prediction_status.text()
         readiness_text = self._readiness_status.text()
+        headline = readiness_text
+        if self._roi_predictions:
+            n_rois = len({roi_id for p in self._roi_predictions for roi_id in p.pixels})
+            headline = (f"{n_rois} prediction ROI(s) of {self._roi_scope} with "
+                        f"{', '.join(p.model_name for p in self._roi_predictions)} "
+                        "(not stored)")
         if result is not None:
             status_text = f"Prediction: {dataset_text} (this session, not stored)"
             readiness_text = "Ready: run another prediction or inspect results."
+            headline = f"Map of {dataset_text} with {model_text} (not stored)"
 
         return {
             "title": "Prediction Results",
+            "headline": headline,
             "status": status_text,
             "readiness": readiness_text,
             "service": self._service_status.label.text(),
@@ -1300,7 +1515,7 @@ class PredictionView(QWidget):
             self._cached_workspace_visual_payload = None
             return None
         run = result.prediction_run
-        token = (run.prediction_run_id, self._results_revision)
+        token = (run.prediction_run_id, self._results_revision, self._display_revision)
         if self._cached_workspace_visual_token == token:
             return self._cached_workspace_visual_payload
         model_run = self.project_state.model_runs.get(run.model_run_id)
@@ -1339,6 +1554,7 @@ class PredictionView(QWidget):
             if prediction.model_run_id == model_run_id:
                 means = {row.roi_id: row.mean for row in summary.rois}
                 if self._exclusion_check.isChecked():
+                    extras["grey_removed"] = self._grey_removed.isChecked()
                     extras["removed_limit"] = prediction.dmodx_limit_at(
                         self._exclusion_level.value())
         from ._project_rois import _short_names
@@ -1346,9 +1562,10 @@ class PredictionView(QWidget):
         rois = [roi for roi in state.rois.values()
                 if roi.dataset_id == dataset_id and roi.use == "prediction"]
         short = _short_names({roi.roi_id: roi.name for roi in rois}, {})
+        extras["show_roi_outlines"] = self.show_roi_outlines
         extras["roi_overlays"] = [
             (roi.spatial_bounds, short[roi.roi_id] if roi.roi_id not in means
-             else f"{short[roi.roi_id]}  {means[roi.roi_id]:.3g}")
+             else f"{short[roi.roi_id]}  {means[roi.roi_id]:.3g}", short[roi.roi_id])
             for roi in rois]
         return extras
 
