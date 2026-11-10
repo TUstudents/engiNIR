@@ -511,6 +511,7 @@ class HSIViewer(QMainWindow):
 
         self._predict_content_title = QLabel("Prediction Results")
         self._predict_summary_status = QLabel("Prediction: none")
+        self._predict_summary_status.setWordWrap(True)
         self._predict_summary_readiness = QLabel("Ready: fit or load a model run.")
         self._predict_summary_readiness.setWordWrap(True)
         self._predict_summary_service = BusyStatusWidget(idle_text="Service: idle", parent=page)
@@ -527,9 +528,8 @@ class HSIViewer(QMainWindow):
         self._predict_roi_results = PlotPanel(ROI_RESULTS)
         self._predict_roi_results.roi_selected.connect(self._on_canvas_roi_selected)
         self._predict_map_frame.add_menu_action("Colour limits...", self._ask_colour_limits)
-        self._predict_map_widget.displayed_map_changed.connect(
-            lambda shown: self._predict_histogram.update_data(
-                shown, provenance=self._prediction_view.workspace_provenance()))
+        self._predict_shown_map: dict[str, Any] | None = None
+        self._predict_map_widget.displayed_map_changed.connect(self._on_predict_map_shown)
         self._predict_graph_panel = PlotPageWidget(
             PlotPage("Prediction", (PlotSlot("predict.map", 0, 0, row_span=2, column_span=3),
                                     PlotSlot("predict.roi_results", 2, 0, column_span=2),
@@ -579,7 +579,6 @@ class HSIViewer(QMainWindow):
         self._predict_map_shape_value = wrapped()
         self._predict_map_range_value = wrapped()
         self._predict_clipping_value = wrapped()
-        compatibility_layout.addRow("Shown", self._predict_card_prediction_value)
         compatibility_layout.addRow("Data file", self._predict_card_dataset_value)
         compatibility_layout.addRow("Calibration", self._predict_card_calibration_value)
         compatibility_layout.addRow("Map shape", self._predict_map_shape_value)
@@ -595,6 +594,10 @@ class HSIViewer(QMainWindow):
         rois_box, rois_layout = group("Prediction ROIs")
         self._predict_rois_value = wrapped("none")
         rois_layout.addRow(self._predict_rois_value)
+        # The numbers behind the per-ROI plot: mean ± SD per model, reference value.
+        self._predict_roi_values = QFormLayout()
+        self._predict_roi_values.setSpacing(2)
+        rois_layout.addRow(self._predict_roi_values)
 
         layout.addWidget(self._predict_content_title)
         predict_text_layout.addWidget(self._predict_summary_status)
@@ -613,6 +616,31 @@ class HSIViewer(QMainWindow):
         self._predict_workspace_splitter.setSizes([900, 300])
         layout.addWidget(self._predict_workspace_splitter, 1)
         return page
+
+    def _set_roi_value_rows(self, rows: list[tuple[str, str]]) -> None:
+        """One line per prediction ROI in the summary (rebuilt only when the rows change)."""
+        if rows == getattr(self, "_shown_roi_value_rows", None):
+            return
+        self._shown_roi_value_rows = rows
+        while self._predict_roi_values.rowCount():
+            self._predict_roi_values.removeRow(0)
+        for name, text in rows:
+            value = QLabel(text)
+            value.setWordWrap(True)
+            value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            self._predict_roi_values.addRow(name, value)
+
+    def _on_predict_map_shown(self, shown: dict[str, Any] | None) -> None:
+        self._predict_shown_map = shown
+        self._update_predict_histogram()
+
+    def _update_predict_histogram(self) -> None:
+        """The ROI pixels with ROI results (following the exclusion), else the shown map."""
+        if self._predict_map_widget is None:
+            return
+        self._predict_histogram.update_data(
+            self._prediction_view.histogram_payload(self._predict_shown_map),
+            provenance=self._prediction_view.workspace_provenance())
 
     def _reset_image_view(self) -> None:
         """Reset the central image view to the full image bounds."""
@@ -979,6 +1007,7 @@ class HSIViewer(QMainWindow):
             self.schedule_workspace_content_refresh
         )
         self._prediction_view.results_changed.connect(self.schedule_workspace_content_refresh)
+        self._prediction_view.results_changed.connect(self._update_predict_histogram)
         self._prediction_view.set_data_file_adder(self._add_prediction_data_file)
         self._prediction_view._service_status.status_changed.connect(
             self.schedule_workspace_content_refresh
@@ -1294,9 +1323,11 @@ class HSIViewer(QMainWindow):
         self._predict_diagnostics_value.setText(prediction_summary["diagnostics"])
         self._predict_wavelengths_value.setText(prediction_summary["wavelengths"])
         self._predict_rois_value.setText(prediction_summary.get("rois", "none"))
+        self._set_roi_value_rows(self._prediction_view.roi_value_rows())
         self._predict_roi_results.update_data(
             self._prediction_view.roi_results_payload(),
             provenance=self._prediction_view.workspace_provenance())
+        self._update_predict_histogram()
         predict_map_widget.update_data(
             self._prediction_view.workspace_visual_payload(),
             empty_reason=prediction_summary["readiness"],

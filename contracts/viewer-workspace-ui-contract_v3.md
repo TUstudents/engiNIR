@@ -510,7 +510,10 @@ Required controls:
   one data file or of all data files (`prediction-runtime-contract_v3.md`,
   Prediction ROIs); needs only the project file
 - **Predict map**: one model on one project data file, every pixel, with
-  the per-ROI results of that file's prediction ROIs
+  the per-ROI results of that file's prediction ROIs; a map of a file
+  without prediction ROIs drops earlier per-ROI results and says so (map
+  and per-ROI results always describe the same data file). The file list
+  names each file with its whole folder and its number of prediction ROIs
 - the data file is a project data file; **Add data file...** opens the Add
   data file dialog (calibration chosen there, never reused from training
   silently; the dialog shows what the model was trained with). There is no
@@ -533,8 +536,9 @@ Required prediction-map interaction:
 - the prediction ROIs of the shown data file are drawn on the map with their
   mean; with the exclusion on, removed pixels are greyed
 - a per-ROI plot (a plot panel): each ROI's mean with its 5–95 % range, the
-  share of pixels above DCrit (0.99) against the training ROIs' range (like for
-  like; the removed count is in the table), the reference value when
+  share of pixels above DCrit (0.99) against the training ROIs' 10–90 %
+  range and median (like for like; the removed count is in the table),
+  the value at each mean, the reference value when
   present; a bar selects its ROI; with several models, one bar per ROI and
   model, grouped by ROI and coloured by model. Its CSV is the per-ROI table
   in long format, one row per ROI and model (ROI name and id, data file,
@@ -544,7 +548,8 @@ Required prediction-map interaction:
 - the pixel histogram shows the kept pixels of the prediction ROIs (all
   pixels of the map when the data file has no prediction ROI)
 - the summary names the model and data file (never ids) and groups the
-  chain, the scan and the applicability
+  chain, the scan and the applicability; it lists each prediction ROI's
+  value (mean ± SD per model, the removed share, the reference value)
 - multi-output prediction artifacts must expose an explicit target/output
   selector before the map is rendered
 - a layer selector shows the prediction, the distance to the model (DModXPS)

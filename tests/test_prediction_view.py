@@ -279,9 +279,11 @@ def test_prediction_summary_reports_run_metadata_and_applicability(qapp, project
                                                  diagnostics=summary, artifact_refs=refs))
     text = view.workspace_summary()
     assert text["map_shape"] == "3 x 2" and text["map_range"] == "1 .. 4"
-    assert text["clipping"] == "low=2 | high=3 | near-zero denom=1"
-    assert text["diagnostics"] == ("above DCrit: 50 % | above T²Crit: 0 % | "
-                                   "mean within limits 1.5 | outside 3.5")
+    assert text["clipping"] == ("reflectance clipped: 2 below 1e-6, 3 above 1, "
+                                "1 with white ≈ dark")
+    assert text["diagnostics"] == ("50 % above DCrit, 0 % above T²Crit (whole map, background "
+                                   "included)\nMean prediction: 1.5 within the limits, "
+                                   "3.5 outside")
     assert text["dataset"] == "scan.h5" and "not stored" in text["status"]
 
     project_state.add_prediction(_session_result("old", grid))
@@ -425,3 +427,48 @@ def test_predict_rois_compares_models_and_the_exclusion_needs_no_new_prediction(
     assert after is not before and sum(row["removed"] for row in after["roi_rows"]) > 0
     assert len(calls) == 2, "recalculated from the predicted pixels"
     assert "removed" in after["exclusion_text"]
+
+    # The histogram shows the pixels behind the statistics: the kept ROI pixels per model.
+    shown = {"values": np.full((4, 4), -60.0), "provenance": {}}  # a background-only map
+    histogram = view.histogram_payload(shown)
+    assert histogram is not None
+    series = dict(histogram["series"])
+    assert set(series) == {model.name, other.name}, "the ROI pixels, not the map"
+    for name in series:
+        kept = sum(row["pixels"] - row["removed"] for row in after["roi_rows"]
+                   if row["model"] == name)
+        assert series[name].size == kept
+    view._exclusion_check.setChecked(False)
+    every = view.histogram_payload(shown)["series"]
+    assert sum(values.size for _name, values in every) > sum(v.size for v in series.values())
+
+
+def test_a_map_of_a_file_without_prediction_rois_drops_the_old_roi_results(
+        qapp, fitted_tray, monkeypatch, tmp_path):
+    """Map and ROI results always describe the same data file."""
+    import shutil
+
+    from enginir.viewer._predict_dialogs import PredictMapDialog
+    from enginir.viewer._prediction import PredictionView
+
+    project, model, state, path = fitted_tray
+    copy = tmp_path / "other" / "tray.h5"
+    copy.parent.mkdir()
+    shutil.copy(path, copy)
+    n = 2 + 10 * 4 + 2
+    other_id = project.add_dataset(copy, dark_frames=(0, 1),
+                                   white_frames=(n - 2, n - 1)).ref.dataset_id
+    state.open_project(str(project.path))
+    view = PredictionView(state)
+    view._set_roi_predictions([model.roi_prediction()], scope="tray")
+    assert view.roi_results_payload()["roi_rows"]
+    label = view._map_file_label(other_id)
+    assert label.endswith("no prediction ROIs") and "other" in label
+    monkeypatch.setattr(PredictMapDialog, "exec", lambda self: self.DialogCode.Accepted)
+    monkeypatch.setattr(PredictMapDialog, "dataset_id", property(lambda self: other_id))
+    view.predict_btn_clicked()
+    _wait_until(qapp, lambda: bool(state.predictions), timeout=30)
+    _wait_until(qapp, lambda: not view._roi_predictions, timeout=10)
+    payload = view.roi_results_payload()
+    assert not payload["roi_rows"] and "No prediction ROIs on" in payload["message"]
+    assert view.workspace_summary()["rois"].startswith("No prediction ROIs on")

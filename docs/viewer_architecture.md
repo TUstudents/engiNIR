@@ -321,8 +321,10 @@ implement `PlotSource` (`plot_table()`, `print_figure()`) and are shown in a
   pan, zoom, reset) are added to its frame. The layers are `MAP_LAYERS`
   (Prediction, DModX, T²); a diagnostics layer marks the pixels above its
   0.99 limit and is disabled for a model without projection data. It emits
-  `displayed_map_changed` (values, quantity, limit) to feed the
-  `predict.histogram` spec, which draws the limit.
+  `displayed_map_changed` (values, quantity, limit). The `predict.histogram`
+  spec draws `PredictionView.histogram_payload(shown)`: the kept pixels of
+  the prediction ROIs per model when there are ROI results (following the
+  exclusion), else the shown map, with its limit.
 - `PlotPageWidget` lays out frames that are not specs in slots, with the same
   maximize as `PlotGrid`. The Predict page uses it for the map and the
   histogram.

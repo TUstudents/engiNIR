@@ -61,7 +61,9 @@ class RoiPrediction:
     :func:`~enginir.validation.dmodx_limit` (``None`` without projection
     data); ``default_exclusion`` the DModX level of the run's own fit
     specification (``None``: no exclusion); ``training_share_range`` the
-    training ROIs' share of pixels above DCrit (0.99).
+    10th, 50th and 90th percentile of the training ROIs' shares of pixels
+    above DCrit (0.99): their typical range and median (the extremes are
+    single unusual ROIs).
     """
 
     model_run_id: str
@@ -73,7 +75,7 @@ class RoiPrediction:
     dcrit_099: float | None = None
     t2_crit_099: float | None = None
     default_exclusion: float | None = None
-    training_share_range: tuple[float, float] | None = None
+    training_share_range: tuple[float, float, float] | None = None
     wavelength_warnings: dict[str, str] = field(default_factory=dict)
 
     def dmodx_limit_at(self, level: float) -> float | None:
@@ -263,15 +265,19 @@ def _nanmean(values: np.ndarray) -> float:
     return float(finite.mean()) if finite.size else float("nan")
 
 
-def _training_share_range(project_path: str, model_run_id: str) -> tuple[float, float] | None:
-    """Min and max of the training ROIs' share of pixels above DCrit (0.99), if stored."""
+def _training_share_range(project_path: str,
+                          model_run_id: str) -> tuple[float, float, float] | None:
+    """10th, 50th and 90th percentile of the training ROIs' share above DCrit (0.99)."""
     refs = load_model_run_artifact_refs(project_path, model_run_id, keys=("diagnostics",))
     shares = (refs.get("diagnostics") or {}).get("roi_share_above_dcrit")
     if shares is None or not np.size(shares):
         return None
     values = np.asarray(shares, dtype=np.float64)
     values = values[np.isfinite(values)]
-    return (float(values.min()), float(values.max())) if values.size else None
+    if not values.size:
+        return None
+    low, median, high = np.percentile(values, [10, 50, 90])
+    return float(low), float(median), float(high)
 
 
 __all__ = ["RoiPixels", "RoiPrediction", "RoiPredictionSummary", "RoiStatistics",

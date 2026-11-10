@@ -48,6 +48,9 @@
   their means, and a grouped summary. The free path, dataset id and
   calibration fields of the old dialog are gone; a scan to predict is added
   with the Add data file dialog, which shows what the model was trained with.
+  The per-ROI plot labels each mean, the summary lists every ROI's value, the
+  histogram shows the kept ROI pixels, and map and per-ROI results always
+  describe the same data file.
 - Fold warnings: a fit records and logs `few_groups` and `one_level_per_file`
   (a data file's ROIs share one value but are held out in different folds)
   in `cv_spec/@warnings`; the fit dialog, the readiness line and the summary

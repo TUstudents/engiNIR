@@ -17,6 +17,8 @@ from typing import Any
 
 import numpy as np
 from matplotlib.figure import Figure
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -38,6 +40,16 @@ from ._ui_helpers import style_axes
 
 #: "All data files" in the Predict ROIs dialog.
 ALL_FILES = "__all__"
+
+
+def _show_whole_items(combo: QComboBox) -> None:
+    """Size the combo and its open list to its longest item (data file folders are long)."""
+    combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+    view = combo.view()
+    if view is not None:
+        width = max((combo.fontMetrics().horizontalAdvance(combo.itemText(i))
+                     for i in range(combo.count())), default=0)
+        view.setMinimumWidth(width + 40)
 
 
 @dataclass(frozen=True)
@@ -80,6 +92,7 @@ class PredictRoisDialog(QDialog):
             self._file_combo.addItem(f"{label} ({count} prediction ROIs)", dataset_id)
         self._file_combo.setCurrentIndex(max(0, self._file_combo.findData(default_file)))
         self._file_combo.currentIndexChanged.connect(self._update)
+        _show_whole_items(self._file_combo)
         form.addRow("Prediction ROIs of:", self._file_combo)
         layout.addLayout(form)
         self._chain = QLabel("")
@@ -146,6 +159,7 @@ class PredictMapDialog(QDialog):
             self._file_combo.addItem(label, dataset_id)
         self._file_combo.setCurrentIndex(max(0, self._file_combo.findData(default_file)))
         self._file_combo.currentIndexChanged.connect(self._update)
+        _show_whole_items(self._file_combo)
         add = QPushButton("Add data file...")
         add.setToolTip("Register a new scan with the Add data file dialog (its calibration is "
                        "chosen there, as for training scans)")
@@ -186,6 +200,7 @@ class PredictMapDialog(QDialog):
             return
         if self._file_combo.findData(dataset_id) < 0:
             self._file_combo.addItem(self._file_label(dataset_id), dataset_id)
+            _show_whole_items(self._file_combo)
         self._file_combo.setCurrentIndex(self._file_combo.findData(dataset_id))
 
     def _update(self, *_args: Any) -> None:
@@ -239,6 +254,12 @@ def _render_roi_results(fig: Figure, payload: Any, colors: Mapping[str, str]
         high = np.array([row["p95"] for row in mine], dtype=float)
         ax.vlines(x, low, high, colors=color, linewidth=max(2.0, 18 * width), alpha=0.35)
         ax.scatter(x, mean, color=color, s=28, zorder=3, label=f"{model} (mean, 5–95 %)")
+        if len(rows) <= 40:  # the reported value, readable at the dot
+            for xi, value in zip(x, mean, strict=True):
+                if np.isfinite(value):
+                    ax.annotate(f"{value:.3g}", (xi, value), xytext=(5, 0),
+                                textcoords="offset points", va="center", fontsize=7,
+                                color=color)
         refs = [(xi, row["reference"]) for xi, row in zip(x, mine, strict=True)
                 if row["reference"] is not None]
         if refs and m == 0:
@@ -254,25 +275,34 @@ def _render_roi_results(fig: Figure, payload: Any, colors: Mapping[str, str]
     unit = str(payload.get("target_unit", ""))
     ax.set_ylabel(f"Prediction{f' ({unit})' if unit else ''}", color=colors["fg"])
     note = payload.get("exclusion_text", "")
-    if note:
-        ax.text(0.01, 0.98, note, transform=ax.transAxes, va="top", fontsize=7,
-                color=colors["fg"])
+    ax.set_xlabel(f"ROI ({note})" if note else "ROI", color=colors["fg"], fontsize=8)
+    handles, labels_ = ax.get_legend_handles_labels()
     shares = [row["share_above_dcrit"] for row in rows if row["model"] == models[0]]
     if any(np.isfinite(share) for share in shares):
         right = ax.twinx()
         x0 = np.arange(len(rois))
         right.scatter(x0, np.asarray(shares, dtype=float) * 100, marker="D", s=14,
                       color=GUIDE_COLOR, zorder=2)
+        handles.append(Line2D([], [], marker="D", linestyle="", color=GUIDE_COLOR,
+                              markersize=4))
+        labels_.append("% pixels above DCrit (right)")
         band = payload.get("training_share")
         if band is not None:
-            right.axhspan(band[0] * 100, band[1] * 100, color=GUIDE_COLOR, alpha=0.15,
+            right.axhspan(band[0] * 100, band[-1] * 100, color=GUIDE_COLOR, alpha=0.15,
                           linewidth=0)
-        right.set_ylabel("◆ % pixels above DCrit (band: training)", color=colors["fg"],
-                         fontsize=7)
+            if len(band) == 3:
+                right.axhline(band[1] * 100, color=GUIDE_COLOR, linewidth=0.8, linestyle=":")
+            handles.append(Patch(color=GUIDE_COLOR, alpha=0.3))
+            labels_.append("same, training ROIs (10–90 %, median)")
+        right.set_ylabel("% pixels above DCrit", color=colors["fg"], fontsize=7)
         right.tick_params(colors=colors["fg"], labelsize=7)
-        right.set_ylim(bottom=0)
-    legend = ax.legend(fontsize=7, loc="best", frameon=True, labelcolor=colors["fg"],
-                       framealpha=0.85)
+        right.set_ylim(0, max(100.0, float(np.nanmax(np.asarray(shares, dtype=float))) * 100)
+                       * (1 + 0.12 * 4))
+    # Headroom above the bars for the legend, so it never hides a tablet.
+    low, high = ax.get_ylim()
+    ax.set_ylim(low, high + 0.12 * len(handles) * (high - low))
+    legend = ax.legend(handles, labels_, fontsize=7, loc="upper left", frameon=True,
+                       labelcolor=colors["fg"], framealpha=0.85)
     legend.get_frame().set_facecolor(colors.get("ax_bg", colors["bg"]))
     legend.get_frame().set_edgecolor("none")
     ax.set_xlim(-0.6, len(rois) - 0.4)
@@ -310,7 +340,8 @@ ROI_RESULTS = PlotSpec(
           "mean of its pixel predictions (the reported value), the bar the 5–95 % range of "
           "its pixels; one colour per model; × the reference value when the ROI has one. "
           "Diamonds (right axis): the share of the ROI's pixels above the DModX limit (0.99), "
-          "against the band of the model's training ROIs; far above the band means spectra "
+          "against the model's training ROIs (band: their 10–90 % range, dotted: median); far "
+          "above the band means spectra "
           "the model does not describe. Remove pixels above the DModX limit (Predict "
           "controls) to leave glare and substrate out of the statistics."))
 

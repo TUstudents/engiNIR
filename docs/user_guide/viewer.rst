@@ -355,8 +355,9 @@ converts training ROIs, and predicted with the model's recipe. The **Prediction
 per ROI** plot shows each ROI's mean prediction (the reported value) with
 the 5–95 % range of its pixels, one colour per model, the reference value
 (×) when the ROI has one, and the share of its pixels above the DModX limit
-(◆) against the band of the model's own training ROIs. Its CSV is the
-per-ROI table: ROI, data file, model, pixels, removed pixels, mean, median,
+(◆) against the model's own training ROIs (the band is their 10–90 % range,
+the dotted line their median). Each mean is written next to its dot. Its CSV
+is the per-ROI table: ROI, data file, model, pixels, removed pixels, mean, median,
 SD, 5 % and 95 %, mean DModX and T², shares above the limits, reference and
 residual, with RMSEP and bias per model.
 
@@ -394,8 +395,16 @@ every n-th frame and row; the axes, hover readout and CSV give the true
 frame and row. Models fitted before engiNIR 1.3 have no DModX and T²: fit
 them again to get the layers and the pixel removal.
 
+The **Prediction Distribution** histogram shows the pixels behind the per-ROI
+numbers: the kept pixels of the prediction ROIs, one outline per model, and
+it follows the pixel removal. Without ROI results it shows the pixels of the
+shown map. Map and per-ROI results always describe the same data file: a map
+of a file without prediction ROIs drops the earlier per-ROI results and says
+so; the Predict map file list shows each file's prediction ROIs.
+
 The summary on the right groups the **Prediction ROIs** (scope, RMSEP per
-model, refused ROIs), the **Chain** (model, signal unit and recipe, target),
+model, refused ROIs, and each ROI's value: mean ± SD per model, the share of
+pixels removed and the reference value), the **Chain** (model, signal unit and recipe, target),
 the **Scan** (data file, its calibration, map shape and range, clipped
 reflectance values) and the **Applicability** (share of pixels above the
 limits, wavelengths).

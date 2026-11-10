@@ -45,7 +45,7 @@ from ..prediction import (
 )
 from ..preprocessing import PreprocessingRecipe
 from ..project import CalibrationSpec
-from ._predict_dialogs import ModelChoice, PredictMapDialog, PredictRoisDialog
+from ._predict_dialogs import _MODEL_COLORS, ModelChoice, PredictMapDialog, PredictRoisDialog
 from ._jobs import BackgroundWorker, BusyStatusWidget, start_background_job
 from ._state import ProjectState
 from ._theme import GUIDE_COLOR, panel_colors, secondary_text_style
@@ -79,6 +79,11 @@ def _array_payload_fingerprint(value: Any) -> tuple[Any, ...]:
 
 #: Colours of predictions below and above the map's colour range.
 _BELOW_RANGE, _ABOVE_RANGE = "#4cc3d9", "#ff5f7e"
+
+
+def shown_unit(unit: str) -> str:
+    """The unit as shown in labels: "1" (dimensionless) and "" are not shown."""
+    return "" if unit in ("", "1") else unit
 
 
 def _ordinal(number: int) -> str:
@@ -592,46 +597,81 @@ class PredictionMapWidget(QWidget):
         self.update_data(payload, empty_reason=empty_reason)
 
 
+def _histogram_series(payload: Any) -> list[tuple[str, np.ndarray]]:
+    """The value sets of the histogram: per model the kept ROI pixels, or the shown map."""
+    if payload.get("series"):
+        return [(str(name), np.asarray(values, dtype=float))
+                for name, values in payload["series"]]
+    values = np.asarray(payload.get("values", []), dtype=float)
+    return [("shown map", values[np.isfinite(values)])]
+
+
 def _histogram_render(fig: Figure, payload: Any, colors: Any) -> None:
     ax = fig.add_subplot(111)
     style_axes(ax, colors)
-    counts, edges = _prediction_histogram(payload)
-    if counts is None or edges is None:
+    series = _histogram_series(payload)
+    edges = _histogram_edges(series)
+    if edges is None:
         draw_placeholder(ax, "No finite prediction values.", colors)
         return
-    ax.stairs(counts, edges, fill=True, color=colors["accent"], alpha=0.85)
+    rois = bool(payload.get("series"))
+    for index, (name, values) in enumerate(series):
+        counts, _ = np.histogram(values, bins=edges)
+        color = _MODEL_COLORS[index % len(_MODEL_COLORS)] if rois else colors["accent"]
+        ax.stairs(counts, edges, fill=len(series) == 1, color=color,
+                  alpha=0.85 if len(series) == 1 else 1.0, label=name)
     unit = str(payload.get("target_unit", ""))
     quantity = str(payload.get("quantity", "Prediction"))
     if payload.get("limit") is not None:
         ax.axvline(float(payload["limit"]), color=colors["fg"], linestyle="--", linewidth=1.0)
     ax.set_xlabel(f"{quantity} ({unit})" if unit else quantity, color=colors["fg"])
     ax.set_ylabel("Pixels", color=colors["fg"])
+    outside = sum(int(np.sum((values < edges[0]) | (values > edges[-1])))
+                  for _name, values in series)
+    title = str(payload.get("pixels", "shown map"))
+    ax.set_title(title + (f"; {outside} outside the axis" if outside else ""), fontsize=7,
+                 color=colors["fg"], loc="left", wrap=True)
+    if len(series) > 1:
+        ax.legend(fontsize=7, labelcolor=colors["fg"], frameon=False)
+
+
+def _histogram_edges(series: list[tuple[str, np.ndarray]]) -> np.ndarray | None:
+    finite = [values[np.isfinite(values)] for _name, values in series]
+    finite = [values for values in finite if values.size]
+    if not finite:
+        return None
+    pooled = np.concatenate(finite)
+    # A few far-off pixels (glare, edges) must not squeeze the bulk into a few bins: the
+    # axis then spans the central 99 % and the title counts the pixels outside it.
+    low, high = (float(v) for v in np.percentile(pooled, [0.5, 99.5]))
+    full = float(pooled.max() - pooled.min())
+    if not (high > low and (high - low) < full / 3):
+        low, high = float(pooled.min()), float(pooled.max())
+    return np.histogram_bin_edges(pooled, bins=50, range=(low, high) if high > low else None)
 
 
 def _histogram_table(payload: Any) -> PlotTable:
-    counts, edges = _prediction_histogram(payload)
-    if counts is None or edges is None:
+    series = _histogram_series(payload)
+    edges = _histogram_edges(series)
+    if edges is None:
         return PlotTable()
     unit = str(payload.get("target_unit", ""))
     metadata = dict(payload.get("provenance", {}))
-    metadata["pixels"] = "shown map" + (
+    metadata["pixels"] = str(payload.get("pixels", "shown map")) + (
         f", every {payload['map_step']}th frame and row" if payload.get("map_step", 1) > 1
         else "")
-    return PlotTable(columns=(PlotColumn("bin_start", edges[:-1], unit),
-                              PlotColumn("bin_end", edges[1:], unit),
-                              PlotColumn("pixel_count", counts)), metadata=metadata)
+    outside = sum(int(np.sum((values < edges[0]) | (values > edges[-1])))
+                  for _name, values in series)
+    if outside:
+        metadata["pixels outside the bins"] = str(outside)
+    columns = [PlotColumn("bin_start", edges[:-1], unit), PlotColumn("bin_end", edges[1:], unit)]
+    columns += [PlotColumn("pixel_count" if len(series) == 1 else f"pixel_count {name}",
+                           np.histogram(values, bins=edges)[0]) for name, values in series]
+    return PlotTable(columns=tuple(columns), metadata=metadata)
 
 
-def _prediction_histogram(payload: Any) -> tuple[np.ndarray | None, np.ndarray | None]:
-    values = np.asarray(payload.get("values", []), dtype=float)
-    finite = values[np.isfinite(values)]
-    if finite.size == 0:
-        return None, None
-    return np.histogram(finite, bins=50)
-
-
-#: Distribution of the shown prediction values; fed by
-#: :attr:`PredictionMapWidget.displayed_map_changed`.
+#: Distribution of the predictions: the kept pixels of the prediction ROIs when
+#: there are ROI results, else the shown map (:meth:`PredictionView.histogram_payload`).
 PREDICTION_HISTOGRAM = register_plot(PlotSpec(
     "predict.histogram", "Prediction Distribution", _histogram_render, _histogram_table,
     empty_text="No prediction in this session yet."))
@@ -663,8 +703,10 @@ class PredictionView(QWidget):
         self._roi_predictions: list[RoiPrediction] = []
         self._roi_summaries: list[RoiPredictionSummary] = []
         self._roi_scope = ""
+        self._roi_note: str | None = None
         self._results_revision = 0
         self._roi_payload_cache: tuple[Any, dict[str, Any]] | None = None
+        self._histogram_cache: tuple[Any, dict[str, Any] | None] | None = None
         self._data_file_adder: Callable[[str], str | None] | None = None
 
         layout = QVBoxLayout(self)
@@ -796,7 +838,7 @@ class PredictionView(QWidget):
         for roi in state.rois.values():
             if roi.use == "prediction":
                 counts[roi.dataset_id] = counts.get(roi.dataset_id, 0) + 1
-        files = sorted(((dataset_id, state.data_file_label(dataset_id), count)
+        files = sorted(((dataset_id, state.data_file_full_label(dataset_id), count)
                         for dataset_id, count in counts.items()),
                        key=lambda item: item[1].lower())
         dialog = PredictRoisDialog(self._model_choices(), files,
@@ -850,6 +892,7 @@ class PredictionView(QWidget):
         """Keep the ROI predictions of this session; the exclusion starts at the model's own."""
         self._roi_predictions = predictions
         self._roi_scope = scope
+        self._roi_note = None
         default = next((p.default_exclusion for p in predictions
                         if p.default_exclusion is not None), None)
         has_projection = any(p.limit_args is not None for p in predictions)
@@ -919,17 +962,19 @@ class PredictionView(QWidget):
             if summary.rmsep is not None:
                 rmsep[prediction.model_name] = (f"RMSEP {summary.rmsep:.4g}, bias "
                                                 f"{summary.bias:.4g}, n {summary.n_reference}")
+        rows.sort(key=lambda row: row["roi"].lower())  # ROIs in name order, models in order
         level = self._exclusion_level.value() if self._exclusion_check.isChecked() else None
         first = self._roi_predictions[0] if self._roi_predictions else None
         unit = ""
         if first is not None and first.target_id in state.targets:
-            unit = state.targets[first.target_id].unit
+            unit = shown_unit(state.targets[first.target_id].unit)
         return {"roi_rows": rows, "target_unit": unit, "rmsep": rmsep,
                 "training_share": None if first is None else first.training_share_range,
-                "exclusion_text": ("" if not rows else "all pixels" if level is None
-                                   else f"pixels above DModX {level:g} removed"),
-                "message": (None if self._roi_predictions or not state.model_runs else
-                            "Predict ROIs to see one result per tablet.")}
+                "exclusion_text": ("" if not rows else "all pixels kept" if level is None
+                                   else f"pixels above DCrit at {level:g} removed"),
+                "message": self._roi_note or (
+                    None if self._roi_predictions or not state.model_runs else
+                    "Predict ROIs to see one result per tablet.")}
 
     def roi_summary_lines(self) -> list[str]:
         """Plain lines for the summary panel: scope, refused ROIs, RMSEP per model."""
@@ -949,6 +994,64 @@ class PredictionView(QWidget):
             lines += [f"Wavelengths of {self.project_state.data_file_label(d)}: {w}"
                       for d, w in prediction.wavelength_warnings.items()]
         return lines
+
+    def roi_value_rows(self) -> list[tuple[str, str]]:
+        """One row per prediction ROI: its name, and per model the mean with SD and the
+        removed pixels, then the reference value (the numbers behind the per-ROI plot)."""
+        state = self.project_state
+        by_roi: dict[str, list[str]] = {}
+        reference: dict[str, float | None] = {}
+        for summary in self._roi_summaries:
+            for row in summary.rois:
+                text = "-" if not np.isfinite(row.mean) else (
+                    f"{row.mean:.3g}" + (f" ± {row.sd:.2g}" if np.isfinite(row.sd) else ""))
+                if row.n_removed:
+                    text += f" ({100 * row.n_removed / max(row.n_pixels, 1):.0f} % removed)"
+                by_roi.setdefault(row.roi_id, []).append(text)
+                reference[row.roi_id] = row.reference
+        from ._project_rois import _short_names
+
+        names = _short_names({roi_id: (roi_id if state.rois.get(roi_id) is None
+                                       else state.rois[roi_id].name) for roi_id in by_roi}, {})
+        rows = []
+        for roi_id, texts in by_roi.items():
+            ref = reference.get(roi_id)
+            rows.append((names[roi_id],
+                         " | ".join(texts) + ("" if ref is None else f"; ref {ref:.3g}")))
+        return sorted(rows, key=lambda row: row[0])
+
+    def histogram_payload(self, shown: dict[str, Any] | None) -> dict[str, Any] | None:
+        """The histogram's payload: per model the kept pixels of the prediction ROIs (the
+        pixels behind the per-ROI statistics), or ``shown`` (the shown map) without ROI
+        results. Follows the DModX exclusion; the same object while nothing changed."""
+        token = (self._results_revision, id(shown))
+        if self._histogram_cache is not None and self._histogram_cache[0] == token:
+            return self._histogram_cache[1]
+        payload = self._build_histogram_payload(shown)
+        self._histogram_cache = (token, payload)
+        return payload
+
+    def _build_histogram_payload(self, shown: dict[str, Any] | None) -> dict[str, Any] | None:
+        level = self._exclusion_level.value() if self._exclusion_check.isChecked() else None
+        series = []
+        for prediction in self._roi_predictions:
+            limit = None if level is None else prediction.dmodx_limit_at(level)
+            kept = []
+            for pixels in prediction.pixels.values():
+                keep = np.isfinite(pixels.y)
+                if limit is not None:
+                    keep &= ~(np.nan_to_num(pixels.dmodx, nan=-np.inf) > limit)
+                kept.append(pixels.y[keep])
+            if kept:
+                series.append((prediction.model_name, np.concatenate(kept)))
+        if not any(values.size for _name, values in series):
+            return shown
+        payload = self.roi_results_payload()
+        n_rois = len({row["roi_id"] for row in payload["roi_rows"]})
+        return {"series": series, "target_unit": payload["target_unit"],
+                "quantity": "Prediction",
+                "pixels": f"{n_rois} prediction ROI(s), {payload['exclusion_text']}",
+                "provenance": {} if shown is None else shown.get("provenance", {})}
 
     # -- Predict map --------------------------------------------------------
 
@@ -980,16 +1083,25 @@ class PredictionView(QWidget):
         if not self._require_models():
             return
         state = self.project_state
-        files = sorted(((dataset_id, state.data_file_label(dataset_id))
+        files = sorted(((dataset_id, self._map_file_label(dataset_id))
                         for dataset_id in state.datasets), key=lambda item: item[1].lower())
+        roi_files = [roi.dataset_id for roi in state.rois.values() if roi.use == "prediction"]
         adder = self._data_file_adder
         dialog = PredictMapDialog(
             self._model_choices(), files, check=self._map_check,
-            add_data_file=None if adder is None else adder, file_label=state.data_file_label,
-            default_model_id=self._default_model_id(), parent=self)
+            add_data_file=None if adder is None else adder, file_label=self._map_file_label,
+            default_model_id=self._default_model_id(),
+            default_file=roi_files[-1] if roi_files else None, parent=self)
         if dialog.exec() != QDialog.DialogCode.Accepted or dialog.dataset_id is None:
             return
         self._start_map_job(dialog.model_id, dialog.dataset_id)
+
+    def _map_file_label(self, dataset_id: str) -> str:
+        """A data file in the Predict map list: its full label and its prediction ROIs."""
+        count = sum(1 for roi in self.project_state.rois.values()
+                    if roi.use == "prediction" and roi.dataset_id == dataset_id)
+        return (f"{self.project_state.data_file_full_label(dataset_id)}  —  "
+                + (f"{count} prediction ROI(s)" if count else "no prediction ROIs"))
 
     def _start_map_job(self, model_run_id: str, dataset_id: str) -> None:
         state = self.project_state
@@ -1042,6 +1154,14 @@ class PredictionView(QWidget):
             if roi_prediction is not None:
                 self._set_roi_predictions([roi_prediction],
                                           scope=state.data_file_label(dataset_id))
+            else:
+                # Map and ROI results always describe the same data file.
+                self._set_roi_predictions([], scope="")
+                self._roi_note = (
+                    f"No prediction ROIs on {state.data_file_label(dataset_id)}: mark its "
+                    "tablets (Project ROIs, Predict column or Prediction only) and predict "
+                    "again.")
+                self._recompute_roi_results()
 
         self._job_project_path = context.project_path
         self._set_busy(True, "Running prediction...")
@@ -1082,9 +1202,8 @@ class PredictionView(QWidget):
             if sample_set is not None:
                 target = self.project_state.targets.get(sample_set.target_id)
                 if target is not None:
-                    target_text = (
-                        target.name if not target.unit else f"{target.name} ({target.unit})"
-                    )
+                    unit = shown_unit(target.unit)
+                    target_text = target.name if not unit else f"{target.name} ({unit})"
 
         model_text = "none"
         recipe_text = "-"
@@ -1136,7 +1255,7 @@ class PredictionView(QWidget):
             "readiness": readiness_text,
             "service": self._service_status.label.text(),
             "prediction": "none" if result is None else f"map of {dataset_text}",
-            "rois": "\n".join(self.roi_summary_lines()) or "none",
+            "rois": "\n".join(self.roi_summary_lines()) or (self._roi_note or "none"),
             "model": model_text,
             "dataset": dataset_text,
             "calibration": calibration_text,
@@ -1191,7 +1310,7 @@ class PredictionView(QWidget):
             if sample_set is not None:
                 target = self.project_state.targets.get(sample_set.target_id)
                 if target is not None:
-                    target_unit = target.unit
+                    target_unit = shown_unit(target.unit)
         payload: dict[str, Any] = {"target_unit": target_unit,
                                    "diagnostics": result.diagnostics or {}}
         for key in ("output_names", "output_axis", "output_index", "n_outputs"):
@@ -1257,7 +1376,12 @@ class PredictionView(QWidget):
         low = int(artifact_refs.get("clip_low_count", 0) or 0)
         high = int(artifact_refs.get("clip_high_count", 0) or 0)
         near_zero = int(artifact_refs.get("near_zero_denominator_count", 0) or 0)
-        return f"low={low} | high={high} | near-zero denom={near_zero}"
+        if not (low or high or near_zero):
+            return "none"
+        parts = [f"{count:,} {what}".replace(",", " ") for count, what in (
+            (low, "below 1e-6"), (high, "above 1"), (near_zero, "with white ≈ dark"))
+            if count]
+        return "reflectance clipped: " + ", ".join(parts)
 
     @staticmethod
     def _diagnostics_summary(result: PredictionResult) -> str:
@@ -1269,14 +1393,18 @@ class PredictionView(QWidget):
         for key, share, name in (("dcrit_099", "share_above_dcrit", "DCrit"),
                                  ("t2_crit_099", "share_above_t2crit", "T²Crit")):
             if summary.get(key) is not None:
-                parts.append(f"above {name}: {100 * float(summary[share]):.2g} %")
+                parts.append(f"{100 * float(summary[share]):.2g} % above {name}")
+        lines = [", ".join(parts) + " (whole map, background included)"] if parts else []
         inside = summary.get("mean_prediction_within_limits")
         outside = summary.get("mean_prediction_outside_limits")
+        means = []
         if inside is not None and np.isfinite(inside):
-            parts.append(f"mean within limits {float(inside):.4g}")
+            means.append(f"{float(inside):.4g} within the limits")
         if outside is not None and np.isfinite(outside):
-            parts.append(f"outside {float(outside):.4g}")
-        return " | ".join(parts) or "-"
+            means.append(f"{float(outside):.4g} outside")
+        if means:
+            lines.append("Mean prediction: " + ", ".join(means))
+        return "\n".join(lines) or "-"
 
     def _invalidate_prediction_workspace_cache(self, *_args) -> None:
         """Drop cached Predict workspace payloads after prediction-state changes."""

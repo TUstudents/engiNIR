@@ -255,6 +255,10 @@ class ProjectState(QObject):
         """How a data file is shown: its file name, with the folder when file names repeat."""
         return self.data_file_labels.get(dataset_id, dataset_id)
 
+    def data_file_full_label(self, dataset_id: str) -> str:
+        """:meth:`data_file_label` with the folder in full, for lists with room."""
+        return data_file_labels(self.datasets, shorten=False).get(dataset_id, dataset_id)
+
     def active_calibration(self, dataset_id: str) -> CalibrationSpec | None:
         """The active calibration of a registered dataset, if any."""
         return self.calibrations.get(self.active_calibration_ids.get(dataset_id, ""))

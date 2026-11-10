@@ -1326,15 +1326,17 @@ def read_frames(path: str, first: int, last: int) -> np.ndarray:
 _LABEL_FOLDER_CHARS = 40
 
 
-def data_file_labels(datasets: Mapping[str, DatasetRef]) -> dict[str, str]:
+def data_file_labels(datasets: Mapping[str, DatasetRef], *,
+                     shorten: bool = True) -> dict[str, str]:
     """A short, unique display label per dataset id (viewer identity rule).
 
     A data file is labelled by its file name. When several data files share
     a file name, each gets the folder that tells it apart, e.g.
     ``stream_hsi.h5 (API 10% - nozzle 0.6 mm)``: the parent folder, or more
     of the path where parent folders repeat too. Long folders are shortened
-    in the middle unless that would make two labels equal. Labels are for
-    display only; datasets are identified by id.
+    in the middle unless that would make two labels equal (``shorten=False``
+    keeps them whole, for lists with room). Labels are for display only;
+    datasets are identified by id.
     """
     paths = {dataset_id: _native_path(ref.source_path).replace("\\", "/").split("/")
              if ref.source_path else [dataset_id] for dataset_id, ref in datasets.items()}
@@ -1351,7 +1353,8 @@ def data_file_labels(datasets: Mapping[str, DatasetRef]) -> dict[str, str]:
                 {"/".join(paths[i][-1 - depth:-1]) for i in ids}) < len(ids):
             depth += 1
         folders = {i: "/".join(paths[i][-1 - depth:-1]) for i in ids}
-        short = {i: _shorten_middle(folder, _LABEL_FOLDER_CHARS) for i, folder in folders.items()}
+        short = {i: _shorten_middle(folder, _LABEL_FOLDER_CHARS) if shorten else folder
+                 for i, folder in folders.items()}
         if len(set(short.values())) < len(ids):
             short = folders
         for i in ids:
