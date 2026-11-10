@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.4.0 (2026-11-10)
 
 ### Added
 
@@ -71,6 +71,12 @@
 
 ### Changed
 
+- The application icon runs from amber to deep red, left to right, short
+  to long wavelengths as in a physical spectrum (it was reversed). The
+  documentation shows it as logo and favicon.
+- README and documentation start page describe the workflow of 1.4:
+  several scans, ROI grids, automatic components, band selection,
+  applicability and prediction intervals, prediction ROIs.
 - The prediction check compares restored MSC/EMSC state with the band count
   after Savitzky-Golay (before a band selection) and the model with the
   selected bands.
@@ -134,6 +140,15 @@
 - Viewer on WSLg Wayland: a drop-down list stayed on screen after choosing
   an item (a WSLg fault, microsoft/wslg#1522); the list's native window is
   now released when it closes.
+
+### Compatibility
+
+- Projects stay schema v3. An engiNIR before 1.4 ignores the ROI `use`
+  attribute with a warning and treats prediction ROIs as training ROIs:
+  a fit there includes those that have a target value. Models fitted
+  before 1.4 predict with intervals when they have projection data
+  (1.3 and later); the coverage metrics and the selectivity ratio need a
+  refit.
 
 ## 1.3.0 (2026-11-09)
 

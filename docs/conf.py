@@ -64,6 +64,8 @@ html_theme_options = {
     "titles_only": False,
 }
 html_static_path = ["_static"]
+html_logo = "_static/enginir_icon.png"
+html_favicon = "_static/enginir_icon.png"
 
 # ---------------------------------------------------------------------------
 # Source
