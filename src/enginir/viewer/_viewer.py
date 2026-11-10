@@ -23,7 +23,10 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QSizePolicy,
+    QFrame,
     QLabel,
+    QLayout,
+    QScrollArea,
     QSplitter,
     QStackedWidget,
     QToolButton,
@@ -806,9 +809,16 @@ class HSIViewer(QMainWindow):
         outer.setSpacing(6)
         outer.addWidget(self._workspace_tabs)
 
+        # The control rows are wide; a scroll area lets them shrink with the window
+        # instead of setting its minimum width (see _release_minimum_size).
+        scroll = QScrollArea()
+        scroll.setWidget(container)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._controls_dock = QDockWidget("Controls", self)
         self._controls_dock.setObjectName("ControlsDock")
-        self._controls_dock.setWidget(container)
+        self._controls_dock.setWidget(scroll)
         self._configure_controls_dock_height()
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._controls_dock)
         self._refresh_workspace_content_pages()
@@ -1413,6 +1423,7 @@ class HSIViewer(QMainWindow):
         self._menu_options.addAction(grid_defaults)
         self._populate_help_menu()
         self._default_layout_state = self.saveState()
+        self._release_minimum_size()
         self._status_label = QLabel()
         self._saved_label = QLabel()
         self._saved_label.setObjectName("SavedMessage")
@@ -1929,6 +1940,21 @@ class HSIViewer(QMainWindow):
         if skipped:
             message += f"\n\nSkipped (no data): {', '.join(skipped)}"
         QMessageBox.information(self, "Export Plots", message)
+
+    def _release_minimum_size(self) -> None:
+        """Let the compositor choose the window size, whatever the docks' minimums.
+
+        Qt makes a top-level window's minimum size its layout's minimum. When
+        that exceeds the size a Wayland compositor configures (maximized, or a
+        tiled half screen), the window draws a larger buffer and WSLg's
+        compositor ends the connection ("xdg_surface buffer does not match the
+        configured maximized state"). Without the constraint the docks are
+        squeezed instead; the scrolling Controls dock keeps them usable.
+        """
+        layout = self.layout()
+        if layout is not None:
+            layout.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
+        self.setMinimumSize(1, 1)
 
     def reset_layout(self) -> None:
         """Restore default dock layout (positions, splits, visibility) and plot layout."""

@@ -427,3 +427,19 @@ def test_the_view_button_switches_layout_and_stretch(qapp, trays):
         assert mosaic.plot_table().metadata == {"layout": "scan", "stretch": "per_file"}
     finally:
         window.close()
+
+
+def test_the_window_never_demands_more_width_than_the_compositor_gives(qapp, trays):
+    """WSLg ends the Wayland connection when a maximized window draws a buffer wider than
+    the screen (seen at 1963 px on a 1920 px screen after a prediction). The window must not
+    turn its docks' minimums into its own minimum size."""
+    project, _paths = trays
+    window = _open(qapp, project)
+    try:
+        for page in (window._eda_view, window._modeling_view, window._prediction_view):
+            window._workspace_tabs.setCurrentWidget(page)
+            qapp.processEvents()
+            assert window.minimumSize().width() <= 1 and window.minimumSize().height() <= 1
+        assert window._controls_dock.minimumSizeHint().width() < 400, "controls scroll"
+    finally:
+        window.close()

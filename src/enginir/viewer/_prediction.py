@@ -963,7 +963,9 @@ class PredictionView(QWidget):
             self._prediction_status.setText("Prediction: none")
             self._readiness_status.setText("Ready: fit or load a model run.")
             return
-        self._prediction_status.setText(f"Ready: model {active_model}")
+        run = self.project_state.model_runs.get(str(active_model))
+        name = active_model if run is None else (run.name or f"{run.model_type} model")
+        self._prediction_status.setText(f"Ready: model {name}")
         self._readiness_status.setText("Ready: choose a dataset and run prediction.")
 
     def select_prediction_run(self, prediction_run_id: str | None) -> None:

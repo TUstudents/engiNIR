@@ -73,6 +73,13 @@
 
 ### Fixed
 
+- Viewer on WSLg Wayland: the session could end ("xdg_surface buffer does not
+  match the configured maximized state") when the docks' minimum widths added
+  up to more than the screen, e.g. on Predict after a prediction. The window
+  no longer turns its docks' minimums into its own minimum size, and the
+  Controls dock scrolls sideways instead of requiring 1162 px. Predict names
+  the model instead of showing its id.
+
 - Viewer: ROIs with equal target values took the lowest colour of the scale
   while the colour bar showed them in the middle.
 - Viewer: plots of a data file without wavelengths are labelled "Band", not
