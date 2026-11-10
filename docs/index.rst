@@ -7,11 +7,24 @@ built for pharmaceutical process analytics. This is the documentation of
 engiNIR |release|.
 
 It reads EVK EIFF, ENVI, HDF5, CSV/Excel, SPC, SPA and JCAMP-DX data;
-calibrates raw counts with dark and white references; preprocesses with
-Savitzky-Golay, SNV, MSC, EMSC and detrending; fits PLS and PCR models
-cross-validated by region of interest; and predicts properties of new spectra
-and whole images. The desktop viewer ``enginir-viewer`` runs the same workflow
+calibrates raw counts with dark and white references or detector levels;
+preprocesses with Savitzky-Golay, SNV, MSC, EMSC, detrending, AsLS baseline
+correction and band selection; fits PLS and PCR models cross-validated by
+region of interest, with the number of components chosen by a rule if you
+like; and predicts properties of new spectra and whole images, with the
+distance to the model and a prediction interval for every pixel and results
+per tablet. The desktop viewer ``enginir-viewer`` runs the same workflow
 interactively (:doc:`user_guide/viewer`).
+
+Where to start:
+
+- :doc:`user_guide/installation`, then :doc:`user_guide/workflows`: from a
+  raw scan to a model and a prediction map, in a project file.
+- :doc:`user_guide/viewer`: the same workflow in the desktop viewer.
+- :doc:`user_guide/fit_specification`, :doc:`user_guide/band_selection` and
+  :doc:`user_guide/model_plots`: how models are fitted, which bands they use
+  and how to read their diagnostics.
+- :doc:`hdf5_format`: what a project file holds.
 
 There are two ways to use the library.
 
@@ -27,8 +40,10 @@ reproduced and traced to its data (:doc:`user_guide/workflows`):
    project.add_target("API content", unit="% w/w")
    scan.add_roi("tablet 1", frames=(0, 4), rows=(0, 9), values={"API content": 1.0})
    # ... more ROIs
-   model = project.fit("API content", recipe=PreprocessingRecipe(snv=True), n_components=2)
-   model.predict("new_scan.eiff").map
+   model = project.fit("API content", recipe=PreprocessingRecipe(snv=True),
+                       n_components="auto")
+   prediction = model.predict("new_scan.eiff")
+   prediction.map, prediction.uncertainty_map()   # values and 95 % intervals per pixel
 
 **Function mode** uses the building blocks directly on arrays, as
 scikit-learn estimators:

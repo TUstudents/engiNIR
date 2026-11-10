@@ -1,7 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="300" height="300">
   <!--
     engiNIR  —  Spectrum Stripes icon
-    5 vertical colour bars (deep red → amber) with a white NIR
+    5 vertical colour bars (amber → deep red, short to long
+    wavelengths, as in a physical spectrum) with a white NIR
     absorption fingerprint curve overlaid.
   -->
   <defs>
@@ -24,11 +25,11 @@
 
   <g clip-path="url(#roundedClip)">
     <!-- Colour bars -->
-    <rect x="0"   y="0" width="60" height="300" fill="#B22B1E"/>
-    <rect x="60"  y="0" width="60" height="300" fill="#CC4A18"/>
+    <rect x="0"   y="0" width="60" height="300" fill="#F2BC0C"/>
+    <rect x="60"  y="0" width="60" height="300" fill="#E8960E"/>
     <rect x="120" y="0" width="60" height="300" fill="#DF7010"/>
-    <rect x="180" y="0" width="60" height="300" fill="#E8960E"/>
-    <rect x="240" y="0" width="60" height="300" fill="#F2BC0C"/>
+    <rect x="180" y="0" width="60" height="300" fill="#CC4A18"/>
+    <rect x="240" y="0" width="60" height="300" fill="#B22B1E"/>
 
     <!-- Vignette -->
     <rect width="300" height="300" fill="url(#vignette)"/>
