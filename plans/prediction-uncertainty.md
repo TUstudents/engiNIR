@@ -1,7 +1,7 @@
 # Plan: prediction uncertainty (leverage formula)
 
-Status: proposed (2026-11-08), not started; decisions marked *proposed* need
-the user's confirmation
+Status: implemented (2026-11-10). The user's answers of 2026-11-10
+replace the proposals; see Decisions.
 
 ## Goal
 
@@ -17,13 +17,16 @@ leverage of a pixel follows directly from its T²PS.
 
 For a model with A components fitted on N pixels from R ROIs:
 
-- **Leverage of a pixel:** h = 1/N + T²PS / (N − 1). With orthogonal scores
-  and score variances over N − 1 (as stored), T²PS / (N − 1) equals
-  tᵀ(TᵀT)⁻¹t, the leverage term of the standards. No new per-pixel
-  computation: h comes from the T² map.
-- **Standard error of a pixel prediction:** s = s_cv · √(1 + h), with s_cv
-  the model's cross-validated error at the level of the interval (below).
-- **Interval:** ŷ ± q · s, q the Student t quantile at the chosen level with
+- **Leverage of a pixel:** h = 1/R + T²PS / (R − 1), with the R training
+  ROIs as the independent samples (user, 2026-11-10). With orthogonal
+  scores and score variances over N − 1 (as stored), T²PS / (N − 1) equals
+  tᵀ(TᵀT)⁻¹t, the leverage term of the standards; with N pixels it vanishes
+  (N = 396 000 on the user's PLS 7 LV gave ±4.437 everywhere), with R = 20
+  ROIs the interval runs from ±4.59 (5th percentile) to ±6.31. No new
+  per-pixel computation: h comes from the T² map.
+- **Standard error of a pixel prediction:** s · √(1 + h), with s
+  the model's RMSEE at the level of the interval (below).
+- **Interval:** ŷ ± q · s · √(1 + h), q the Student t quantile at the chosen level with
   R − A − 1 degrees of freedom (the ROIs are the independent samples; for
   R − A − 1 < 1 no interval).
 - **Outside the model:** pixels above DCrit or T²Crit (0.99) get no interval
@@ -33,17 +36,17 @@ For a model with A components fitted on N pixels from R ROIs:
 
 ## Pixels and means are different questions
 
-The cross-validated errors of engiNIR are errors of ROI means (the contract
+The reported errors of engiNIR are errors of ROI means (the contract
 reports metrics per ROI). A single pixel scatters more than a mean.
 Therefore two intervals, with the same formula and different inputs:
 
-| Interval | s_cv | Leverage | Used for |
+| Interval | s | Leverage | Used for |
 |---|---|---|---|
-| Pixel | `pixel_rmsecv` (held-out pixel predictions) | pixel T²PS, N pixels | the Uncertainty map layer |
-| Mean (ROI, object) | `rmsecv` (ROI level) | the mean spectrum's scores against the ROI-mean training scores (`roi_scores`, R ROIs): h = 1/R + (t̄ − m)ᵀ C⁻¹ (t̄ − m) / (R − 1), C the covariance of the ROI scores | `prediction_interval_of_mean(...)`; per-object results once segmentation exists |
+| Pixel | `pixel_rmsee` (fit, N − A − 1) | pixel T²PS, R ROIs as samples | the Uncertainty map layer |
+| Mean (ROI, object) | `rmsee` (ROI level, R − A − 1) | the mean spectrum's scores against the ROI-mean training scores (`roi_scores`, R′ ROIs with a fitted pixel): h = 1/R′ + (t̄ − m)ᵀ C⁻¹ (t̄ − m) / (R′ − 1), C the covariance of the ROI scores | `RoiStatistics` of Predict ROIs (library); per-object results once segmentation exists |
 
 ROI-mean scores are not orthogonal, so the mean interval needs their mean m
-and covariance C (A × A, stored with the model; `roi_scores` are already
+and covariance C (A × A), computed from the stored `roi_scores` (already
 stored since the ROI-scores change).
 
 ## Decisions
@@ -52,27 +55,33 @@ stored since the ROI-scores change).
    jack-knife intervals are not part of this plan. SIMCA computes its
    prediction intervals (YPredPS confidence intervals) by jack-knifing, a
    different number; the docs say so.
-2. *Proposed:* **s_cv is the cross-validated error** (RMSECV, at pixel or ROI
-   level), not RMSEE as in ASTM E1655: it is the honest, slightly more
-   conservative estimate and the one engiNIR reports. It includes bias.
-3. *Proposed:* **level 0.95 by default**, `model.predict(..., level=0.95)`;
-   the viewer uses 0.95 and shows it.
-4. *Proposed:* **no interval outside DCrit or T²Crit** (NaN, counted in the
-   summary as "no interval: outside the model").
-5. *Proposed:* **the map is not stored per pixel**: the half-width is
-   computed from the T² map on demand (`prediction.uncertainty_map`), so a
-   prediction holds no extra full-size array until it is asked for.
-6. **No backward compatibility:** models without the stored inputs (below)
-   predict without intervals until refitted.
+2. **s is RMSEE, as in ASTM E1655** (user, 2026-11-10): `pixel_rmsee`
+   (N − A − 1 degrees of freedom) for pixel intervals, `rmsee` (ROI level,
+   R − A − 1) for mean intervals. Both are already stored as metrics. Because
+   RMSEE is a fit error, the empirical coverage on the run's own
+   cross-validation (below) is what tells whether the interval is honest for
+   new data.
+3. **Level 0.95 by default**, an argument of the functions that compute
+   intervals; the viewer uses 0.95 and says so.
+4. **No interval outside the model** (user, 2026-11-10): a pixel above
+   DCrit or T²Crit (0.99), or a mean above the ROI-level T²Crit (0.99), gets
+   NaN, counted as "no interval: outside the model".
+5. **Nothing new per pixel is stored**: the half-width is computed from T²PS
+   and DModXPS on demand (`Prediction.uncertainty_map(level)`).
+6. **Viewer: the Uncertainty map layer only** (user, 2026-11-10). The mean
+   intervals of prediction ROIs are in the library (`RoiStatistics`), not in
+   the ROI table; the coverage is stored as metrics, not shown on the Fit
+   page.
+7. **Independent review** of the contract changes before the code (user,
+   2026-11-10).
 
-## Stored with the model (`prediction_model`)
+## Stored with the model
 
-- `rmsecv`, `pixel_rmsecv` (copies of the metrics, so prediction needs only
-  the prediction model), `n_rois`
-- `roi_score_mean` (A,), `roi_score_cov_inv` (A × A) for the mean interval
-  (pseudo-inverse with a warning if the ROI scores are rank-deficient,
-  e.g. R ≤ A)
-- `n_train` and `score_variances` are already stored
+Nothing new for the intervals themselves: `pixel_rmsee`, `rmsee` and
+`n_rois` are metrics, `n_train`, `n_components` and the 0.99 limits are in
+`prediction_model`, and the ROI score mean and covariance are computed from
+the stored `roi_scores` (runs of 1.3 with ROI scores). Only the coverage
+metrics are new.
 
 ## Validation that the intervals mean something
 

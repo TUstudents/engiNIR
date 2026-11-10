@@ -176,6 +176,8 @@ Workspace surfaces
 
 .. autodata:: enginir.viewer._prediction.MAP_LAYERS
 
+.. autodata:: enginir.viewer._prediction.INTERVAL_LEVEL
+
 Plot panels
 -----------
 

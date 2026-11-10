@@ -37,19 +37,25 @@ from ..project import (
     TrainingROI,
 )
 from ..validation.outliers import dmodx_limit
-from ._diagnostics import chunk_diagnostics
+from ._diagnostics import chunk_diagnostics, chunk_scores
 from ._service import _predict_chunk, _preprocess_chunk, preflight_prediction
+from ._uncertainty import DEFAULT_LEVEL, IntervalInputs, interval_inputs, mean_half_width
 
 logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
 class RoiPixels:
-    """The pixel predictions of one ROI by one model, with DModXPS and T²PS (NaN without)."""
+    """The pixel predictions of one ROI by one model, with DModXPS and T²PS (NaN without).
+
+    ``scores`` are the pixels' scores ``(n, A)`` for the mean interval (``None``
+    without projection data).
+    """
 
     y: np.ndarray
     dmodx: np.ndarray
     t2: np.ndarray
+    scores: np.ndarray | None = None
 
 
 @dataclass
@@ -63,7 +69,8 @@ class RoiPrediction:
     specification (``None``: no exclusion); ``training_share_range`` the
     10th, 50th and 90th percentile of the training ROIs' shares of pixels
     above DCrit (0.99): their typical range and median (the extremes are
-    single unusual ROIs).
+    single unusual ROIs); ``intervals`` the run's prediction-interval inputs
+    (``None`` without them).
     """
 
     model_run_id: str
@@ -76,6 +83,7 @@ class RoiPrediction:
     t2_crit_099: float | None = None
     default_exclusion: float | None = None
     training_share_range: tuple[float, float, float] | None = None
+    intervals: IntervalInputs | None = None
     wavelength_warnings: dict[str, str] = field(default_factory=dict)
 
     def dmodx_limit_at(self, level: float) -> float | None:
@@ -107,6 +115,9 @@ class RoiStatistics:
     share_above_t2crit: float
     reference: float | None
     residual: float | None
+    #: Half-width of the mean's 0.95 prediction interval; NaN without one (outside the
+    #: model at the ROI level, no kept pixel, or no interval inputs).
+    interval: float = float("nan")
 
 
 @dataclass(frozen=True)
@@ -151,11 +162,13 @@ def predict_rois(
     sample_set = sample_sets[model_run.sample_set_id]
     recipe = PreprocessingRecipe.from_dict(recipes[sample_set.preprocessing_recipe_id])
     spec = model_run.fit_specification
+    training = (load_model_run_artifact_refs(project_path, model_run.model_run_id,
+                                             keys=("diagnostics",)).get("diagnostics") or {})
     result = RoiPrediction(
         model_run_id=model_run.model_run_id, model_name=model_name,
         target_id=sample_set.target_id,
         default_exclusion=(float(spec.exclusion_level) if spec.exclusion == "dmodx" else None),
-        training_share_range=_training_share_range(project_path, model_run.model_run_id))
+        training_share_range=_share_percentiles(training.get("roi_share_above_dcrit")))
     preflights: dict[tuple[str, str], Any] = {}
     for roi in rois:
         if cancelled():
@@ -187,14 +200,19 @@ def predict_rois(
         y = np.asarray(_predict_chunk(X, preflight), dtype=np.float32).reshape(-1)
         if preflight.projection is not None:
             t2, dmodx = chunk_diagnostics(X, preflight.projection)
+            scores = chunk_scores(X, preflight.projection)
             projection = preflight.projection
             result.limit_args = (int((preflight.model_blob or {}).get("n_train", 0)) or 1,
                                  int(projection.x_mean.size), projection.n_components)
             result.dcrit_099, result.t2_crit_099 = projection.dcrit, projection.t2_crit
         else:
             t2 = dmodx = np.full(y.shape, np.nan, dtype=np.float32)
+            scores = None
+        if preflight.projection is not None and result.intervals is None:
+            result.intervals = interval_inputs(model_run.metrics, preflight.model_blob,
+                                               training.get("roi_scores"))
         result.pixels[roi.roi_id] = RoiPixels(y=y, dmodx=np.asarray(dmodx, np.float32),
-                                              t2=np.asarray(t2, np.float32))
+                                              t2=np.asarray(t2, np.float32), scores=scores)
     for dataset_id, warning in result.wavelength_warnings.items():
         logger.warning("Data file '{}': {}", dataset_id, warning)
     return result
@@ -249,7 +267,11 @@ def roi_prediction_statistics(
             share_above_dcrit=share(pixels.dmodx, prediction.dcrit_099),
             share_above_t2crit=share(pixels.t2, prediction.t2_crit_099),
             reference=reference,
-            residual=None if reference is None or not values.size else mean - reference))
+            residual=None if reference is None or not values.size else mean - reference,
+            interval=mean_half_width(
+                None if pixels.scores is None or not kept.any()
+                else pixels.scores[kept].astype(np.float64).mean(axis=0),
+                prediction.intervals, level=DEFAULT_LEVEL)))
     residuals = np.array([row.residual for row in rows if row.residual is not None])
     return RoiPredictionSummary(
         model_run_id=prediction.model_run_id, model_name=prediction.model_name,
@@ -265,11 +287,8 @@ def _nanmean(values: np.ndarray) -> float:
     return float(finite.mean()) if finite.size else float("nan")
 
 
-def _training_share_range(project_path: str,
-                          model_run_id: str) -> tuple[float, float, float] | None:
+def _share_percentiles(shares: Any) -> tuple[float, float, float] | None:
     """10th, 50th and 90th percentile of the training ROIs' share above DCrit (0.99)."""
-    refs = load_model_run_artifact_refs(project_path, model_run_id, keys=("diagnostics",))
-    shares = (refs.get("diagnostics") or {}).get("roi_share_above_dcrit")
     if shares is None or not np.size(shares):
         return None
     values = np.asarray(shares, dtype=np.float64)

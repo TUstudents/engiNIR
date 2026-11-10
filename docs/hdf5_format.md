@@ -496,6 +496,11 @@ per-pixel diagnostics.
 @pixel_r2_adj            adjusted R² over training pixels (1.3 and later)
 @rmsee                   RMSEE over ROI means, R - 1 - A; only when R - 1 - A >= 1
 @r2_adj                  adjusted R² over ROI means; only when R - 1 - A >= 1
+@interval_coverage_roi   share of held-out ROI means inside their 0.95 mean interval (PLS/PCR, 1.4 and
+                         later; written only with at least one interval)
+@interval_coverage_roi_n ROIs counted for it
+@interval_coverage_pixel share of held-out pixels inside their 0.95 pixel interval (1.4 and later)
+@interval_coverage_pixel_n pixels counted for it
 @pixel_rmsecv            secondary per-pixel RMSECV
 @pixel_r2                secondary per-pixel R²
 @pixel_bias              secondary per-pixel bias

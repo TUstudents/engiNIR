@@ -254,6 +254,7 @@ ROIs, targets, models and predictions by name or by id (see
    prediction.map            # (frames, height), in memory
    prediction.dmodx_map      # distance to the model per pixel (DModXPS)
    prediction.diagnostics    # 0.99 limits and the share of pixels above them
+   prediction.uncertainty_map(0.95)   # ± half-width of each pixel's prediction interval
 
 ``predict`` resolves the scan's calibration in the model's signal unit (a
 registered scan reuses its stored one) and checks that the scan can produce

@@ -320,7 +320,7 @@ def test_the_layer_selector_shows_the_diagnostics_and_marks_pixels_above_the_lim
 
     widget.update_data({"spatial_map": prediction})  # a model without projection data
     model = widget._layer_combo.model()
-    assert not model.item(1).isEnabled() and not model.item(2).isEnabled()
+    assert not any(model.item(i).isEnabled() for i in (1, 2, 3))
     assert widget._current_display_map is None
     texts = " ".join(text.get_text() for text in widget._ax.texts)
     assert "Refit" in texts
@@ -393,6 +393,45 @@ def test_predict_map_shows_the_map_and_the_rois_of_its_file(qapp, fitted_tray, m
     result = next(iter(state.predictions.values()))
     np.testing.assert_allclose(row["mean"], float(np.mean(
         result.spatial_map[f0:f1 + 1, r0:r1 + 1])), rtol=1e-5)
+
+
+def test_the_uncertainty_layer_shows_the_pixel_intervals_and_none_outside_the_model(
+        qapp, fitted_tray, monkeypatch):
+    """The half-width at 0.95 of the library, its own scale, pixels outside the model marked,
+    the median and the share without an interval, and ± in the hover readout."""
+    from enginir.viewer._predict_dialogs import PredictMapDialog
+    from enginir.viewer._prediction import PredictionMapWidget, PredictionView
+
+    _project, model, state, path = fitted_tray
+    monkeypatch.setattr(PredictMapDialog, "exec", lambda self: self.DialogCode.Accepted)
+    view = PredictionView(state)
+    view.predict_btn_clicked()
+    _wait_until(qapp, lambda: bool(state.predictions), timeout=30)
+    expected = model.predict(path).uncertainty_map(0.95)
+    assert expected is not None
+    outside = np.isnan(expected)
+    assert outside.any() and not outside.all(), "the dark and white frames are outside"
+
+    widget = PredictionMapWidget()
+    payload = view.workspace_visual_payload()
+    assert payload is not None
+    widget.update_data(payload)
+    widget.set_layer("Uncertainty")
+    shown = widget._ax.images[0].get_array()
+    np.testing.assert_allclose(np.ma.filled(shown, np.nan), expected.T, rtol=1e-6)
+    assert widget._ax.images[0].get_clim() == pytest.approx(
+        (np.nanmin(expected), np.nanmax(expected)), rel=1e-6)
+    label = widget._stats_label.text()
+    median = float(np.median(expected[~outside]))
+    assert f"95 % interval: median ± {median:.3g}" in label
+    assert f"no interval for {int(outside.sum())} pixels" in label
+    assert widget.plot_title.startswith("± 95 % Prediction Interval")
+
+    frame, row = np.argwhere(~outside)[0]
+    assert f"± {expected[frame, row]:.3g} (95 %)" in widget.describe_pixel(int(frame), int(row))
+    frame, row = np.argwhere(outside)[0]
+    assert "no interval (outside the model)" in widget.describe_pixel(int(frame), int(row))
+    assert "95 % interval: median ±" in view.workspace_summary()["diagnostics"]
 
 
 def test_predict_rois_compares_models_and_the_exclusion_needs_no_new_prediction(

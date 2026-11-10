@@ -574,6 +574,15 @@ Required prediction-map interaction:
   or Hotelling T² (T²PS); on these two the pixels above the 0.99 limit are
   marked and the share above is shown (`prediction-runtime-contract_v3.md`,
   Applicability Diagnostics)
+- an Uncertainty layer shows the ± half-width of each pixel's 0.95
+  prediction interval (`prediction-runtime-contract_v3.md`, Prediction
+  Intervals) with its own colour scale over the shown half-widths; pixels without an interval
+  are drawn as outside the model, and the summary gives the median
+  half-width and the share without an interval. The layer is offered only
+  when the model has the interval inputs (otherwise the reason is shown).
+  The hover readout adds the half-width ("± 0.42 (95 %)") on every layer,
+  or "no interval (outside the model)"; the per-ROI mean intervals are not
+  shown (library only)
 - the Predict workspace writes nothing to the project: predictions and
   per-ROI results are not stored; the plot panels export them. A scan to
   predict is a project data file the user added beforehand

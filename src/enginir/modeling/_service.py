@@ -28,6 +28,7 @@ from ..io.project_store import (
     load_roi_spectra_matrix,
 )
 from ..models import PCR, PLSRegression
+from ..prediction._uncertainty import interval_coverage, interval_inputs
 from ..preprocessing import PreprocessingRecipe
 from ..preprocessing._pipeline import (
     apply_preprocessing_recipe,
@@ -560,6 +561,13 @@ def fit_model_run(
                 "roi_score_pixels"):
         if key in training:
             training[key] = np.asarray(training[key])[order]
+    # How often the held-out predictions fall inside their 0.95 intervals (§5).
+    intervals = interval_inputs({**fit_metrics, "n_rois": int(roi_ids.size)}, projection,
+                                training.get("roi_scores"))
+    coverage = ({} if intervals is None else interval_coverage(
+        intervals, pixel_y_true=data.y, pixel_y_cv=pixel_y_pred,
+        pixel_t2=training.get("t2"), pixel_dmodx=training.get("dmodx"),
+        roi_y_true=roi_y_true, roi_y_cv=roi_y_pred, roi_scores=training.get("roi_scores")))
 
     model_run = ModelRun(
         model_run_id=model_run_id or new_id(),
@@ -587,6 +595,7 @@ def fit_model_run(
             "n_pixels": int(data.X.shape[0]),
             "n_excluded_pixels": n_excluded,
             **fit_metrics,
+            **coverage,
             "pixel_rmsecv": rmsecv(data.y, pixel_y_pred),
             "pixel_r2": r2_score(data.y, pixel_y_pred),
             "pixel_bias": bias(data.y, pixel_y_pred),

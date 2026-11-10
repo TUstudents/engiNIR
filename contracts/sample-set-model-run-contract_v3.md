@@ -360,6 +360,34 @@ Fit statistics of the final model (engiNIR 1.3 and later), stored in
 - `pixel_r2_adj` = 1 − (RSS / (N − 1 − A)) / (TSS / (N − 1)) and `r2_adj`
   the same over ROI means (written only when R − 1 − A ≥ 1)
 
+Interval coverage (engiNIR 1.4 and later, PLS and PCR): how often the
+run's own cross-validated predictions fall inside the 0.95 prediction
+intervals of `prediction-runtime-contract_v3.md` (Prediction Intervals),
+which use the fit error RMSEE. A coverage well below 0.95 says the interval
+is too narrow for new data. Each held-out prediction gets the interval
+around itself, with the leverage of its observation in the final model, and
+counts as covered when |ŷ_cv − y| ≤ half-width. This is an approximation:
+the held-out fold's model is not used, and the in-sample leverage and RMSEE
+are smaller than a held-out observation's would be, so the counted
+intervals are, if anything, too narrow and the coverage errs low.
+
+- `interval_coverage_roi`: over the ROIs with a cross-validated mean
+  prediction and a mean interval (their `roi_scores` as t̄, R′ and the
+  ROI-level limit as in Prediction Intervals; ROIs above the limit are left
+  out), s = `rmsee`. ŷ_cv is the stored ROI mean of the held-out pixel
+  predictions over all drawn pixels (as `rmsecv`), while t̄ is the
+  `roi_scores` row over the fitted pixels
+- `interval_coverage_pixel`: over the drawn pixels with a finite held-out
+  prediction and a pixel interval (their training T² and DModX, as
+  `roi_share_above_dcrit`, against the stored 0.99 limits; pixels above
+  either are left out; pixels excluded by DModX are counted like the
+  others), s = `pixel_rmsee`. It is pixel-weighted, and its count is not an
+  effective sample size (pixels of one ROI are not independent)
+- each also stores its count, `interval_coverage_roi_n` and
+  `interval_coverage_pixel_n`; a coverage is written only when it has at
+  least one interval
+- they are reported, never used to correct the interval
+
 ## 6. Refitting a stored model
 
 A stored model run can be fitted again on exactly what it was fitted on:

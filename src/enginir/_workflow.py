@@ -1211,8 +1211,9 @@ class Prediction:
 
     ``map``/``y_pred`` are the predictions, ``dmodx_map``/``t2_map`` the
     applicability diagnostics (``None`` for a model fitted before engiNIR 1.3:
-    refit it), ``diagnostics`` the 0.99 limits and the summary, and
-    ``provenance`` the record also written to the log.
+    refit it), :meth:`uncertainty_map` the prediction intervals,
+    ``diagnostics`` the 0.99 limits and the summary, and ``provenance`` the
+    record also written to the log.
     """
 
     def __init__(self, model: Model, result: PredictionResult) -> None:
@@ -1241,6 +1242,17 @@ class Prediction:
     def t2_map(self) -> np.ndarray | None:
         """T²PS per pixel as an image, or ``None`` without projection data."""
         return self.result.diagnostic_map(self.result.t2)
+
+    def uncertainty_map(self, level: float = 0.95) -> np.ndarray | None:
+        """Half-width of each pixel's prediction interval at ``level``, as an image.
+
+        The interval is ŷ ± q · s · √(1 + h) with s the model's pixel RMSEE
+        and h the leverage from T²PS (ASTM E1655); pixels outside the model
+        (above DCrit or T²Crit at 0.99) are NaN. ``None`` when the model has
+        no interval inputs (prediction-runtime contract, Prediction
+        Intervals). Computed on demand, never stored.
+        """
+        return self.result.diagnostic_map(self.result.half_width(level))
 
     @property
     def diagnostics(self) -> dict[str, Any] | None:

@@ -40,6 +40,13 @@ from ..io.project_store import (
     open_prediction_run_artifact_writer,
 )
 from ..preprocessing import PreprocessingRecipe
+from ._uncertainty import (
+    DEFAULT_LEVEL,
+    IntervalInputs,
+    check_level,
+    interval_inputs,
+    pixel_half_width,
+)
 from ._diagnostics import (
     DiagnosticsSummary,
     Projection,
@@ -176,6 +183,9 @@ class PredictionResult:
     diagnostics : dict or None
         Limits (0.99) and summary of the applicability diagnostics
         (prediction-runtime contract).
+    intervals : IntervalInputs or None
+        What the model run stores for prediction intervals (``None``
+        without them); see :meth:`half_width`.
     provenance : dict
         Model run id and name, data file(s) with size and modification time
         (and SHA-256 on request), calibration, clipping counts and time; the
@@ -192,12 +202,26 @@ class PredictionResult:
     dmodx: np.ndarray | None = None
     diagnostics: dict[str, Any] | None = None
     provenance: dict[str, Any] = field(default_factory=dict)
+    intervals: IntervalInputs | None = None
 
     def diagnostic_map(self, values: np.ndarray | None) -> np.ndarray | None:
         """``t2`` or ``dmodx`` as an image, shaped like ``spatial_map``'s first two axes."""
         if values is None or self.spatial_map is None:
             return None
         return values.reshape(self.spatial_map.shape[:2])
+
+    def half_width(self, level: float = DEFAULT_LEVEL) -> np.ndarray | None:
+        """Half-width of each pixel's prediction interval at ``level`` (NaN outside the model).
+
+        ``None`` without the interval inputs, the diagnostics or a
+        single-output prediction (prediction-runtime contract, Prediction
+        Intervals).
+        """
+        check_level(level)
+        if self.t2 is None or self.dmodx is None or self.y_pred is None \
+                or self.y_pred.ndim != 1:
+            return None
+        return pixel_half_width(self.t2, self.dmodx, self.intervals, level=level, y=self.y_pred)
 
 
 @dataclass(frozen=True, slots=True)
@@ -568,6 +592,8 @@ def predict_with_model_run(
         dmodx=outputs.dmodx,
         diagnostics=summary,
         provenance=provenance,
+        intervals=(None if preflight.projection is None
+                   else interval_inputs(model_run.metrics, preflight.model_blob)),
     )
 
 
