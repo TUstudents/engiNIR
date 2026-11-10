@@ -283,6 +283,9 @@ Required behavior:
   - dark/white references, each from another file or from a frame range of
     this file
   - the references of another data file of the project
+  - detector levels (black and white) without references: the file's own
+    levels, else the instrument defaults; for counts this is the preselected
+    choice, so references are always chosen deliberately
 - the `DatasetRef` and its `CalibrationSpec` are written together, before any
   ROI is drawn; if either fails, neither is written
 - the added file becomes the shown data file

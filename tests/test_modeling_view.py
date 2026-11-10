@@ -265,7 +265,8 @@ def test_a_fit_stores_its_sample_set_and_a_refit_reuses_it(qapp, state_and_proje
     assert captured[0]["cv"] == "auto" and captured[0]["fit_spec"] is None
     assert captured[0]["hyperparameters"] == {"n_components": 6, "x_scaling": "center",
                                               "y_scaling": "uv"}
-    assert view._service_status.label.text() == "Service: model model_1"
+    named = project.model_runs["model_1"].name or "PLS model"
+    assert view._service_status.label.text() == f"Service: model {named}", "a name, not an id"
 
     _wait_until(qapp, lambda: view._job_thread is None)
     view.fit_model_btn_clicked()  # the same choices: the same sample set
@@ -474,7 +475,8 @@ def test_reopened_model_run_renders_every_diagnostic_and_selects_rois(qapp, tmp_
 
     assert axes("model.pred_vs_ref").collections[0].get_offsets().shape[0] == n_rois
     assert axes("model.residuals").collections[0].get_offsets().shape[0] == n_rois
-    assert axes("model.target_distribution").patches
+    distribution = axes("model.target_distribution")
+    assert distribution.patches or distribution.collections, "drawn as bins or as levels"
     assert axes("model.scores").collections[0].get_offsets().shape[0] == n_rois
     assert "training" in axes("model.scores").get_xlabel()
     for plot_id, key in (("model.coefficients", "coefficients"), ("model.loadings", "loadings")):
@@ -560,3 +562,258 @@ def test_the_diagnostics_payload_carries_the_curve_and_the_training_distances(tm
     assert payload["dmodx_pixels"].shape == payload["t2_pixels"].shape == (96,)
     assert {"t2_crit_2_099", "dcrit_099"} <= set(payload)
     assert "rmsee" in payload["fit_statistics"]
+
+
+def test_the_summary_names_the_model_and_its_validation_and_the_check_logs_no_error(
+        qapp, state_and_project, monkeypatch):
+    """Names, not ids; the stored folds as text; asking whether the Explore signal can be
+    modelled answers in the status line without an ERROR in the log (a refused signal
+    domain used to be logged by its constructor)."""
+    from loguru import logger
+
+    from enginir.viewer._modeling import FitModelRunDialog, ModelingView, describe_cv
+
+    state, project = state_and_project
+    _labelled_rois(state, project)
+
+    def fake_exec(self):
+        self._signal_unit_combo.setCurrentIndex(self._signal_unit_combo.findText("Reflectance"))
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(FitModelRunDialog, "exec", fake_exec)
+    captured: list[dict[str, object]] = []
+    monkeypatch.setattr("enginir.modeling.fit_model_run", _fake_fit(captured))
+    view = ModelingView(state, project)
+    view._selected_target_id = "target_1"
+    view.fit_model_btn_clicked()
+    _wait_until(qapp, lambda: "model_1" in project.model_runs)
+    _wait_until(qapp, lambda: view._job_thread is None)
+    run = project.model_runs["model_1"]
+    run.cv_spec = {"type": "RoundRobinGroups", "n_splits": 2, "n_groups": 2,
+                   "grouping_unit": "roi"}
+    view._invalidate_diagnostics_cache()
+    summary = view.workspace_summary()
+    assert summary["cv"] == "2 folds, round-robin over 2 samples"
+    assert "model_1" not in summary["model"] + summary["readiness"]
+    assert summary["sample_set"] == "2 ROIs"
+    assert describe_cv({"cv": 5}) == "5" and describe_cv({}) == "-"
+
+    errors: list[str] = []
+    sink = logger.add(lambda m: errors.append(m), level="ERROR")
+    try:
+        # These ROIs have references: they cannot be modelled in raw counts.
+        state.set_y_unit("DN")
+        view._update_readiness_status()
+    finally:
+        logger.remove(sink)
+    assert errors == []
+    sample_set = next(iter(project.sample_sets.values()))
+    assert "choose Reflectance or Absorbance" in (view._validate_signal_domain_preflight(
+        sample_set=sample_set, required_signal_unit="DN") or "")
+
+
+def test_few_reference_levels_get_one_bar_each_and_unit_1_is_not_printed():
+    """Four levels (1, 4, 7, 10) in four equal bins over 1-10 made one flat block."""
+    from matplotlib.figure import Figure
+
+    from enginir.viewer._model_diagnostics import (
+        _render_pred_vs_ref,
+        _render_target_distribution,
+        _table_target_distribution,
+    )
+    from enginir.viewer._theme import panel_colors
+
+    y = np.repeat([1.0, 4.0, 7.0, 10.0], 5)
+    payload = {"y_true_roi": y, "y_pred_roi": y + 0.3, "target_unit": "1"}
+    fig = Figure()
+    _render_target_distribution(fig, payload, panel_colors())
+    (bars,) = fig.axes[0].collections
+    segments = bars.get_segments()
+    assert [float(seg[0][0]) for seg in segments] == [1.0, 4.0, 7.0, 10.0], "one bar per level"
+    assert [float(seg[1][1]) for seg in segments] == [5, 5, 5, 5]
+    assert not fig.axes[0].patches, "no binned block"
+    table = _table_target_distribution(payload)
+    assert [c.name for c in table.columns] == ["value", "roi_count"]
+
+    continuous = {"y_true_roi": np.linspace(0, 10, 40), "y_pred_roi": np.linspace(0, 10, 40)}
+    assert _table_target_distribution(continuous).columns[0].name == "bin_start"
+
+    for unit, shown in (("1", False), ("%", True)):
+        fig = Figure()
+        _render_pred_vs_ref(fig, {**payload, "target_unit": unit}, panel_colors())
+        stats = fig.axes[0].texts[0].get_text()
+        assert (f" {unit}\n" in stats) is shown, (unit, stats)
+
+
+def test_the_roi_ellipse_is_the_t2_limit_of_the_rois_and_both_are_in_the_legend():
+    """ROI mean scores can be correlated: every ellipse point has the ROI-level T² limit
+    under the ROIs' own covariance (an axis-aligned ellipse would not)."""
+    from matplotlib.figure import Figure
+    from scipy.stats import f
+
+    from enginir.viewer._model_diagnostics import _render_scores, roi_t2_ellipse
+    from enginir.viewer._theme import panel_colors
+
+    rng = np.random.default_rng(4)
+    lv1 = rng.normal(0, 1.0, 20)
+    scores = np.column_stack([lv1, -0.4 * lv1 + rng.normal(0, 0.1, 20)])
+    ellipse = roi_t2_ellipse(scores, 0.99)
+    assert ellipse is not None
+    centred = ellipse - scores.mean(axis=0)
+    t2 = np.einsum("ij,jk,ik->i", centred, np.linalg.inv(np.cov(scores, rowvar=False)), centred)
+    np.testing.assert_allclose(t2, 2 * 19 / 18 * f.ppf(0.99, 2, 18), rtol=1e-9)
+    assert roi_t2_ellipse(scores[:3], 0.99) is None, "too few ROIs for a limit"
+
+    y = np.linspace(1, 10, 20)
+    payload = {"y_true_roi": y, "y_pred_roi": y, "scores_roi": scores,
+               "score_variances": np.array([4.0, 1.0]), "t2_crit_2_095": 5.99,
+               "t2_crit_2_099": 9.21}
+    fig = Figure()
+    _render_scores(fig, payload, panel_colors())
+    labels = [text.get_text() for text in fig.axes[0].get_legend().get_texts()]
+    assert labels == ["T² 95 % pixels", "T² 99 % pixels", "T² 95 % ROIs", "T² 99 % ROIs"]
+
+
+def test_band_importance_plots_keep_the_theme_and_name_band_axes():
+    """The mean spectrum's twin axes lay a white background over VIP in the dark theme, and
+    a file without wavelengths was labelled 'Wavelength' / '175 nm'."""
+    from matplotlib.colors import to_rgba
+    from matplotlib.figure import Figure
+
+    from enginir.viewer._model_diagnostics import _render_vip, _render_vip_sorted
+    from enginir.viewer._theme import panel_colors
+
+    colors = panel_colors()
+    bands = np.arange(30.0)
+    payload = {"vip": np.linspace(2.0, 0.5, 30), "spectral_axis": bands,
+               "mean_spectrum": np.sin(bands / 5.0)}
+    fig = Figure()
+    _render_vip(fig, payload, colors)
+    for ax in fig.axes:
+        assert to_rgba(ax.get_facecolor()) == to_rgba(colors["ax_bg"]) \
+            or not ax.patch.get_visible()
+    assert fig.axes[0].get_xlabel() == "Band"
+    fig = Figure()
+    _render_vip_sorted(fig, payload, colors)
+    listing = " ".join(t.get_text() for t in fig.axes[0].texts)
+    assert "band 0" in listing and "nm" not in listing
+
+
+def test_distance_histograms_show_the_tail_as_one_bar_and_rois_by_their_share():
+    """One far pixel put every other pixel into the first of 40 bins; the per-ROI shares
+    (stored by the fit) are sorted, clickable and exported."""
+    from matplotlib.figure import Figure
+
+    from enginir.viewer._model_diagnostics import (
+        _distance_spec,
+        _render_roi_distance,
+        _table_roi_distance,
+    )
+    from enginir.viewer._theme import panel_colors
+
+    rng = np.random.default_rng(1)
+    pixels = np.concatenate([rng.gamma(4.0, 0.2, 5000), [35.0]])
+    spec = _distance_spec("dmodx", "dcrit_099", "x", "x", "DModX")
+    payload = {"dmodx_pixels": pixels, "dcrit_099": 1.5}
+    fig = Figure()
+    spec.render(fig, payload, panel_colors())
+    main, overflow = fig.axes[0].patches
+    edges = main.get_data().edges
+    assert edges[-1] < 5.0, "the bins stop at the 99.5th percentile, not at the far pixel"
+    assert overflow.get_data().values[0] == int(np.sum(pixels > edges[-1]))
+    text = fig.axes[0].texts[0].get_text()
+    assert "(expected 1%)" in text and "max 35" in text
+    rows = spec.table(payload).columns[2].values
+    assert int(np.sum(rows)) == pixels.size, "every pixel is in the CSV"
+
+    ids = np.array(["a", "b", "c"], dtype=object)
+    rois = {"y_true_roi": np.array([1.0, 4.0, 7.0]), "y_pred_roi": np.array([1.0, 4.0, 7.0]),
+            "roi_ids": ids, "roi_names": ("API_L1_01", "API_L4_01", "API_L7_01"),
+            "roi_share_above_dcrit": np.array([0.02, 0.9, 0.05]),
+            "roi_share_above_t2crit": np.array([0.01, 0.3, 0.02])}
+    fig = Figure()
+    (points,) = _render_roi_distance(fig, rois, panel_colors())
+    assert points.roi_ids == ("b", "c", "a") and list(points.y) == [90.0, 5.0, 2.0]
+    labels = [t.get_text() for t in fig.axes[0].get_xticklabels()]
+    assert labels == ["L4_01", "L7_01", "L1_01"]
+    table = _table_roi_distance(rois)
+    assert [c.name for c in table.columns][:3] == ["roi_id", "rank", "dmodx_share_above_percent"]
+
+
+def test_the_components_page_explains_each_rule_and_the_guard():
+    from matplotlib.figure import Figure
+
+    from enginir.viewer._model_diagnostics import _render_components, _render_per_component
+    from enginir.viewer._theme import panel_colors
+    from tests.test_component_selection import EVIDENCE
+
+    curve = {**EVIDENCE, "suggested_one_se": 7, "suggested_min_rmsecv": 15,
+             "suggested_q2_limit": 1, "suggested_f_test": 6, "suggested_q2_lookahead": 6}
+    payload = {"component_curve": curve, "n_components": 6, "target_unit": "1",
+               "components_choice": {"rule": "one_se", "noise_guard": "on", "rule_choice": 7,
+                                     "n_groups": 20}}
+    fig = Figure()
+    _render_components(fig, payload, panel_colors())
+    text = fig.axes[0].texts[0].get_text()
+    assert "noise guard: one SE 7 → 6" in text
+    assert "Q² limit: 1 (Q²₂ = -0.0" in text and "≤ 0.05)" in text, "the failing component"
+    assert "F-test: 6 (PRESS ratio < 1.36)" in text
+    fig = Figure()
+    _render_per_component(fig, payload, panel_colors())
+    q2_bars = fig.axes[0].collections[0]
+    grey = [tuple(c) for c in q2_bars.get_colors()]
+    assert grey[6] == grey[14] != grey[5], "components 7-15 are noise and drawn grey"
+
+
+def test_the_fit_dialog_offers_the_guard_and_warns_about_the_folds(qapp):
+    from enginir.viewer._modeling import FitModelRunDialog
+
+    seen: list[tuple] = []
+
+    def warner(target_id, spec, cv):
+        seen.append((target_id, spec, cv))
+        return ["the ROIs of a data file share one value"]
+
+    dlg = FitModelRunDialog([("t1", "Layer")], default_target_id="t1",
+                            recipe=__import__("enginir").PreprocessingRecipe(),
+                            default_signal_unit="Absorbance",
+                            readiness=lambda _t: ("Ready.", True), fold_warner=warner)
+    try:
+        assert "Validation likely optimistic: the ROIs of a data file" in dlg.readiness_text
+        dlg._auto_check.setChecked(True)
+        spec = dlg.fit_spec
+        assert spec is not None and spec.components_noise_guard == "on"
+        dlg._guard_check.setChecked(False)
+        assert dlg.fit_spec.components_noise_guard == "off"
+        dlg._rule_combo.setCurrentIndex(dlg._rule_combo.findData("f_test"))
+        assert dlg.fit_spec.components_rule == "f_test"
+        calls = len(seen)
+        dlg._group_by_combo.setCurrentIndex(dlg._group_by_combo.findData("sample"))
+        assert len(seen) > calls and seen[-1][1].group_by == "sample", "follows the grouping"
+    finally:
+        dlg.close()
+
+
+def test_every_model_plot_has_help_that_the_user_guide_repeats(qapp):
+    """The ? text and the user guide are one text (model-workspace-diagnostics contract)."""
+    import re
+    from pathlib import Path
+
+    from enginir.viewer._model_diagnostics import ModelDiagnosticsWidget
+    from enginir.viewer._plot_registry import PLOT_SPECS, WORKSPACE_PAGES
+
+    guide = re.sub(r"\s+", " ", (Path(__file__).parents[1] / "docs" / "user_guide"
+                                 / "model_plots.rst").read_text(encoding="utf-8"))
+    model_ids = [slot.plot_id for page in WORKSPACE_PAGES["Model"] for slot in page.slots]
+    for plot_id in model_ids:
+        text = PLOT_SPECS[plot_id].help
+        assert text, f"{plot_id} has no help text"
+        assert re.sub(r"\s+", " ", text) in guide, f"the user guide lacks the help of {plot_id}"
+    widget = ModelDiagnosticsWidget()
+    try:
+        panel = widget.grid.panel(model_ids[0])
+        assert panel is not None and panel._help_button is not None
+        assert panel._help_button.toolTip() == PLOT_SPECS[model_ids[0]].help
+        panel.show_help()  # shows a tooltip; must not raise
+    finally:
+        widget.close()

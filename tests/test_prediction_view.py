@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 import types
 from threading import Event
 
 import numpy as np
 import pytest
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QMessageBox
 
-from enginir.project import CalibrationSpec, ModelRun, PredictionRun, SignalDomainContract
+from enginir import Project
+from enginir.project import CalibrationSpec, ModelRun, PredictionRun
 from enginir.viewer._app import ensure_app
 
 
@@ -54,68 +57,6 @@ def _seed_model_run(project_state):
     project_state.active_model_name = "model_1"
 
 
-def _allow_prediction_preflight(monkeypatch):
-    monkeypatch.setattr("enginir.viewer._prediction.preflight_prediction", lambda **kwargs: None)
-
-
-def _patch_prediction_flow(monkeypatch, project_state):
-    """Patch the predict flow seams with contract-shaped domain objects."""
-    from enginir.project import DatasetRef
-    from enginir.viewer._state import PredictionJobContext
-
-    _allow_prediction_preflight(monkeypatch)
-    project_state.build_prediction_job_context = lambda *, model_run_id: PredictionJobContext(
-        project_path=str(project_state.project_path),
-        model_run=project_state.model_runs[model_run_id],
-        signal_domain=types.SimpleNamespace(signal_domain_id="signal_domain_1"),
-        preprocessing_recipe_id="recipe_1",
-        recipe=types.SimpleNamespace(),
-        datasets={},
-        calibrations={},
-        active_calibration_ids={},
-        model_registry={},
-    )
-    monkeypatch.setattr(
-        "enginir.viewer._prediction.load_spectra",
-        lambda path, header_only=False: types.SimpleNamespace(
-            X=[[1.0]], wavelengths=[1000.0], meta={}
-        ),
-    )
-    monkeypatch.setattr(
-        "enginir.viewer._prediction.resolve_dataset",
-        lambda _datasets, data_path, _data, **kwargs: (DatasetRef(
-            dataset_id="dataset_1",
-            source_path=data_path,
-            source_format="eiff",
-            source_modality="nir_hsi",
-            cube_shape=(1, 1, 1),
-            n_bands=1,
-            wavelengths=np.array([1000.0], dtype=np.float32),
-            loader_metadata={},
-            import_timestamp="2026-04-02T10:00:00+00:00",
-        ), True),
-    )
-    monkeypatch.setattr(
-        "enginir.viewer._prediction.resolve_prediction_calibration",
-        lambda *args, **kwargs: (
-            CalibrationSpec(
-                calibration_id="cal_1",
-                dataset_id="dataset_1",
-                mode="raw_dn",
-                dark_ref_source=None,
-                white_ref_source=None,
-                dark_ref_data=None,
-                white_ref_data=None,
-                black_level=None,
-                white_level=None,
-                output_signal_unit="DN",
-                created_at="2026-04-02T10:00:00+00:00",
-            ),
-            False,
-        ),
-    )
-
-
 def test_prediction_view_warns_when_no_models(qapp, project_state, monkeypatch):
     from enginir.viewer._prediction import PredictionView
 
@@ -145,254 +86,6 @@ def test_prediction_view_cancel_button_requests_cooperative_cancel(qapp, project
     assert "cancelling" in view._service_status.label.text().lower()
 
 
-def test_prediction_view_happy_path_calls_backend_and_updates_status(
-    qapp, project_state, monkeypatch
-):
-    from enginir.viewer._prediction import PredictionRunDialog, PredictionView
-
-    _seed_model_run(project_state)
-
-    def fake_exec(self):
-        self._path_edit.setText("/tmp/predict.eiff")
-        return self.DialogCode.Accepted
-
-    monkeypatch.setattr(PredictionRunDialog, "exec", fake_exec)
-    monkeypatch.setattr(
-        QMessageBox, "warning", lambda *args, **kwargs: pytest.fail(f"unexpected warning: {args}")
-    )
-    _patch_prediction_flow(monkeypatch, project_state)
-    captured: dict[str, object] = {}
-    monkeypatch.setattr(
-        "enginir.viewer._prediction.predict_with_model_run",
-        lambda **kwargs: (
-            captured.update(kwargs)
-            or types.SimpleNamespace(
-                prediction_run=types.SimpleNamespace(prediction_run_id="prediction_1"),
-                dataset=types.SimpleNamespace(source_path=kwargs["data_path"]),
-            )
-        ),
-    )
-    finalized: list[str] = []
-    monkeypatch.setattr(project_state, "add_prediction",
-                        lambda result: finalized.append(result.prediction_run.prediction_run_id))
-
-    view = PredictionView(project_state)
-    view.predict_btn_clicked()
-    _wait_until(qapp, lambda: finalized == ["prediction_1"])
-
-    assert captured["model_run"].model_run_id == "model_1"
-    assert captured["data_path"] == "/tmp/predict.eiff"
-    assert "persist_artifacts" not in captured, "the viewer never stores predictions"
-    assert captured["prefer_saved_model"] is True
-    assert view._service_status.label.text() == "Service: prediction of predict.eiff done (not stored)"
-
-
-def test_prediction_dialog_explicit_calibration_builds_and_validates(
-    qapp, project_state, monkeypatch
-):
-    from enginir.viewer._prediction import PredictionRunDialog
-
-    dialog = PredictionRunDialog(["model_1"], default_model_run_id="model_1")
-    dialog._path_edit.setText("/tmp/predict.eiff")
-    dialog._explicit_calibration.setChecked(True)
-    dialog._mode_combo.setCurrentText("dark_white_reference")
-    dialog._output_unit_combo.setCurrentText("Reflectance")
-    dialog._black_level_spin.setValue(10.0)
-    dialog._white_level_spin.setValue(100.0)
-
-    calibration = dialog.calibration
-    assert calibration is not None
-    assert calibration.mode == "dark_white_reference"
-    assert calibration.white_level == pytest.approx(100.0)
-
-    dialog._mode_combo.setCurrentText("raw_dn")
-    dialog._output_unit_combo.setCurrentText("Reflectance")
-    warnings: list[str] = []
-    accepted: list[str] = []
-    monkeypatch.setattr(
-        QMessageBox, "warning", lambda *args, **kwargs: warnings.append(str(args[2]))
-    )
-    monkeypatch.setattr(dialog, "accept", lambda: accepted.append("accepted"))
-
-    dialog._on_accept()
-
-    assert warnings == ["Mode 'raw_dn' requires output unit 'DN'."]
-    assert accepted == []
-
-
-def test_prediction_dialog_exposes_default_scalar_calibration(qapp):
-    from enginir.viewer._prediction import PredictionRunDialog
-
-    dialog = PredictionRunDialog(["model_1"], default_model_run_id="model_1")
-
-    assert dialog.calibration is None
-    assert dialog._mode_combo.isEnabled()
-    assert dialog._black_level_spin.isEnabled()
-
-    calibration = dialog.default_calibration
-
-    assert calibration.mode == "dark_white_reference"
-    assert calibration.black_level == pytest.approx(128.0)
-    assert calibration.white_level == pytest.approx(3500.0)
-
-
-def test_prediction_view_uses_dialog_default_calibration_for_new_dataset(
-    qapp, project_state, monkeypatch
-):
-    from enginir.viewer._prediction import PredictionRunDialog, PredictionView
-    from enginir.viewer._state import PredictionJobContext
-
-    _seed_model_run(project_state)
-
-    def fake_exec(self):
-        self._path_edit.setText("/tmp/predict_new.eiff")
-        self._black_level_spin.setValue(10.0)
-        self._white_level_spin.setValue(100.0)
-        return self.DialogCode.Accepted
-
-    from enginir.project import DatasetRef
-
-    monkeypatch.setattr(PredictionRunDialog, "exec", fake_exec)
-    monkeypatch.setattr(
-        QMessageBox, "warning", lambda *args, **kwargs: pytest.fail(f"unexpected warning: {args}")
-    )
-    _allow_prediction_preflight(monkeypatch)
-    project_state.build_prediction_job_context = lambda *, model_run_id: PredictionJobContext(
-        project_path=str(project_state.project_path),
-        model_run=project_state.model_runs[model_run_id],
-        signal_domain=types.SimpleNamespace(signal_domain_id="signal_domain_1"),
-        preprocessing_recipe_id="recipe_1",
-        recipe=types.SimpleNamespace(),
-        datasets={},
-        calibrations={},
-        active_calibration_ids={},
-        model_registry={},
-    )
-    monkeypatch.setattr(
-        "enginir.viewer._prediction.load_spectra",
-        lambda path, header_only=False: types.SimpleNamespace(
-            X=[[1.0]], wavelengths=[1000.0], meta={}
-        ),
-    )
-    monkeypatch.setattr(
-        "enginir.viewer._prediction.resolve_dataset",
-        lambda _datasets, data_path, _data, **kwargs: (DatasetRef(
-            dataset_id="dataset_new",
-            source_path=data_path,
-            source_format="eiff",
-            source_modality="nir_hsi",
-            cube_shape=(1, 1, 1),
-            n_bands=1,
-            wavelengths=np.array([1000.0], dtype=np.float32),
-            loader_metadata={},
-            import_timestamp="2026-04-02T10:00:00+00:00",
-        ), True),
-    )
-    captured: dict[str, object] = {}
-    monkeypatch.setattr(
-        "enginir.viewer._prediction.predict_with_model_run",
-        lambda **kwargs: (
-            captured.update(kwargs)
-            or types.SimpleNamespace(
-                prediction_run=types.SimpleNamespace(prediction_run_id="prediction_1"),
-                dataset=types.SimpleNamespace(source_path=kwargs["data_path"]),
-            )
-        ),
-    )
-    finalized: list[str] = []
-    monkeypatch.setattr(project_state, "add_prediction",
-                        lambda result: finalized.append(result.prediction_run.prediction_run_id))
-
-    view = PredictionView(project_state)
-    view.predict_btn_clicked()
-    _wait_until(qapp, lambda: finalized == ["prediction_1"])
-
-    calibration = captured["calibration"]
-    assert isinstance(calibration, CalibrationSpec)
-    assert calibration.dataset_id == "dataset_new"
-    assert calibration.mode == "dark_white_reference"
-    assert calibration.black_level == pytest.approx(10.0)
-    assert calibration.white_level == pytest.approx(100.0)
-
-
-def test_prediction_view_reuses_existing_calibration_when_override_unchecked(
-    qapp, project_state, monkeypatch
-):
-    from enginir.viewer._prediction import PredictionRunDialog, PredictionView
-    from enginir.viewer._state import PredictionJobContext
-
-    _seed_model_run(project_state)
-    existing_dataset = types.SimpleNamespace(
-        dataset_id="dataset_existing", source_path="/tmp/predict_existing.eiff"
-    )
-    existing_calibration = CalibrationSpec(
-        calibration_id="cal_existing",
-        dataset_id="dataset_existing",
-        mode="dark_white_reference",
-        dark_ref_source=None,
-        white_ref_source=None,
-        dark_ref_data=None,
-        white_ref_data=None,
-        black_level=1.0,
-        white_level=200.0,
-        output_signal_unit="Reflectance",
-        created_at="2026-04-02T10:00:00+00:00",
-    )
-
-    def fake_exec(self):
-        self._path_edit.setText("/tmp/predict_existing.eiff")
-        self._black_level_spin.setValue(10.0)
-        self._white_level_spin.setValue(100.0)
-        return self.DialogCode.Accepted
-
-    monkeypatch.setattr(PredictionRunDialog, "exec", fake_exec)
-    monkeypatch.setattr(
-        QMessageBox, "warning", lambda *args, **kwargs: pytest.fail(f"unexpected warning: {args}")
-    )
-    _allow_prediction_preflight(monkeypatch)
-    project_state.build_prediction_job_context = lambda *, model_run_id: PredictionJobContext(
-        project_path=str(project_state.project_path),
-        model_run=project_state.model_runs[model_run_id],
-        signal_domain=types.SimpleNamespace(signal_domain_id="signal_domain_1"),
-        preprocessing_recipe_id="recipe_1",
-        recipe=types.SimpleNamespace(),
-        datasets={"dataset_existing": existing_dataset},
-        calibrations={"cal_existing": existing_calibration},
-        active_calibration_ids={"dataset_existing": "cal_existing"},
-        model_registry={},
-    )
-    monkeypatch.setattr(
-        "enginir.viewer._prediction.load_spectra",
-        lambda path, header_only=False: types.SimpleNamespace(
-            X=[[1.0]], wavelengths=[1000.0], meta={}
-        ),
-    )
-    monkeypatch.setattr(
-        "enginir.viewer._prediction.resolve_dataset",
-        lambda *args, **kwargs: (existing_dataset, False),
-    )
-    captured: dict[str, object] = {}
-    monkeypatch.setattr(
-        "enginir.viewer._prediction.predict_with_model_run",
-        lambda **kwargs: (
-            captured.update(kwargs)
-            or types.SimpleNamespace(
-                prediction_run=types.SimpleNamespace(prediction_run_id="prediction_existing"),
-                dataset=types.SimpleNamespace(source_path=kwargs["data_path"]),
-            )
-        ),
-    )
-    finalized: list[str] = []
-    monkeypatch.setattr(project_state, "add_prediction",
-                        lambda result: finalized.append(result.prediction_run.prediction_run_id))
-
-    view = PredictionView(project_state)
-    view.predict_btn_clicked()
-    _wait_until(qapp, lambda: finalized == ["prediction_existing"])
-
-    assert captured["calibration"] is existing_calibration
-
-
 def test_prediction_map_widget_orients_map_like_spatial_canvas_and_adds_colorbar(qapp):
     from enginir.viewer._prediction import PredictionMapWidget
 
@@ -414,7 +107,7 @@ def test_prediction_map_widget_orients_map_like_spatial_canvas_and_adds_colorbar
     assert widget._colorbar is not None
     assert widget._colorbar.ax.get_ylabel() == "Prediction (mg)"
     assert len(widget._fig.axes) == 2
-    assert "shape=3 x 2" in widget._stats_label.text()
+    assert "2 frames x 3 rows shown" in widget._stats_label.text()
 
     widget.clear()
 
@@ -450,96 +143,6 @@ def test_prediction_map_widget_exposes_multi_output_selector(qapp):
     np.testing.assert_allclose(widget._ax.images[0].get_array(), spatial_map[..., 1].T)
 
 
-def test_prediction_view_reports_backend_failure(qapp, project_state, monkeypatch):
-    from enginir.viewer._prediction import PredictionRunDialog, PredictionView
-
-    _seed_model_run(project_state)
-
-    def fake_exec(self):
-        self._path_edit.setText("/tmp/predict.eiff")
-        return self.DialogCode.Accepted
-
-    warnings: list[str] = []
-    monkeypatch.setattr(PredictionRunDialog, "exec", fake_exec)
-    _patch_prediction_flow(monkeypatch, project_state)
-    monkeypatch.setattr(
-        QMessageBox, "warning", lambda *args, **kwargs: warnings.append(str(args[2]))
-    )
-    monkeypatch.setattr(
-        "enginir.viewer._prediction.predict_with_model_run",
-        lambda **kwargs: (_ for _ in ()).throw(ValueError("boom")),
-    )
-
-    view = PredictionView(project_state)
-    view.predict_btn_clicked()
-    _wait_until(qapp, lambda: warnings == ["boom"])
-
-    assert view._service_status.label.text() == "Service: idle"
-
-
-def test_prediction_view_rejects_incompatible_explicit_calibration(
-    qapp, project_state, monkeypatch
-):
-    import enginir.viewer._prediction as prediction_mod
-    from enginir.viewer._prediction import PredictionRunDialog, PredictionView
-    from enginir.viewer._state import PredictionJobContext
-
-    _seed_model_run(project_state)
-
-    def fake_exec(self):
-        self._path_edit.setText("/tmp/predict.eiff")
-        self._explicit_calibration.setChecked(True)
-        self._mode_combo.setCurrentText("raw_dn")
-        self._output_unit_combo.setCurrentText("DN")
-        return self.DialogCode.Accepted
-
-    warnings: list[str] = []
-    logs: list[tuple[str, tuple[object, ...]]] = []
-    monkeypatch.setattr(PredictionRunDialog, "exec", fake_exec)
-    monkeypatch.setattr(
-        QMessageBox, "warning", lambda *args, **kwargs: warnings.append(str(args[2]))
-    )
-    monkeypatch.setattr(
-        prediction_mod.logger, "error", lambda message, *args: logs.append((message, args))
-    )
-    project_state.build_prediction_job_context = lambda *, model_run_id: PredictionJobContext(
-        project_path=str(project_state.project_path),
-        model_run=project_state.model_runs[model_run_id],
-        signal_domain=SignalDomainContract(
-            signal_domain_id="signal_domain_1",
-            input_format="eiff",
-            source_modality="nir_hsi",
-            required_signal_unit="Reflectance",
-            required_calibration_mode="dark_white_reference",
-            requires_dark_ref=True,
-            requires_white_ref=True,
-            calibrated_input_allowed=False,
-            n_bands=1,
-            wavelengths=[1000.0],
-            wavelength_tolerance_nm=0.0,
-            band_mapping_policy="exact",
-            output_dtype="float32",
-            created_at="2026-04-02T10:00:00+00:00",
-        ),
-        preprocessing_recipe_id="recipe_1",
-        recipe=types.SimpleNamespace(),
-        datasets={},
-        calibrations={},
-        active_calibration_ids={},
-        model_registry={},
-    )
-    monkeypatch.setattr("enginir.viewer._prediction.load_spectra", lambda path: None)
-
-    view = PredictionView(project_state)
-    view.predict_btn_clicked()
-
-    assert warnings == [
-        "Calibration '' has mode='raw_dn', but the model requires required_calibration_mode='dark_white_reference'"
-    ]
-    assert len(logs) == 1
-    assert logs[0][0] == "Prediction failed during preflight: {}"
-
-
 def _subsampled_map_payload() -> dict:
     frames, rows = np.meshgrid(np.arange(12), np.arange(5), indexing="ij")
     spatial_map = np.stack([frames + 0.1 * rows, -frames.astype(float)], axis=-1)
@@ -550,7 +153,6 @@ def _subsampled_map_payload() -> dict:
 def test_a_subsampled_map_shows_and_exports_true_frames_and_rows(qapp, tmp_path):
     """The preview keeps every 3rd frame and row; axes, hover and CSV use true indices."""
     import csv
-    import types
 
     from enginir.viewer._plot_panel import PlotFrame
     from enginir.viewer._prediction import PredictionMapWidget
@@ -565,7 +167,7 @@ def test_a_subsampled_map_shows_and_exports_true_frames_and_rows(qapp, tmp_path)
     assert widget._ax.get_xlim()[1] == pytest.approx(12 * 3 - 0.5)
 
     widget._on_motion(types.SimpleNamespace(inaxes=widget._ax, xdata=7.2, ydata=4.0))
-    assert widget._cursor_label.text().startswith("Frame 6 | Row 3 |")  # preview pixel (2, 1)
+    assert widget.hover_text.startswith("Frame 6 | Row 3 |")  # preview pixel (2, 1)
 
     frame.export_csv(tmp_path / "map.csv")
     lines = (tmp_path / "map.csv").read_text(encoding="utf-8").splitlines()
@@ -680,9 +282,11 @@ def test_prediction_summary_reports_run_metadata_and_applicability(qapp, project
                                                  diagnostics=summary, artifact_refs=refs))
     text = view.workspace_summary()
     assert text["map_shape"] == "3 x 2" and text["map_range"] == "1 .. 4"
-    assert text["clipping"] == "low=2 | high=3 | near-zero denom=1"
-    assert text["diagnostics"] == ("above DCrit: 50 % | above T²Crit: 0 % | "
-                                   "mean within limits 1.5 | outside 3.5")
+    assert text["clipping"] == ("reflectance clipped: 2 below 1e-6, 3 above 1, "
+                                "1 with white ≈ dark")
+    assert text["diagnostics"] == ("50 % above DCrit, 0 % above T²Crit (whole map, background "
+                                   "included)\nMean prediction: 1.5 within the limits, "
+                                   "3.5 outside")
     assert text["dataset"] == "scan.h5" and "not stored" in text["status"]
 
     project_state.add_prediction(_session_result("old", grid))
@@ -720,3 +324,283 @@ def test_the_layer_selector_shows_the_diagnostics_and_marks_pixels_above_the_lim
     assert widget._current_display_map is None
     texts = " ".join(text.get_text() for text in widget._ax.texts)
     assert "Refit" in texts
+
+
+# -- Predict ROIs and Predict map on a real project (viewer contract §3) ---------------------
+
+
+@pytest.fixture()
+def fitted_tray(tmp_path):
+    from enginir import PreprocessingRecipe
+    from enginir.viewer._state import ProjectState
+    from tests.test_prediction_rois import tray
+
+    project, _scan, path = tray.__wrapped__(tmp_path)
+    model = project.fit("API", recipe=PreprocessingRecipe(snv=True), n_components=2, cv=3)
+    state = ProjectState()
+    state.open_project(str(project.path))
+    return project, model, state, path
+
+
+def test_predict_map_names_the_chain_and_refuses_an_incompatible_file(
+        qapp, fitted_tray, tmp_path):
+    from enginir.io import save_hdf5
+    from enginir.viewer._predict_dialogs import PredictMapDialog
+    from enginir.viewer._prediction import PredictionView
+
+    project, model, state, _path = fitted_tray
+    raw = tmp_path / "raw.h5"
+    save_hdf5(raw, np.full((4, 5, 24), 2000, dtype=np.uint16), np.linspace(1000, 1600, 24))
+    raw_id = project.add_dataset(raw, unit="DN").ref.dataset_id
+    state.open_project(str(project.path))
+    view = PredictionView(state)
+    choices = view._model_choices()
+    assert [choice.name for choice in choices] == [model.name], "names, not ids"
+    assert "Absorbance → SNV" in choices[0].chain and "dark/white references" in choices[0].chain
+    tray_id = next(d for d in state.datasets if d != raw_id)
+    assert view._map_check(model.ref.model_run_id, tray_id) is None
+    reason = view._map_check(model.ref.model_run_id, raw_id)
+    assert reason is not None and "raw_dn" in reason
+    dialog = PredictMapDialog(choices, [(tray_id, "tray"), (raw_id, "raw")],
+                              check=view._map_check, default_file=raw_id)
+    ok = dialog._buttons.button(dialog._buttons.StandardButton.Ok)
+    assert ok is not None and not ok.isEnabled() and "Cannot predict" in dialog._reason.text()
+    dialog._file_combo.setCurrentIndex(dialog._file_combo.findData(tray_id))
+    assert ok.isEnabled()
+
+
+def test_predict_map_shows_the_map_and_the_rois_of_its_file(qapp, fitted_tray, monkeypatch):
+    from enginir.viewer._predict_dialogs import PredictMapDialog
+    from enginir.viewer._prediction import PredictionView
+
+    project, model, state, _path = fitted_tray
+    monkeypatch.setattr(PredictMapDialog, "exec", lambda self: self.DialogCode.Accepted)
+    view = PredictionView(state)
+    view.predict_btn_clicked()
+    _wait_until(qapp, lambda: bool(state.predictions) and bool(view._roi_predictions),
+                timeout=30)
+    summary = view.workspace_summary()
+    assert summary["model"] == model.name and "dark/white references" in summary["calibration"]
+    payload = view.roi_results_payload()
+    names = {row["roi"] for row in payload["roi_rows"]}
+    assert names == {"t08", "t09", "t10"}
+    visual = view.workspace_visual_payload()
+    assert visual is not None and visual["colour_range"] == (1.0, 7.0), "training values"
+    assert len(visual["roi_overlays"]) == 3
+    # The map and the ROI path agree for an ROI (one chain).
+    row = next(r for r in payload["roi_rows"] if r["roi"] == "t09")
+    f0, f1, r0, r1 = project.roi("t09").spatial_bounds
+    result = next(iter(state.predictions.values()))
+    np.testing.assert_allclose(row["mean"], float(np.mean(
+        result.spatial_map[f0:f1 + 1, r0:r1 + 1])), rtol=1e-5)
+
+
+def test_predict_rois_compares_models_and_the_exclusion_needs_no_new_prediction(
+        qapp, fitted_tray, monkeypatch):
+    from enginir.viewer import _prediction
+    from enginir.viewer._predict_dialogs import PredictRoisDialog
+    from enginir.viewer._prediction import PredictionView
+
+    project, model, state, _path = fitted_tray
+    other = project.fit("API", n_components=3, cv=3)
+    state.open_project(str(project.path))
+
+    def accept(self):
+        for row in range(self._model_list.count()):
+            item = self._model_list.item(row)
+            item.setCheckState(item.checkState().Checked)
+        return self.DialogCode.Accepted
+
+    monkeypatch.setattr(PredictRoisDialog, "exec", accept)
+    calls: list[str] = []
+    real = _prediction.predict_rois
+    monkeypatch.setattr(_prediction, "predict_rois",
+                        lambda **kw: calls.append(kw["model_name"]) or real(**kw))
+    view = PredictionView(state)
+    view.predict_rois_clicked()
+    _wait_until(qapp, lambda: len(view._roi_predictions) == 2, timeout=30)
+    rows = view.roi_results_payload()["roi_rows"]
+    assert {row["model"] for row in rows} == {model.name, other.name} and len(rows) == 6
+    assert set(view.roi_results_payload()["rmsep"]) == {model.name, other.name}
+
+    before = view.roi_results_payload()
+    view._exclusion_check.setChecked(True)
+    view._exclusion_level.setValue(0.5)  # a strict limit removes pixels
+    after = view.roi_results_payload()
+    assert after is not before and sum(row["removed"] for row in after["roi_rows"]) > 0
+    assert len(calls) == 2, "recalculated from the predicted pixels"
+    assert "removed" in after["exclusion_text"]
+
+    # The histogram shows the pixels behind the statistics: the kept ROI pixels per model.
+    shown = {"values": np.full((4, 4), -60.0), "provenance": {}}  # a background-only map
+    histogram = view.histogram_payload(shown)
+    assert histogram is not None
+    series = dict(histogram["series"])
+    assert set(series) == {model.name, other.name}, "the ROI pixels, not the map"
+    for name in series:
+        kept = sum(row["pixels"] - row["removed"] for row in after["roi_rows"]
+                   if row["model"] == name)
+        assert series[name].size == kept
+    view._exclusion_check.setChecked(False)
+    every = view.histogram_payload(shown)["series"]
+    assert sum(values.size for _name, values in every) > sum(v.size for v in series.values())
+
+
+def test_a_map_of_a_file_without_prediction_rois_drops_the_old_roi_results(
+        qapp, fitted_tray, monkeypatch, tmp_path):
+    """Map and ROI results always describe the same data file."""
+    import shutil
+
+    from enginir.viewer._predict_dialogs import PredictMapDialog
+    from enginir.viewer._prediction import PredictionView
+
+    project, model, state, path = fitted_tray
+    copy = tmp_path / "other" / "tray.h5"
+    copy.parent.mkdir()
+    shutil.copy(path, copy)
+    n = 2 + 10 * 4 + 2
+    other_id = project.add_dataset(copy, dark_frames=(0, 1),
+                                   white_frames=(n - 2, n - 1)).ref.dataset_id
+    state.open_project(str(project.path))
+    view = PredictionView(state)
+    view._set_roi_predictions([model.roi_prediction()], scope="tray")
+    assert view.roi_results_payload()["roi_rows"]
+    label = view._map_file_label(other_id)
+    assert label.endswith("no prediction ROIs") and "other" in label
+    monkeypatch.setattr(PredictMapDialog, "exec", lambda self: self.DialogCode.Accepted)
+    monkeypatch.setattr(PredictMapDialog, "dataset_id", property(lambda self: other_id))
+    view.predict_btn_clicked()
+    _wait_until(qapp, lambda: bool(state.predictions), timeout=30)
+    _wait_until(qapp, lambda: not view._roi_predictions, timeout=10)
+    payload = view.roi_results_payload()
+    assert not payload["roi_rows"] and "No prediction ROIs on" in payload["message"]
+    assert view.workspace_summary()["rois"].startswith("No prediction ROIs on")
+
+
+def test_hovering_a_map_pixel_describes_it_in_the_status_line(qapp):
+    """Frame, row, prediction against the colour range, DModX against DCrit and the
+    removal limit, T² and the prediction ROI under the cursor; leaving clears it."""
+    from enginir.viewer._prediction import PredictionMapWidget
+
+    widget = PredictionMapWidget()
+    shown: list[str] = []
+    widget.hovered.connect(shown.append)
+    prediction = np.array([[2.0, 12.0], [5.0, 0.5], [4.0, 6.0]], dtype=np.float32)
+    dmodx = np.array([[0.5, 3.0], [1.2, 0.1], [0.2, 0.9]], dtype=np.float32)
+    widget.update_data({"spatial_map": prediction, "layers": {"DModX": dmodx, "T²": dmodx * 2},
+                        "diagnostics": {"dcrit_099": 1.0}, "colour_range": (1.0, 10.0),
+                        "removed_limit": 2.0,
+                        "roi_overlays": [((0, 0, 1, 1), "03  12", "03")]})
+    # spatial_map is (frames, rows): the shown map is (rows, frames).
+    text = widget.describe_pixel(1, 0)
+    assert text == ("Frame 1 | Row 0 | Prediction 5 | DModX 1.2 (DCrit 0.99 1: above, "
+                    "removal limit 2) | T² 2.4")
+    text = widget.describe_pixel(0, 1)
+    assert "Prediction 12 (above the colour range)" in text
+    assert "DModX 3 (DCrit 0.99 1: above, removal limit 2: removed)" in text
+    assert text.endswith("ROI 03")
+    widget._on_motion(types.SimpleNamespace(inaxes=widget._ax, xdata=0.0, ydata=1.0))
+    widget._on_motion(types.SimpleNamespace(inaxes=None, xdata=None, ydata=None))
+    assert shown[-2].endswith("ROI 03") and shown[-1] == ""
+
+
+def test_the_roi_table_shows_the_session_results_and_sorts_by_them(qapp, fitted_tray):
+    """Per model: mean, SD, % removed, % above DCrit, residual; read-only, following the
+    pixel removal, sortable, and gone with another project (never stored)."""
+    from enginir.viewer._prediction import PredictionView
+    from enginir.viewer._roi_table import RoiTableModel
+
+    project, model, state, _path = fitted_tray
+    table = RoiTableModel(state)
+    n_columns = table.columnCount()
+    view = PredictionView(state)
+    prediction = model.roi_prediction()
+    glare = prediction.pixels[project.roi("t09").roi_id]
+    dmodx = glare.dmodx.copy()
+    dmodx[:4] = 1e3  # four pixels far outside the model
+    prediction.pixels[project.roi("t09").roi_id] = type(glare)(y=glare.y, dmodx=dmodx,
+                                                               t2=glare.t2)
+    view._set_roi_predictions([prediction], scope="tray")
+    assert table.columnCount() == n_columns + 5
+    headers = [table.headerData(c, Qt.Orientation.Horizontal) for c in
+               range(n_columns, n_columns + 5)]
+    assert headers == [f"{model.name}: {h}" for h in
+                       ("mean", "SD", "% removed", "% above DCrit", "residual")]
+    mean_column = n_columns
+    row = table.row_of(project.roi("t09").roi_id)
+    assert row is not None
+    expected = next(r for r in view._roi_summaries[0].rois
+                    if r.roi_id == project.roi("t09").roi_id)
+    assert table.data(table.index(row, mean_column)) == f"{expected.mean:.3g}"
+    assert not table.flags(table.index(row, mean_column)) & Qt.ItemFlag.ItemIsEditable
+    training_row = table.row_of(project.roi("t01").roi_id)
+    assert training_row is not None and table.data(table.index(training_row, mean_column)) == ""
+
+    assert table.data(table.index(row, n_columns + 2)) == "0"
+    view._exclusion_check.setChecked(True)
+    removed = float(table.data(table.index(row, n_columns + 2)))
+    assert removed >= 100 * 4 / glare.y.size - 0.5, "the table follows the pixel removal"
+
+    table.sort(mean_column, Qt.SortOrder.DescendingOrder)
+    means = [table.data(table.index(r, mean_column)) for r in range(table.rowCount())]
+    filled = [float(m) for m in means if m]
+    assert filled == sorted(filled, reverse=True) and means[len(filled):] == [""] * (
+        len(means) - len(filled)), "by value, empty cells last"
+
+    other = Project.create(Path(project.path).parent / "other.h5")
+    state.open_project(str(other.path))
+    assert state.roi_results == [] and table.columnCount() == len(
+        ("Data file", "ROI", "Pixels", "Predict", "Sample"))
+
+
+def test_the_per_roi_plot_rings_unusual_tablets_and_has_no_share_axis(qapp):
+    from matplotlib.figure import Figure
+
+    from enginir.viewer._predict_dialogs import _render_roi_results
+    from enginir.viewer._theme import panel_colors
+
+    def row(name, share):
+        return {"roi": name, "roi_id": name, "model": "PLS", "mean": 5.0, "p05": 4.0,
+                "p95": 6.0, "reference": None, "share_above_dcrit": share}
+
+    def legend_texts(rows):
+        fig = Figure()
+        _render_roi_results(fig, {"roi_rows": rows, "training_share": (0.02, 0.1, 0.3)},
+                            panel_colors())
+        assert len(fig.axes) == 1, "no right axis"
+        return [text.get_text() for text in fig.axes[0].get_legend().get_texts()]
+
+    assert not any("unusual" in t for t in legend_texts([row("01", 0.05), row("02", 0.29)]))
+    assert any("unusual" in t for t in legend_texts([row("01", 0.05), row("02", 0.6)]))
+
+
+def test_the_summary_names_file_and_model_once_and_controls_change_the_map(
+        qapp, fitted_tray, monkeypatch):
+    from enginir.viewer._predict_dialogs import PredictMapDialog
+    from enginir.viewer._prediction import PredictionView
+
+    _project, model, state, _path = fitted_tray
+    monkeypatch.setattr(PredictMapDialog, "exec", lambda self: self.DialogCode.Accepted)
+    view = PredictionView(state)
+    view.predict_btn_clicked()
+    _wait_until(qapp, lambda: bool(state.predictions) and bool(view._roi_predictions),
+                timeout=30)
+    summary = view.workspace_summary()
+    assert summary["headline"].startswith("Map of tray.h5 with " + model.name)
+    shown = "\n".join(summary[key] for key in ("headline", "rois", "signal", "target",
+                                                 "calibration", "map_shape", "clipping"))
+    assert shown.count("tray.h5") == 1 and shown.count(model.name) == 1
+    assert "Map: tray.h5" in view.status_text() and model.name in view.status_text()
+
+    before = view.workspace_visual_payload()
+    assert before is not None and before["show_roi_outlines"]
+    view.set_colour_limits((2.0, 4.0))
+    assert view.colour_limits == (2.0, 4.0) and view._colour_mode.currentData() == "own"
+    view._show_outlines.setChecked(False)
+    after = view.workspace_visual_payload()
+    assert after is not before and not after["show_roi_outlines"]
+    view._histogram_source.setCurrentIndex(view._histogram_source.findData("map"))
+    map_payload = {"values": np.ones((2, 2)), "provenance": {}}
+    assert view.histogram_payload(map_payload) is map_payload
+    view.set_colour_limits(None)
+    assert view.colour_limits is None

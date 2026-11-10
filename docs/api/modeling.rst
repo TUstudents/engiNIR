@@ -23,6 +23,23 @@ groups for validation, ROI-mean reporting) are listed in
 
 .. autofunction:: enginir.modeling.roi_spectrum_summaries
 
+.. autofunction:: enginir.modeling.propose_bands
+
+.. autofunction:: enginir.modeling.fold_warnings
+
+.. autofunction:: enginir.modeling.predicted_fold_warnings
+
+.. autofunction:: enginir.modeling.fold_warning_text
+
+.. autoclass:: enginir.modeling.BandProposal
+   :no-members:
+
+.. autoclass:: enginir.modeling.BandStep
+   :no-members:
+
+.. autoclass:: enginir.modeling.BandProposalCancelledError
+   :no-members:
+
 .. autoclass:: enginir.modeling.RoiSpectrumSummary
    :no-members:
 

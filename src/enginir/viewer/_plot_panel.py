@@ -37,6 +37,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QSizePolicy,
     QToolButton,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -184,6 +185,8 @@ class PlotSpec:
     render: RenderFn
     table: Callable[[Any], PlotTable]
     empty_text: str = "No data yet."
+    #: How to read the plot (what, at which level, a bad sign); shown by the header's ?.
+    help: str = ""
 
 
 def draw_placeholder(ax: Axes, message: str, colors: Mapping[str, str]) -> None:
@@ -231,10 +234,12 @@ class PlotFrame(QWidget):
         source: PlotSource | None = None,
         *,
         provenance: Callable[[], Mapping[str, Any]] | None = None,
+        help_text: str = "",
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.plot_id = plot_id
+        self.help_text = help_text
         self._source = source
         self._provenance_provider = provenance
         self._provenance: dict[str, Any] = {}
@@ -262,6 +267,12 @@ class PlotFrame(QWidget):
         menu_button.setMenu(self._menu)
         self._header.setFixedHeight(_HEADER_BUTTON + 4)
         self._header_layout.addWidget(self._title, 1)
+        self._help_button: QToolButton | None = None
+        if help_text:
+            self._help_button = self._header_button("?")
+            self._help_button.setToolTip(help_text)
+            self._help_button.clicked.connect(self.show_help)
+            self._header_layout.addWidget(self._help_button)
         self._header_layout.addWidget(self._max_button)
         self._header_layout.addWidget(menu_button)
         self.set_maximized(False)
@@ -280,6 +291,13 @@ class PlotFrame(QWidget):
     # Header
     # ------------------------------------------------------------------
 
+    def show_help(self) -> None:
+        """Show the help text next to the ? button (a tooltip that stays until moved away)."""
+        if self._help_button is None:
+            return
+        anchor = self._help_button.mapToGlobal(self._help_button.rect().bottomLeft())
+        QToolTip.showText(anchor, self.help_text, self._help_button)
+
     @property
     def title(self) -> str:
         return self._title.text()
@@ -293,6 +311,11 @@ class PlotFrame(QWidget):
         if layout is not None:
             layout.removeWidget(self._header)
         return self._header
+
+    def add_menu_action(self, text: str, slot: Callable[[], None]) -> QAction:
+        """Add a plot-specific entry to the ⋯ menu, after the exports."""
+        self._menu.addSeparator()
+        return self._add_action(text, slot)
 
     def add_header_widget(self, widget: QWidget) -> None:
         """Add a control to the header, left of the maximize button."""
@@ -439,6 +462,8 @@ class PlotPanel(PlotFrame):
     """The frame of one :class:`PlotSpec`: draws its payload and exports it."""
 
     roi_selected = pyqtSignal(str)
+    #: The ROI point under the cursor (its id), or ``""`` when there is none.
+    roi_hovered = pyqtSignal(str)
 
     def __init__(self, spec: PlotSpec, parent: QWidget | None = None) -> None:
         self.spec = spec
@@ -455,8 +480,11 @@ class PlotPanel(PlotFrame):
         self._canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._canvas.setMinimumSize(120, 90)
         self._canvas.mpl_connect("button_press_event", self._on_canvas_click)
+        self._canvas.mpl_connect("motion_notify_event", self._on_canvas_motion)
         self._canvas.mpl_connect("resize_event", self._on_canvas_resize)
-        super().__init__(spec.plot_id, spec.title, self._canvas, parent=parent)
+        self._hovered_roi = ""
+        super().__init__(spec.plot_id, spec.title, self._canvas, help_text=spec.help,
+                         parent=parent)
 
     # ------------------------------------------------------------------
     # Data and drawing
@@ -568,9 +596,10 @@ class PlotPanel(PlotFrame):
     # ROI picking
     # ------------------------------------------------------------------
 
-    def _on_canvas_click(self, event: Any) -> None:
+    def _roi_at(self, event: Any) -> str:
+        """The id of the ROI point within the pick radius of a mouse event, or ``""``."""
         if event.x is None or event.y is None:
-            return
+            return ""
         for points in self._roi_points:
             if event.inaxes is not points.ax or points.x.size == 0:
                 continue
@@ -578,8 +607,19 @@ class PlotPanel(PlotFrame):
             distances = np.linalg.norm(positions - np.array([event.x, event.y]), axis=1)
             nearest = int(np.nanargmin(distances)) if np.isfinite(distances).any() else -1
             if nearest >= 0 and distances[nearest] <= _PICK_RADIUS_PX:
-                self.roi_selected.emit(points.roi_ids[nearest])
-            return
+                return points.roi_ids[nearest]
+        return ""
+
+    def _on_canvas_click(self, event: Any) -> None:
+        roi_id = self._roi_at(event)
+        if roi_id:
+            self.roi_selected.emit(roi_id)
+
+    def _on_canvas_motion(self, event: Any) -> None:
+        roi_id = self._roi_at(event)
+        if roi_id != self._hovered_roi:
+            self._hovered_roi = roi_id
+            self.roi_hovered.emit(roi_id)
 
 
 def print_copy(fig: Figure) -> Figure:

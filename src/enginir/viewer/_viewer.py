@@ -17,13 +17,17 @@ from PyQt6.QtWidgets import (
     QDockWidget,
     QFormLayout,
     QGroupBox,
+    QInputDialog,
     QHBoxLayout,
     QVBoxLayout,
     QFileDialog,
     QMessageBox,
     QPlainTextEdit,
     QSizePolicy,
+    QFrame,
     QLabel,
+    QLayout,
+    QScrollArea,
     QSplitter,
     QStackedWidget,
     QToolButton,
@@ -56,6 +60,7 @@ from ._project_settings import load_last_data_file, save_last_data_file
 from ._plot_grid import PlotPage, PlotPageWidget, PlotSlot
 from ._plot_panel import LARGE_EXPORT_VALUES, PlotFrame, PlotPanel
 from ._modeling import ModelingView, NewROIDialog, TargetSelectionDialog
+from ._predict_dialogs import ROI_RESULTS
 from ._prediction import PREDICTION_HISTOGRAM, PredictionMapWidget, PredictionView
 from ._state import (
     DEFAULT_BLACK_LEVEL,
@@ -129,6 +134,20 @@ __all__ = [
 # ------------------------------------------------------------------
 # LogPanel - dock widget for loguru output
 # ------------------------------------------------------------------
+
+
+class _WidthScrollArea(QScrollArea):
+    """Scrolls sideways only: the content always gets the viewport's height.
+
+    The Controls dock's rows are wide but short; a plain scroll area would let
+    the content grow taller than the dock and hide its lower rows.
+    """
+
+    def resizeEvent(self, a0: Any) -> None:  # noqa: N802 (Qt API)
+        super().resizeEvent(a0)
+        content, viewport = self.widget(), self.viewport()
+        if content is not None and viewport is not None:
+            content.setFixedHeight(viewport.height())
 
 
 class LogPanel(QWidget):
@@ -334,6 +353,7 @@ class HSIViewer(QMainWindow):
         # Explore: the shown data file, or all ROIs of the project (filled in later).
         self._explore_tabs = QTabWidget()
         self._explore_tabs.setDocumentMode(True)
+        _require_qt_object(self._explore_tabs.tabBar(), "Explore tab bar").setDrawBase(False)
         self._explore_tabs.addTab(self._data_file_page, "Data file")
         self._explore_content_page = self._explore_tabs
         self._project_rois: ProjectRoisView | None = None
@@ -435,18 +455,27 @@ class HSIViewer(QMainWindow):
         summary_layout.addRow("ROIs", self._model_card_roi_count_value)
         summary_layout.addRow("Pixels", self._model_card_pixel_count_value)
 
-        metrics_box = QGroupBox("Metrics")
-        metrics_layout = QFormLayout(metrics_box)
-        metrics_layout.setContentsMargins(8, 8, 8, 8)
-        metrics_layout.setSpacing(4)
-
+        # Two levels (model-workspace-diagnostics contract): ROI means, single pixels.
+        metrics_box = QGroupBox("Metrics per ROI")
+        metrics_box.setToolTip("Over ROI means: the model's quality. The target, the folds "
+                               "and the reported metrics are per ROI.")
+        self._model_metrics_layout = QFormLayout(metrics_box)
+        self._model_metrics_layout.setContentsMargins(8, 8, 8, 8)
+        self._model_metrics_layout.setSpacing(4)
+        pixel_box = QGroupBox("Metrics per pixel")
+        pixel_box.setToolTip("Over single spectra (the observations of the fit). Single "
+                             "pixels are noisy, so these are worse than per ROI.")
+        self._model_pixel_metrics_layout = QFormLayout(pixel_box)
+        self._model_pixel_metrics_layout.setContentsMargins(8, 8, 8, 8)
+        self._model_pixel_metrics_layout.setSpacing(4)
+        self._model_pixel_metrics_box = pixel_box
         self._model_metric_r2_value = QLabel("-")
         self._model_metric_rmsecv_value = QLabel("-")
         self._model_metric_bias_value = QLabel("-")
-
-        metrics_layout.addRow("R2", self._model_metric_r2_value)
-        metrics_layout.addRow("RMSECV", self._model_metric_rmsecv_value)
-        metrics_layout.addRow("Bias", self._model_metric_bias_value)
+        self._model_metric_rows: list[str] = []
+        self._model_warnings = QLabel("")
+        self._model_warnings.setWordWrap(True)
+        self._model_warnings.setVisible(False)
 
         readiness_box = QGroupBox("Readiness")
         readiness_layout = QVBoxLayout(readiness_box)
@@ -461,6 +490,8 @@ class HSIViewer(QMainWindow):
         text_layout.addWidget(self._model_summary_service)
         text_layout.addWidget(summary_box)
         text_layout.addWidget(metrics_box)
+        text_layout.addWidget(pixel_box)
+        text_layout.addWidget(self._model_warnings)
         text_layout.addWidget(readiness_box)
         text_layout.addStretch(1)
 
@@ -479,10 +510,10 @@ class HSIViewer(QMainWindow):
         layout.setSpacing(8)
 
         self._predict_content_title = QLabel("Prediction Results")
-        self._predict_summary_status = QLabel("Prediction: none")
-        self._predict_summary_readiness = QLabel("Ready: fit or load a model run.")
-        self._predict_summary_readiness.setWordWrap(True)
-        self._predict_summary_service = BusyStatusWidget(idle_text="Service: idle", parent=page)
+        # One headline names what is shown (data file, model); the groups below never
+        # repeat it. Progress is in the Controls dock.
+        self._predict_headline = QLabel("No prediction yet.")
+        self._predict_headline.setWordWrap(True)
         self._predict_workspace_splitter = QSplitter(Qt.Orientation.Horizontal)
         self._predict_workspace_splitter.setChildrenCollapsible(False)
 
@@ -493,13 +524,22 @@ class HSIViewer(QMainWindow):
         for control in self._predict_map_widget.header_widgets():
             self._predict_map_frame.add_header_widget(control)
         self._predict_histogram = PlotPanel(PREDICTION_HISTOGRAM)
-        self._predict_map_widget.displayed_map_changed.connect(
-            lambda shown: self._predict_histogram.update_data(
-                shown, provenance=self._prediction_view.workspace_provenance()))
+        self._predict_roi_results = PlotPanel(ROI_RESULTS)
+        self._predict_roi_results.roi_selected.connect(self._on_canvas_roi_selected)
+        self._predict_map_frame.add_menu_action("Colour limits...", self._ask_colour_limits)
+        self._predict_shown_map: dict[str, Any] | None = None
+        # Hovering a map pixel or a tablet's dot fills the window's status line.
+        self._predict_map_widget.hovered.connect(self._show_hover_status)
+        self._predict_roi_results.roi_hovered.connect(
+            lambda roi_id: self._show_hover_status(self._prediction_view.roi_hover_text(roi_id)))
+        self._predict_map_widget.displayed_map_changed.connect(self._on_predict_map_shown)
+        self._prediction_view.display_changed.connect(self._on_predict_display_changed)
         self._predict_graph_panel = PlotPageWidget(
-            PlotPage("Prediction", (PlotSlot("predict.map", 0, 0, row_span=2),
-                                    PlotSlot("predict.histogram", 2, 0))),
+            PlotPage("Prediction", (PlotSlot("predict.map", 0, 0, row_span=2, column_span=3),
+                                    PlotSlot("predict.roi_results", 2, 0, column_span=2),
+                                    PlotSlot("predict.histogram", 2, 2))),
             {"predict.map": self._predict_map_frame,
+             "predict.roi_results": self._predict_roi_results,
              "predict.histogram": self._predict_histogram})
 
         self._predict_text_panel = QWidget()
@@ -510,50 +550,56 @@ class HSIViewer(QMainWindow):
         predict_text_layout.setContentsMargins(0, 0, 0, 0)
         predict_text_layout.setSpacing(8)
 
-        summary_box = QGroupBox("Result Summary")
-        summary_layout = QFormLayout(summary_box)
-        summary_layout.setContentsMargins(8, 8, 8, 8)
-        summary_layout.setSpacing(4)
-        self._predict_card_prediction_value = QLabel("none")
-        self._predict_card_model_value = QLabel("none")
-        self._predict_card_dataset_value = QLabel("none")
-        self._predict_card_calibration_value = QLabel("none")
-        self._predict_card_target_value = QLabel("none")
-        summary_layout.addRow("Prediction", self._predict_card_prediction_value)
-        summary_layout.addRow("Model", self._predict_card_model_value)
-        summary_layout.addRow("Dataset", self._predict_card_dataset_value)
-        summary_layout.addRow("Calibration", self._predict_card_calibration_value)
-        summary_layout.addRow("Target", self._predict_card_target_value)
+        # Three groups (viewer contract §3): the chain, the scan, the applicability; ROIs.
+        def wrapped(text: str = "-") -> QLabel:
+            label = QLabel(text)
+            label.setWordWrap(True)
+            return label
 
-        compatibility_box = QGroupBox("Compatibility")
-        compatibility_layout = QFormLayout(compatibility_box)
-        compatibility_layout.setContentsMargins(8, 8, 8, 8)
-        compatibility_layout.setSpacing(4)
-        self._predict_contract_format_value = QLabel("-")
-        self._predict_contract_signal_value = QLabel("-")
-        self._predict_contract_bands_value = QLabel("-")
-        self._predict_map_shape_value = QLabel("-")
-        self._predict_map_range_value = QLabel("-")
-        self._predict_clipping_value = QLabel("-")
-        self._predict_diagnostics_value = QLabel("-")
-        self._predict_diagnostics_value.setWordWrap(True)
-        self._predict_wavelengths_value = QLabel("-")
-        self._predict_wavelengths_value.setWordWrap(True)
-        compatibility_layout.addRow("Input contract", self._predict_contract_format_value)
-        compatibility_layout.addRow("Signal contract", self._predict_contract_signal_value)
-        compatibility_layout.addRow("Bands", self._predict_contract_bands_value)
+        def group(title: str) -> tuple[QGroupBox, QFormLayout]:
+            box = QGroupBox(title)
+            form = QFormLayout(box)
+            form.setContentsMargins(8, 8, 8, 8)
+            form.setSpacing(4)
+            form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+            return box, form
+
+        summary_box, summary_layout = group("Chain")
+        self._predict_contract_signal_value = wrapped()
+        self._predict_card_target_value = wrapped("none")
+        self._predict_contract_bands_value = wrapped()
+        self._predict_contract_format_value = wrapped()
+        summary_layout.addRow("Signal, recipe", self._predict_contract_signal_value)
+        summary_layout.addRow("Target", self._predict_card_target_value)
+        summary_layout.addRow("Bands", self._predict_contract_bands_value)
+        summary_layout.addRow("Input", self._predict_contract_format_value)
+
+        compatibility_box, compatibility_layout = group("Scan")
+        self._predict_card_calibration_value = wrapped("none")
+        self._predict_map_shape_value = wrapped()
+        self._predict_map_range_value = wrapped()
+        self._predict_clipping_value = wrapped()
+        compatibility_layout.addRow("Calibration", self._predict_card_calibration_value)
         compatibility_layout.addRow("Map shape", self._predict_map_shape_value)
         compatibility_layout.addRow("Map range", self._predict_map_range_value)
-        compatibility_layout.addRow("Calibration clipping", self._predict_clipping_value)
-        compatibility_layout.addRow("Applicability", self._predict_diagnostics_value)
-        compatibility_layout.addRow("Wavelengths", self._predict_wavelengths_value)
+        compatibility_layout.addRow("Clipping", self._predict_clipping_value)
+
+        applicability_box, applicability_layout = group("Applicability")
+        self._predict_diagnostics_value = wrapped()
+        self._predict_wavelengths_value = wrapped()
+        applicability_layout.addRow("Pixels", self._predict_diagnostics_value)
+        applicability_layout.addRow("Wavelengths", self._predict_wavelengths_value)
+
+        rois_box, rois_layout = group("Prediction ROIs")
+        self._predict_rois_value = wrapped("none")
+        rois_layout.addRow(self._predict_rois_value)
 
         layout.addWidget(self._predict_content_title)
-        predict_text_layout.addWidget(self._predict_summary_status)
-        predict_text_layout.addWidget(self._predict_summary_readiness)
-        predict_text_layout.addWidget(self._predict_summary_service)
+        predict_text_layout.addWidget(self._predict_headline)
+        predict_text_layout.addWidget(rois_box)
         predict_text_layout.addWidget(summary_box)
         predict_text_layout.addWidget(compatibility_box)
+        predict_text_layout.addWidget(applicability_box)
         predict_text_layout.addStretch(1)
 
         self._predict_workspace_splitter.addWidget(self._predict_graph_panel)
@@ -563,6 +609,34 @@ class HSIViewer(QMainWindow):
         self._predict_workspace_splitter.setSizes([900, 300])
         layout.addWidget(self._predict_workspace_splitter, 1)
         return page
+
+    def _on_predict_display_changed(self) -> None:
+        """Colour scale, overlays or histogram source changed in the Predict controls."""
+        widget = self._predict_map_widget
+        if widget is None:
+            return
+        if widget.user_limits != self._prediction_view.colour_limits:
+            widget.user_limits = self._prediction_view.colour_limits
+        self.schedule_workspace_content_refresh()
+
+    def _show_hover_status(self, text: str) -> None:
+        """A hover readout in the status line; ``""`` restores the idle line."""
+        if text:
+            self._status_label.setText(text)
+        else:
+            self._update_status_strip()
+
+    def _on_predict_map_shown(self, shown: dict[str, Any] | None) -> None:
+        self._predict_shown_map = shown
+        self._update_predict_histogram()
+
+    def _update_predict_histogram(self) -> None:
+        """The ROI pixels with ROI results (following the exclusion), else the shown map."""
+        if self._predict_map_widget is None:
+            return
+        self._predict_histogram.update_data(
+            self._prediction_view.histogram_payload(self._predict_shown_map),
+            provenance=self._prediction_view.workspace_provenance())
 
     def _reset_image_view(self) -> None:
         """Reset the central image view to the full image bounds."""
@@ -629,8 +703,18 @@ class HSIViewer(QMainWindow):
         self._roi_table_dock.setWidget(self._roi_table)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._roi_table_dock)
         self._roi_table_dock.hide()
+        #: ROI table per Explore tab: shown with Project ROIs, not on the Data file tab;
+        #: the user's choice on each tab is kept. Model and Predict leave it as it is.
+        self._default_roi_table_visibility = {"data_file": False, "project_rois": True}
+        self._roi_table_visibility = dict(self._default_roi_table_visibility)
+        self._roi_table_dock.visibilityChanged.connect(self._on_roi_table_visibility_changed)
 
+        #: Docks that show the data file at the cursor: only on Explore's Data file tab.
+        self._data_file_docks = {"histogram": self._hist_dock, "raw": self._dc3_dock,
+                                 "sensor": self._sensor_dock, "spatial": self._spatial_dock}
         self._default_explore_plot_visibility = {
+            "histogram": False,
+            "raw": False,
             "sensor": True,
             "spatial": True,
             "spectrum": True,
@@ -784,9 +868,16 @@ class HSIViewer(QMainWindow):
         outer.setSpacing(6)
         outer.addWidget(self._workspace_tabs)
 
+        # The control rows are wide; a scroll area lets them shrink with the window
+        # instead of setting its minimum width (see _release_minimum_size).
+        scroll = _WidthScrollArea()
+        scroll.setWidget(container)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._controls_dock = QDockWidget("Controls", self)
         self._controls_dock.setObjectName("ControlsDock")
-        self._controls_dock.setWidget(container)
+        self._controls_dock.setWidget(scroll)
         self._configure_controls_dock_height()
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._controls_dock)
         self._refresh_workspace_content_pages()
@@ -847,6 +938,12 @@ class HSIViewer(QMainWindow):
         project_label = "none"
         if self.project_state.project_path:
             project_label = os.path.basename(self.project_state.project_path)
+        tabs = getattr(self, "_workspace_tabs", None)
+        if tabs is not None and tabs.currentWidget() is self._prediction_view:
+            # Predict: what the shown map is (the hover readout replaces it on the map).
+            self._status_label.setText(
+                f"Project: {project_label} | {self._prediction_view.status_text()}")
+            return
 
         dataset_label = "none"
         if self._cube_path:
@@ -911,11 +1008,15 @@ class HSIViewer(QMainWindow):
         self._modeling_view._service_status.status_changed.connect(
             self.schedule_workspace_content_refresh
         )
+        self._prediction_view.results_changed.connect(self.schedule_workspace_content_refresh)
+        self._prediction_view.results_changed.connect(self._update_predict_histogram)
+        self._prediction_view.set_data_file_adder(self._add_prediction_data_file)
         self._prediction_view._service_status.status_changed.connect(
             self.schedule_workspace_content_refresh
         )
-        self._sensor_dock.visibilityChanged.connect(self._on_sensor_dock_visibility_changed)
-        self._spatial_dock.visibilityChanged.connect(self._on_spatial_dock_visibility_changed)
+        for name, dock in self._data_file_docks.items():
+            dock.visibilityChanged.connect(
+                lambda _visible, name=name: self._on_data_file_dock_visibility_changed(name))
 
         self.project_state.project_loaded.connect(self._refresh_data_file_choices)
         self.project_state.datasets_changed.connect(self._refresh_data_file_choices)
@@ -934,6 +1035,9 @@ class HSIViewer(QMainWindow):
         self.project_state.project_loaded.connect(self._update_project_rois_tab)
         self.project_state.project_loaded.connect(self._choose_explore_tab)
         self._explore_tabs.currentChanged.connect(self._show_last_data_file)
+        self._explore_tabs.currentChanged.connect(self._on_explore_tab_changed)
+        self._project_rois.data_file_filter_changed.connect(self._follow_roi_table_filter)
+        self.project_state.project_loaded.connect(self._sync_roi_table)
         self._update_project_rois_tab()
         self._choose_explore_tab()
         self._modeling_view.roi_table_requested.connect(self.show_roi_table)
@@ -992,18 +1096,83 @@ class HSIViewer(QMainWindow):
             self.show_data_file(dataset_id)
 
     def show_roi_table(self) -> None:
-        """Show the ROI table on the shown data file and the target selected in Model."""
-        self._roi_table.show_data_file(self._eda_view.shown_dataset_id())
+        """Show the ROI table on the ROIs of the current page and the target selected in Model.
+
+        The table takes the right dock column: alone on Project ROIs, Model and
+        Predict (the data-file docks are hidden there), as a tab next to the
+        Sensor Frame on the Data file tab.
+        """
+        self._roi_table.show_data_file(self._roi_table_data_file())
         target = self._modeling_view.current_target()
         self._roi_table.focus_target(None if target is None else target.target_id)
         was_hidden = self._roi_table_dock.isHidden()
         self._roi_table_dock.show()
+        self._place_roi_table()
         self._roi_table_dock.raise_()
         if was_hidden and not self._roi_table_dock.isFloating():
-            # Next to the Explore docks it would get a few rows only.
-            self.resizeDocks([self._roi_table_dock], [max(360, self.height() // 2)],
-                             Qt.Orientation.Vertical)
             self.resizeDocks([self._roi_table_dock], [460], Qt.Orientation.Horizontal)
+
+    def _on_data_file_page(self) -> bool:
+        return (self._workspace_tabs.currentWidget() is self._eda_view
+                and self._explore_tabs.currentWidget() is self._data_file_page)
+
+    def _roi_table_data_file(self) -> str | None:
+        """The data file the ROI table shows: the page's (``None``: all files)."""
+        if self._on_data_file_page():
+            return self._eda_view.shown_dataset_id()
+        if self._workspace_tabs.currentWidget() is self._eda_view \
+                and self._project_rois is not None:
+            return self._project_rois.shown_dataset_id()
+        return None
+
+    def _follow_roi_table_filter(self, *_args: Any) -> None:
+        if not self._roi_table_dock.isHidden():
+            self._roi_table.show_data_file(self._roi_table_data_file())
+
+    def _place_roi_table(self) -> None:
+        """On the Data file tab, tab a docked ROI table with the Sensor Frame (full slot)."""
+        table, sensor = self._roi_table_dock, self._sensor_dock
+        if (not self._on_data_file_page() or table.isHidden() or table.isFloating()
+                or sensor.isHidden() or sensor.isFloating()
+                or table in self.tabifiedDockWidgets(sensor)):
+            return
+        self.tabifyDockWidget(sensor, table)
+        table.raise_()
+
+    def _on_explore_tab_changed(self, *_args: Any) -> None:
+        self._sync_data_file_docks()
+        self._follow_roi_table_filter()
+
+    def _explore_page_key(self) -> str | None:
+        """``"data_file"`` or ``"project_rois"`` in Explore, ``None`` in Model and Predict."""
+        if self._workspace_tabs.currentWidget() is not self._eda_view:
+            return None
+        return "data_file" if self._on_data_file_page() else "project_rois"
+
+    def _sync_roi_table(self, *_args: Any) -> None:
+        """Show or hide the ROI table as last chosen on the current Explore tab."""
+        key = self._explore_page_key()
+        if key is None or self.project_state.project_path is None:
+            return
+        wanted = self._roi_table_visibility[key]
+        if wanted == (not self._roi_table_dock.isHidden()):
+            return
+        self._syncing_roi_table = True
+        try:
+            if wanted:
+                self.show_roi_table()
+            else:
+                self._roi_table_dock.hide()
+        finally:
+            self._syncing_roi_table = False
+
+    def _on_roi_table_visibility_changed(self, _visible: bool) -> None:
+        """Remember the user opening or closing the ROI table on an Explore tab."""
+        key = self._explore_page_key()
+        if key is None or getattr(self, "_syncing_roi_table", False) \
+                or getattr(self, "_syncing_data_file_docks", False):
+            return
+        self._roi_table_visibility[key] = not self._roi_table_dock.isHidden()
 
     def _on_project_browser_selection_changed(self) -> None:
         payload = self._selected_project_browser_payload()
@@ -1054,6 +1223,7 @@ class HSIViewer(QMainWindow):
         self._refresh_workspace_content_pages()
 
     def _on_workspace_tab_changed(self, _index: int) -> None:
+        self._update_status_strip()
         self._sync_workspace_content_host()
         self._refresh_workspace_content_pages()
 
@@ -1073,21 +1243,9 @@ class HSIViewer(QMainWindow):
         else:
             self._workspace_content_stack.setCurrentWidget(self._predict_content_page)
 
-        if is_explore:
-            self._sensor_dock.setVisible(self._explore_plot_visibility["sensor"])
-            self._spatial_dock.setVisible(self._explore_plot_visibility["spatial"])
-        else:
-            if self._maximized_dock is not None:  # a floating dock would cover Model/Predict
-                self._restore_dock(self._maximized_dock)
-            self._sensor_dock.hide()
-            self._spatial_dock.hide()
+        self._sync_data_file_docks()
+        self._follow_roi_table_filter()
         self._apply_explore_page_layout()
-        _require_qt_object(
-            self._sensor_dock.toggleViewAction(), "sensor dock toggle action"
-        ).setEnabled(is_explore)
-        _require_qt_object(
-            self._spatial_dock.toggleViewAction(), "spatial dock toggle action"
-        ).setEnabled(is_explore)
         self._spectrum_toggle_action.setEnabled(is_explore)
         self._spectrum_toggle_action.blockSignals(True)
         self._spectrum_toggle_action.setChecked(self._explore_plot_visibility["spectrum"])
@@ -1130,6 +1288,7 @@ class HSIViewer(QMainWindow):
         self._model_metric_r2_value.setText(model_summary["r2"])
         self._model_metric_rmsecv_value.setText(model_summary["rmsecv"])
         self._model_metric_bias_value.setText(model_summary["bias"])
+        self._set_metric_rows(model_summary)
         self._model_readiness_body.setText(model_summary["readiness"])
         self._set_busy_status_widget(
             self._model_summary_service, text=service_text, busy=service_busy
@@ -1146,16 +1305,8 @@ class HSIViewer(QMainWindow):
         if predict_map_widget is None:
             return
         prediction_summary = self._prediction_view.workspace_summary()
-        service_text, service_busy = self._prediction_view.service_status_snapshot()
         self._predict_content_title.setText(prediction_summary["title"])
-        self._predict_summary_status.setText(prediction_summary["status"])
-        self._predict_summary_readiness.setText(prediction_summary["readiness"])
-        self._set_busy_status_widget(
-            self._predict_summary_service, text=service_text, busy=service_busy
-        )
-        self._predict_card_prediction_value.setText(prediction_summary["prediction"])
-        self._predict_card_model_value.setText(prediction_summary["model"])
-        self._predict_card_dataset_value.setText(prediction_summary["dataset"])
+        self._predict_headline.setText(prediction_summary["headline"])
         self._predict_card_calibration_value.setText(prediction_summary["calibration"])
         self._predict_card_target_value.setText(prediction_summary["target"])
         self._predict_contract_format_value.setText(prediction_summary["format"])
@@ -1166,10 +1317,40 @@ class HSIViewer(QMainWindow):
         self._predict_clipping_value.setText(prediction_summary["clipping"])
         self._predict_diagnostics_value.setText(prediction_summary["diagnostics"])
         self._predict_wavelengths_value.setText(prediction_summary["wavelengths"])
+        self._predict_rois_value.setText(prediction_summary.get("rois", "none"))
+        self._predict_roi_results.update_data(
+            self._prediction_view.roi_results_payload(),
+            provenance=self._prediction_view.workspace_provenance())
+        self._update_predict_histogram()
+        if not predict_map_widget.hover_text:
+            self._update_status_strip()
         predict_map_widget.update_data(
             self._prediction_view.workspace_visual_payload(),
             empty_reason=prediction_summary["readiness"],
         )
+
+    def _set_metric_rows(self, model_summary: dict[str, Any]) -> None:
+        """Fill the *per ROI* and *per pixel* groups and the fold warnings."""
+        roi_rows = list(model_summary.get("roi_metrics") or [])
+        if not roi_rows:  # no run yet: the required three, empty
+            roi_rows = [("Q² (CV R²)", model_summary["r2"]), ("RMSECV", model_summary["rmsecv"]),
+                        ("Bias", model_summary["bias"])]
+        rows = [f"{label}: {text}" for label, text in roi_rows]
+        pixel_rows = list(model_summary.get("pixel_metrics") or [])
+        if rows == self._model_metric_rows and pixel_rows == getattr(self, "_pixel_rows", None):
+            return
+        self._model_metric_rows, self._pixel_rows = rows, pixel_rows
+        for layout, entries in ((self._model_metrics_layout, roi_rows),
+                                (self._model_pixel_metrics_layout, pixel_rows)):
+            while layout.rowCount():
+                layout.removeRow(0)
+            for label, text in entries:
+                layout.addRow(label, QLabel(text))
+        self._model_pixel_metrics_box.setVisible(bool(pixel_rows))
+        warnings = str(model_summary.get("warnings") or "")
+        self._model_warnings.setText(f"⚠ Validation likely optimistic: {warnings}"
+                                     if warnings else "")
+        self._model_warnings.setVisible(bool(warnings))
 
     @staticmethod
     def _set_busy_status_widget(widget: BusyStatusWidget, *, text: str, busy: bool) -> None:
@@ -1188,11 +1369,33 @@ class HSIViewer(QMainWindow):
         self._explore_plot_visibility[plot_name] = visible
         self._schedule_bottom_dock_resize()
 
-    def _on_sensor_dock_visibility_changed(self, visible: bool) -> None:
-        self._on_explore_plot_visibility_changed("sensor", visible)
+    def _sync_data_file_docks(self) -> None:
+        """Show the data-file docks (as last chosen) on the Data file tab, hide them elsewhere."""
+        on_page = self._on_data_file_page()
+        maximized = self._maximized_dock
+        if not on_page and maximized is not None and maximized in self._data_file_docks.values():
+            self._restore_dock(maximized)  # a floating dock would cover the page
+        self._syncing_data_file_docks = True
+        try:
+            for name, dock in self._data_file_docks.items():
+                dock.setVisible(on_page and self._explore_plot_visibility[name])
+                _require_qt_object(dock.toggleViewAction(),
+                                   f"{dock.windowTitle()} toggle action").setEnabled(on_page)
+        finally:
+            self._syncing_data_file_docks = False
+        self._sync_roi_table()
+        self._place_roi_table()
 
-    def _on_spatial_dock_visibility_changed(self, visible: bool) -> None:
-        self._on_explore_plot_visibility_changed("spatial", visible)
+    def _on_data_file_dock_visibility_changed(self, name: str) -> None:
+        """Remember a dock the user shows or closes on the Data file tab.
+
+        ``isHidden`` rather than the signal's flag: a dock behind another dock's
+        tab is not visible but still shown.
+        """
+        if getattr(self, "_syncing_data_file_docks", False) or not self._on_data_file_page():
+            return
+        self._explore_plot_visibility[name] = not self._data_file_docks[name].isHidden()
+        self._schedule_bottom_dock_resize()
 
     def _on_spectrum_panel_visibility_action(self, visible: bool) -> None:
         self._on_explore_plot_visibility_changed("spectrum", visible)
@@ -1218,9 +1421,7 @@ class HSIViewer(QMainWindow):
                     f"Validation: {self._model_card_cv_value.text()}",
                     f"ROIs: {self._model_card_roi_count_value.text()}",
                     f"Pixels: {self._model_card_pixel_count_value.text()}",
-                    f"R2: {self._model_metric_r2_value.text()}",
-                    f"RMSECV: {self._model_metric_rmsecv_value.text()}",
-                    f"Bias: {self._model_metric_bias_value.text()}",
+                    *(f"{row} (per ROI)" for row in self._model_metric_rows),
                     self._model_readiness_body.text(),
                 ],
             )
@@ -1229,12 +1430,8 @@ class HSIViewer(QMainWindow):
             self._inspector.show_workspace_summary(
                 self._predict_content_title.text(),
                 [
-                    self._predict_summary_status.text(),
-                    self._predict_summary_readiness.text(),
-                    self._predict_summary_service.label.text(),
-                    f"Prediction: {self._predict_card_prediction_value.text()}",
-                    f"Model: {self._predict_card_model_value.text()}",
-                    f"Dataset: {self._predict_card_dataset_value.text()}",
+                    self._predict_headline.text(),
+                    f"Prediction ROIs: {self._predict_rois_value.text()}",
                     f"Calibration: {self._predict_card_calibration_value.text()}",
                     f"Target: {self._predict_card_target_value.text()}",
                     f"Input contract: {self._predict_contract_format_value.text()}",
@@ -1290,6 +1487,7 @@ class HSIViewer(QMainWindow):
         self._menu_options.addAction(grid_defaults)
         self._populate_help_menu()
         self._default_layout_state = self.saveState()
+        self._release_minimum_size()
         self._status_label = QLabel()
         self._saved_label = QLabel()
         self._saved_label.setObjectName("SavedMessage")
@@ -1392,7 +1590,8 @@ class HSIViewer(QMainWindow):
     # Data files of the project (attachment contract, Data Files Of A Project)
     # ------------------------------------------------------------------
 
-    def add_data_file(self, path: str | None = None) -> str | None:
+    def add_data_file(self, path: str | None = None, *,
+                      trained_with: str | None = None) -> str | None:
         """Add a data file to the project with its calibration, then show it.
 
         A file that is already registered is shown directly. Returns the
@@ -1423,7 +1622,7 @@ class HSIViewer(QMainWindow):
             path, header, state.datasets,
             {dataset_id: calibration for dataset_id in state.datasets
              if (calibration := state.active_calibration(dataset_id)) is not None},
-            parent=self)
+            trained_with=trained_with, parent=self)
         if dialog.exec() != QDialog.DialogCode.Accepted or dialog.request is None:
             return None
         request = dialog.request
@@ -1807,6 +2006,50 @@ class HSIViewer(QMainWindow):
             message += f"\n\nSkipped (no data): {', '.join(skipped)}"
         QMessageBox.information(self, "Export Plots", message)
 
+    def _ask_colour_limits(self) -> None:
+        """The prediction map's colour limits: two numbers, or empty for the training range."""
+        widget = self._predict_map_widget
+        if widget is None:
+            return
+        current = "" if widget.user_limits is None else (
+            f"{widget.user_limits[0]:g}, {widget.user_limits[1]:g}")
+        text, ok = QInputDialog.getText(
+            self, "Colour limits", "Low, high (empty: the target's training range):",
+            text=current)
+        if not ok:
+            return
+        parts = [part for part in text.replace(";", ",").split(",") if part.strip()]
+        try:
+            limits = None if not parts else (float(parts[0]), float(parts[1]))
+        except (ValueError, IndexError):
+            QMessageBox.warning(self, "Colour limits", f"{text!r} is not two numbers.")
+            return
+        if limits is not None and not limits[1] > limits[0]:
+            QMessageBox.warning(self, "Colour limits", "The high limit must be above the low.")
+            return
+        self._prediction_view.set_colour_limits(limits)  # the Controls dock shows them too
+
+    def _add_prediction_data_file(self, model_run_id: str) -> str | None:
+        """Add a scan for prediction with the Add data file dialog, noting the model's training."""
+        note = self._prediction_view._training_calibration(
+            self.project_state.model_runs[model_run_id])
+        return self.add_data_file(trained_with=note)
+
+    def _release_minimum_size(self) -> None:
+        """Let the compositor choose the window size, whatever the docks' minimums.
+
+        Qt makes a top-level window's minimum size its layout's minimum. When
+        that exceeds the size a Wayland compositor configures (maximized, or a
+        tiled half screen), the window draws a larger buffer and WSLg's
+        compositor ends the connection ("xdg_surface buffer does not match the
+        configured maximized state"). Without the constraint the docks are
+        squeezed instead; the scrolling Controls dock keeps them usable.
+        """
+        layout = self.layout()
+        if layout is not None:
+            layout.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
+        self.setMinimumSize(1, 1)
+
     def reset_layout(self) -> None:
         """Restore default dock layout (positions, splits, visibility) and plot layout."""
         self._restore_maximized_plots()
@@ -1817,6 +2060,7 @@ class HSIViewer(QMainWindow):
             self._predict_graph_panel.restore()
         layout_settings.clear()
         self._explore_plot_visibility = dict(self._default_explore_plot_visibility)
+        self._roi_table_visibility = dict(self._default_roi_table_visibility)
         self.restoreState(self._default_layout_state)
         self._sync_workspace_content_host()
 

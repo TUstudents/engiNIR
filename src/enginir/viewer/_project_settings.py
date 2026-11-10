@@ -39,6 +39,26 @@ def save_last_data_file(project_id: str, dataset_id: str) -> None:
         logger.warning("Could not save project settings {}: {}", path, exc)
 
 
+def load_prediction_default(dataset_key: str) -> bool:
+    """Whether new ROIs of a data file start as prediction ROIs (the last choice there)."""
+    return bool(_read().get("prediction_rois", {}).get(dataset_key, False))
+
+
+def save_prediction_default(dataset_key: str, prediction: bool) -> None:
+    """Remember the Prediction only choice for new ROIs of a data file (user settings)."""
+    data = _read()
+    choices = data.setdefault("prediction_rois", {})
+    if choices.get(dataset_key, False) == prediction:
+        return
+    choices[dataset_key] = prediction
+    path = config_dir() / _FILE
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data), encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Could not save project settings {}: {}", path, exc)
+
+
 def _read() -> dict[str, Any]:
     path = config_dir() / _FILE
     try:
@@ -53,4 +73,5 @@ def _read() -> dict[str, Any]:
     return data
 
 
-__all__ = ["load_last_data_file", "save_last_data_file"]
+__all__ = ["load_last_data_file", "load_prediction_default", "save_last_data_file",
+           "save_prediction_default"]

@@ -1,7 +1,9 @@
 """ROI table: the target values of all ROIs, one column per target (ROI/target contract).
 
 One row per ROI with its data file, name and pixel count, then one column per
-target. Values are edited in place:
+target, then, while the session has per-ROI prediction results, read-only
+columns per model (mean, SD, % removed, % above DCrit, residual; viewer
+contract §3). A header click sorts the rows. Values are edited in place:
 
 - typing a value and pressing Enter stores it and moves to the next row;
 - clearing a cell removes the value (the ROI becomes unlabeled for it);
@@ -47,9 +49,15 @@ from ._theme import secondary_text_style
 
 logger = get_logger(__name__)
 
-_FIXED = ("Data file", "ROI", "Pixels", "Sample")
+_FIXED = ("Data file", "ROI", "Pixels", "Predict", "Sample")
 _SAMPLE_COLUMN = _FIXED.index("Sample")
+#: A checkbox: the ROI is a prediction ROI (roi-target contract, ``use``).
+_USE_COLUMN = _FIXED.index("Predict")
 _ALL_FILES = "__all__"
+#: Per-ROI prediction result columns per model: (key, header, decimals as format).
+_RESULT_COLUMNS = (("mean", "mean", ".3g"), ("sd", "SD", ".2g"),
+                   ("removed", "% removed", ".0f"), ("dcrit", "% above DCrit", ".0f"),
+                   ("residual", "residual", ".3g"))
 ModelIndex = QModelIndex | QPersistentModelIndex
 
 
@@ -86,9 +94,13 @@ class RoiTableModel(QAbstractTableModel):
         self._missing_target: str | None = None
         self._roi_ids: list[str] = []
         self._target_ids: list[str] = []
+        #: (model run id, model name, key) per result column.
+        self._result_columns: list[tuple[str, str, str]] = []
+        self._results: dict[tuple[str, str], Any] = {}  # (model run id, roi id) -> statistics
+        self._sort: tuple[int, Qt.SortOrder] | None = None
         for signal in (project_state.project_loaded, project_state.rois_changed,
                        project_state.targets_changed, project_state.target_assignments_changed,
-                       project_state.datasets_changed):
+                       project_state.datasets_changed, project_state.roi_results_changed):
             signal.connect(self.reload)
         self.reload()
 
@@ -120,14 +132,78 @@ class RoiTableModel(QAbstractTableModel):
         rois.sort(key=lambda roi: (_natural_key(self._file_name(roi.dataset_id)),
                                    _natural_key(roi.name or roi.roi_id)))
         roi_ids = [roi.roi_id for roi in rois]
-        if roi_ids == self._roi_ids and target_ids == self._target_ids:
+        self._results = {(summary.model_run_id, row.roi_id): row
+                         for summary in state.roi_results for row in summary.rois}
+        result_columns = [(summary.model_run_id, summary.model_name, key)
+                          for summary in state.roi_results for key, _h, _f in _RESULT_COLUMNS]
+        if (set(roi_ids) == set(self._roi_ids) and target_ids == self._target_ids
+                and result_columns == self._result_columns):
+            # Same rows: keep their order (an edit never moves the row being edited).
             if roi_ids:
                 self.dataChanged.emit(self.index(0, 0),
                                       self.index(len(roi_ids) - 1, self.columnCount() - 1))
             return
         self.beginResetModel()
-        self._roi_ids, self._target_ids = roi_ids, target_ids
+        self._target_ids, self._result_columns = target_ids, result_columns
+        self._roi_ids = self._sorted(roi_ids)
         self.endResetModel()
+
+    def sort(self, column: int, order: Qt.SortOrder = Qt.SortOrder.AscendingOrder) -> None:
+        """Sort the rows by a column (numbers by value; empty cells last); a negative column
+        restores the data file and name order."""
+        self._sort = (column, order) if column >= 0 else None
+        if self._sort is None:
+            self._roi_ids = []  # the next reload rebuilds the default order
+            self.reload()
+            return
+        self.layoutAboutToBeChanged.emit()
+        self._roi_ids = self._sorted(self._roi_ids)
+        self.layoutChanged.emit()
+
+    def _sorted(self, roi_ids: list[str]) -> list[str]:
+        if self._sort is None or not 0 <= self._sort[0] < self.columnCount():
+            return roi_ids
+        column, order = self._sort
+        values = {roi_id: self._sort_value(roi_id, column) for roi_id in roi_ids}
+        filled = sorted((r for r in roi_ids if values[r] is not None), key=lambda r: values[r],
+                        reverse=order == Qt.SortOrder.DescendingOrder)
+        return filled + [r for r in roi_ids if values[r] is None]  # empty cells last
+
+    def _sort_value(self, roi_id: str, column: int) -> Any:
+        """A cell's sort key: a float for numbers, a natural key for text, None if empty."""
+        roi = self.project_state.rois[roi_id]
+        if column == _USE_COLUMN:
+            return float(roi.use == "prediction")
+        if column == 2:
+            return float(roi.n_pixels)
+        number = self._number(roi_id, column)
+        if number is not None or column >= len(_FIXED):
+            return number
+        text = self._text(roi, column)
+        return _natural_key(text) if text else None
+
+    def _number(self, roi_id: str, column: int) -> float | None:
+        """The value of a target or result cell, if any."""
+        target_id = self.target_id(column)
+        if target_id is not None:
+            assignment = self.project_state.target_assignments.get((roi_id, target_id))
+            return None if assignment is None else float(assignment.value)
+        result = self.result_column(column)
+        if result is None:
+            return None
+        model_run_id, _name, key = result
+        row = self._results.get((model_run_id, roi_id))
+        if row is None:
+            return None
+        value = {"mean": row.mean, "sd": row.sd,
+                 "removed": 100.0 * row.n_removed / max(row.n_pixels, 1),
+                 "dcrit": 100.0 * row.share_above_dcrit, "residual": row.residual}[key]
+        return None if value is None or not math.isfinite(value) else float(value)
+
+    def result_column(self, column: int) -> tuple[str, str, str] | None:
+        """(model run id, model name, key) of a prediction result column, else ``None``."""
+        index = column - len(_FIXED) - len(self._target_ids)
+        return self._result_columns[index] if 0 <= index < len(self._result_columns) else None
 
     def roi_id(self, row: int) -> str:
         return self._roi_ids[row]
@@ -152,7 +228,8 @@ class RoiTableModel(QAbstractTableModel):
         return 0 if parent.isValid() else len(self._roi_ids)
 
     def columnCount(self, parent: ModelIndex = QModelIndex()) -> int:  # noqa: N802 (Qt API)
-        return 0 if parent.isValid() else len(_FIXED) + len(self._target_ids)
+        return 0 if parent.isValid() else (len(_FIXED) + len(self._target_ids)
+                                           + len(self._result_columns))
 
     def headerData(self, section: int, orientation: Qt.Orientation,  # noqa: N802 (Qt API)
                    role: int = Qt.ItemDataRole.DisplayRole) -> Any:
@@ -160,22 +237,53 @@ class RoiTableModel(QAbstractTableModel):
             return None
         if section < len(_FIXED):
             return _FIXED[section]
+        result = self.result_column(section)
+        if result is not None:
+            header = next(h for key, h, _f in _RESULT_COLUMNS if key == result[2])
+            return f"{result[1]}: {header}"
         target = self.project_state.targets.get(self.target_id(section) or "")
         if target is None:
             return None
         return f"{target.name} ({target.unit})" if target.unit else target.name
 
     def data(self, index: ModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
-        if not index.isValid() or role not in (Qt.ItemDataRole.DisplayRole,
-                                               Qt.ItemDataRole.EditRole,
-                                               Qt.ItemDataRole.TextAlignmentRole):
+        if not index.isValid():
             return None
         state = self.project_state
         roi = state.rois[self._roi_ids[index.row()]]
         column = index.column()
+        if column == _USE_COLUMN:
+            if role == Qt.ItemDataRole.CheckStateRole:
+                return (Qt.CheckState.Checked if roi.use == "prediction"
+                        else Qt.CheckState.Unchecked)
+            if role == Qt.ItemDataRole.ToolTipRole:
+                return ("Prediction ROI: predicted in Predict > Predict ROIs, never used to fit"
+                        if roi.use == "prediction" else "Training ROI (tick to predict it)")
+            return None
+        result = self.result_column(column)
+        if result is not None:
+            if role == Qt.ItemDataRole.TextAlignmentRole:
+                return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            if role == Qt.ItemDataRole.ToolTipRole:
+                return (f"Predicted by '{result[1]}' in this session (not stored); "
+                        "follows the pixel removal of Predict")
+            if role != Qt.ItemDataRole.DisplayRole:
+                return None
+            number = self._number(roi.roi_id, column)
+            fmt = next(f for key, _h, f in _RESULT_COLUMNS if key == result[2])
+            return "" if number is None else format(number, fmt)
+        if role not in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole,
+                        Qt.ItemDataRole.TextAlignmentRole):
+            return None
         if role == Qt.ItemDataRole.TextAlignmentRole:
             return (Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-                    if column >= 2 and column != _SAMPLE_COLUMN else None)
+                    if column == 2 or column > _SAMPLE_COLUMN else None)
+        if column < len(_FIXED):
+            return self._text(roi, column)
+        assignment = state.target_assignments.get((roi.roi_id, self.target_id(column) or ""))
+        return "" if assignment is None else f"{assignment.value:g}"
+
+    def _text(self, roi: Any, column: int) -> str:
         if column == 0:
             return self._file_name(roi.dataset_id)
         if column == 1:
@@ -184,16 +292,31 @@ class RoiTableModel(QAbstractTableModel):
             return str(roi.n_pixels)
         if column == _SAMPLE_COLUMN:
             return roi.sample or ""
-        assignment = state.target_assignments.get((roi.roi_id, self.target_id(column) or ""))
-        return "" if assignment is None else f"{assignment.value:g}"
+        return ""
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlag:
         base = super().flags(index)
-        editable = index.column() >= len(_FIXED) or index.column() == _SAMPLE_COLUMN
+        if index.column() == _USE_COLUMN:
+            return base | Qt.ItemFlag.ItemIsUserCheckable
+        editable = (self.target_id(index.column()) is not None
+                    or index.column() == _SAMPLE_COLUMN)
         return base | Qt.ItemFlag.ItemIsEditable if editable else base
 
     def setData(self, index: ModelIndex, value: Any,  # noqa: N802 (Qt API)
                 role: int = Qt.ItemDataRole.EditRole) -> bool:
+        if role == Qt.ItemDataRole.CheckStateRole and index.column() == _USE_COLUMN:
+            roi_id = self._roi_ids[index.row()]
+            checked = Qt.CheckState(value) == Qt.CheckState.Checked if not isinstance(
+                value, Qt.CheckState) else value == Qt.CheckState.Checked
+            use = "prediction" if checked else "training"
+            if use != self.project_state.rois[roi_id].use:
+                try:
+                    self.project_state.set_roi_uses([(roi_id, use)])
+                except (OSError, ValueError, KeyError) as exc:
+                    logger.error("ROI use not stored: {}", exc)
+                    self.edit_failed.emit(str(exc))
+                    return False
+            return True
         if role == Qt.ItemDataRole.EditRole and index.column() == _SAMPLE_COLUMN:
             roi_id = self._roi_ids[index.row()]
             label = str(value).strip() or None
@@ -305,6 +428,11 @@ class RoiTableWidget(QWidget):
         header = self.view.horizontalHeader()
         if header is not None:
             header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        # A header click sorts (numbers by value); the indicator starts unset, so the rows
+        # keep their data file and name order until then.
+        if header is not None:
+            header.setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
+        self.view.setSortingEnabled(True)
         self.view.paste_requested.connect(self.paste_clipboard)
         selection = self.view.selectionModel()
         if selection is not None:

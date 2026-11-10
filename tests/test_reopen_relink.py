@@ -159,7 +159,7 @@ def test_a_second_window_on_the_project_refreshes(qapp, trays):
         assert second.project_state.target_assignments[(b1, api)].value == 7.5
         second.show_roi_table()
         model = second._roi_table.model
-        cells = [str(model.data(model.index(r, 4)) or "") for r in range(model.rowCount())]
+        cells = [str(model.data(model.index(r, 5)) or "") for r in range(model.rowCount())]
         assert cells == ["2", "7.5"]
         # The refreshed window writes against the current project, not a stale copy.
         second.project_state.set_roi_values([(b1, api, None)])

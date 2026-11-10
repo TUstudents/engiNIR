@@ -246,6 +246,9 @@ accepted when it equals the path id and rejected when it contradicts it. An
 ├── @name                   mutable display label
 ├── @sample                 optional sample label (mutable); ROIs with equal
 │                           labels are one physical sample for fold groups
+├── @use                    optional: training | prediction (mutable, 1.4+);
+│                           absent = training; prediction ROIs never enter
+│                           a sample set
 ├── @source_file
 ├── @n_pixels
 ├── @created_at
@@ -300,7 +303,9 @@ logged and ignored.
 ├── @asls                optional: true (with the three below)
 ├── @asls_lambda
 ├── @asls_p
-└── @asls_iterations
+├── @asls_iterations
+├── bands_keep          optional: float64 (n, 2), inclusive [low, high] ranges to keep
+└── bands_exclude       optional: float64 (n, 2), inclusive ranges to leave out
 ```
 
 Recipes are replayed during sample-set building, model fitting, and prediction.
@@ -312,10 +317,14 @@ baseline correction, so recipes stored before keep their ids
 (`project-schema-contract_v3.md` §4). With `@sg_edges = "drop"` the
 preprocessed spectra have 2⌊`sg_window`/2⌋ fewer bands: the model run's
 arrays over bands (`prediction_model`: `wavelengths`, `coef_`, `x_mean`,
-`x_std`, `rotations`, `loadings`, MSC/EMSC state; `diagnostics`:
-`wavelengths`, loadings, coefficients, VIP) use that shorter axis (the
-"model bands" below). `@asls_lambda` and `@asls_p` are float64,
-`@asls_iterations` an integer. Unknown fields are logged and discarded
+`x_std`, `rotations`, `loadings`; `diagnostics`: `wavelengths`, loadings,
+coefficients, VIP) use that shorter axis (the "model bands" below); MSC/EMSC
+state uses the axis after Savitzky-Golay, before a band selection. `@asls_lambda` and `@asls_p` are float64,
+`@asls_iterations` an integer. `bands_keep` and `bands_exclude` (band
+selection, the last step) are written only when they hold a range; their
+values are on the axis after Savitzky-Golay (nm, or band numbers for data
+without wavelengths), ordered, sorted and merged, and the model and its
+stored wavelengths use the selected bands. Unknown fields are logged and discarded
 rather than treated as executable parameters.
 Recipe content is immutable under one `{recipe_id}`: re-saving identical
 content is allowed, while changed executable content requires a new id.
@@ -427,6 +436,8 @@ only centres (`sample-set-model-run-contract_v3.md` §7.3).
 @validation_unit         roi
 @reporting_level         roi
 @roi_aggregation         mean
+@warnings                comma-separated fold warnings: few_groups, one_level_per_file;
+                         empty when none (1.4+; §7.4 of the model-run contract)
 ```
 
 #### `fit_spec/`
@@ -454,8 +465,10 @@ exclusion/
   @max_fraction          largest excluded share of an ROI's drawn pixels, all rounds
   @formula               DModX definition: dmodx-1 (unweighted) | dmodx-2 (MPow-weighted)
 components/              (1.3 and later)
-  @rule                  fixed | one_se | min_rmsecv | q2_limit
+  @rule                  fixed | one_se | min_rmsecv | q2_limit | f_test | q2_lookahead
+  @noise_guard           on | off (1.4+; absent reads off)
   @max                   largest number of components of the curve (Amax); 0 = not recorded (1.2)
+  @rule_choice           the rule's number before the noise guard and ceiling (1.4+)
   @selected              number of components of the run (= hyperparameters/n_components); 0 = not recorded
 ```
 
@@ -568,6 +581,14 @@ roi_scores               float32 (n_rois, A), mean training score of each ROI's 
 roi_score_pixels         int (n_rois,), fitted pixels behind each ROI score (0: NaN scores)
 ```
 
+Both, for runs of engiNIR 1.4 and later (band importance, §7.5; one target):
+
+```text
+mean_spectrum            float32, mean preprocessed spectrum of the fitted pixels (model axis)
+vip                      float32, VIP per band (PLS only; mean of VIP² is 1)
+selectivity_ratio        float32, explained / residual variance of the target projection per band (one target; NaN: no residual)
+```
+
 #### `artifact_refs/component_curve`
 
 Runs of engiNIR 1.3 and later (§7.4). One entry per number of components
@@ -582,7 +603,12 @@ q2_cum                   Q²(cum)
 r2x_cum                  R²X(cum)
 r2y_cum                  R²Y(cum) over drawn pixels (never decreases)
 r2y_cum_roi              R²Y(cum) over ROI means
+rmsee_roi                RMSEE over ROI means, √(RSS/(R − a − 1)); NaN when R − a − 1 < 1 (1.4+)
+dw_weights               Durbin–Watson of each component's weight vector (1.4+)
+noise                    bool: ΔR²X < 0.01 and Q²ₐ ≤ L, a noise component (1.4+)
 @suggested_one_se, @suggested_min_rmsecv, @suggested_q2_limit
+@suggested_f_test, @suggested_q2_lookahead (1.4+)
+@structure_ceiling       1 + number of components with ΔR²X ≥ 0.005, at most Amax (1.4+)
 ```
 
 #### `artifact_refs/cv_outputs`

@@ -160,9 +160,11 @@ v3 band-mapping rule:
 - `exact` and `reject` both mean the band count and band order are accepted as
   already aligned by the import/modeling workflow
 - the scan's band count is compared with the signal domain (the recipe's
-  input); the saved model's coefficients and projection data and any
-  restored MSC/EMSC state are compared with the recipe's output band count
-  (fewer bands with `sg_edges = drop`), and preflight refuses a mismatch
+  input); the saved model's coefficients and projection data are compared
+  with the recipe's output band count (fewer bands with `sg_edges = drop` or
+  a band selection), any restored MSC/EMSC state with the band count after
+  the Savitzky-Golay step (the references see every band before the
+  selection), and preflight refuses a mismatch
 - a future contract version must introduce a separate executable remapping
   contract before `band_mapping_policy` can imply interpolation
 
@@ -382,6 +384,70 @@ A run without projection data predicts as before and has no diagnostics
 (the viewer says to refit; the summary has the prediction statistics only). Nothing of the diagnostics depends on the whole
 image, so they are computed in the single chunked pass.
 
+## Prediction ROIs
+
+ROIs whose `use` is `prediction` (`roi-target-contract_v3.md`) mark the
+samples to predict (tablets on a tray). A prediction of them reads only the
+project file: each ROI's stored pixels are converted with the ROI's own
+calibration and stored references by `roi_to_signal_domain` (as model
+fitting does; never another dataset's references), checked and preprocessed
+by the same preflight and recipe steps as a scan, predicted, and given
+DModXPS and T²PS per pixel. Several models may predict the same ROIs; the
+results are per model (v3 model runs have one output).
+
+Per ROI, compatibility is checked as for a scan: an ROI whose calibration
+cannot produce the model's signal unit, or whose band count differs, is
+refused with its reason and the other ROIs are predicted; a wavelength axis
+that differs from the model's warns once per data file (G18).
+
+**Map and ROIs give one result.** A map prediction of a data file (the
+scan, with the data file's active calibration) is for display; the per-ROI
+results shown with it are always computed from the ROIs' stored pixels as
+above, so an ROI has the same numbers whichever way it was predicted.
+
+Per ROI and model, over its pixels:
+
+- a pixel is *valid* when its prediction is finite; non-finite pixels are
+  neither kept nor counted as removed
+- with the exclusion below, a valid pixel is *removed* when its DModXPS is
+  strictly above the limit; a pixel without a DModXPS (NaN) is kept
+- reported: the number of valid pixels and of removed pixels; over the kept
+  pixels the mean (the reported value, as model fitting aggregates ROI
+  predictions by the mean), median, standard deviation (n − 1; NaN for one
+  pixel), and 5 % and 95 % percentiles (linear interpolation, the
+  `numpy.percentile` default), and the mean DModXPS and T²PS; over the valid
+  pixels, the share above DCrit and above T²Crit at 0.99 (the exclusion does
+  not change these shares). An ROI with no kept pixel has no value
+- if the ROI has a value for the model's target: the residual (mean −
+  value). Per model, over the predicted ROIs (the chosen data file or all)
+  that have a value and a kept pixel: RMSEP = √(mean residual²) and the bias
+  (mean residual), with their number *n*
+
+**Pixel exclusion by DModX** (optional): pixels whose DModXPS is strictly
+above the limit at a chosen level are removed. The limit is
+`dmodx_limit(n_train, K, A, level, centred=True)` with the run's stored
+`n_train`, *K* the band count on the model's axis (after a band selection)
+and *A* its components; at 0.99 it is the stored DCrit. DModXPS is
+unweighted and compared with this unweighted DCrit, as in Applicability
+Diagnostics. The default comes from the run's fit specification: on at
+`exclusion/level` when `exclusion/method = dmodx`, off otherwise; its
+`formula`, `rounds` and `max_fraction` do not carry over (no cap per ROI).
+Changing the exclusion recalculates from the predicted pixels without
+predicting again. A model without projection data (fitted before 1.3) has
+no DModXPS: the statistics without them are reported, the shares and the
+exclusion are unavailable ("–") and said so.
+
+For comparison, the range (minimum and maximum) of the training ROIs'
+stored share of pixels above DCrit (`roi_share_above_dcrit`, §7.5 of the
+model-run contract) is shown next to the removed share, at level 0.99 only
+(the training share uses training DModX and the drawn pixels); unavailable
+for runs without it.
+
+A prediction of ROIs writes one log entry: the project file, the models
+(id and name), the ROI ids, the exclusion and its level, and the summary
+(*n*, RMSEP and bias where available). The per-ROI results are in memory
+like every prediction and are not stored (Result Handling).
+
 ## Result Handling
 
 Predictions are applications of a model to new scans, not calibration
@@ -394,8 +460,10 @@ Required behavior:
   T²PS maps (`dmodx_map`, `t2_map`), the limits and summary
   (`diagnostics`), and the provenance (model run id and name, data file,
   calibration settings, clipping counts, time)
-- the predicted scan and its calibration are not registered as a dataset in
-  the project
+- a prediction does not register the predicted scan or its calibration. In
+  the viewer the user registers a scan to predict beforehand, as a project
+  data file with the Add data file dialog (`viewer-workspace-ui-contract_v3.md`
+  §3); that is an explicit user action, not part of the prediction
 - every prediction writes one log entry with its provenance and summary:
   model run id and name, data file path(s) (for ENVI the data and header
   files), size and modification time of each, time, the summary values; a

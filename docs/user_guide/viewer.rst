@@ -34,7 +34,10 @@ load in the background with a progress indicator.
 
 On Linux the viewer picks the display system itself. Under WSL (Windows
 Subsystem for Linux, WSLg) it uses Wayland, so menus stay in front of the
-window; Qt draws the title bar with the engiNIR icon. On other Linux
+window; Qt draws the title bar with the engiNIR icon. WSLg leaves a
+drop-down list on screen after you choose an item (a WSLg fault, reported as
+microsoft/wslg#1522); the viewer works around it, so lists close as usual.
+On other Linux
 desktops that offer both Wayland and X11 it uses X11. To choose yourself, set
 ``QT_QPA_PLATFORM``, for example ``QT_QPA_PLATFORM=xcb enginir-viewer`` for
 X11.
@@ -165,9 +168,18 @@ it.
 The **Project ROIs** tab of Explore shows every ROI stored in the project,
 from the project file alone; the data files are not needed:
 
-- **ROI mosaic:** each ROI's stored pixels are redrawn as a tile at its
-  place in its data file, one block per file, with its name and the value of
-  the target selected in Model. A data file filter narrows it down.
+- **ROI mosaic:** each ROI's stored pixels are redrawn as a tile, one block
+  per data file, with its name and the value of the target selected in Model.
+  The tiles sit in a compact grid: the rows and columns of the ROI grid that
+  made them (an empty well keeps its place), or for ROIs drawn by hand, rows
+  and columns in scan order. Each tile is outlined in the colour of its value,
+  on the scale of the ROI mean spectra (grey without a value). Labels leave
+  out what all shown ROIs share (``API_10p_L1_01`` becomes ``L1_01``);
+  text grows and shrinks with the tiles when you zoom. **View** in the plot
+  header shows the tiles at their positions in the scan instead, and
+  stretches the contrast of each data file on its own instead of all tiles
+  together (the default, for comparing samples). A data file filter narrows
+  the mosaic down.
 - **ROI mean spectra:** one line per ROI, coloured by that value (ROIs
   without a value in grey).
 - **Selected ROI pixels:** the median and the 5–95 % band of the selected
@@ -179,6 +191,12 @@ model fit uses. In **Raw DN** you see the stored counts. ROIs that cannot be
 shown in the chosen unit, for example raw counts without references in
 absorbance, are counted in the tab's status line.
 
+The docks that show the data file at the cursor (Histogram, RAW, Sensor
+Frame, Spatial Profile) belong to the Data file tab: on Project ROIs they are
+hidden, and they come back as you left them. The ROI table takes the
+right-hand column instead, on the ROIs shown; **View > ROI Table** brings it
+back after you closed it.
+
 A project with ROIs opens on this tab. Clicking a tile selects the ROI
 everywhere; double-clicking it opens its data file with the ROI selected.
 Tiles and spectra load in the background, and only while the tab is shown.
@@ -188,25 +206,56 @@ Model
 
 Model shows the selected model and its diagnostics:
 
-- summary cards for target, sample set, model, components, cross-validation,
-  ROI and pixel counts, R², RMSECV and bias
+- summary cards for target, sample set (its ROI count and preprocessing),
+  model (by name), components, cross-validation (for example "7 folds,
+  round-robin over 20 samples"), ROI and pixel counts; **Metrics per ROI**
+  (R²Y of the fit, Q² = the cross-validated R², RMSEE, RMSECV, bias, RPD) and
+  **Metrics per pixel** (the same over single spectra, which are noisier); and
+  a warning when the validation is likely optimistic (see
+  :doc:`fit_specification`)
+- a **?** button in every plot header that explains how to read the plot
+  (:doc:`model_plots` collects these texts)
 - the **Fit** page: predicted vs reference (with R², RMSECV, bias, and RMSEE
-  and adjusted R²), residuals, the distribution of reference values, and the
-  training scores of the first two latent variables with the Hotelling T²
-  ellipses (0.95 dotted, 0.99 dashed); one point per ROI, the mean of the
-  pixels the model was fitted on (the drawn pixels with a pixel sample,
-  without the excluded ones). Models fitted with an earlier version show no
+  and adjusted R²; a unit of ``1`` is not repeated after each number),
+  residuals, the distribution of reference values (one bar per value when
+  there are at most 12 distinct values, as for levels 1, 4, 7, 10), and the
+  training scores of the first two latent variables with Hotelling T²
+  ellipses at 0.95 (dotted) and 0.99 (dashed); one point per ROI, the mean of
+  the pixels the model was fitted on (the drawn pixels with a pixel sample,
+  without the excluded ones). There are two pairs of ellipses, named in the
+  legend. The grey **pixel** ellipses are the limits for single training
+  pixels; an ROI mean averages thousands of pixels and sits well inside
+  them. The coloured **ROI** ellipses treat the ROI means as the
+  observations (centred on them and tilted with their covariance, with
+  limits for the number of ROIs, from 4 ROIs): an ROI outside them is
+  unusual among the ROIs. Models fitted with an earlier version show no
   scores until they are fitted again
 - the **Spectral** page: the regression coefficients, the scaled
   coefficients (CoeffCS) and the loadings of the first three latent variables,
   to see which components are concentration and which are physics (scatter,
-  particle size)
-- the **Components** page: RMSECV (with its standard error) and R²Y, Q², R²X
-  against the number of components, with the model's number and each rule's
-  suggestion; **Fit again...** opens the fit dialog with the model's settings
-  to try another number
+  particle size); below them VIP (PLS) with lines at 1.0 and 0.8 and the
+  mean spectrum shaded behind, VIP sorted from the largest value with the top
+  bands labelled, and the selectivity ratio (PLS and PCR); see
+  :doc:`band_selection`. Plots over wavelength leave a gap where a band
+  selection leaves out bands
+- the **Components** page, four plots that name their level: RMSECV with
+  its standard error and RMSEE, per ROI, with the model's number and every
+  rule's suggestion with the number that decided it (and what the noise
+  guard changed); R²Y and Q² per ROI, with the gap between them shaded; each
+  component on its own (Q²ₐ per ROI, ΔR²X per pixel, the Durbin–Watson value
+  of its weights; noise components grey); and R²X and R²Y per pixel.
+  **Fit again...** opens the fit dialog with the model's settings to try
+  another number
 - the **Distance** page: the distance to the model (DModX) and Hotelling T²
-  of the training pixels, with their 0.99 limits and the share above them
+  of the training pixels, with their 0.99 limits and the share above them.
+  A 0.99 limit expects 1 % of the pixels above it; much more means the
+  pixels are not one homogeneous population. The histograms show bins up to
+  the 99.5th percentile and the rest as one grey bar, with the largest value
+  stated. Below them, **Pixels Above the Limits, per ROI** shows for every
+  ROI the share of its pixels above each limit, sorted from the largest, with
+  bars coloured by the reference value: ROIs whose spectra the model does
+  not describe (a different substrate, saturation, drift along a scan) stand
+  out there. Click a bar to select the ROI.
 - click a point to select its ROI
 
 Each plot has a header with its title. The maximize button, or a double-click
@@ -222,17 +271,24 @@ opened. A maximized plot stays maximized the next time the viewer opens, and
 **View > Reset Layout** restores the default layout.
 
 Reference values are typed in the **ROI table**, opened from **Target
-values...** in Model, from **ROI table** in Explore, or from the View menu:
+values...** in Model, from **ROI table** in
+Explore, or from the View menu. It opens by itself with the Project ROIs
+tab, in the right-hand column of the window, and is not shown on the Data
+file tab; opened there, it takes the Sensor Frame's place as a tab. Closing
+or opening it on either tab is kept for that tab.
 
-- One row per ROI (data file, name, pixel count, sample) and one column per
-  target.
+- One row per ROI (data file, name, pixel count, **Predict**, sample) and one
+  column per target. **Predict** marks a prediction ROI (a tablet to predict;
+  never used to fit a model).
 - **Sample** names the physical sample an ROI was taken from. Give the same
   label to ROIs from one sample (for example three regions of one tablet),
   so that a fit can hold them out together. Labels are text; surrounding
   spaces are removed and an empty cell means the ROI is its own sample.
   **Ctrl+V** pastes a column of labels.
-- It opens on the shown data file and the target selected in Model. The
-  filters choose a data file, or only ROIs that still lack a value.
+- It opens on the ROIs of the page and the target selected in Model: the
+  shown data file on the Data file tab, the data files chosen on the Project
+  ROIs tab, all data files in Model and Predict. The filters choose a data
+  file, or only ROIs that still lack a value.
 - Type a value and press **Enter**: it is stored at once and the next row
   is edited. A decimal comma is accepted.
 - Clear a cell to remove a value; the ROI is then left out of models for
@@ -249,8 +305,17 @@ the signal unit, the preprocessing (it starts from the Explore preview, but
 what the dialog shows is what the model is trained with), PLS or PCR, the
 number of components, the validation and which ROIs are held out together
 (**Hold out together**: each ROI, ROIs with the same **Sample** label, or
-ROIs with the same target value). **Components** takes a number, or **Auto**
-to choose it from the component curve by a rule (one SE by default). The
+ROIs with the same target value). **Bands** sets **Keep** and **Exclude**
+ranges (``1100-1350, 1500-2300``, applied after every other step), with a
+**Water bands** menu, **Select on plot...** to drag the ranges on the mean
+spectrum of the target's ROIs, and **Propose...** to run the band proposal
+with nested validation and take its ranges (:doc:`band_selection`); the
+Explore preview then shows the left-out bands as missing. **Components** takes a number, or **Auto**
+to choose it from the component curve by a rule (one SE by default; also
+lowest RMSECV, Q² limit, F-test and Q² with look-ahead) with **drop noise**
+(the noise guard, on by default; see :doc:`fit_specification`). The dialog
+warns when the validation would be optimistic, for example when the ROIs of a
+scan share one value but are held out in different folds. The
 **Fitting** group sets how the
 model is fitted: the same number of pixels from every ROI (at most the
 smallest ROI, with a seed so the draw repeats), the scaling of X and Y, and
@@ -271,41 +336,92 @@ fitted, the readiness message says what is missing.
 Predict
 -------
 
-**Predict...** applies the selected model to a scan. A registered scan reuses
-its calibration; a new scan gets the calibration chosen in the dialog. The
-prediction is refused before it starts when the scan cannot produce the
-model's signal: another instrument format, number of bands, calibration mode
-or signal unit. Wavelength values never block a prediction; when the scan's
-wavelengths differ from the model's, the **Wavelengths** row of the summary
-shows a warning with the largest difference. Models with MSC or EMSC apply
-the preprocessing state stored at training.
+Predict works on project data only: the tablets to predict are ROIs marked
+**Prediction only**, and a scan to predict is a project data file.
 
-Predictions are not stored: the project keeps the spectra, the recipe and
-the fitted model, and a prediction of a new scan is a result to inspect and
-export. The scan is not added to the project, the last three predictions of
-the session are kept in memory, and each prediction writes one entry to the
-log (model, data file with size and modification time, summary). Export the
-map as PNG or CSV from its panel for a report.
+**Mark the tablets.** Add the tray with **File > Add Data File...** and
+choose its calibration there, as for a training tray (the references of this
+session, or the detector levels). Draw the tablets with **Add ROI** or **Add
+ROI grid** and tick **Prediction only**; the choice is remembered for the
+data file. The **Predict** column of the ROI table switches an ROI later.
+Prediction ROIs never enter a model fit, even with a value: a value they
+have only gives the residual and the RMSEP of the prediction, an independent
+test. They are dashed in the mosaic and in the ROI spectra.
 
-The workspace shows the prediction map, the distribution of the shown
-values, the model, data file and calibration used, the compatibility
-summary, how many reflectance values were clipped, and the applicability of
-the model to the scan (share of pixels above the limits, mean prediction
-within and outside them).
+**Predict ROIs...** predicts the prediction ROIs of one data file or of all
+of them with one or more models. It reads only the project file: each ROI's
+stored pixels are converted with its own calibration, exactly as the fit
+converts training ROIs, and predicted with the model's recipe. The **Prediction
+per ROI** plot shows each ROI's mean prediction (the reported value) with
+the 5–95 % range of its pixels, one colour per model, and the reference value
+(×) when the ROI has one. Each mean is written next to its dot. A ring marks
+unusual spectra: a tablet with a larger share of pixels above the DModX limit
+(0.99) than 90 % of the model's own training ROIs. The **ROI table** gets
+columns per model while there are results: mean, SD, % removed, % above
+DCrit and residual (read-only, not stored); click a header to sort the
+tablets, for example by predicted value. Its CSV is the per-ROI table: ROI, data file, model, pixels, removed pixels, mean, median,
+SD, 5 % and 95 %, mean DModX and T², shares above the limits, reference and
+residual, with RMSEP and bias per model.
 
-The map header has the **Layer** selector, the output selector (for models
-with several targets), **Pan**, **Zoom** and **Reset View**. The layers are
-the prediction, **DModX** (distance of the spectrum to the model, DModXPS)
-and **T²** (Hotelling's T² of its scores, T²PS); in the DModX and T² layers
-the pixels above the 0.99 limit (DCrit, T²Crit) are marked, and the
-distribution shows the limit. Models fitted before engiNIR 1.3 have no DModX
-and T² layers; fit them again to get them. Large maps are shown as a preview that
-keeps every n-th frame and row. The axes, the hover readout and the exported
-CSV still give the true frame and row, and the CSV records the step. Map and
-distribution export like every other plot (PNG, SVG, CSV, copy) and maximize
-within the page.
-Prediction streams through the scan in bounded memory and reports its phase
-(loading, calibrating, preprocessing, predicting, writing).
+**Remove pixels above the DModX limit** (with its level) leaves glare,
+exposed substrate and direct reflections out of every ROI statistic; the
+statistics are recalculated at once, without predicting again. It starts as
+the model was fitted: on at its level for a model fitted with DModX
+exclusion, off otherwise. Next to the level, the Controls dock shows the
+DModX limit (DCrit) it gives for each model.
+
+**Predict map...** predicts every pixel of one project data file with one
+model and shows the results of its prediction ROIs, computed from their
+stored pixels (so an ROI has the same numbers either way). The dialog names
+the models and data files, shows the chain the prediction applies (the data
+file's calibration, the model's signal unit and recipe, the model, and what
+the model was trained with), and refuses a file that cannot give the model's
+signal, with the reason: another instrument format, number of bands,
+calibration mode or signal unit. **Add data file...** in the dialog opens the
+Add data file dialog, which says how the model's training scans were
+calibrated but never reuses their references. Wavelength values never block
+a prediction; when they differ from the model's, the **Wavelengths** row
+warns with the largest difference. Models with MSC or EMSC apply the
+preprocessing state stored at training.
+
+The map's colour scale is the target's range in the model's training values;
+predictions below and above it have their own colours (cyan, pink), so the
+substrate and other material the model never saw do not flatten the scale.
+**Colour scale** in the Controls dock (or **Colour limits...** in the map's ⋯
+menu) sets your own limits, for one scale over a series of trays; the colour
+bar and the CSV record the scale. The prediction ROIs are outlined with
+their mean; with the pixel removal on, removed pixels are greyed. **Map** in
+the Controls dock turns the outlines and the greying off. Hovering the map
+shows the pixel in the status line at the bottom of the window: its frame and
+row, the prediction (and whether it is outside the colour scale), DModX
+against DCrit (and whether the pixel is removed), T² and the prediction ROI
+under it. Hovering a tablet in the per-ROI plot shows its values there. The map header has the **Layer** selector (the
+prediction, **DModX** and **T²**, with the pixels above the 0.99 limits
+marked), the output selector (models with several targets), **Pan**,
+**Zoom** and **Reset View**. Large maps are shown as a preview that keeps
+every n-th frame and row; the axes, hover readout and CSV give the true
+frame and row. Models fitted before engiNIR 1.3 have no DModX and T²: fit
+them again to get the layers and the pixel removal.
+
+The **Prediction Distribution** histogram shows the pixels behind the per-ROI
+numbers: the kept pixels of the prediction ROIs, one outline per model, and
+it follows the pixel removal. Without ROI results, or with **Histogram: Whole
+map** in the Controls dock, it shows the pixels of the shown map. Map and per-ROI results always describe the same data file: a map
+of a file without prediction ROIs drops the earlier per-ROI results and says
+so; the Predict map file list shows each file's prediction ROIs.
+
+The summary on the right starts with one line naming what is shown (the data
+file and the model), then groups the **Prediction ROIs** (RMSEP and bias per
+model, refused ROIs), the **Chain** (signal unit and recipe, target, bands,
+input), the **Scan** (calibration, map shape and range, clipped reflectance
+values) and the **Applicability** (share of pixels above the limits,
+wavelengths). The per-ROI values are in the ROI table.
+
+Predictions are not stored: the project keeps the data files, their ROIs and
+the models, and a prediction is a result to inspect and export. The last
+three map predictions of the session are kept in memory, and each prediction
+writes one entry to the log. Prediction streams through a scan in bounded
+memory and reports its phase.
 
 Projects
 --------
@@ -318,7 +434,9 @@ project in the same window and asks how it is calibrated:
   file itself, such as a white tile or shutter-closed frames at the start of
   the tray;
 - **Same references as another data file**, for one reference set per session;
-- **Detector levels**, black and white, editable (default 128 and 3500);
+- **Detector levels**, black and white, editable: the levels stored in the
+  file, else the instrument defaults 128 and 3500. This is the preselected
+  choice;
 - **Raw counts**, without references or levels (only DN can be shown and
   modelled).
 
@@ -380,9 +498,10 @@ white references recorded once. From an empty project to a model:
    pick where the project file goes. The window opens on Explore with no data
    file.
 2. **Add the first tray.** **File > Add Data File...** opens the file and
-   asks for its calibration. If the tray has a white tile and shutter-closed
-   frames, choose them as frame ranges of the file itself; otherwise choose
-   the dark and white reference files. Check the mean spectra and the share
+   asks for its calibration. **Detector levels** (the instrument defaults) is
+   preselected. If the tray has a white tile and shutter-closed frames,
+   choose **Dark and white references** and pick them as frame ranges of the
+   file itself, or choose the reference files. Check the mean spectra and the share
    of saturated values, then **OK**: the data file and its calibration are
    stored together.
 3. **Draw the samples.** Set your tray holder once in **Options > ROI Grid

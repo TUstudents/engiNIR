@@ -66,22 +66,22 @@ def test_rows_columns_and_natural_order(table):
     model = table.model
     headers = [model.headerData(c, __import__("PyQt6.QtCore").QtCore.Qt.Orientation.Horizontal)
                for c in range(model.columnCount())]
-    assert headers == ["Data file", "ROI", "Pixels", "Sample", "API (%)", "fat (%)"]
-    assert _cells(table) == [["tray_a.h5", "A1", "4", "", "2", ""],
-                             ["tray_a.h5", "A2", "4", "", "", ""],
-                             ["tray_a.h5", "A10", "4", "", "", ""],
-                             ["tray_b.h5", "B1", "4", "", "", ""]]
+    assert headers == ["Data file", "ROI", "Pixels", "Predict", "Sample", "API (%)", "fat (%)"]
+    assert _cells(table) == [["tray_a.h5", "A1", "4", "", "", "2", ""],
+                             ["tray_a.h5", "A2", "4", "", "", "", ""],
+                             ["tray_a.h5", "A10", "4", "", "", "", ""],
+                             ["tray_b.h5", "B1", "4", "", "", "", ""]]
 
 
 def test_typing_stores_values_and_clearing_removes_them(table, project):
     model, path = table.model, project[0].path
-    assert model.setData(model.index(1, 4), "3,5")  # decimal comma
+    assert model.setData(model.index(1, 5), "3,5")  # decimal comma
     assert _stored(path, "A2", "API") == 3.5
-    assert model.setData(model.index(0, 4), "")  # clear A1
+    assert model.setData(model.index(0, 5), "")  # clear A1
     assert _stored(path, "A1", "API") is None, "a cleared cell is a missing value, not zero"
     assert table.project_state.target_assignments.get(
         (Project.open(path).roi("A1").roi_id, Project.open(path).target("API").target_id)) is None
-    assert _cells(table)[0][4] == "" and _cells(table)[1][4] == "3.5"
+    assert _cells(table)[0][5] == "" and _cells(table)[1][5] == "3.5"
 
 
 def test_invalid_text_is_refused_and_nothing_changes(table, project, monkeypatch):
@@ -91,8 +91,8 @@ def test_invalid_text_is_refused_and_nothing_changes(table, project, monkeypatch
     monkeypatch.setattr(QMessageBox, "warning", staticmethod(
         lambda _p, _t, text, *a, **k: errors.append(text)))
     model = table.model
-    assert not model.setData(model.index(0, 4), "two")
-    assert not model.setData(model.index(0, 4), "inf")
+    assert not model.setData(model.index(0, 5), "two")
+    assert not model.setData(model.index(0, 5), "inf")
     assert len(errors) == 2 and "not a number" in errors[0]
     assert _stored(project[0].path, "A1", "API") == 2.0
 
@@ -103,19 +103,19 @@ def test_enter_stores_and_moves_to_the_next_row(qapp, table, project):
     from PyQt6.QtWidgets import QAbstractItemView
 
     view = table.view
-    view.setCurrentIndex(table.model.index(1, 5))
+    view.setCurrentIndex(table.model.index(1, 6))
     view.edit(view.currentIndex())
     QTest.keyClicks(view.focusWidget() or view, "7.25")
     QTest.keyClick(view.focusWidget() or view, Qt.Key.Key_Return)
     qapp.processEvents()
     assert _stored(project[0].path, "A2", "fat") == 7.25
-    assert view.currentIndex().row() == 2 and view.currentIndex().column() == 5
+    assert view.currentIndex().row() == 2 and view.currentIndex().column() == 6
     assert view.state() == QAbstractItemView.State.EditingState
 
 
 def test_pasting_a_column_fills_rows_downwards(table, project):
     view, model, path = table.view, table.model, project[0].path
-    view.setCurrentIndex(model.index(0, 4))
+    view.setCurrentIndex(model.index(0, 5))
     assert table.paste_clipboard("1.5\n\n2.5\tignored\n")  # A1, A2 (cleared), A10
     assert (_stored(path, "A1", "API"), _stored(path, "A2", "API"),
             _stored(path, "A10", "API")) == (1.5, None, 2.5)
@@ -131,7 +131,7 @@ def test_an_invalid_paste_writes_nothing(table, project, monkeypatch, text, mess
     errors: list[str] = []
     monkeypatch.setattr(QMessageBox, "warning", staticmethod(
         lambda _p, _t, text, *a, **k: errors.append(text)))
-    table.view.setCurrentIndex(table.model.index(0, 4))
+    table.view.setCurrentIndex(table.model.index(0, 5))
     assert not table.paste_clipboard(text)
     assert errors and errors[0].startswith(message)
     assert _stored(project[0].path, "A1", "API") == 2.0
@@ -160,7 +160,7 @@ def test_the_table_works_without_any_data_file(qapp, project):
         window.show_roi_table()
         table = window._roi_table
         assert window._roi_table_dock.isVisible() and table.model.rowCount() == 4
-        assert table.model.setData(table.model.index(3, 5), "12")
+        assert table.model.setData(table.model.index(3, 6), "12")
         assert _stored(project_obj.path, "B1", "fat") == 12.0
     finally:
         window.close()
@@ -220,14 +220,34 @@ def test_a_stored_value_can_be_replaced(project):
 def test_sample_labels_are_typed_pasted_and_removed(table, project):
     """The Sample column: text is stored without surrounding spaces; blank removes it."""
     model, view, path = table.model, table.view, project[0].path
-    assert model.setData(model.index(0, 3), "  blend 1 ")
+    assert model.setData(model.index(0, 4), "  blend 1 ")
     assert Project.open(path).roi("A1").sample == "blend 1"
-    assert _cells(table)[0][3] == "blend 1"
-    view.setCurrentIndex(model.index(1, 3))
+    assert _cells(table)[0][4] == "blend 1"
+    view.setCurrentIndex(model.index(1, 4))
     assert table.paste_clipboard("blend 1\tignored\n\nblend 2\n")  # A2, A10 (blank), B1
     reopened = Project.open(path)
     assert [reopened.roi(name).sample for name in ("A1", "A2", "A10", "B1")] == [
         "blend 1", "blend 1", None, "blend 2"]
-    assert model.setData(model.index(0, 3), " ")
+    assert model.setData(model.index(0, 4), " ")
     assert Project.open(path).roi("A1").sample is None
     assert _stored(path, "A1", "API") == 2.0, "labels never touch target values"
+
+
+def test_the_predict_checkbox_switches_an_rois_use(qapp, project):
+    from PyQt6.QtCore import Qt
+
+    from enginir.viewer._roi_table import RoiTableModel
+    from enginir.viewer._state import ProjectState
+
+    project, _paths = project
+    state = ProjectState()
+    state.open_project(str(project.path))
+    model = RoiTableModel(state)
+    index = model.index(0, 3)
+    assert model.flags(index) & Qt.ItemFlag.ItemIsUserCheckable
+    assert model.data(index, Qt.ItemDataRole.CheckStateRole) == Qt.CheckState.Unchecked
+    assert model.setData(index, Qt.CheckState.Checked.value, Qt.ItemDataRole.CheckStateRole)
+    roi_id = model.roi_id(0)
+    assert state.rois[roi_id].use == "prediction"
+    assert Project.open(project.path).workspace.rois[roi_id].use == "prediction", "stored"
+    assert model.data(model.index(0, 3), Qt.ItemDataRole.CheckStateRole) == Qt.CheckState.Checked

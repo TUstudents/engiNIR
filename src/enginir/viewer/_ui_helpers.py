@@ -26,6 +26,19 @@ PROJECT_SAVE_FILTER = "engiNIR project (*.h5 *.hdf5)"
 PROJECT_OPEN_FILTER = "engiNIR project (*.h5 *.hdf5);;All files (*)"
 
 
+def is_band_index_axis(wavelengths: Any) -> bool:
+    """Whether ``wavelengths`` is the axis given to a file without wavelengths: 0, 1, ..., n-1."""
+    import numpy as np
+
+    values = np.asarray(wavelengths, dtype=float).ravel()
+    return values.size > 1 and bool(np.array_equal(values, np.arange(values.size)))
+
+
+def spectral_axis_label(wavelengths: Any) -> tuple[str, str]:
+    """Axis label and CSV unit of a spectral axis: band numbers or wavelengths in nm."""
+    return ("Band", "band") if is_band_index_axis(wavelengths) else ("Wavelength (nm)", "nm")
+
+
 def ask_save_path(parent: QWidget | None, title: str, file_filter: str, suffix: str,
                   accepted: tuple[str, ...] = ()) -> str | None:
     """Ask for a file to write; add ``suffix`` when the name has none of the accepted ones.
@@ -138,7 +151,9 @@ def reveal_in_file_manager(path: Path) -> bool:
 
 
 __all__ = [
+    "is_band_index_axis",
     "maybe_tight_layout",
     "reveal_in_file_manager",
+    "spectral_axis_label",
     "style_axes",
 ]

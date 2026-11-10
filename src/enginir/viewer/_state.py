@@ -36,7 +36,7 @@ from ..project import (
 )
 from ..preprocessing import PreprocessingRecipe
 from ..preprocessing.recipe import SG_FILTERS
-from ..prediction import PredictionResult, predict_with_model_run
+from ..prediction import PredictionResult, RoiPredictionSummary, predict_with_model_run
 from .._checks import log_and_raise
 from .._logging import get_logger
 from ..io.project_store import as_roi_storage_array
@@ -118,6 +118,8 @@ class ProjectState(QObject):
     model_fitted = pyqtSignal(str)
     active_model_changed = pyqtSignal(str)
     prediction_completed = pyqtSignal(str)
+    #: The per-ROI prediction results of this session changed (:attr:`roi_results`).
+    roi_results_changed = pyqtSignal()
     #: A short message after a user-visible write, e.g. "ROI 'A01' saved to project".
     saved = pyqtSignal(str)
 
@@ -138,6 +140,9 @@ class ProjectState(QObject):
         self.model_runs: dict[str, ModelRun] = {}
         #: Predictions of this session, newest last (never stored in the project).
         self.predictions: dict[str, PredictionResult] = {}
+        #: Per-ROI prediction statistics of this session, one summary per model (never
+        #: stored); the ROI table shows them. Set by the Predict workspace.
+        self.roi_results: list[RoiPredictionSummary] = []
         #: Display label per dataset id: the file name, with its folder when names repeat.
         self.data_file_labels: dict[str, str] = {}
         self.model_registry: dict[str, Any] = {}
@@ -210,6 +215,7 @@ class ProjectState(QObject):
         self.model_registry.clear()
         self.active_model_name = None
         self.predictions.clear()
+        self.set_roi_results([])
 
     # -- writing -------------------------------------------------------------------
 
@@ -254,6 +260,10 @@ class ProjectState(QObject):
     def data_file_label(self, dataset_id: str) -> str:
         """How a data file is shown: its file name, with the folder when file names repeat."""
         return self.data_file_labels.get(dataset_id, dataset_id)
+
+    def data_file_full_label(self, dataset_id: str) -> str:
+        """:meth:`data_file_label` with the folder in full, for lists with room."""
+        return data_file_labels(self.datasets, shorten=False).get(dataset_id, dataset_id)
 
     def active_calibration(self, dataset_id: str) -> CalibrationSpec | None:
         """The active calibration of a registered dataset, if any."""
@@ -333,6 +343,21 @@ class ProjectState(QObject):
                             else f"Sample '{label}' saved for ROI '{name}'")
         elif changes:
             self.saved.emit(f"{len(changes)} sample labels saved to project")
+
+    def set_roi_uses(self, changes: list[tuple[str, str]]) -> None:
+        """Mark ROIs for ``"training"`` or ``"prediction"`` (``use``, roi-target contract)."""
+        project = self._require_project("set_roi_uses")
+        for roi_id, use in changes:
+            project.save_roi_use(roi_id, use)
+        self._written()
+        self.rois_changed.emit()
+        if len(changes) == 1:
+            roi_id, use = changes[0]
+            roi = self.rois.get(roi_id)
+            name = roi.name if roi is not None else roi_id
+            self.saved.emit(f"ROI '{name}' is now a {use} ROI")
+        elif changes:
+            self.saved.emit(f"{len(changes)} ROI uses saved to project")
 
     def add_roi(
         self,
@@ -509,6 +534,13 @@ class ProjectState(QObject):
             active_calibration_ids=dict(self.active_calibration_ids),
             model_registry=dict(self.model_registry),
         )
+
+    def set_roi_results(self, summaries: list[RoiPredictionSummary]) -> None:
+        """Show per-ROI prediction statistics of this session (nothing is written)."""
+        if not summaries and not self.roi_results:
+            return
+        self.roi_results = list(summaries)
+        self.roi_results_changed.emit()
 
     def add_prediction(self, result: PredictionResult) -> None:
         """Keep a computed prediction for this session and show it (nothing is written)."""
@@ -798,6 +830,9 @@ class ViewerState(QObject):
         self.preprocess_emsc = False
         self.preprocess_detrend = False
         self.detrend_order = 1
+        #: Band selection of the preview (the last fit dialog's ranges).
+        self.bands_keep: tuple[tuple[float, float], ...] = ()
+        self.bands_exclude: tuple[tuple[float, float], ...] = ()
         self._image_cache = None
 
     # ------------------------------------------------------------------
@@ -1014,6 +1049,8 @@ class ViewerState(QObject):
             emsc=self.preprocess_emsc,
             detrend=self.preprocess_detrend,
             detrend_order=self.detrend_order,
+            bands_keep=self.bands_keep,
+            bands_exclude=self.bands_exclude,
         )
 
     def apply_recipe(self, recipe: PreprocessingRecipe) -> None:
@@ -1031,6 +1068,8 @@ class ViewerState(QObject):
         self.preprocess_emsc = recipe.emsc
         self.preprocess_detrend = recipe.detrend
         self.detrend_order = recipe.detrend_order
+        self.bands_keep = recipe.bands_keep
+        self.bands_exclude = recipe.bands_exclude
         self._image_cache = None
         self.units_changed.emit()
 
@@ -1111,17 +1150,17 @@ class ViewerState(QObject):
     def _apply_preprocessing(self, img: np.ndarray) -> np.ndarray:
         """Apply the current recipe to one frame, fitting MSC/EMSC on that frame.
 
-        Bands a Savitzky-Golay filter drops (``sg_edges="drop"``) are returned
-        as NaN (missing), so band indices stay those of the data file.
+        Bands a Savitzky-Golay filter drops (``sg_edges="drop"``) and bands a
+        band selection leaves out are returned as NaN (missing), so band
+        indices stay those of the data file.
         """
         n_bands = img.shape[1]
         for _, transformer in self.recipe.build_steps(self.wavelengths,
                                                       signal_unit=self.y_unit):
             img = np.asarray(transformer.fit_transform(img), dtype=_WORKING_DTYPE)
-        trim = self.recipe.sg_trim
-        if trim and img.shape[1] != n_bands:
+        if img.shape[1] != n_bands:
             padded = np.full((img.shape[0], n_bands), np.nan, dtype=_WORKING_DTYPE)
-            padded[:, trim:n_bands - trim] = img
+            padded[:, self.recipe.output_band_indices(self.wavelengths)] = img
             img = padded
         return img
 

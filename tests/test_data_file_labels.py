@@ -78,7 +78,7 @@ def test_the_viewer_tells_repeated_file_names_apart(qapp, tmp_path):
         assert "stream_hsi.h5 (run1): 1 of 1 ROIs have a value" in readiness
         assert "stream_hsi.h5 (run2): 1 of 1 ROIs have a value" in readiness
         window._project_rois.rebuild()  # the tab lays out its blocks (hidden tabs wait)
-        headers = [name for name, _y in window._project_rois.mosaic._headers]
+        headers = window._project_rois.mosaic.header_names()
         assert sorted(headers) == ["stream_hsi.h5 (run1)", "stream_hsi.h5 (run2)"]
     finally:
         window.close()

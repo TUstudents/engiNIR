@@ -327,8 +327,7 @@ def test_reopened_project_renders_model_and_prediction_workspaces(
     qapp.processEvents()
     assert viewer._workspace_content_stack.currentWidget() is viewer._predict_content_page
     # the stored prediction run of the file is not shown: predictions live in the session
-    assert viewer._predict_card_prediction_value.text() == "none"
-    assert viewer._predict_card_model_value.text() == "none"
+    assert not viewer._predict_headline.text().startswith("Map of")
 
 
 def test_workspace_controls_height_is_stable_between_modes(qapp, cube_and_wavelengths):

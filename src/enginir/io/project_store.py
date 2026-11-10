@@ -368,7 +368,7 @@ def save_training_roi(
                           spectra.shape, dark.shape, white.shape)
         payload["calibration_refs"] = {"dark": dark, "white": white}
     _save_object(path, "rois", roi_id, payload, "TrainingROI", compression,
-                 mutable_fields=frozenset({"name"}))  # sample: only save_roi_sample
+                 mutable_fields=frozenset({"name"}))  # sample, use: only their writers
 
 
 def save_roi_sample(path: PathLike, roi_id: str, sample: str | None) -> None:
@@ -391,6 +391,26 @@ def save_roi_sample(path: PathLike, roi_id: str, sample: str | None) -> None:
         else:
             group.attrs["sample"] = sample
     logger.info("Set the sample label of ROI '{}' to {!r} in {}", roi_id, sample, path)
+
+
+def save_roi_use(path: PathLike, roi_id: str, use: str) -> None:
+    """Set an ROI's ``use`` (``"training"`` or ``"prediction"``) in place.
+
+    The only field written (roi-target contract, ``use``); ``training`` is
+    stored as the absence of the attribute, as ROIs stored before 1.4 read.
+    """
+    if use not in ("training", "prediction"):
+        log_and_raise("An ROI's use must be 'training' or 'prediction', got {!r}", use)
+    with _open_project(path, writable=True) as f:
+        group = f["rois"].get(roi_id)
+        if not isinstance(group, h5py.Group):
+            log_and_raise("No ROI '{}' in {}", roi_id, path, error=KeyError)
+        if use == "training":
+            if "use" in group.attrs:
+                del group.attrs["use"]
+        else:
+            group.attrs["use"] = use
+    logger.info("Set the use of ROI '{}' to {!r} in {}", roi_id, use, path)
 
 
 def save_sample_set(
@@ -1087,6 +1107,7 @@ __all__ = [
     "save_prediction_run",
     "save_preprocessing_recipe",
     "save_roi_sample",
+    "save_roi_use",
     "save_sample_set",
     "save_signal_domain_contract",
     "save_target_assignment",

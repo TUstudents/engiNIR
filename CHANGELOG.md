@@ -1,5 +1,137 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Band importance: every new PLS and PCR model stores VIP (PLS), the
+  selectivity ratio (target projection, PLS and PCR) and the mean spectrum of
+  the fitted pixels (`model.diagnostics`). The viewer's Spectral page shows
+  VIP with lines at 1.0 and 0.8 and the mean spectrum behind it, VIP sorted
+  with the top bands labelled, and the selectivity ratio; PLS runs from
+  before get VIP from their stored weights.
+- Band selection: `PreprocessingRecipe(bands_keep=..., bands_exclude=...)`
+  keeps or leaves out inclusive ranges (nm, or band numbers without
+  wavelengths) as the last recipe step, so normalization and MSC/EMSC see
+  the whole spectrum and the model only the selected bands; ranges are
+  normalized before the recipe id, and recipes stored before keep their ids.
+  `enginir.preprocessing.BandSelection`, `output_band_indices`.
+- `project.propose_bands(target, ...)` proposes keep ranges by forward
+  interval PLS (one-SE stop) and reports `nested_rmsecv`, the error of the
+  whole procedure with the search repeated inside every outer fold, next to
+  the RMSECV with all bands. Nothing is stored.
+- Viewer: the fit dialog's **Bands** row (Keep, Exclude, Water bands
+  suggestions, Select on plot..., Propose...); Fit again keeps the ranges;
+  the Explore preview shows left-out bands as missing.
+- User guide: *Band importance and band selection*.
+- Autofit: rules `f_test` (Haaland–Thomas F test over the fold groups) and
+  `q2_lookahead` (SIMCA R1, but a failing component is kept when the next one
+  passes), and the **noise guard**, on by default with `n_components="auto"`:
+  at most one component more than those explaining ≥ 0.5 % of the spectra,
+  then no trailing component that explains < 1 % of the spectra and does not
+  improve the prediction. `components/rule_choice` stores the rule's number;
+  `noise_guard: off` chooses as 1.3 did. The curve stores `rmsee_roi`,
+  `dw_weights` (Durbin–Watson of each component's weights), `noise` and the
+  structure ceiling.
+- Prediction ROIs: an ROI's **use** is training or prediction. Prediction
+  ROIs (Prediction only in the ROI and ROI grid dialogs, the Predict column
+  of the ROI table, `use="prediction"`) never enter a fit; they are the
+  tablets to predict. `model.predict_rois()` predicts them from the project
+  file alone with each ROI's own calibration, with per-ROI mean, median, SD,
+  5–95 %, DModX and T², an optional removal of pixels above the DModX limit
+  (default: the model's own), and RMSEP and bias over ROIs with a value.
+- Viewer, Predict: **Predict ROIs...** (one or more models, one or all data
+  files) and **Predict map...** (a project data file, with its prediction
+  ROIs); both name models and files, show the chain read-only and refuse an
+  incompatible file with the reason. The per-ROI plot and table, a map colour
+  scale from the training range (own limits in the ⋯ menu), ROI outlines with
+  their means, and a grouped summary. The free path, dataset id and
+  calibration fields of the old dialog are gone; a scan to predict is added
+  with the Add data file dialog, which shows what the model was trained with.
+  The per-ROI plot labels each mean and rings tablets with unusual spectra;
+  the ROI table shows each model's results (mean, SD, % removed, % above
+  DCrit, residual; sortable, not stored); the histogram shows the kept ROI
+  pixels; map and per-ROI results always describe the same data file; the
+  summary has one headline and no repeats; the status line describes the
+  hovered pixel or tablet; the Controls dock sets the colour scale, the map
+  overlays and the histogram source and shows DCrit.
+- Fold warnings: a fit records and logs `few_groups` and `one_level_per_file`
+  (a data file's ROIs share one value but are held out in different folds)
+  in `cv_spec/@warnings`; the fit dialog, the readiness line and the summary
+  show them.
+- Viewer, Model: metrics **per ROI** and **per pixel** in separate groups,
+  every Model plot names its level, a **?** button explains each plot (the
+  same texts in the new user guide page *Reading the Model plots*), and the
+  Components page shows four plots: RMSECV and RMSEE with every rule's reason,
+  R²Y and Q² per ROI, each component's Q²ₐ, ΔR²X and roughness, and R²X and
+  R²Y per pixel.
+
+### Changed
+
+- The prediction check compares restored MSC/EMSC state with the band count
+  after Savitzky-Golay (before a band selection) and the model with the
+  selected bands.
+- Viewer, Add data file: **Detector levels** (the file's levels, else the
+  instrument defaults) is preselected; references are chosen deliberately.
+- Viewer, Explore: the data-file docks (Histogram, RAW, Sensor Frame,
+  Spatial Profile) show only on the Data file tab. The ROI table opens with
+  Project ROIs in the right-hand column and is hidden on the Data file tab
+  (opened there, it takes the Sensor Frame's place); the choice is kept per
+  tab, and the table shows the page's ROIs.
+- Viewer, ROI mosaic: tiles in a compact grid (ROI grid positions, else scan
+  order), text in reserved room that zooms with the tiles, labels without
+  the shared name prefix, outlines in the value colour of the mean spectra;
+  **View** offers the scan positions and a contrast stretch per data file.
+- Viewer, Model, Distance page: the DModX and T² histograms show bins up to
+  the 99.5th percentile and the tail as one bar (a few far pixels put every
+  other pixel into one bin), the share above each limit is shown next to the
+  expected 1 %, and a new plot shows each ROI's share of pixels above the
+  limits, sorted, with clickable bars.
+- Viewer, Model: the score plot adds the ROI-level Hotelling T² ellipses
+  (the ROI means as observations, with their covariance) next to the pixel
+  ellipses, and a legend names both.
+- A repeated reflectance clipping warning (the same ROI converted again) is
+  logged once, then at debug level.
+
+### Fixed
+
+- `model.predict(path)` of a data file registered in the project now uses
+  the file's own calibration. Without `dark`/`white` it built a new
+  calibration from the detector levels, so a scan recorded with references
+  was predicted with a different calibration than its ROIs.
+- Viewer: the Controls dock could hide its lower rows (the Predict buttons)
+  since 1.4's sideways scrolling; the content now always fits the dock's
+  height.
+
+- Viewer on WSLg Wayland: the session could end ("xdg_surface buffer does not
+  match the configured maximized state") when the docks' minimum widths added
+  up to more than the screen, e.g. on Predict after a prediction. The window
+  no longer turns its docks' minimums into its own minimum size, and the
+  Controls dock scrolls sideways instead of requiring 1162 px. Predict names
+  the model instead of showing its id.
+
+- Viewer: ROIs with equal target values took the lowest colour of the scale
+  while the colour bar showed them in the middle.
+- Viewer: plots of a data file without wavelengths are labelled "Band", not
+  "Wavelength (nm)".
+- Viewer, Model: the summary showed "-" for the cross-validation of models
+  fitted since 1.2 (it now reads the stored folds, e.g. "7 folds, round-robin
+  over 20 samples") and ids where names belong (model, sample set,
+  readiness, status lines).
+- Viewer, Model, Spectral page: VIP and the selectivity ratio had a white
+  background in the dark theme (the mean spectrum's axes), files without
+  wavelengths were labelled "Wavelength" and "175 nm", the five largest VIP
+  labels overlapped (now listed in one corner), and legends had white boxes.
+- Viewer, Model: a few reference levels (1, 4, 7, 10) were binned into one
+  flat block; they get one bar each. A unit of "1" is no longer printed
+  after every statistic.
+- Viewer, Model: checking whether the Explore signal can be modelled (DN for
+  data with references or detector levels) logged an ERROR after every fit;
+  it now only explains it in the readiness line.
+- Viewer on WSLg Wayland: a drop-down list stayed on screen after choosing
+  an item (a WSLg fault, microsoft/wslg#1522); the list's native window is
+  now released when it closes.
+
 ## 1.3.0 (2026-11-09)
 
 ### Added

@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -21,7 +21,7 @@ from ._checks import log_and_raise
 from ._logging import get_logger
 from .io import file_format, load_spectra
 from .io import project_store as store
-from .modeling import fit_model_run, plan_sample_set
+from .modeling import BandProposal, fit_model_run, plan_sample_set, propose_bands
 from .modeling._service import fold_groups
 from .prediction import (
     PredictionResult,
@@ -45,7 +45,13 @@ from .project import (
     validate_project_relationships,
 )
 from .project._ids import new_id, now_iso
-from .project._models import sample_label
+from .project._models import roi_use, sample_label
+from .prediction._rois import (
+    RoiPrediction,
+    RoiPredictionSummary,
+    predict_rois,
+    roi_prediction_statistics,
+)
 
 logger = get_logger(__name__)
 
@@ -273,6 +279,14 @@ class Project:
         """
         self.save_roi_sample(self._roi_of(roi).roi_id, label)
 
+    def set_use(self, roi: str | TrainingROI, use: str) -> None:
+        """Mark ``roi`` (name or object) for ``"training"`` or ``"prediction"``.
+
+        A prediction ROI is a sample to predict (``model.predict_rois()``); it
+        never enters a sample set, whatever values it has.
+        """
+        self.save_roi_use(self._roi_of(roi).roi_id, use)
+
     def set_value(self, roi: str | TrainingROI, target: str | TargetDefinition,
                   value: float | None) -> None:
         """Set (or replace) the reference value of ``target`` for ``roi``; ``None`` removes it.
@@ -287,6 +301,81 @@ class Project:
         assignment = TargetAssignment(roi_id=roi_ref.roi_id, target_id=target_ref.target_id,
                                       value=value, assigned_at=now_iso())
         self.save_assignment(assignment)
+
+    def propose_bands(
+        self,
+        target: str | TargetDefinition,
+        *,
+        recipe: PreprocessingRecipe | Mapping[str, Any] | None = None,
+        model: str = "PLS",
+        n_intervals: int = 20,
+        max_steps: int | None = None,
+        fit_spec: FitSpec | Mapping[str, Any] | None = None,
+        progress: Callable[[int, int], None] | None = None,
+        cancel: Callable[[], bool] | None = None,
+        **hyperparameters: Any,
+    ) -> BandProposal:
+        """Propose band ranges for ``target`` by forward interval PLS, validated nested.
+
+        The search runs on the recipe's axis after Savitzky-Golay (a band
+        selection in ``recipe`` is ignored), split into ``n_intervals``
+        intervals; each step adds the interval that lowers the RMSECV most
+        and the search stops when the gain is within one standard error. The
+        whole search is repeated inside every outer fold, so
+        ``nested_rmsecv`` estimates the error of the procedure including the
+        selection; compare it with ``all_bands_rmsecv``. Nothing is written
+        to the project (``headless-workflow-contract_v3.md``, Band proposal).
+
+        Parameters
+        ----------
+        target, recipe, model, fit_spec, **hyperparameters:
+            As for :meth:`fit`; the folds, fold groups, pixel sample and
+            component rule of ``fit_spec`` are used (no DModX exclusion).
+            Without a number of components the rule chooses it.
+        n_intervals:
+            Number of contiguous intervals (2 to the band count).
+        max_steps:
+            Largest number of intervals to choose (default: all).
+        progress, cancel:
+            ``progress(done, total)`` after each candidate (``total`` is an
+            upper bound); ``cancel()`` returning ``True`` stops with
+            :class:`~enginir.modeling.BandProposalCancelledError`.
+
+        Returns
+        -------
+        BandProposal
+            ``ranges`` (for ``PreprocessingRecipe(bands_keep=...)``),
+            ``steps``, ``intervals``, ``nested_rmsecv``, ``all_bands_rmsecv``
+            and ``n_components``.
+
+        Examples
+        --------
+        >>> proposal = project.propose_bands("API", recipe=PreprocessingRecipe(snv=True))
+        ... # doctest: +SKIP
+        >>> project.fit("API", recipe=PreprocessingRecipe(snv=True, bands_keep=proposal.ranges),
+        ...             n_components=proposal.n_components)  # doctest: +SKIP
+        """
+        ws = self.workspace
+        if fit_spec is not None and FitSpec.coerce(fit_spec).groups:
+            log_and_raise("fit_spec folds/groups is written by the fit; leave it out and choose "
+                          "folds/group_by instead")
+        target_ref = self._target_of(target)
+        recipe_obj = _as_recipe(recipe)
+        recipe_id = _recipe_id(recipe_obj)
+        recipes = {**ws.recipes, recipe_id: recipe_obj.to_dict()}
+        sample_set, _new = resolve_sample_set(
+            rois=ws.rois, target_assignments=ws.target_assignments,
+            target_id=target_ref.target_id, recipe_id=recipe_id, sample_sets=ws.sample_sets)
+        domain = resolve_signal_domain(self._training_signal_domain(sample_set),
+                                       ws.signal_domains)
+        return propose_bands(
+            project_path=self.path, sample_set=sample_set, datasets=ws.datasets,
+            calibrations=ws.calibrations, rois=ws.rois,
+            target_assignments=ws.target_assignments, recipes=recipes,
+            signal_domains={**ws.signal_domains, domain.signal_domain_id: domain},
+            signal_domain_id=domain.signal_domain_id, model_type=model,
+            hyperparameters=hyperparameters, n_intervals=n_intervals, max_steps=max_steps,
+            fit_spec=fit_spec, progress=progress, cancel=cancel)
 
     def fit(
         self,
@@ -429,6 +518,13 @@ class Project:
                                 dark_ref_spectra=dark_ref_spectra,
                                 white_ref_spectra=white_ref_spectra)
         self.workspace.rois[roi.roi_id] = roi
+
+    def save_roi_use(self, roi_id: str, use: str) -> None:
+        """Set a stored ROI's use: ``"training"`` or ``"prediction"`` (never in a sample set)."""
+        roi = _with_id(self.workspace.rois, roi_id, "ROI")
+        use = roi_use(use)
+        store.save_roi_use(self.path, roi_id, use)
+        self.workspace.rois[roi_id] = replace(roi, use=use)
 
     def save_roi_sample(self, roi_id: str, sample: str | None) -> None:
         """Set (or, with ``None`` or blank text, remove) the sample label of a stored ROI."""
@@ -725,7 +821,8 @@ class Dataset:
                          if roi.dataset_id == self.ref.dataset_id], "ROI", "roi_id")
 
     def add_roi(self, name: str, *, frames: tuple[int, int], rows: tuple[int, int],
-                values: Mapping[str, float] | None = None) -> TrainingROI:
+                values: Mapping[str, float] | None = None,
+                use: str = "training") -> TrainingROI:
         """Store the pixels ``frames`` x ``rows`` as an ROI with its reference values.
 
         Parameters
@@ -738,6 +835,9 @@ class Dataset:
             Inclusive ``(first, last)`` index ranges.
         values:
             Reference values ``{target name: value}``.
+        use:
+            ``"training"`` (default) or ``"prediction"``: a sample to predict
+            (``model.predict_rois()``), never in a sample set.
 
         Returns
         -------
@@ -750,7 +850,7 @@ class Dataset:
         first, last = _index_range(frames, n_frames, "frames")
         roi, spectra, refs = make_roi(self.ref, self.calibration, name=name,
                                       frames=(first, last), rows=rows,
-                                      pixels=read_frames(self.path, first, last))
+                                      pixels=read_frames(self.path, first, last), use=use)
         created_at = roi.created_at
         assignments = [TargetAssignment(roi_id=roi.roi_id, target_id=target.target_id,
                                         value=float(values[target_name]), assigned_at=created_at)
@@ -871,8 +971,10 @@ class Model:
         """RMSECV, its standard error, Q², Q²(cum), R²X(cum) and R²Y(cum) per number of components.
 
         Arrays over ``n_components`` 1 … A_max and every rule's suggestion
-        (``suggested_one_se``, ``suggested_min_rmsecv``, ``suggested_q2_limit``);
-        ``None`` for a model fitted before engiNIR 1.3
+        (``suggested_one_se``, ``suggested_min_rmsecv``, ``suggested_q2_limit``,
+        ``suggested_f_test``, ``suggested_q2_lookahead``); from engiNIR 1.4 also
+        ``r2y_cum_roi``, ``rmsee_roi``, ``noise``, ``dw_weights`` and
+        ``structure_ceiling``. ``None`` for a model fitted before engiNIR 1.3
         (sample-set-model-run contract §7.4).
         """
         refs = store.load_model_run_artifact_refs(self.project.path, self.ref.model_run_id,
@@ -1010,6 +1112,57 @@ class Model:
                 changed.append(str(roi_id))
         return changed
 
+    def predict_rois(self, rois: Sequence[str | TrainingROI] | None = None, *,
+                     exclude_dmodx: float | bool | None = None) -> RoiPredictionSummary:
+        """Predict the prediction ROIs from the project file alone, with per-ROI statistics.
+
+        Each ROI's stored pixels are converted with its own calibration (as the
+        fit does), preprocessed with the model's recipe and predicted; no data
+        file is read and nothing is written (prediction-runtime contract,
+        Prediction ROIs). The result is logged once.
+
+        Parameters
+        ----------
+        rois:
+            ROI names or objects; default every prediction ROI of the project.
+        exclude_dmodx:
+            Remove pixels above the DModX limit at this level from the
+            statistics; ``False`` keeps every pixel; ``None`` (default) the
+            model's own setting (its fit specification's DModX exclusion).
+
+        Returns
+        -------
+        RoiPredictionSummary
+            Per-ROI statistics, RMSEP and bias over ROIs with a value. Call
+            :meth:`roi_prediction` and
+            :func:`~enginir.prediction.roi_prediction_statistics` to change
+            the exclusion without predicting again.
+        """
+        prediction = self.roi_prediction(rois)
+        level = prediction.default_exclusion if exclude_dmodx is None else (
+            None if exclude_dmodx is False else float(exclude_dmodx))
+        summary = roi_prediction_statistics(
+            prediction, target_assignments=self.project.workspace.target_assignments,
+            exclude_dmodx=level)
+        logger.info("Predicted {} ROI(s) of {} with model '{}' ({}); exclusion {}; {} refused; "
+                    "RMSEP {} over {} ROI(s) with a value", len(prediction.pixels),
+                    self.project.path, self.name, self.ref.model_run_id,
+                    "none" if summary.exclusion is None else f"DModX {summary.exclusion}",
+                    len(prediction.refused), summary.rmsep, summary.n_reference)
+        return summary
+
+    def roi_prediction(self, rois: Sequence[str | TrainingROI] | None = None) -> RoiPrediction:
+        """The pixel predictions of the prediction ROIs (see :meth:`predict_rois`)."""
+        ws = self.project.workspace
+        chosen = ([roi for roi in ws.rois.values() if roi.use == "prediction"] if rois is None
+                  else [self.project._roi_of(roi) for roi in rois])
+        if not chosen:
+            log_and_raise("No prediction ROIs to predict; mark ROIs with use='prediction'")
+        return predict_rois(
+            project_path=self.project.path, model_run=self.ref, model_name=self.name,
+            rois=chosen, datasets=ws.datasets, calibrations=ws.calibrations,
+            signal_domains=ws.signal_domains, recipes=ws.recipes, sample_sets=ws.sample_sets)
+
     def predict(self, path: str | os.PathLike[str], *,
                 dark: str | os.PathLike[str] | np.ndarray | None = None,
                 white: str | os.PathLike[str] | np.ndarray | None = None,
@@ -1034,8 +1187,15 @@ class Model:
         domain = ws.signal_domains[self.ref.signal_domain_id]
         recipe_id = ws.sample_sets[self.ref.sample_set_id].preprocessing_recipe_id
         recipe = PreprocessingRecipe.from_dict(ws.recipes[recipe_id])
-        dataset, calibration, _new_dataset, _new_calibration = project._resolve_dataset(
-            path, dark=dark, white=white, unit=domain.required_signal_unit)
+        registered = project._dataset_ref(_native_path(path))
+        if registered is not None and dark is None and white is None:
+            # A registered file is predicted with its own active calibration, the one its
+            # ROIs were recorded with (not a new one from the detector levels).
+            dataset = registered
+            calibration = ws.calibrations[ws.active_calibration_ids[registered.dataset_id]]
+        else:
+            dataset, calibration, _new_dataset, _new_calibration = project._resolve_dataset(
+                path, dark=dark, white=white, unit=domain.required_signal_unit)
         common: dict[str, Any] = dict(project_path=project.path, model_run=self.ref, signal_domain=domain,
                       recipe=recipe, dataset=dataset, calibration=calibration,
                       model_registry={})
@@ -1166,15 +1326,17 @@ def read_frames(path: str, first: int, last: int) -> np.ndarray:
 _LABEL_FOLDER_CHARS = 40
 
 
-def data_file_labels(datasets: Mapping[str, DatasetRef]) -> dict[str, str]:
+def data_file_labels(datasets: Mapping[str, DatasetRef], *,
+                     shorten: bool = True) -> dict[str, str]:
     """A short, unique display label per dataset id (viewer identity rule).
 
     A data file is labelled by its file name. When several data files share
     a file name, each gets the folder that tells it apart, e.g.
     ``stream_hsi.h5 (API 10% - nozzle 0.6 mm)``: the parent folder, or more
     of the path where parent folders repeat too. Long folders are shortened
-    in the middle unless that would make two labels equal. Labels are for
-    display only; datasets are identified by id.
+    in the middle unless that would make two labels equal (``shorten=False``
+    keeps them whole, for lists with room). Labels are for display only;
+    datasets are identified by id.
     """
     paths = {dataset_id: _native_path(ref.source_path).replace("\\", "/").split("/")
              if ref.source_path else [dataset_id] for dataset_id, ref in datasets.items()}
@@ -1191,7 +1353,8 @@ def data_file_labels(datasets: Mapping[str, DatasetRef]) -> dict[str, str]:
                 {"/".join(paths[i][-1 - depth:-1]) for i in ids}) < len(ids):
             depth += 1
         folders = {i: "/".join(paths[i][-1 - depth:-1]) for i in ids}
-        short = {i: _shorten_middle(folder, _LABEL_FOLDER_CHARS) for i, folder in folders.items()}
+        short = {i: _shorten_middle(folder, _LABEL_FOLDER_CHARS) if shorten else folder
+                 for i, folder in folders.items()}
         if len(set(short.values())) < len(ids):
             short = folders
         for i in ids:
@@ -1554,6 +1717,7 @@ def make_roi(
     preview_recipe: PreprocessingRecipe | None = None,
     created_at: str | None = None,
     grid_cell: GridCell | None = None,
+    use: str = "training",
 ) -> tuple[TrainingROI, np.ndarray, tuple[np.ndarray, np.ndarray] | None]:
     """Build an ROI of ``dataset`` from its frames ``pixels`` ``(frames, height, n_bands)``.
 
@@ -1581,7 +1745,7 @@ def make_roi(
     created_at = created_at or now_iso()
     recipe = preview_recipe or PreprocessingRecipe()
     roi = TrainingROI(
-        roi_id=new_id(), dataset_id=dataset.dataset_id,
+        roi_id=new_id(), use=roi_use(use), dataset_id=dataset.dataset_id,
         calibration_id=calibration.calibration_id, name=name,
         wavelengths=dataset.wavelengths, n_pixels=int(spectra.shape[0]),
         spatial_bounds=(f0, f1, r0, r1), source_file=dataset.source_path, created_at=created_at,
@@ -1657,7 +1821,8 @@ def _recipe_label(recipe: PreprocessingRecipe) -> str:
         sg = {"sg_smooth": "SG", "sg_d1": "SG 1st der.", "sg_d2": "SG 2nd der."}[recipe.filter]
         steps.append(sg if recipe.sg_edges == "drop" else f"{sg} (edges kept)")
     steps += [label for label, on in (("SNV", recipe.snv), ("MSC", recipe.msc),
-                                      ("EMSC", recipe.emsc), ("detrend", recipe.detrend)) if on]
+                                      ("EMSC", recipe.emsc), ("detrend", recipe.detrend),
+                                      ("bands", recipe.has_band_selection)) if on]
     return " + ".join(steps) or "raw"
 
 

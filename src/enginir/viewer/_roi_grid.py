@@ -16,6 +16,7 @@ from typing import Any
 
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -151,6 +152,16 @@ class GridDefaultsDialog(QDialog):
         self.accept()
 
 
+def prediction_only_check(checked: bool) -> QCheckBox:
+    """The Prediction only checkbox of the ROI dialogs (roi-target contract, ``use``)."""
+    check = QCheckBox("Prediction only (a sample to predict; never used to fit a model)")
+    check.setChecked(checked)
+    check.setToolTip("Prediction ROIs mark tablets to predict in Predict > Predict ROIs. They "
+                     "never enter a model fit, even with a value; a value then only gives the "
+                     "prediction's residual. The choice is remembered for this data file.")
+    return check
+
+
 class RoiGridDialog(QDialog):
     """Lay out a tray of ROIs on the shown image and choose the empty positions."""
 
@@ -158,7 +169,8 @@ class RoiGridDialog(QDialog):
     preview_changed = pyqtSignal(object, object, object)
 
     def __init__(self, image_size: tuple[int, int], *, file: str, defaults: GridDefaults,
-                 taken_names: Iterable[str] = (), parent: QWidget | None = None) -> None:
+                 taken_names: Iterable[str] = (), prediction: bool = False,
+                 parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Add ROI grid")
         self._image_size, self._file = image_size, file
@@ -191,6 +203,7 @@ class RoiGridDialog(QDialog):
         self._cell_grid.setSpacing(2)
         self._status = QLabel("")
         self._status.setWordWrap(True)
+        self.prediction_check = prediction_only_check(prediction)
         self._buttons_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
                                              | QDialogButtonBox.StandardButton.Cancel)
         self._buttons_box.accepted.connect(self.accept)
@@ -209,8 +222,14 @@ class RoiGridDialog(QDialog):
         layout.addLayout(select_row)
         layout.addWidget(self._cell_area)
         layout.addWidget(self._status)
+        layout.addWidget(self.prediction_check)
         layout.addWidget(self._buttons_box)
         self._update()
+
+    @property
+    def use(self) -> str:
+        """``"prediction"`` when Prediction only is ticked, else ``"training"``."""
+        return "prediction" if self.prediction_check.isChecked() else "training"
 
     # -- settings (also used by tests and scripts) ----------------------
 

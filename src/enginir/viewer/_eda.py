@@ -39,6 +39,7 @@ from ..io import file_format
 from ._loading import ViewerBusyContext
 from ._modeling import NewROIDialog
 from ._grid_settings import load_grid_defaults
+from ._project_settings import load_prediction_default, save_prediction_default
 from ._roi_grid import RoiGridDialog
 from ._state import DEFAULT_SOURCE_MODALITY, ProjectState, ViewerState
 from ._theme import secondary_text_style
@@ -578,17 +579,20 @@ class EDAView(QWidget):
                                defaults=load_grid_defaults(),
                                taken_names={roi.name
                                             for roi in self.project_state.rois.values()},
+                               prediction=load_prediction_default(cube_path),
                                parent=self.window())
         dialog.preview_changed.connect(self._canvas.set_grid_preview)
         dialog.redraw_preview()  # the image shows the grid before any change
         try:
             accepted = dialog.exec() == QDialog.DialogCode.Accepted
             cells = list(dialog.cells)
+            use = dialog.use
         finally:
             self._canvas.clear_grid_preview()
             dialog.deleteLater()
         if not accepted or not cells:
             return
+        save_prediction_default(cube_path, use == "prediction")
         try:
             context = self._ensure_current_dataset_context()
         except Exception as exc:
@@ -602,7 +606,7 @@ class EDAView(QWidget):
             built = [make_roi(dataset, calibration, name=cell.name, frames=cell.frames,
                               rows=cell.rows,
                               pixels=self.state.cube[cell.frames[0]:cell.frames[1] + 1],
-                              preview_recipe=self.state.recipe, grid_cell=cell)
+                              preview_recipe=self.state.recipe, grid_cell=cell, use=use)
                      for cell in cells]
             self.project_state.add_rois(built)
         except (OSError, ValueError, KeyError) as exc:
@@ -675,14 +679,17 @@ class EDAView(QWidget):
             self.state,
             self._current_target_provider(),
             parent=self,
+            prediction=load_prediction_default(self._cube_path_provider() or ""),
         )
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
+        save_prediction_default(self._cube_path_provider() or "", dlg.use == "prediction")
 
         left, right, top, bottom = self.state._normalized_roi_bounds(f0, f1, r0, r1)
         roi, spectra, refs = make_roi(
             dataset, calibration, name=dlg.roi_name, frames=(left, right), rows=(top, bottom),
-            pixels=self.state.cube[left:right + 1], preview_recipe=self.state.recipe)
+            pixels=self.state.cube[left:right + 1], preview_recipe=self.state.recipe,
+            use=dlg.use)
         self.project_state.add_roi(roi, spectra,
                                    dark_ref_spectra=None if refs is None else refs[0],
                                    white_ref_spectra=None if refs is None else refs[1])

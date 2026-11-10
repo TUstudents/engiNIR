@@ -296,7 +296,9 @@ def test_refit_reproduces_a_model_from_its_stored_sample_set(tmp_path):
     scan.add_roi("late", frames=(0, 1), rows=(0, 1), values={"API": 9.0})
 
     refitted, warnings = _warnings_during(model.refit)
-    assert warnings == []
+    # The test project has fewer than 7 fold groups: the fold warning is expected, a refit
+    # difference is not.
+    assert [w for w in warnings if "likely optimistic" not in w] == []
     assert refitted.ref.model_run_id != model.ref.model_run_id
     assert refitted.name == "PLS 2 LV, SNV (2)"
     for key in ("sample_set_id", "signal_domain_id", "model_type", "hyperparameters"):

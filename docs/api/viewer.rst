@@ -98,6 +98,21 @@ Modeling view
    :members: target_id, recipe, set_recipe, model_type, n_components, signal_unit, cv,
       group_by, hyperparameters, fit_spec, apply_model_run
 
+Band ranges
+-----------
+
+.. automodule:: enginir.viewer._band_ranges
+   :no-members:
+
+.. autoclass:: enginir.viewer._band_ranges.BandSource
+   :no-members:
+
+.. autoclass:: enginir.viewer._band_ranges.BandRangeDialog
+   :members: add_region, clear_regions, ranges
+
+.. autoclass:: enginir.viewer._band_ranges.ProposeBandsDialog
+   :no-members:
+
 Inspector
 ---------
 
@@ -112,8 +127,19 @@ Prediction view
 .. autoclass:: enginir.viewer._prediction.PredictionView
    :no-members:
 
-.. autoclass:: enginir.viewer._prediction.PredictionRunDialog
-   :members: model_run_id, data_path, dataset_id, calibration
+.. autofunction:: enginir.viewer._prediction.describe_calibration
+
+.. automodule:: enginir.viewer._predict_dialogs
+   :no-members:
+
+.. autoclass:: enginir.viewer._predict_dialogs.PredictRoisDialog
+   :members: model_ids, dataset_id
+
+.. autoclass:: enginir.viewer._predict_dialogs.PredictMapDialog
+   :members: model_id, dataset_id
+
+.. autoclass:: enginir.viewer._predict_dialogs.ModelChoice
+   :no-members:
 
 
 Panels
@@ -142,6 +168,8 @@ Workspace surfaces
 
 .. autoclass:: enginir.viewer._model_diagnostics.ModelDiagnosticsWidget
    :no-members:
+
+.. autofunction:: enginir.viewer._model_diagnostics.roi_t2_ellipse
 
 .. autoclass:: enginir.viewer._prediction.PredictionMapWidget
    :members: layer, set_layer, update_data
@@ -213,6 +241,11 @@ Project ROIs
    :no-members:
 
 .. autofunction:: enginir.viewer._project_rois.mosaic_layout
+
+.. autoclass:: enginir.viewer._project_rois.MosaicLayout
+   :no-members:
+
+.. autofunction:: enginir.viewer._project_rois.grid_cells
 
 ROI table
 ---------

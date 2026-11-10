@@ -21,7 +21,9 @@ logger = get_logger(__name__)
 
 FOLD_RULES = ("round_robin", "leave_one_group_out", "group_kfold")
 GROUP_BY = ("roi", "sample", "target")
-COMPONENT_RULES = ("fixed", "one_se", "min_rmsecv", "q2_limit")
+COMPONENT_RULES = ("fixed", "one_se", "min_rmsecv", "q2_limit", "f_test", "q2_lookahead")
+#: ``"default"`` (requests only) resolves to ``"on"`` with ``n_components="auto"``, else ``"off"``.
+NOISE_GUARD = ("default", "on", "off")
 EXCLUSION_METHODS = ("none", "dmodx")
 DMODX_FORMULAS = ("dmodx-1", "dmodx-2")
 ALL_PIXELS = "all"
@@ -32,7 +34,7 @@ _KEYS = {
     "folds": ("rule", "n_folds", "group_by", "groups"),
     "pixels": ("per_roi", "seed", "checksum"),
     "exclusion": ("method", "level", "rounds", "max_fraction", "formula"),
-    "components": ("rule", "max", "selected"),
+    "components": ("rule", "max", "selected", "noise_guard", "rule_choice"),
 }
 
 
@@ -75,6 +77,14 @@ class FitSpec:
         request takes the default.
     components_selected : int
         Number of components of the run, set by the fit; 0 before the fit.
+    components_noise_guard : str
+        ``"on"``: after an autofit rule, drop trailing noise components and
+        apply the structure ceiling (§7.4); ``"off"``: use the rule's number;
+        ``"default"`` (a request) becomes ``"on"`` with ``n_components="auto"``
+        and ``"off"`` with a number. A stored run without the key reads
+        ``"off"``.
+    components_rule_choice : int
+        The rule's number before the guard and the ceiling, set by the fit.
     """
 
     fold_rule: str = "round_robin"
@@ -92,6 +102,8 @@ class FitSpec:
     components_rule: str = "fixed"
     components_max: int | None = None
     components_selected: int = 0
+    components_noise_guard: str = "default"
+    components_rule_choice: int = 0
 
     def __post_init__(self) -> None:
         _check_choice(self.fold_rule, "folds/rule", FOLD_RULES)
@@ -129,6 +141,10 @@ class FitSpec:
                                _check_int(self.components_max, "components/max", minimum=1))
         object.__setattr__(self, "components_selected",
                            _check_int(self.components_selected, "components/selected",
+                                      minimum=0))
+        _check_choice(self.components_noise_guard, "components/noise_guard", NOISE_GUARD)
+        object.__setattr__(self, "components_rule_choice",
+                           _check_int(self.components_rule_choice, "components/rule_choice",
                                       minimum=0))
         # Stored values come back as NumPy scalars; keep plain Python values.
         for name, kind in (("n_folds", int), ("seed", int), ("exclusion_rounds", int),
@@ -189,6 +205,8 @@ class FitSpec:
                     values[_FIELD[part, key]] = _decoded(group[key])
         if values.get("components_max") == 0:  # "not set" in the stored form
             values["components_max"] = None
+        if "components" in payload and "components_noise_guard" not in values:
+            values["components_noise_guard"] = "off"  # stored before 1.4 (contract §7.4)
         per_roi = values.get("pixels_per_roi")
         if per_roi == ALL_PIXELS:
             values["pixels_per_roi"] = None
@@ -218,7 +236,9 @@ class FitSpec:
                           "formula": self.exclusion_formula},
             "components": {"rule": self.components_rule,
                            "max": self.components_max or 0,
-                           "selected": self.components_selected},
+                           "selected": self.components_selected,
+                           "noise_guard": self.components_noise_guard,
+                           "rule_choice": self.components_rule_choice},
         }
 
     def with_checksum(self, checksum: str) -> FitSpec:
@@ -268,6 +288,8 @@ _FIELD = {
     ("exclusion", "formula"): "exclusion_formula",
     ("components", "rule"): "components_rule", ("components", "max"): "components_max",
     ("components", "selected"): "components_selected",
+    ("components", "noise_guard"): "components_noise_guard",
+    ("components", "rule_choice"): "components_rule_choice",
 }
 
 
@@ -299,4 +321,4 @@ def _check_float(value: Any, name: str) -> float:
 
 
 __all__ = ["ALL_PIXELS", "COMPONENT_RULES", "DMODX_FORMULAS", "EXCLUSION_METHODS",
-           "FOLD_RULES", "GROUP_BY", "FitSpec", "fold_groups_problem"]
+           "FOLD_RULES", "GROUP_BY", "NOISE_GUARD", "FitSpec", "fold_groups_problem"]

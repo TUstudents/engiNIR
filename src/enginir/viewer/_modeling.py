@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from typing import Any
 
 import numpy as np
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QMenu,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -22,6 +23,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPushButton,
     QSizePolicy,
     QSpinBox,
     QToolButton,
@@ -33,7 +35,9 @@ from .._checks import log_and_raise
 from .._logging import get_logger
 from ..io.project_store import load_model_run_artifact_refs
 from .._workflow import recipe_id_for, resolve_sample_set, resolve_signal_domain
+from ..modeling import fold_warning_text
 from ..preprocessing import PreprocessingRecipe
+from ..preprocessing.recipe import format_ranges, parse_ranges
 from ..project import check_signal_domain_compatibility
 from ..project import (
     FitSpec,
@@ -42,9 +46,17 @@ from ..project import (
     SignalDomainContract,
     TargetDefinition,
 )
+from ._band_ranges import (
+    WATER_BANDS,
+    BandRangeDialog,
+    BandSource,
+    ProposalRun,
+    ProposeBandsDialog,
+)
 from ._jobs import BusyStatusWidget, BackgroundWorker, start_background_job
 from ._state import ProjectState, ViewerState
 from ._theme import secondary_text_style
+from ._ui_helpers import spectral_axis_label
 from ..project._ids import now_iso
 
 logger = get_logger(__name__)
@@ -73,9 +85,11 @@ class NewROIDialog(QDialog):
         viewer_state: ViewerState,
         selected_target: TargetDefinition | None,
         parent: QWidget | None = None,
+        *,
+        prediction: bool = False,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("New Training ROI")
+        self.setWindowTitle("New ROI")
         self._selected_target = selected_target
 
         n_pixels = (f1 - f0 + 1) * (r1 - r0 + 1)
@@ -112,6 +126,10 @@ class NewROIDialog(QDialog):
         if s.preprocess_detrend:
             norm_parts.append(f"Detrend(order={s.detrend_order})")
         layout.addRow("Norm:", QLabel(", ".join(norm_parts) or "none"))
+        from ._roi_grid import prediction_only_check
+
+        self.prediction_check = prediction_only_check(prediction)
+        layout.addRow(self.prediction_check)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -142,6 +160,11 @@ class NewROIDialog(QDialog):
     @property
     def roi_name(self) -> str:
         return self._name_edit.text().strip()
+
+    @property
+    def use(self) -> str:
+        """``"prediction"`` when Prediction only is ticked, else ``"training"``."""
+        return "prediction" if self.prediction_check.isChecked() else "training"
 
     @property
     def target_value(self) -> float | None:
@@ -278,12 +301,18 @@ class FitModelRunDialog(QDialog):
         default_signal_unit: str,
         readiness: Callable[[str], tuple[str, bool]],
         smallest_roi: Callable[[str], int | None] = lambda _target_id: None,
+        band_source: Callable[[str, str, PreprocessingRecipe], BandSource | None] | None = None,
+        band_proposer: Callable[..., ProposalRun | None] | None = None,
+        fold_warner: Callable[[str, Any, Any], list[str]] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Fit model")
         self._readiness = readiness
+        self._fold_warner = fold_warner
         self._smallest_roi = smallest_roi
+        self._band_source = band_source
+        self._band_proposer = band_proposer
         layout = QFormLayout(self)
 
         self._target_combo = QComboBox()
@@ -345,6 +374,7 @@ class FitModelRunDialog(QDialog):
         self._filter_combo.currentIndexChanged.connect(self._update_enabled)
         self._detrend.toggled.connect(self._update_enabled)
         self._update_enabled()
+        layout.addRow("Bands:", self._bands_row(recipe))
         hint = QLabel("Starts from the Explore preview; the model is trained with this.")
         hint.setStyleSheet(secondary_text_style())
         layout.addRow("", hint)
@@ -361,16 +391,34 @@ class FitModelRunDialog(QDialog):
             "Choose the number from the component curve (RMSECV and Q² against the number "
             "of components) by the rule; the curve is shown on the Components page.")
         self._rule_combo = QComboBox()
-        for label, value in (("one SE (recommended)", "one_se"),
-                             ("lowest RMSECV", "min_rmsecv"), ("Q² limit", "q2_limit")):
+        for label, value, tip in (
+                ("one SE (recommended)", "one_se",
+                 "The fewest components whose RMSECV is within one standard error of the "
+                 "lowest."),
+                ("lowest RMSECV", "min_rmsecv", "The number with the lowest RMSECV; tends to "
+                 "choose too many."),
+                ("Q² limit", "q2_limit", "SIMCA's rule R1: add components while each one's Q² "
+                 "exceeds 0.05; stops at a scatter component that predicts nothing alone."),
+                ("F-test", "f_test", "Haaland and Thomas: the fewest components whose PRESS "
+                 "is not significantly larger than the lowest (F test over the samples)."),
+                ("Q² with look-ahead", "q2_lookahead", "As Q² limit, but a component that "
+                 "fails is kept when the next one passes.")):
             self._rule_combo.addItem(label, value)
+            self._rule_combo.setItemData(self._rule_combo.count() - 1, tip,
+                                         Qt.ItemDataRole.ToolTipRole)
+        self._guard_check = QCheckBox("drop noise")
+        self._guard_check.setChecked(True)
+        self._guard_check.setToolTip(
+            "Noise guard: at most one component more than those explaining at least 0.5 % of "
+            "the spectra, and no trailing component that explains under 1 % of the spectra "
+            "and does not improve the prediction (Q²ₐ ≤ 0.05).")
         self._max_spin = QSpinBox()
         self._max_spin.setRange(0, 128)
         self._max_spin.setSpecialValueText("default")
         self._max_spin.setPrefix("max ")
         components_row = QHBoxLayout()
         for widget in (self._components_spin, self._auto_check, self._rule_combo,
-                       self._max_spin):
+                       self._guard_check, self._max_spin):
             components_row.addWidget(widget)
         layout.addRow("Components:", components_row)
         self._auto_check.toggled.connect(self._update_components)
@@ -392,6 +440,9 @@ class FitModelRunDialog(QDialog):
             "no sample is on both sides of a fold.")
         layout.addRow("Hold out together:", self._group_by_combo)
         layout.addRow(self._fitting_group())
+        # The fold warnings follow the grouping and the folds (contract §7.4).
+        for combo in (self._group_by_combo, self._cv_combo):
+            combo.currentIndexChanged.connect(self._update_readiness)
 
         self._readiness_label = QLabel("")
         self._readiness_label.setWordWrap(True)
@@ -405,10 +456,98 @@ class FitModelRunDialog(QDialog):
         layout.addRow(self._buttons)
         self._update_readiness()
 
+    def _bands_row(self, recipe: PreprocessingRecipe) -> QWidget:
+        """Keep and exclude ranges (project-schema contract §4; viewer contract)."""
+        unit = "nm"
+        self._keep_edit = QLineEdit(format_ranges(recipe.bands_keep))
+        self._keep_edit.setPlaceholderText("all bands")
+        self._keep_edit.setToolTip(f"Ranges to keep, e.g. 1100-1350, 1500-2300 ({unit}; band "
+                                   "numbers for data without wavelengths). Empty: every band.")
+        self._exclude_edit = QLineEdit(format_ranges(recipe.bands_exclude))
+        self._exclude_edit.setPlaceholderText("none")
+        self._exclude_edit.setToolTip("Ranges to leave out, e.g. 1400-1500. Applied after "
+                                      "every other step, so normalization sees all bands.")
+        water = QToolButton()
+        water.setText("Water bands")
+        water.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(water)
+        for low, high in WATER_BANDS:
+            action = menu.addAction(f"Exclude {low:.0f}-{high:.0f} nm")
+            if action is not None:
+                action.triggered.connect(
+                    lambda _checked=False, r=(low, high): self._add_exclude(r))
+        water.setMenu(menu)
+        water.setToolTip("Common NIR water bands; added to Exclude only when chosen.")
+        self._select_bands = QPushButton("Select on plot...")
+        self._select_bands.clicked.connect(self._select_bands_on_plot)
+        self._select_bands.setEnabled(self._band_source is not None)
+        self._propose_bands = QPushButton("Propose...")
+        self._propose_bands.setToolTip(
+            "Propose keep ranges by forward interval PLS with nested validation, using this "
+            "dialog's target, preprocessing, model and fitting choices.")
+        self._propose_bands.clicked.connect(self._propose_bands_clicked)
+        self._propose_bands.setEnabled(self._band_proposer is not None)
+        row = QWidget()
+        grid = QGridLayout(row)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.addWidget(QLabel("Keep"), 0, 0)
+        grid.addWidget(self._keep_edit, 0, 1)
+        grid.addWidget(QLabel("Exclude"), 1, 0)
+        grid.addWidget(self._exclude_edit, 1, 1)
+        grid.addWidget(water, 0, 2)
+        grid.addWidget(self._select_bands, 1, 2)
+        grid.addWidget(self._propose_bands, 0, 3)
+        return row
+
+    def _propose_bands_clicked(self) -> None:
+        if self._band_proposer is None:
+            return
+        try:
+            base = replace(self.recipe, bands_keep=(), bands_exclude=())
+            run = self._band_proposer(self.target_id, base, self.model_type,
+                                      self.hyperparameters, self.fit_spec)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Propose bands", str(exc))
+            return
+        if run is None:
+            QMessageBox.information(self, "Propose bands", "Open a project first.")
+            return
+        dialog = ProposeBandsDialog(run, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.proposal is not None:
+            self._keep_edit.setText(format_ranges(dialog.proposal.ranges))
+            self._exclude_edit.setText("")
+            if dialog.proposal.n_components:
+                self._auto_check.setChecked(False)
+                self._components_spin.setValue(dialog.proposal.n_components)
+
+    def _add_exclude(self, bounds: tuple[float, float]) -> None:
+        current = parse_ranges(self._exclude_edit.text(), "Exclude")
+        self._exclude_edit.setText(format_ranges(current + (bounds,)))
+
+    def _select_bands_on_plot(self) -> None:
+        if self._band_source is None:
+            return
+        try:
+            keep = parse_ranges(self._keep_edit.text(), "Keep")
+            exclude = parse_ranges(self._exclude_edit.text(), "Exclude")
+            base = replace(self.recipe, bands_keep=(), bands_exclude=())
+        except ValueError as exc:
+            QMessageBox.warning(self, "Bands", str(exc))
+            return
+        source = self._band_source(self.target_id, self.signal_unit, base)
+        if source is None:
+            QMessageBox.information(self, "Bands", "No ROI has a value for this target.")
+            return
+        dialog = BandRangeDialog(source, keep=keep, exclude=exclude, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._keep_edit.setText(format_ranges(dialog.ranges("keep")))
+            self._exclude_edit.setText(format_ranges(dialog.ranges("exclude")))
+
     def _update_components(self, *_args: Any) -> None:
         auto = self._auto_check.isChecked()
         self._components_spin.setEnabled(not auto)
         self._rule_combo.setEnabled(auto)
+        self._guard_check.setEnabled(auto)
         self._max_spin.setEnabled(auto)
 
     def apply_model_run(self, model_run: ModelRun) -> None:
@@ -533,6 +672,15 @@ class FitModelRunDialog(QDialog):
         target_id = self._target_combo.currentData()
         text, ready = ("Define a target first.", False) if target_id is None \
             else self._readiness(str(target_id))
+        if target_id is not None and self._fold_warner is not None \
+                and hasattr(self, "_group_by_combo"):
+            try:
+                spec, cv = self.fit_spec, self.cv
+            except ValueError:
+                spec, cv = None, None
+            warnings = self._fold_warner(str(target_id), spec, None if spec else cv)
+            if warnings:
+                text += "\n⚠ Validation likely optimistic: " + "; ".join(warnings) + "."
         self._readiness_label.setText(text)
         ok = self._buttons.button(QDialogButtonBox.StandardButton.Ok)
         if ok is not None:
@@ -565,7 +713,9 @@ class FitModelRunDialog(QDialog):
             msc=self._msc.isChecked(), emsc=self._emsc.isChecked(),
             detrend=self._detrend.isChecked(), detrend_order=self._detrend_order.value(),
             sg_edges=kept.sg_edges, asls=kept.asls, asls_lambda=kept.asls_lambda,
-            asls_p=kept.asls_p, asls_iterations=kept.asls_iterations)
+            asls_p=kept.asls_p, asls_iterations=kept.asls_iterations,
+            bands_keep=parse_ranges(self._keep_edit.text(), "Keep"),
+            bands_exclude=parse_ranges(self._exclude_edit.text(), "Exclude"))
 
     def _show_kept_recipe(self) -> None:
         kept = self._kept_recipe
@@ -587,6 +737,8 @@ class FitModelRunDialog(QDialog):
                            (self._emsc, recipe.emsc), (self._detrend, recipe.detrend)):
             box.setChecked(value)
         self._detrend_order.setValue(recipe.detrend_order)
+        self._keep_edit.setText(format_ranges(recipe.bands_keep))
+        self._exclude_edit.setText(format_ranges(recipe.bands_exclude))
         self._kept_recipe = recipe
         self._show_kept_recipe()
 
@@ -636,6 +788,8 @@ class FitModelRunDialog(QDialog):
             FitSpec.from_cv(self.cv),
             components_rule=str(self._rule_combo.currentData()) if auto else "fixed",
             components_max=(self._max_spin.value() or None) if auto else None,
+            components_noise_guard=("on" if self._guard_check.isChecked() else "off")
+            if auto else "default",
             group_by=self.group_by,
             pixels_per_roi=self._pixels_spin.value() if draw else None,
             seed=self._seed_spin.value() if draw else 0,
@@ -659,6 +813,12 @@ def _component_payload(model_run: ModelRun, artifact: dict[str, Any]) -> dict[st
     curve = artifact.get("component_curve")
     if isinstance(curve, dict) and "rmsecv" in curve:
         payload["component_curve"] = curve
+        spec = model_run.fit_specification
+        selected = model_run.hyperparameters.get("n_components")
+        payload["components_choice"] = {
+            "rule": spec.components_rule, "noise_guard": spec.components_noise_guard,
+            "rule_choice": spec.components_rule_choice or selected,
+            "n_groups": model_run.cv_spec.get("n_groups")}
     loadings = artifact.get("x_loadings_", artifact.get("loadings_"))
     if loadings is not None:
         matrix = np.asarray(loadings, dtype=np.float32)
@@ -669,6 +829,15 @@ def _component_payload(model_run: ModelRun, artifact: dict[str, Any]) -> dict[st
         values = np.asarray(coef_cs, dtype=np.float32).squeeze()
         if values.ndim == 1:
             payload["coef_cs"] = values
+    for key in ("selectivity_ratio", "mean_spectrum"):
+        values = artifact.get(key)
+        if values is not None and np.ndim(np.squeeze(values)) == 1:
+            payload[key] = np.asarray(values, dtype=np.float32).reshape(-1)
+    vip = artifact.get("vip")
+    if vip is None:
+        vip = _vip_from_weights(artifact)  # PLS runs from before 1.4 (contract §7.5)
+    if vip is not None and np.ndim(np.squeeze(vip)) == 1:
+        payload["vip"] = np.asarray(vip, dtype=np.float32).reshape(-1)
     scores = artifact.get("x_scores_", artifact.get("scores_"))
     if scores is not None:
         matrix = np.asarray(scores, dtype=np.float64)
@@ -680,7 +849,29 @@ def _component_payload(model_run: ModelRun, artifact: dict[str, Any]) -> dict[st
     for key in ("t2_crit_099", "t2_crit_2_095", "t2_crit_2_099", "dcrit_099"):
         if artifact.get(key) is not None:
             payload[key] = float(np.asarray(artifact[key]))
+    for key in ("roi_share_above_dcrit", "roi_share_above_t2crit"):  # per ROI, as stored
+        if artifact.get(key) is not None:
+            payload[key] = np.asarray(artifact[key], dtype=np.float32).reshape(-1)
     return payload
+
+
+def _vip_from_weights(artifact: dict[str, Any]) -> np.ndarray | None:
+    """VIP from a stored PLS run's X weights, X scores and Y loadings (no refit)."""
+    try:
+        weights = np.asarray(artifact["x_weights_"], dtype=np.float64)
+        scores = np.asarray(artifact["x_scores_"], dtype=np.float64)
+        y_loadings = np.asarray(artifact["y_loadings_"], dtype=np.float64)
+    except KeyError:
+        return None
+    if weights.ndim != 2 or scores.ndim != 2 or y_loadings.ndim != 2:
+        return None
+    if not weights.shape[1] == scores.shape[1] == y_loadings.shape[1]:
+        return None
+    explained = np.sum(scores ** 2, axis=0) * np.sum(y_loadings ** 2, axis=0)
+    norms = np.linalg.norm(weights, axis=0)
+    if explained.sum() <= 0 or np.any(norms <= 0):
+        return None
+    return np.sqrt(weights.shape[0] * ((weights / norms) ** 2 @ explained) / explained.sum())
 
 
 def _roi_score_payload(artifact: dict[str, Any] | None) -> dict[str, Any]:
@@ -697,6 +888,39 @@ def _roi_score_payload(artifact: dict[str, Any] | None) -> dict[str, Any]:
         return {"scores_message": "ROI scores of this model are malformed; fit it again."}
     return {"scores_roi": matrix,
             "scores_without_pixels": int(np.sum(~np.isfinite(matrix).all(axis=1)))}
+
+
+#: Readable names of the stored cross-validation splitters.
+_CV_KINDS = {"RoundRobinGroups": "round-robin", "GroupKFold": "group k-fold",
+             "KFold": "k-fold", "LeaveOneGroupOut": "leave one out",
+             "LeaveOneOut": "leave one out"}
+
+
+def describe_cv(cv_spec: Mapping[str, Any]) -> str:
+    """How a model was cross-validated, e.g. ``"7 folds, round-robin over 20 samples"``.
+
+    Reads the stored splitter (``type``, ``n_splits``, ``n_groups``,
+    ``grouping_unit``) and the older one-key form (``{"cv": 7}``); ``"-"``
+    when nothing is recorded.
+    """
+    if not cv_spec:
+        return "-"
+    if "type" not in cv_spec:
+        value = cv_spec.get("cv", next(iter(cv_spec.values())) if len(cv_spec) == 1 else None)
+        return "-" if value is None else str(value)
+    kind = _CV_KINDS.get(str(cv_spec["type"]), str(cv_spec["type"]))
+    n_splits = cv_spec.get("n_splits")
+    text = kind if n_splits is None else f"{n_splits} folds, {kind}"
+    n_groups = cv_spec.get("n_groups")
+    if n_groups is not None:
+        # Fold groups are samples: ROIs with one sample label, or an ROI without one.
+        text += f" over {n_groups} sample{'' if int(n_groups) == 1 else 's'}"
+    return text
+
+
+def model_label(model_run: ModelRun) -> str:
+    """The model's name (e.g. ``"PLS 7 LV, SNV"``), else its type; never its id."""
+    return model_run.name or f"{model_run.model_type} model"
 
 
 class ModelingView(QWidget):
@@ -900,6 +1124,66 @@ class ModelingView(QWidget):
             return
         self.fit_model_btn_clicked(preset=model_run)
 
+    def _show_bands_in_explore(self, recipe: PreprocessingRecipe) -> None:
+        """The Explore preview shows the fit's band selection (unselected bands blank)."""
+        state = self.state
+        if (state.bands_keep, state.bands_exclude) == (recipe.bands_keep, recipe.bands_exclude):
+            return
+        state.bands_keep, state.bands_exclude = recipe.bands_keep, recipe.bands_exclude
+        state._image_cache = None
+        state.units_changed.emit()
+
+    def _band_proposer(self, target_id: str, recipe: PreprocessingRecipe, model_type: str,
+                       hyperparameters: dict[str, Any], fit_spec: FitSpec | None
+                       ) -> ProposalRun | None:
+        """A band proposal through the facade (headless contract, Band proposal)."""
+        project = self.project_state.project
+        target = self.project_state.targets.get(target_id)
+        if project is None or target is None:
+            return None
+
+        def run(progress: Callable[[int, int], None], cancel: Callable[[], bool]) -> Any:
+            return project.propose_bands(target, recipe=recipe, model=model_type,
+                                         fit_spec=fit_spec, progress=progress, cancel=cancel,
+                                         **hyperparameters)
+
+        return run
+
+    def _band_source(self, target_id: str, signal_unit: str,
+                     recipe: PreprocessingRecipe) -> BandSource | None:
+        """Mean spectrum of the target's ROIs and the selected model's VIP or coefficients."""
+        state = self.project_state
+        rois = [roi for roi_id, roi in state.rois.items()
+                if (assignment := state.target_assignments.get((roi_id, target_id))) is not None
+                and assignment.value is not None]
+        path = state.project_path
+        if not rois or path is None:
+            return None
+        datasets, calibrations = dict(state.datasets), dict(state.calibrations)
+        from ..modeling import roi_spectrum_summaries
+
+        def load() -> tuple[np.ndarray, np.ndarray]:
+            summaries, skipped = roi_spectrum_summaries(
+                str(path), rois, datasets=datasets, calibrations=calibrations,
+                signal_unit=signal_unit, recipe=recipe)
+            if not summaries:
+                log_and_raise("No ROI gives {} spectra: {}", signal_unit,
+                              "; ".join(sorted(set(skipped.values()))) or "no spectra")
+            means = np.stack([np.asarray(s.mean, dtype=np.float64)
+                              for s in summaries.values()])
+            return recipe.output_wavelengths(np.asarray(rois[0].wavelengths)), means.mean(axis=0)
+
+        guide = None
+        payload = self.workspace_diagnostics_payload() or {}
+        axis = payload.get("spectral_axis")
+        for key, label in (("vip", "VIP"), ("coefficients", "Coefficient")):
+            values = payload.get(key)
+            if values is not None and axis is not None and np.size(values) == np.size(axis):
+                guide = (np.asarray(axis, dtype=float), np.asarray(values, dtype=float), label)
+                break
+        return BandSource(load=load, guide=guide,
+                          axis_label=spectral_axis_label(rois[0].wavelengths)[0])
+
     def fit_model_btn_clicked(self, preset: ModelRun | None = None) -> None:
         if self._job_thread is not None:
             return
@@ -926,6 +1210,9 @@ class ModelingView(QWidget):
             default_signal_unit=self.state.y_unit,
             readiness=self.fit_readiness,
             smallest_roi=self._smallest_labelled_roi,
+            band_source=self._band_source,
+            band_proposer=self._band_proposer,
+            fold_warner=self._dialog_fold_warnings,
             parent=self,
         )
         if preset is not None:
@@ -933,6 +1220,7 @@ class ModelingView(QWidget):
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         self._selected_target_id = dlg.target_id
+        self._show_bands_in_explore(dlg.recipe)
         planned = self._plan_fit_sample_set(dlg.target_id, dlg.recipe)
         if planned is None:
             return
@@ -1007,7 +1295,8 @@ class ModelingView(QWidget):
         """Pixel count of the smallest ROI with a value for ``target_id`` (the draw limit)."""
         state = self.project_state
         counts = [roi.n_pixels for roi in state.rois.values()
-                  if (roi.roi_id, target_id) in state.target_assignments]
+                  if (roi.roi_id, target_id) in state.target_assignments
+                  and roi.use != "prediction"]
         return min(counts) if counts else None
 
     def fit_readiness(self, target_id: str) -> tuple[str, bool]:
@@ -1015,14 +1304,20 @@ class ModelingView(QWidget):
         state = self.project_state
         per_file: dict[str, list[int]] = {}
         for roi in state.rois.values():
-            counts = per_file.setdefault(roi.dataset_id, [0, 0])
+            counts = per_file.setdefault(roi.dataset_id, [0, 0, 0])
+            if roi.use == "prediction":
+                counts[2] += 1
+                continue
             counts[1] += 1
             counts[0] += (roi.roi_id, target_id) in state.target_assignments
         lines = []
-        for dataset_id, (labelled, total) in sorted(
+        for dataset_id, (labelled, total, predicted) in sorted(
                 per_file.items(), key=lambda item: self._data_file_name(item[0]).lower()):
-            lines.append(f"{self._data_file_name(dataset_id)}: {labelled} of {total} ROIs "
-                         "have a value")
+            text = (f"{self._data_file_name(dataset_id)}: {labelled} of {total} ROIs "
+                    "have a value")
+            if predicted:
+                text += f" ({predicted} prediction ROI(s) not used)"
+            lines.append(text)
         try:
             sample_set, _new = resolve_sample_set(
                 rois=state.rois, target_assignments=state.target_assignments,
@@ -1112,6 +1407,61 @@ class ModelingView(QWidget):
             required_signal_unit=required_signal_unit,
         )
 
+    def _signal_unit_mismatch(self, sample_set: SampleSet, required_signal_unit: str
+                              ) -> str | None:
+        """Why the ROIs' calibration cannot be modelled in ``required_signal_unit``, if so.
+
+        A model in raw counts (DN) needs raw-count data; data with references,
+        detector levels or calibrated values are modelled as reflectance or
+        absorbance (dataset-calibration contract). Asked before a signal domain
+        is built, so a readiness check does not log a refused domain as an error.
+        """
+        roi = self.project_state.rois.get(sample_set.roi_ids[0]) if sample_set.roi_ids else None
+        calibration = None if roi is None else self.project_state.calibrations.get(
+            roi.calibration_id)
+        if calibration is None:
+            return None
+        if (required_signal_unit == "DN") == (calibration.mode == "raw_dn"):
+            return None
+        if required_signal_unit == "DN":
+            return ("models in DN need data files added as raw counts; these ROIs have "
+                    "references or detector levels, so choose Reflectance or Absorbance")
+        return (f"these ROIs hold raw counts without references or detector levels, so a "
+                f"model in {required_signal_unit} is not possible; choose DN")
+
+    def fold_warnings_for(self, sample_set: SampleSet, *, fit_spec: Any) -> list[str]:
+        """The fold warnings (in words) a fit of ``sample_set`` with ``fit_spec`` would record."""
+        return self._predicted_warnings(list(sample_set.roi_ids), sample_set.target_id,
+                                        fit_spec, None)
+
+    def _predicted_warnings(self, roi_ids: list[str], target_id: str, fit_spec: Any,
+                            cv: Any) -> list[str]:
+        from ..modeling import predicted_fold_warnings
+
+        try:
+            codes = predicted_fold_warnings(
+                roi_ids=roi_ids, target_id=target_id, rois=self.project_state.rois,
+                target_assignments=self.project_state.target_assignments, fit_spec=fit_spec,
+                cv=cv)
+        except ValueError:  # an impossible request: the fit itself explains it
+            return []
+        return fold_warning_text(codes)
+
+    def _dialog_fold_warnings(self, target_id: str, fit_spec: Any, cv: Any) -> list[str]:
+        """Fold warnings for the fit dialog: all ROIs with a value for the target."""
+        roi_ids = [roi_id for roi_id, roi in self.project_state.rois.items()
+                   if (roi_id, target_id) in self.project_state.target_assignments
+                   and roi.use != "prediction"]
+        return self._predicted_warnings(roi_ids, target_id, fit_spec, cv)
+
+    def _sample_set_label(self, sample_set: SampleSet) -> str:
+        """``"20 ROIs, SNV"``: the ROI count and the recipe (ids stay in tooltips and exports)."""
+        n = len(sample_set.roi_ids)
+        recipe = self.project_state.recipes.get(sample_set.preprocessing_recipe_id)
+        described = "none" if recipe is None else PreprocessingRecipe.from_dict(recipe).describe()
+        rois = f"{n} ROI" if n == 1 else f"{n} ROIs"
+        return rois if described == "none" else f"{rois}, {described}"
+
     def _sync_selected_target(self) -> None:
         visible_targets = self.visible_targets()
         visible_target_ids = {target.target_id for target in visible_targets}
@@ -1131,7 +1481,7 @@ class ModelingView(QWidget):
         self._invalidate_diagnostics_cache()
         self._update_model_status()
 
-    def workspace_summary(self) -> dict[str, str]:
+    def workspace_summary(self) -> dict[str, Any]:
         model_run = self._resolved_workspace_model_run()
         sample_set = self._resolved_workspace_sample_set(model_run=model_run)
         target = self._resolved_workspace_target(model_run=model_run, sample_set=sample_set)
@@ -1156,26 +1506,23 @@ class ModelingView(QWidget):
         rmsecv_text = "-"
         bias_text = "-"
         if model_run is not None:
-            model_text = f"{model_run.model_type} [{model_run.model_run_id}]"
+            model_text = model_label(model_run)
             n_components = model_run.hyperparameters.get("n_components")
             if n_components is not None:
                 components_text = str(n_components)
-            cv_value = model_run.cv_spec.get("cv")
-            if cv_value is None and len(model_run.cv_spec) == 1:
-                cv_value = next(iter(model_run.cv_spec.values()))
-            if cv_value is not None:
-                cv_text = str(cv_value)
+            cv_text = describe_cv(model_run.cv_spec)
             if "r2" in model_run.metrics:
                 r2_text = f"{float(model_run.metrics['r2']):.4g}"
             if "rmsecv" in model_run.metrics:
                 rmsecv_text = f"{float(model_run.metrics['rmsecv']):.4g}"
             if "bias" in model_run.metrics:
                 bias_text = f"{float(model_run.metrics['bias']):.4g}"
+        roi_metrics, pixel_metrics, warnings = self._level_metrics(model_run)
 
         return {
             "title": "Model Diagnostics",
             "target": target_text,
-            "sample_set": "none" if sample_set is None else sample_set.sample_set_id,
+            "sample_set": "none" if sample_set is None else self._sample_set_label(sample_set),
             "model": model_text,
             "components": components_text,
             "cv": cv_text,
@@ -1184,8 +1531,48 @@ class ModelingView(QWidget):
             "r2": r2_text,
             "rmsecv": rmsecv_text,
             "bias": bias_text,
+            "roi_metrics": roi_metrics,
+            "pixel_metrics": pixel_metrics,
+            "warnings": warnings,
             "readiness": self._readiness_status.text(),
         }
+
+    def _level_metrics(self, model_run: ModelRun | None
+                       ) -> tuple[list[tuple[str, str]], list[tuple[str, str]], str]:
+        """(label, value) rows *per ROI* and *per pixel*, and the fold warnings in words.
+
+        Per ROI: over ROI means (the model's quality); per pixel: over single
+        spectra (model-workspace-diagnostics contract, Levels).
+        """
+        if model_run is None:
+            return [], [], ""
+        metrics = model_run.metrics
+
+        def value(key: str) -> str | None:
+            number = metrics.get(key)
+            return None if number is None else f"{float(number):.4g}"
+
+        r2y = None
+        payload = self.workspace_diagnostics_payload() or {}  # cached per run
+        curve = payload.get("component_curve")
+        n = model_run.hyperparameters.get("n_components")
+        if isinstance(curve, dict) and curve.get("r2y_cum_roi") is not None \
+                and isinstance(n, (int, np.integer)) \
+                and 1 <= int(n) <= np.size(curve["r2y_cum_roi"]):
+            r2y = f"{float(np.asarray(curve['r2y_cum_roi'])[int(n) - 1]):.4g}"
+        roi = [(label, text) for label, text in (
+            ("R²Y (fit)", r2y), ("Q² (CV R²)", value("r2")), ("RMSEE", value("rmsee")),
+            ("RMSECV", value("rmsecv")), ("Bias", value("bias")), ("RPD", value("rpd")))
+            if text is not None]
+        pixel = [(label, text) for label, text in (
+            ("R² (CV)", value("pixel_r2")), ("RMSEE", value("pixel_rmsee")),
+            ("RMSECV", value("pixel_rmsecv")), ("RPD", value("pixel_rpd")),
+            ("Pixels", None if metrics.get("n_pixels") is None
+             else str(int(metrics["n_pixels"]))))
+            if text is not None]
+        codes = model_run.cv_spec.get("warnings")
+        warnings = "; ".join(fold_warning_text(codes)) if codes else ""
+        return roi, pixel, warnings
 
     def workspace_diagnostics_provenance(self) -> dict[str, str]:
         """Provenance lines for exported diagnostics (Plot Panel Policy)."""
@@ -1380,23 +1767,23 @@ class ModelingView(QWidget):
     def _update_model_status(self) -> None:
         model_run = self._resolved_workspace_model_run()
         sample_set = self._resolved_workspace_sample_set(model_run=model_run)
-        sample_set_id = None if sample_set is None else sample_set.sample_set_id
-        if sample_set_id is None:
+        if sample_set is None:
             self._sample_set_status.setText("Sample set: none")
         else:
             suffix = (
                 " (stale: deleted ROI)"
-                if self.project_state.missing_roi_ids_for_sample_set(sample_set_id)
+                if self.project_state.missing_roi_ids_for_sample_set(sample_set.sample_set_id)
                 else ""
             )
-            self._sample_set_status.setText(f"Sample set: {sample_set_id}{suffix}")
+            self._sample_set_status.setText(
+                f"Sample set: {self._sample_set_label(sample_set)}{suffix}")
 
         if model_run is None:
             self._model_status.setText("Model: none")
         else:
             metric = model_run.metrics.get("rmsecv")
             suffix = "" if metric is None else f" | RMSECV={float(metric):.4g}"
-            self._model_status.setText(f"Model: {model_run.model_run_id}{suffix}")
+            self._model_status.setText(f"Model: {model_label(model_run)}{suffix}")
         self._update_readiness_status()
         self.view_state_changed.emit()
 
@@ -1424,10 +1811,14 @@ class ModelingView(QWidget):
     def _update_readiness_status(self) -> None:
         model_run = self._resolved_workspace_model_run()
         if model_run is not None:
-            message = f"Ready: model {model_run.model_run_id} is available for prediction."
+            message = f"Ready: model {model_label(model_run)} is available for prediction."
             stale_message = self.project_state.stale_sample_set_message(model_run.sample_set_id)
             if stale_message is not None:
                 message += f" {stale_message}"
+            codes = model_run.cv_spec.get("warnings")
+            if codes:
+                message += " Validation likely optimistic: " + "; ".join(
+                    fold_warning_text(codes)) + "."
             self._readiness_status.setText(message)
             return
 
@@ -1438,8 +1829,9 @@ class ModelingView(QWidget):
 
         labeled_roi_ids = {
             roi_id
-            for roi_id in self.project_state.rois
+            for roi_id, roi in self.project_state.rois.items()
             if (roi_id, target.target_id) in self.project_state.target_assignments
+            and roi.use != "prediction"
         }
         if not self.project_state.rois:
             self._readiness_status.setText("Ready: draw ROIs in Explore.")
@@ -1487,6 +1879,8 @@ class ModelingView(QWidget):
                         details.append(
                             f"Current signal unit {self.state.y_unit_effective} is incompatible: {signal_domain_error}"
                         )
+                    details += [f"Warning: {text}" for text in self.fold_warnings_for(
+                        sample_set, fit_spec=None) if "fewer than 7" not in text]
             message = "Ready: fit a model from the selected sample set."
             if details:
                 message += " " + " ".join(
@@ -1537,7 +1931,10 @@ class ModelingView(QWidget):
             self._on_job_error("Fit model failed", str(exc))
             return
         self._last_sample_set_id = model_run_result.model_run.sample_set_id
-        self._service_status.set_idle(f"Service: model {model_run_result.model_run.model_run_id}")
+        fitted = model_run_result.model_run
+        if fitted is not None:  # the stored run carries the name given when it was saved
+            stored = self.project_state.model_runs.get(fitted.model_run_id) or fitted
+            self._service_status.set_idle(f"Service: model {model_label(stored)}")
         self._update_model_status()
 
     def _on_job_error(self, title: str, message: str) -> None:
@@ -1645,6 +2042,9 @@ class ModelingView(QWidget):
         stale_message = self._stale_message(sample_set)
         if stale_message is not None:
             return stale_message
+        mismatch = self._signal_unit_mismatch(sample_set, required_signal_unit)
+        if mismatch is not None:
+            return mismatch
         try:
             signal_domain = self._build_signal_domain_contract(
                 sample_set=sample_set,

@@ -301,7 +301,10 @@ Required visual elements:
 - spatial profile
 - spectral profile
 - ROI mosaic: one tile per stored ROI, grouped by data file, with name and
-  current target value
+  current target value; tiles in a compact grid (ROI grid positions, else
+  scan order) or at their scan positions; text in mosaic units in reserved
+  room, so it never covers a tile; outlines in the value colour of the ROI
+  mean spectra; contrast stretched over all tiles or per data file
 - ROI mean spectra coloured by the current target value
 - pixel spectra of the selected ROI
 
@@ -313,14 +316,32 @@ Required controls:
 - filtering/preprocessing preview controls
 - axis controls
 - ROI creation, single and as a grid (the grid dialog opens with the Options
-  defaults and shows the cells on the image, outside cells in red)
-- ROI table (sample labels and target values)
+  defaults and shows the cells on the image, outside cells in red); both dialogs have a **Prediction only**
+  checkbox that sets the ROIs' `use` and remembers the last choice per data
+  file (user settings); prediction ROIs are marked in the ROI table (a Use
+  column), the browser, the mosaic (dashed outline) and the ROI spectra
+  (dashed lines, still coloured by value); counts of ROIs with a value name
+  training and prediction ROIs separately
+- ROI table (sample labels and target values; while the session has per-ROI
+  prediction results, read-only columns per model: mean, SD, % removed,
+  % above DCrit, residual, never stored; a header click sorts the rows,
+  numbers by value, empty cells last, and an edit never moves its row)
 - ROI export
 
 Required behavior:
 
 - a project with ROIs opens on `Project ROIs`; that tab works in project-only
   mode and with every data file missing
+- the docks that show the data file at the cursor (histogram, DC3/band
+  slice, sensor frame, spatial profile) are shown only in `Data file`; in
+  `Project ROIs`, Model and Predict they are hidden, and returning to
+  `Data file` restores the ones the user had shown
+- the ROI table is shown with `Project ROIs` (the right dock column alone)
+  and not in `Data file`; opened there, it takes the sensor frame's place as
+  a tab. The user's choice per tab is kept; Model and Predict leave it as it
+  is. It shows the ROIs of the page (the shown data file in `Data file`, the
+  tab's data file filter in `Project ROIs`, all data files in Model and
+  Predict)
 - selecting an ROI in the mosaic, the ROI table, the browser or a Model plot
   selects it everywhere; opening an ROI from the mosaic shows its data file in
   `Data file` with the ROI highlighted
@@ -383,16 +404,21 @@ Required controls:
 - target selection/creation
 - target assignment and sample label editing (the ROI table)
 - fit model: one dialog with target, signal unit, preprocessing, model,
-  components (a number, or **Auto** with a rule and a maximum:
-  `sample-set-model-run-contract_v3.md` §7.4), cross-validation and which
+  components (a number, or **Auto** with a rule, the noise guard (on by
+  default) and a maximum: `sample-set-model-run-contract_v3.md` §7.4; the
+  dialog and the Model readiness line warn, before fitting, when the chosen
+  grouping gives fewer than 7 fold groups or a data file's ROIs share one
+  reference value while they are held out in different folds (the fold
+  warnings of §7.4), cross-validation and which
   ROIs are held out together (each
   ROI, same sample label, same target value;
   `sample-set-model-run-contract_v3.md` §4.1), and a Fitting group: pixels
-  per ROI with seed (at most the smallest ROI with a value), X and Y scaling
+  per ROI with seed (at most the smallest training ROI with a value), X and Y scaling
   (Y for PLS only), and DModX pixel exclusion with level, rounds, the
   largest share per ROI and unweighted or modelling-power weighted
-  residuals (§7); it builds or reuses the sample set of all ROIs with a value
-  for the target, from all data files
+  residuals (§7); it builds or reuses the sample set of all training ROIs
+  with a value for the target, from all data files; the counts, fold
+  warnings and readiness consider training ROIs only
 - **Fit again...** opens the fit dialog with every choice of the selected
   model (target, preprocessing, model, components, scaling, folds, pixel
   sample, exclusion), e.g. to fit with another number of components; the
@@ -404,6 +430,23 @@ Required controls:
   of preprocessed spectra (spectrum, sensor frame, histogram) the dropped
   bands are missing (blank), so band indices stay those of the data file;
   the Project ROIs spectra are drawn on the recipe's output axis
+- band selection (engiNIR 1.4): the fit dialog has **Keep**
+  and **Exclude** band ranges (`project-schema-contract_v3.md` §4) as
+  editable text (`1100-1350, 1500-2300`, in nm, or band numbers without
+  wavelengths) and a **Select on plot...** dialog: the mean spectrum of the
+  sample set's ROIs on the recipe's axis after Savitzky-Golay, with the
+  selected model's VIP (PLS) or coefficients as a guide when one is
+  selected, where dragged regions become keep or exclude ranges. The
+  common NIR water bands (1400-1500 and 1900-2000 nm) are offered as
+  suggestions and added to Exclude only when clicked, never automatically.
+  **Fit again...** keeps the stored ranges. In the Explore preview,
+  unselected bands are missing (blank) like dropped Savitzky-Golay edges
+- **Propose bands...** (PLS and PCR, engiNIR 1.4) runs the forward iPLS proposal with nested validation
+  (`headless-workflow-contract_v3.md`, Band proposal) on the chosen
+  target and recipe, with its cost estimate, progress and cancel; it shows
+  the proposed ranges, the RMSECV over the steps, the nested RMSECV and the
+  RMSECV with all bands, and can put the ranges into the fit dialog as keep
+  ranges. The proposal is not stored
 - the inspector shows how a model run was fitted: folds and fold groups,
   pixel sample, scaling, exclusion settings, excluded pixels per ROI,
   flagged ROIs and DCrit
@@ -438,14 +481,14 @@ v3 note:
 
 Purpose:
 
-- choose a saved model run
-- choose a prediction dataset
-- choose or reuse calibration
-- run prediction
+- choose saved model runs, by name
+- choose prediction ROIs (Predict ROIs) or a project data file (Predict map)
+- run prediction and read the per-ROI results
 
 Primary task:
 
-- run one saved model against one dataset and inspect the result
+- predict the tablets (prediction ROIs) of one or all data files with one or
+  more models, and inspect the per-ROI results and the map
 
 Primary content region:
 
@@ -459,30 +502,81 @@ Secondary content region:
 Required visible information:
 
 - active or selected model run
-- the latest prediction of this session or `none` (predictions are not
-  stored; earlier stored predictions in a project are not shown)
+- the latest results of this session or `none`: the per-ROI table of the
+  last Predict ROIs and the map of the last Predict map (predictions are
+  not stored; earlier stored predictions in a project are not shown)
 - service status for prediction
 
 Required controls:
 
-- prediction dataset selection
-- model-run selection
-- calibration choice
-- prediction execution
+- **Predict ROIs**: one or more models (by name) on the prediction ROIs of
+  one data file or of all data files (`prediction-runtime-contract_v3.md`,
+  Prediction ROIs); needs only the project file
+- **Predict map**: one model on one project data file, every pixel, with
+  the per-ROI results of that file's prediction ROIs; a map of a file
+  without prediction ROIs drops earlier per-ROI results and says so (map
+  and per-ROI results always describe the same data file). The file list
+  names each file with its whole folder and its number of prediction ROIs
+- the data file is a project data file; **Add data file...** opens the Add
+  data file dialog (calibration chosen there, never reused from training
+  silently; the dialog shows what the model was trained with). There is no
+  free path, dataset id or calibration field in the prediction dialog
+- the dialog shows the chain read-only, from the model: the data file's
+  calibration, the model's signal unit, its recipe and the model; an
+  incompatible file is refused before running, with the reason
+- **Remove pixels above the DModX limit** with its level, defaulting to the
+  model's fit specification, and the resulting DCrit per model; the per-ROI
+  results follow without predicting again
+- display settings of the session (not stored): the colour scale (training
+  range, or own low and high limits; the map's ⋯ menu sets the same), ROI
+  outlines and greyed removed pixels on the map, and the histogram's pixels
+  (the ROI pixels or the whole map)
+- the Controls dock holds the controls and the progress, not the summary's
+  status texts
 
 Required prediction-map interaction:
 
 - map axes must match the main spatial image orientation: `Frame` on x and
   `Row` on y
-- a color scale/legend must be visible for numeric prediction values
+- a color scale/legend must be visible for numeric prediction values; the
+  scale is the target's range in the model's training values, values outside
+  in their own colours, or limits the user sets (Controls dock or ⋯ menu);
+  the colour bar and the CSV record the scale
+- the prediction ROIs of the shown data file are drawn on the map with their
+  mean; with the exclusion on, removed pixels are greyed
+- a per-ROI plot (a plot panel): each ROI's mean with its 5–95 % range,
+  the value at each mean and the reference value when present, ROIs in name
+  order; a ring marks a tablet with a larger share of pixels above DCrit
+  (0.99) than 90 % of the model's training ROIs (like for like; the shares
+  and the removed counts are in the ROI table and the CSV); a bar selects
+  its ROI; with several models, one bar per ROI and
+  model, grouped by ROI and coloured by model. Its CSV is the per-ROI table
+  in long format, one row per ROI and model (ROI name and id, data file,
+  model name and id, pixels, removed, mean, median, SD, 5 %, 95 %, mean
+  DModXPS and T²PS, shares above the limits, reference, residual), with the
+  exclusion and its level, and RMSEP, bias and *n* per model, as metadata
+- the pixel histogram shows the kept pixels of the prediction ROIs (all
+  pixels of the map when the data file has no prediction ROI, or when the
+  user chooses the whole map)
+- the summary has one headline naming what is shown (the data file and the
+  model, never ids) and the groups Prediction ROIs (RMSEP and bias per
+  model, refused ROIs), chain, scan and applicability; no group repeats the
+  headline, and the per-ROI values are in the ROI table
+- the global status line on Predict names the shown map's data file, the
+  signal and recipe, the model and the target; hovering a map pixel shows
+  its true frame and row, the prediction (and whether it is outside the
+  colour scale), DModXPS against DCrit and the removal limit, T²PS and the
+  prediction ROI under it; hovering a tablet in the per-ROI plot shows its
+  values
 - multi-output prediction artifacts must expose an explicit target/output
   selector before the map is rendered
 - a layer selector shows the prediction, the distance to the model (DModXPS)
   or Hotelling T² (T²PS); on these two the pixels above the 0.99 limit are
   marked and the share above is shown (`prediction-runtime-contract_v3.md`,
   Applicability Diagnostics)
-- the Predict workspace writes nothing to the project: the scan is not
-  registered and the prediction is not stored; the plot panels export it
+- the Predict workspace writes nothing to the project: predictions and
+  per-ROI results are not stored; the plot panels export them. A scan to
+  predict is a project data file the user added beforehand
 - pan and zoom must be available for the prediction map
 - the map is a plot panel (see Plot Panel Policy). Its CSV export is the
   displayed output as a matrix, with one CSV row per map row and one column
@@ -519,7 +613,7 @@ Required preconditions surfaced in UI before running:
 
 Forbidden controls in Predict:
 
-- ROI drawing
+- ROI drawing (prediction ROIs are drawn in Explore)
 - target assignment editing
 - model fit controls
 
@@ -579,6 +673,8 @@ and every plot added later.
 Each plot is shown in its own plot panel with a header. The header contains:
 
 - the plot title (the title is not drawn a second time inside the plot)
+- a help control (**?**) when the plot has a help text; required for the
+  Model diagnostics (`model-workspace-diagnostics-contract_v3.md`)
 - a maximize/restore control
 - an export menu
 

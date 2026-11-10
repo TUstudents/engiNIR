@@ -8,9 +8,9 @@ import os
 import sys
 
 from PyQt6 import sip
-from PyQt6.QtCore import QEvent, QObject
+from PyQt6.QtCore import QEvent, QObject, Qt, QTimer
 from PyQt6.QtGui import QGuiApplication, QIcon
-from PyQt6.QtWidgets import QApplication, QDialog
+from PyQt6.QtWidgets import QApplication, QComboBox, QDialog, QWidget
 
 from .._logging import enable_logging, get_logger, logging_enabled
 from ._theme import apply_qt_theme, load_preference, theme_applied
@@ -80,17 +80,56 @@ def app_icon() -> QIcon:
 
 
 class _DialogCentering(QObject):
-    """Centre every dialog over its parent window (or the screen) when it is shown.
+    """Application-wide window fixes: centre dialogs; on WSLg Wayland, close combo popups.
 
     Window managers without a position hint (e.g. WSLg/xcb) otherwise place
     dialogs, including ``QMessageBox`` convenience calls and file dialogs, at
     the top-left corner of the screen.
+
+    With ``release_combo_popups``, the native window of a combo box's list is
+    destroyed after it hides (see :func:`release_popup_surface`).
     """
 
+    def __init__(self, release_combo_popups: bool = False) -> None:
+        super().__init__()
+        self.release_combo_popups = release_combo_popups
+
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
-        if a1 is not None and a1.type() == QEvent.Type.Show and isinstance(a0, QDialog):
+        if a1 is None:
+            return False
+        kind = a1.type()
+        if kind == QEvent.Type.Show and isinstance(a0, QDialog):
             centre_dialog(a0)
+        elif kind == QEvent.Type.Hide and self.release_combo_popups \
+                and isinstance(a0, QWidget) and _is_combo_popup(a0):
+            QTimer.singleShot(0, lambda popup=a0: release_popup_surface(popup))
         return False
+
+
+def _is_combo_popup(obj: QWidget) -> bool:
+    """The popup window holding a combo box's list (Qt's private container)."""
+    return (obj.isWindow()
+            and obj.windowType() == Qt.WindowType.Popup
+            and isinstance(obj.parentWidget(), QComboBox))
+
+
+def release_popup_surface(popup: QWidget) -> None:
+    """Destroy the native window of a hidden popup; Qt creates a new one when it opens again.
+
+    WSLg's compositor keeps a popup on screen when the application unmaps it
+    (choosing an item), and removes it only when the compositor dismisses it
+    (a click outside) or the surface is destroyed (microsoft/wslg#1522).
+    """
+    if sip.isdeleted(popup) or popup.isVisible():
+        return
+    handle = popup.windowHandle()
+    if handle is not None:
+        handle.destroy()
+
+
+def _releases_combo_popups(app: QApplication) -> bool:
+    """Whether combo popups need :func:`release_popup_surface`: WSLg with native Wayland."""
+    return _is_wslg() and app.platformName() == "wayland"
 
 
 def centre_dialog(dialog: QDialog) -> None:
@@ -113,7 +152,10 @@ _dialog_centering: _DialogCentering | None = None
 def _install_dialog_centering(app: QApplication) -> None:
     global _dialog_centering
     if _dialog_centering is None:
-        _dialog_centering = _DialogCentering()
+        release = _releases_combo_popups(app)
+        if release:
+            logger.info("WSLg Wayland: combo box popups release their surface when closed")
+        _dialog_centering = _DialogCentering(release_combo_popups=release)
         app.installEventFilter(_dialog_centering)
         # atexit runs hooks last-registered-first, so this runs before PyQt's
         # exit cleanup (registered when PyQt6.QtCore was imported).

@@ -32,6 +32,12 @@ Number of components
 
 .. autofunction:: enginir.validation.choose_components
 
+.. autofunction:: enginir.validation.guarded_choice
+
+.. autofunction:: enginir.validation.noise_components
+
+.. autofunction:: enginir.validation.structure_ceiling
+
 Outlier Detection
 -----------------
 

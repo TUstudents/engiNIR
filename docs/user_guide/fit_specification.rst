@@ -89,7 +89,56 @@ The rules (``fit_spec={"components": {"rule": ..., "max": ...}}``):
 - ``min_rmsecv``: the lowest RMSECV. It tends to take too many components,
   because the curve is noisy near its minimum.
 - ``q2_limit``: add components while each one's Q² exceeds 0.05 (0 with more
-  than 100 samples), SIMCA's Autofit rule; it stops earliest.
+  than 100 samples), SIMCA's Autofit rule R1; it stops earliest, often at a
+  scatter component that predicts nothing on its own.
+- ``f_test`` (Haaland and Thomas, 1988): the smallest number whose PRESS is not
+  significantly larger than the lowest, by an F test over the independent
+  samples (fold groups) at α = 0.25. A standard in NIR calibration software;
+  it does not need the standard error, which is unstable with few samples.
+- ``q2_lookahead``: as ``q2_limit``, but a component that fails is kept when the
+  next one passes, so a scatter component does not stop the fit.
+
+**The noise guard** (``"noise_guard": "on"``, the default with ``"auto"``) runs
+after the rule. It caps the number at one more than the components that each
+explain at least 0.5 % of the spectra (ΔR²X), then drops trailing components
+that explain under 1 % of the spectra *and* do not improve the prediction
+(Q²ₐ ≤ 0.05): components that model noise (SIMCA's rule N4 with R1). The rule's
+own number is stored as ``components/rule_choice``; ``"noise_guard": "off"``
+chooses as engiNIR 1.3 did.
+
+.. code-block:: python
+
+   model = project.fit("API content", n_components="auto",
+                       fit_spec={"components": {"rule": "f_test"}})
+   spec = model.ref.fit_specification
+   spec.components_rule_choice, spec.components_selected  # before and after the guard
+   curve["noise"], curve["structure_ceiling"], curve["dw_weights"]
+
+A worked example, a real model of 20 ROIs from 4 scans (levels 1, 4, 7, 10):
+RMSECV fell steeply to 4 components and then crept down to 15. ``one_se``
+chose 7, ``min_rmsecv`` 15, ``q2_limit`` 1 (component 2, a scatter component,
+had Q² = −0.02), ``f_test`` and ``q2_lookahead`` 6. Components 6 and later each
+explained under 0.5 % of the spectra, and the Durbin–Watson value of the
+weights (0 smooth, 2 noise) rose fourfold at component 6: the guard turned 7
+into 6.
+
+The curve also stores, per component, the RMSEE over ROI means (it rises once
+the components use up the degrees of freedom), the noise flag and the
+Durbin–Watson value of each component's weights, a measure of how noise-like it
+is (a diagnostic, not a rule).
+
+**Fold warnings.** A fit records, and the viewer shows, conditions that make
+the cross-validation optimistic (``model.ref.cv_spec["warnings"]``):
+
+- ``few_groups``: fewer than 7 independent samples;
+- ``one_level_per_file``: the ROIs of a data file share one reference value but
+  are held out in different folds. Held-out ROIs then have ROIs of their own
+  scan in training, and the model can learn the scan instead of the target.
+  Give each such scan's ROIs one **Sample** label so they are held out
+  together.
+
+No rule repairs an optimistic curve: with such folds RMSECV keeps falling as
+components fit what makes each scan different.
 
 A few things to keep in mind:
 
