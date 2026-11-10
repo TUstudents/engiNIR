@@ -277,8 +277,9 @@ tab, in the right-hand column of the window, and is not shown on the Data
 file tab; opened there, it takes the Sensor Frame's place as a tab. Closing
 or opening it on either tab is kept for that tab.
 
-- One row per ROI (data file, name, pixel count, sample) and one column per
-  target.
+- One row per ROI (data file, name, pixel count, **Predict**, sample) and one
+  column per target. **Predict** marks a prediction ROI (a tablet to predict;
+  never used to fit a model).
 - **Sample** names the physical sample an ROI was taken from. Give the same
   label to ROIs from one sample (for example three regions of one tablet),
   so that a fit can hold them out together. Labels are text; surrounding
@@ -335,41 +336,75 @@ fitted, the readiness message says what is missing.
 Predict
 -------
 
-**Predict...** applies the selected model to a scan. A registered scan reuses
-its calibration; a new scan gets the calibration chosen in the dialog. The
-prediction is refused before it starts when the scan cannot produce the
-model's signal: another instrument format, number of bands, calibration mode
-or signal unit. Wavelength values never block a prediction; when the scan's
-wavelengths differ from the model's, the **Wavelengths** row of the summary
-shows a warning with the largest difference. Models with MSC or EMSC apply
-the preprocessing state stored at training.
+Predict works on project data only: the tablets to predict are ROIs marked
+**Prediction only**, and a scan to predict is a project data file.
 
-Predictions are not stored: the project keeps the spectra, the recipe and
-the fitted model, and a prediction of a new scan is a result to inspect and
-export. The scan is not added to the project, the last three predictions of
-the session are kept in memory, and each prediction writes one entry to the
-log (model, data file with size and modification time, summary). Export the
-map as PNG or CSV from its panel for a report.
+**Mark the tablets.** Add the tray with **File > Add Data File...** and
+choose its calibration there, as for a training tray (the references of this
+session, or the detector levels). Draw the tablets with **Add ROI** or **Add
+ROI grid** and tick **Prediction only**; the choice is remembered for the
+data file. The **Predict** column of the ROI table switches an ROI later.
+Prediction ROIs never enter a model fit, even with a value: a value they
+have only gives the residual and the RMSEP of the prediction, an independent
+test. They are dashed in the mosaic and in the ROI spectra.
 
-The workspace shows the prediction map, the distribution of the shown
-values, the model, data file and calibration used, the compatibility
-summary, how many reflectance values were clipped, and the applicability of
-the model to the scan (share of pixels above the limits, mean prediction
-within and outside them).
+**Predict ROIs...** predicts the prediction ROIs of one data file or of all
+of them with one or more models. It reads only the project file: each ROI's
+stored pixels are converted with its own calibration, exactly as the fit
+converts training ROIs, and predicted with the model's recipe. The **Prediction
+per ROI** plot shows each ROI's mean prediction (the reported value) with
+the 5–95 % range of its pixels, one colour per model, the reference value
+(×) when the ROI has one, and the share of its pixels above the DModX limit
+(◆) against the band of the model's own training ROIs. Its CSV is the
+per-ROI table: ROI, data file, model, pixels, removed pixels, mean, median,
+SD, 5 % and 95 %, mean DModX and T², shares above the limits, reference and
+residual, with RMSEP and bias per model.
 
-The map header has the **Layer** selector, the output selector (for models
-with several targets), **Pan**, **Zoom** and **Reset View**. The layers are
-the prediction, **DModX** (distance of the spectrum to the model, DModXPS)
-and **T²** (Hotelling's T² of its scores, T²PS); in the DModX and T² layers
-the pixels above the 0.99 limit (DCrit, T²Crit) are marked, and the
-distribution shows the limit. Models fitted before engiNIR 1.3 have no DModX
-and T² layers; fit them again to get them. Large maps are shown as a preview that
-keeps every n-th frame and row. The axes, the hover readout and the exported
-CSV still give the true frame and row, and the CSV records the step. Map and
-distribution export like every other plot (PNG, SVG, CSV, copy) and maximize
-within the page.
-Prediction streams through the scan in bounded memory and reports its phase
-(loading, calibrating, preprocessing, predicting, writing).
+**Remove pixels above the DModX limit** (with its level) leaves glare,
+exposed substrate and direct reflections out of every ROI statistic; the
+statistics are recalculated at once, without predicting again. It starts as
+the model was fitted: on at its level for a model fitted with DModX
+exclusion, off otherwise.
+
+**Predict map...** predicts every pixel of one project data file with one
+model and shows the results of its prediction ROIs, computed from their
+stored pixels (so an ROI has the same numbers either way). The dialog names
+the models and data files, shows the chain the prediction applies (the data
+file's calibration, the model's signal unit and recipe, the model, and what
+the model was trained with), and refuses a file that cannot give the model's
+signal, with the reason: another instrument format, number of bands,
+calibration mode or signal unit. **Add data file...** in the dialog opens the
+Add data file dialog, which says how the model's training scans were
+calibrated but never reuses their references. Wavelength values never block
+a prediction; when they differ from the model's, the **Wavelengths** row
+warns with the largest difference. Models with MSC or EMSC apply the
+preprocessing state stored at training.
+
+The map's colour scale is the target's range in the model's training values;
+predictions below and above it have their own colours (cyan, pink), so the
+substrate and other material the model never saw do not flatten the scale.
+**Colour limits...** in the map's ⋯ menu sets your own limits, for one scale
+over a series of trays; the colour bar and the CSV record the scale. The
+prediction ROIs are outlined with their mean; with the pixel removal on,
+removed pixels are greyed. The map header has the **Layer** selector (the
+prediction, **DModX** and **T²**, with the pixels above the 0.99 limits
+marked), the output selector (models with several targets), **Pan**,
+**Zoom** and **Reset View**. Large maps are shown as a preview that keeps
+every n-th frame and row; the axes, hover readout and CSV give the true
+frame and row. Models fitted before engiNIR 1.3 have no DModX and T²: fit
+them again to get the layers and the pixel removal.
+
+The summary on the right groups the **Prediction ROIs** (scope, RMSEP per
+model, refused ROIs), the **Chain** (model, signal unit and recipe, target),
+the **Scan** (data file, its calibration, map shape and range, clipped
+reflectance values) and the **Applicability** (share of pixels above the
+limits, wavelengths).
+
+Predictions are not stored: the project keeps the data files, their ROIs and
+the models, and a prediction is a result to inspect and export. The last
+three map predictions of the session are kept in memory, and each prediction
+writes one entry to the log. Prediction streams through a scan in bounded
+memory and reports its phase.
 
 Projects
 --------

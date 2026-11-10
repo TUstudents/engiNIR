@@ -85,9 +85,11 @@ class NewROIDialog(QDialog):
         viewer_state: ViewerState,
         selected_target: TargetDefinition | None,
         parent: QWidget | None = None,
+        *,
+        prediction: bool = False,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("New Training ROI")
+        self.setWindowTitle("New ROI")
         self._selected_target = selected_target
 
         n_pixels = (f1 - f0 + 1) * (r1 - r0 + 1)
@@ -124,6 +126,10 @@ class NewROIDialog(QDialog):
         if s.preprocess_detrend:
             norm_parts.append(f"Detrend(order={s.detrend_order})")
         layout.addRow("Norm:", QLabel(", ".join(norm_parts) or "none"))
+        from ._roi_grid import prediction_only_check
+
+        self.prediction_check = prediction_only_check(prediction)
+        layout.addRow(self.prediction_check)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -154,6 +160,11 @@ class NewROIDialog(QDialog):
     @property
     def roi_name(self) -> str:
         return self._name_edit.text().strip()
+
+    @property
+    def use(self) -> str:
+        """``"prediction"`` when Prediction only is ticked, else ``"training"``."""
+        return "prediction" if self.prediction_check.isChecked() else "training"
 
     @property
     def target_value(self) -> float | None:
@@ -1284,7 +1295,8 @@ class ModelingView(QWidget):
         """Pixel count of the smallest ROI with a value for ``target_id`` (the draw limit)."""
         state = self.project_state
         counts = [roi.n_pixels for roi in state.rois.values()
-                  if (roi.roi_id, target_id) in state.target_assignments]
+                  if (roi.roi_id, target_id) in state.target_assignments
+                  and roi.use != "prediction"]
         return min(counts) if counts else None
 
     def fit_readiness(self, target_id: str) -> tuple[str, bool]:
@@ -1292,14 +1304,20 @@ class ModelingView(QWidget):
         state = self.project_state
         per_file: dict[str, list[int]] = {}
         for roi in state.rois.values():
-            counts = per_file.setdefault(roi.dataset_id, [0, 0])
+            counts = per_file.setdefault(roi.dataset_id, [0, 0, 0])
+            if roi.use == "prediction":
+                counts[2] += 1
+                continue
             counts[1] += 1
             counts[0] += (roi.roi_id, target_id) in state.target_assignments
         lines = []
-        for dataset_id, (labelled, total) in sorted(
+        for dataset_id, (labelled, total, predicted) in sorted(
                 per_file.items(), key=lambda item: self._data_file_name(item[0]).lower()):
-            lines.append(f"{self._data_file_name(dataset_id)}: {labelled} of {total} ROIs "
-                         "have a value")
+            text = (f"{self._data_file_name(dataset_id)}: {labelled} of {total} ROIs "
+                    "have a value")
+            if predicted:
+                text += f" ({predicted} prediction ROI(s) not used)"
+            lines.append(text)
         try:
             sample_set, _new = resolve_sample_set(
                 rois=state.rois, target_assignments=state.target_assignments,
@@ -1431,8 +1449,9 @@ class ModelingView(QWidget):
 
     def _dialog_fold_warnings(self, target_id: str, fit_spec: Any, cv: Any) -> list[str]:
         """Fold warnings for the fit dialog: all ROIs with a value for the target."""
-        roi_ids = [roi_id for roi_id in self.project_state.rois
-                   if (roi_id, target_id) in self.project_state.target_assignments]
+        roi_ids = [roi_id for roi_id, roi in self.project_state.rois.items()
+                   if (roi_id, target_id) in self.project_state.target_assignments
+                   and roi.use != "prediction"]
         return self._predicted_warnings(roi_ids, target_id, fit_spec, cv)
 
     def _sample_set_label(self, sample_set: SampleSet) -> str:
@@ -1810,8 +1829,9 @@ class ModelingView(QWidget):
 
         labeled_roi_ids = {
             roi_id
-            for roi_id in self.project_state.rois
+            for roi_id, roi in self.project_state.rois.items()
             if (roi_id, target.target_id) in self.project_state.target_assignments
+            and roi.use != "prediction"
         }
         if not self.project_state.rois:
             self._readiness_status.setText("Ready: draw ROIs in Explore.")

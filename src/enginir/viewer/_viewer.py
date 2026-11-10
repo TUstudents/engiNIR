@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QDockWidget,
     QFormLayout,
     QGroupBox,
+    QInputDialog,
     QHBoxLayout,
     QVBoxLayout,
     QFileDialog,
@@ -59,6 +60,7 @@ from ._project_settings import load_last_data_file, save_last_data_file
 from ._plot_grid import PlotPage, PlotPageWidget, PlotSlot
 from ._plot_panel import LARGE_EXPORT_VALUES, PlotFrame, PlotPanel
 from ._modeling import ModelingView, NewROIDialog, TargetSelectionDialog
+from ._predict_dialogs import ROI_RESULTS
 from ._prediction import PREDICTION_HISTOGRAM, PredictionMapWidget, PredictionView
 from ._state import (
     DEFAULT_BLACK_LEVEL,
@@ -132,6 +134,20 @@ __all__ = [
 # ------------------------------------------------------------------
 # LogPanel - dock widget for loguru output
 # ------------------------------------------------------------------
+
+
+class _WidthScrollArea(QScrollArea):
+    """Scrolls sideways only: the content always gets the viewport's height.
+
+    The Controls dock's rows are wide but short; a plain scroll area would let
+    the content grow taller than the dock and hide its lower rows.
+    """
+
+    def resizeEvent(self, a0: Any) -> None:  # noqa: N802 (Qt API)
+        super().resizeEvent(a0)
+        content, viewport = self.widget(), self.viewport()
+        if content is not None and viewport is not None:
+            content.setFixedHeight(viewport.height())
 
 
 class LogPanel(QWidget):
@@ -508,13 +524,18 @@ class HSIViewer(QMainWindow):
         for control in self._predict_map_widget.header_widgets():
             self._predict_map_frame.add_header_widget(control)
         self._predict_histogram = PlotPanel(PREDICTION_HISTOGRAM)
+        self._predict_roi_results = PlotPanel(ROI_RESULTS)
+        self._predict_roi_results.roi_selected.connect(self._on_canvas_roi_selected)
+        self._predict_map_frame.add_menu_action("Colour limits...", self._ask_colour_limits)
         self._predict_map_widget.displayed_map_changed.connect(
             lambda shown: self._predict_histogram.update_data(
                 shown, provenance=self._prediction_view.workspace_provenance()))
         self._predict_graph_panel = PlotPageWidget(
-            PlotPage("Prediction", (PlotSlot("predict.map", 0, 0, row_span=2),
-                                    PlotSlot("predict.histogram", 2, 0))),
+            PlotPage("Prediction", (PlotSlot("predict.map", 0, 0, row_span=2, column_span=3),
+                                    PlotSlot("predict.roi_results", 2, 0, column_span=2),
+                                    PlotSlot("predict.histogram", 2, 2))),
             {"predict.map": self._predict_map_frame,
+             "predict.roi_results": self._predict_roi_results,
              "predict.histogram": self._predict_histogram})
 
         self._predict_text_panel = QWidget()
@@ -525,50 +546,64 @@ class HSIViewer(QMainWindow):
         predict_text_layout.setContentsMargins(0, 0, 0, 0)
         predict_text_layout.setSpacing(8)
 
-        summary_box = QGroupBox("Result Summary")
-        summary_layout = QFormLayout(summary_box)
-        summary_layout.setContentsMargins(8, 8, 8, 8)
-        summary_layout.setSpacing(4)
-        self._predict_card_prediction_value = QLabel("none")
-        self._predict_card_model_value = QLabel("none")
-        self._predict_card_dataset_value = QLabel("none")
-        self._predict_card_calibration_value = QLabel("none")
-        self._predict_card_target_value = QLabel("none")
-        summary_layout.addRow("Prediction", self._predict_card_prediction_value)
-        summary_layout.addRow("Model", self._predict_card_model_value)
-        summary_layout.addRow("Dataset", self._predict_card_dataset_value)
-        summary_layout.addRow("Calibration", self._predict_card_calibration_value)
-        summary_layout.addRow("Target", self._predict_card_target_value)
+        # Three groups (viewer contract §3): the chain, the scan, the applicability; ROIs.
+        def wrapped(text: str = "-") -> QLabel:
+            label = QLabel(text)
+            label.setWordWrap(True)
+            return label
 
-        compatibility_box = QGroupBox("Compatibility")
-        compatibility_layout = QFormLayout(compatibility_box)
-        compatibility_layout.setContentsMargins(8, 8, 8, 8)
-        compatibility_layout.setSpacing(4)
-        self._predict_contract_format_value = QLabel("-")
-        self._predict_contract_signal_value = QLabel("-")
-        self._predict_contract_bands_value = QLabel("-")
-        self._predict_map_shape_value = QLabel("-")
-        self._predict_map_range_value = QLabel("-")
-        self._predict_clipping_value = QLabel("-")
-        self._predict_diagnostics_value = QLabel("-")
-        self._predict_diagnostics_value.setWordWrap(True)
-        self._predict_wavelengths_value = QLabel("-")
-        self._predict_wavelengths_value.setWordWrap(True)
-        compatibility_layout.addRow("Input contract", self._predict_contract_format_value)
-        compatibility_layout.addRow("Signal contract", self._predict_contract_signal_value)
-        compatibility_layout.addRow("Bands", self._predict_contract_bands_value)
+        def group(title: str) -> tuple[QGroupBox, QFormLayout]:
+            box = QGroupBox(title)
+            form = QFormLayout(box)
+            form.setContentsMargins(8, 8, 8, 8)
+            form.setSpacing(4)
+            form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+            return box, form
+
+        summary_box, summary_layout = group("Chain")
+        self._predict_card_model_value = wrapped("none")
+        self._predict_contract_signal_value = wrapped()
+        self._predict_card_target_value = wrapped("none")
+        self._predict_contract_bands_value = wrapped()
+        self._predict_contract_format_value = wrapped()
+        summary_layout.addRow("Model", self._predict_card_model_value)
+        summary_layout.addRow("Signal, recipe", self._predict_contract_signal_value)
+        summary_layout.addRow("Target", self._predict_card_target_value)
+        summary_layout.addRow("Bands", self._predict_contract_bands_value)
+        summary_layout.addRow("Input", self._predict_contract_format_value)
+
+        compatibility_box, compatibility_layout = group("Scan")
+        self._predict_card_prediction_value = wrapped("none")
+        self._predict_card_dataset_value = wrapped("none")
+        self._predict_card_calibration_value = wrapped("none")
+        self._predict_map_shape_value = wrapped()
+        self._predict_map_range_value = wrapped()
+        self._predict_clipping_value = wrapped()
+        compatibility_layout.addRow("Shown", self._predict_card_prediction_value)
+        compatibility_layout.addRow("Data file", self._predict_card_dataset_value)
+        compatibility_layout.addRow("Calibration", self._predict_card_calibration_value)
         compatibility_layout.addRow("Map shape", self._predict_map_shape_value)
         compatibility_layout.addRow("Map range", self._predict_map_range_value)
-        compatibility_layout.addRow("Calibration clipping", self._predict_clipping_value)
-        compatibility_layout.addRow("Applicability", self._predict_diagnostics_value)
-        compatibility_layout.addRow("Wavelengths", self._predict_wavelengths_value)
+        compatibility_layout.addRow("Clipping", self._predict_clipping_value)
+
+        applicability_box, applicability_layout = group("Applicability")
+        self._predict_diagnostics_value = wrapped()
+        self._predict_wavelengths_value = wrapped()
+        applicability_layout.addRow("Pixels", self._predict_diagnostics_value)
+        applicability_layout.addRow("Wavelengths", self._predict_wavelengths_value)
+
+        rois_box, rois_layout = group("Prediction ROIs")
+        self._predict_rois_value = wrapped("none")
+        rois_layout.addRow(self._predict_rois_value)
 
         layout.addWidget(self._predict_content_title)
         predict_text_layout.addWidget(self._predict_summary_status)
         predict_text_layout.addWidget(self._predict_summary_readiness)
         predict_text_layout.addWidget(self._predict_summary_service)
+        predict_text_layout.addWidget(rois_box)
         predict_text_layout.addWidget(summary_box)
         predict_text_layout.addWidget(compatibility_box)
+        predict_text_layout.addWidget(applicability_box)
         predict_text_layout.addStretch(1)
 
         self._predict_workspace_splitter.addWidget(self._predict_graph_panel)
@@ -811,7 +846,7 @@ class HSIViewer(QMainWindow):
 
         # The control rows are wide; a scroll area lets them shrink with the window
         # instead of setting its minimum width (see _release_minimum_size).
-        scroll = QScrollArea()
+        scroll = _WidthScrollArea()
         scroll.setWidget(container)
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -943,6 +978,8 @@ class HSIViewer(QMainWindow):
         self._modeling_view._service_status.status_changed.connect(
             self.schedule_workspace_content_refresh
         )
+        self._prediction_view.results_changed.connect(self.schedule_workspace_content_refresh)
+        self._prediction_view.set_data_file_adder(self._add_prediction_data_file)
         self._prediction_view._service_status.status_changed.connect(
             self.schedule_workspace_content_refresh
         )
@@ -1256,6 +1293,10 @@ class HSIViewer(QMainWindow):
         self._predict_clipping_value.setText(prediction_summary["clipping"])
         self._predict_diagnostics_value.setText(prediction_summary["diagnostics"])
         self._predict_wavelengths_value.setText(prediction_summary["wavelengths"])
+        self._predict_rois_value.setText(prediction_summary.get("rois", "none"))
+        self._predict_roi_results.update_data(
+            self._prediction_view.roi_results_payload(),
+            provenance=self._prediction_view.workspace_provenance())
         predict_map_widget.update_data(
             self._prediction_view.workspace_visual_payload(),
             empty_reason=prediction_summary["readiness"],
@@ -1365,7 +1406,8 @@ class HSIViewer(QMainWindow):
                     self._predict_summary_status.text(),
                     self._predict_summary_readiness.text(),
                     self._predict_summary_service.label.text(),
-                    f"Prediction: {self._predict_card_prediction_value.text()}",
+                    f"Prediction ROIs: {self._predict_rois_value.text()}",
+                    f"Shown: {self._predict_card_prediction_value.text()}",
                     f"Model: {self._predict_card_model_value.text()}",
                     f"Dataset: {self._predict_card_dataset_value.text()}",
                     f"Calibration: {self._predict_card_calibration_value.text()}",
@@ -1526,7 +1568,8 @@ class HSIViewer(QMainWindow):
     # Data files of the project (attachment contract, Data Files Of A Project)
     # ------------------------------------------------------------------
 
-    def add_data_file(self, path: str | None = None) -> str | None:
+    def add_data_file(self, path: str | None = None, *,
+                      trained_with: str | None = None) -> str | None:
         """Add a data file to the project with its calibration, then show it.
 
         A file that is already registered is shown directly. Returns the
@@ -1557,7 +1600,7 @@ class HSIViewer(QMainWindow):
             path, header, state.datasets,
             {dataset_id: calibration for dataset_id in state.datasets
              if (calibration := state.active_calibration(dataset_id)) is not None},
-            parent=self)
+            trained_with=trained_with, parent=self)
         if dialog.exec() != QDialog.DialogCode.Accepted or dialog.request is None:
             return None
         request = dialog.request
@@ -1940,6 +1983,35 @@ class HSIViewer(QMainWindow):
         if skipped:
             message += f"\n\nSkipped (no data): {', '.join(skipped)}"
         QMessageBox.information(self, "Export Plots", message)
+
+    def _ask_colour_limits(self) -> None:
+        """The prediction map's colour limits: two numbers, or empty for the training range."""
+        widget = self._predict_map_widget
+        if widget is None:
+            return
+        current = "" if widget.user_limits is None else (
+            f"{widget.user_limits[0]:g}, {widget.user_limits[1]:g}")
+        text, ok = QInputDialog.getText(
+            self, "Colour limits", "Low, high (empty: the target's training range):",
+            text=current)
+        if not ok:
+            return
+        parts = [part for part in text.replace(";", ",").split(",") if part.strip()]
+        try:
+            limits = None if not parts else (float(parts[0]), float(parts[1]))
+        except (ValueError, IndexError):
+            QMessageBox.warning(self, "Colour limits", f"{text!r} is not two numbers.")
+            return
+        if limits is not None and not limits[1] > limits[0]:
+            QMessageBox.warning(self, "Colour limits", "The high limit must be above the low.")
+            return
+        widget.set_user_limits(limits)
+
+    def _add_prediction_data_file(self, model_run_id: str) -> str | None:
+        """Add a scan for prediction with the Add data file dialog, noting the model's training."""
+        note = self._prediction_view._training_calibration(
+            self.project_state.model_runs[model_run_id])
+        return self.add_data_file(trained_with=note)
 
     def _release_minimum_size(self) -> None:
         """Let the compositor choose the window size, whatever the docks' minimums.

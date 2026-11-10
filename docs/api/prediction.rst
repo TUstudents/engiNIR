@@ -18,6 +18,28 @@ Running predictions
 
 .. autofunction:: enginir.prediction.wavelength_mismatch
 
+Prediction ROIs
+---------------
+
+.. automodule:: enginir.prediction._rois
+   :no-members:
+
+.. autofunction:: enginir.prediction.predict_rois
+
+.. autofunction:: enginir.prediction.roi_prediction_statistics
+
+.. autoclass:: enginir.prediction.RoiPrediction
+   :members: dmodx_limit_at
+
+.. autoclass:: enginir.prediction.RoiPixels
+   :no-members:
+
+.. autoclass:: enginir.prediction.RoiStatistics
+   :no-members:
+
+.. autoclass:: enginir.prediction.RoiPredictionSummary
+   :no-members:
+
 Results and progress
 --------------------
 

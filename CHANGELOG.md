@@ -33,6 +33,21 @@
   `noise_guard: off` chooses as 1.3 did. The curve stores `rmsee_roi`,
   `dw_weights` (Durbin–Watson of each component's weights), `noise` and the
   structure ceiling.
+- Prediction ROIs: an ROI's **use** is training or prediction. Prediction
+  ROIs (Prediction only in the ROI and ROI grid dialogs, the Predict column
+  of the ROI table, `use="prediction"`) never enter a fit; they are the
+  tablets to predict. `model.predict_rois()` predicts them from the project
+  file alone with each ROI's own calibration, with per-ROI mean, median, SD,
+  5–95 %, DModX and T², an optional removal of pixels above the DModX limit
+  (default: the model's own), and RMSEP and bias over ROIs with a value.
+- Viewer, Predict: **Predict ROIs...** (one or more models, one or all data
+  files) and **Predict map...** (a project data file, with its prediction
+  ROIs); both name models and files, show the chain read-only and refuse an
+  incompatible file with the reason. The per-ROI plot and table, a map colour
+  scale from the training range (own limits in the ⋯ menu), ROI outlines with
+  their means, and a grouped summary. The free path, dataset id and
+  calibration fields of the old dialog are gone; a scan to predict is added
+  with the Add data file dialog, which shows what the model was trained with.
 - Fold warnings: a fit records and logs `few_groups` and `one_level_per_file`
   (a data file's ROIs share one value but are held out in different folds)
   in `cv_spec/@warnings`; the fit dialog, the readiness line and the summary
@@ -72,6 +87,14 @@
   logged once, then at debug level.
 
 ### Fixed
+
+- `model.predict(path)` of a data file registered in the project now uses
+  the file's own calibration. Without `dark`/`white` it built a new
+  calibration from the detector levels, so a scan recorded with references
+  was predicted with a different calibration than its ROIs.
+- Viewer: the Controls dock could hide its lower rows (the Predict buttons)
+  since 1.4's sideways scrolling; the content now always fits the dock's
+  height.
 
 - Viewer on WSLg Wayland: the session could end ("xdg_surface buffer does not
   match the configured maximized state") when the docks' minimum widths added

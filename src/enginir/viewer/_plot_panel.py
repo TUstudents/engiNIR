@@ -312,6 +312,11 @@ class PlotFrame(QWidget):
             layout.removeWidget(self._header)
         return self._header
 
+    def add_menu_action(self, text: str, slot: Callable[[], None]) -> QAction:
+        """Add a plot-specific entry to the ⋯ menu, after the exports."""
+        self._menu.addSeparator()
+        return self._add_action(text, slot)
+
     def add_header_widget(self, widget: QWidget) -> None:
         """Add a control to the header, left of the maximize button."""
         self._header_layout.insertWidget(self._header_layout.indexOf(self._max_button), widget)

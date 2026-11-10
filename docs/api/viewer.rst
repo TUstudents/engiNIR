@@ -127,8 +127,19 @@ Prediction view
 .. autoclass:: enginir.viewer._prediction.PredictionView
    :no-members:
 
-.. autoclass:: enginir.viewer._prediction.PredictionRunDialog
-   :members: model_run_id, data_path, dataset_id, calibration
+.. autofunction:: enginir.viewer._prediction.describe_calibration
+
+.. automodule:: enginir.viewer._predict_dialogs
+   :no-members:
+
+.. autoclass:: enginir.viewer._predict_dialogs.PredictRoisDialog
+   :members: model_ids, dataset_id
+
+.. autoclass:: enginir.viewer._predict_dialogs.PredictMapDialog
+   :members: model_id, dataset_id
+
+.. autoclass:: enginir.viewer._predict_dialogs.ModelChoice
+   :no-members:
 
 
 Panels

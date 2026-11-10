@@ -170,6 +170,8 @@ class AddDataFileDialog(QDialog):
         datasets: Mapping[str, DatasetRef],
         active_calibrations: Mapping[str, CalibrationSpec],
         parent: QWidget | None = None,
+        *,
+        trained_with: str | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Add data file")
@@ -192,6 +194,14 @@ class AddDataFileDialog(QDialog):
                       f"{n_bands} bands, {np.dtype(header.X.dtype).name}")
         layout = QVBoxLayout(self)
         layout.addWidget(info)
+        if trained_with:
+            # Opened from Predict: say what the model used, never reuse it silently
+            # (dataset-calibration contract).
+            trained = QLabel(f"The model was trained with: {trained_with}. Choose this scan's "
+                             "own calibration (references of this session, or the levels).")
+            trained.setWordWrap(True)
+            trained.setStyleSheet(secondary_text_style())
+            layout.addWidget(trained)
 
         self._unit = QComboBox()
         self._choice: dict[str, QRadioButton] = {}

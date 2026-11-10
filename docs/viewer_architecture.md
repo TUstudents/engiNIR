@@ -23,7 +23,8 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_modeling.py` | `ModelingView` — target, target values (ROI table), the fit dialog (components or Auto with a rule; Fitting group: pixel sample, scaling, DModX exclusion → `FitSpec` and hyperparameters) and Fit again (dialog preset from a stored run; the preset recipe's AsLS fields and `sg_edges` are kept, as the dialog has no controls for them); `_component_payload` adds curve, loadings, CoeffCS, VIP (computed from the stored weights for runs before 1.4), selectivity ratio, mean spectrum and training distances to the diagnostics payload; the fit dialog's Bands row (keep/exclude text, water-band menu, Select on plot, Propose) feeds the recipe and, after OK, the Explore preview (`ViewerState.bands_keep/bands_exclude`); `_roi_score_payload` passes the ROI scores the fit stored (`diagnostics/roi_scores`) and never rebuilds them from pixel counts |
 | `_model_diagnostics.py` | Model workspace diagnostics surface (Spectral page: coefficients, CoeffCS, loadings, VIP, VIP sorted, selectivity ratio; lines over wavelength break at band-selection gaps) |
 | `_band_ranges.py` | `BandRangeDialog` (drag keep/exclude ranges on the mean spectrum of the target's ROIs, loaded in a job, with the selected model's VIP or coefficients as a guide) and `ProposeBandsDialog` (runs `Project.propose_bands` in a job, progress through a polled counter, cancel flag) |
-| `_prediction.py` | `PredictionView` and `PredictionMapWidget` |
+| `_prediction.py` | `PredictionView` (Predict ROIs and Predict map jobs, the ROI predictions of the session and their statistics for the current DModX exclusion, recalculated without predicting again) and `PredictionMapWidget` (colour scale from the training range or user limits, ROI outlines, removed pixels greyed) |
+| `_predict_dialogs.py` | `PredictRoisDialog`, `PredictMapDialog` (models by name, the chain read-only, refusal with the reason), the `predict.roi_results` plot spec |
 | `_browser.py` | Read-only workspace object tree |
 | `_inspector.py` | Selection-driven metadata display; `fit_summary` describes how a model run was fitted (reads the stored exclusion arrays on demand) |
 | `_jobs.py` | `BackgroundWorker`, `_CallbackRelay`, `start_background_job`, `BusyStatusWidget` |
@@ -54,7 +55,7 @@ _viewer   → _canvas, _panels, _eda, _modeling, _prediction, _state,
             _browser, _inspector, _model_diagnostics, _attachment, _loading, _theme
 _eda      → _state, _modeling (NewROIDialog), _attachment, _loading, io
 _modeling → _state, _jobs, io.project_store, modeling, prediction, project
-_prediction → _state, _jobs, io, prediction, project
+_prediction → _state, _jobs, _predict_dialogs, io, prediction, project
 _browser  → _state
 _inspector → _state, io.project_store, project
 _panels   → _state

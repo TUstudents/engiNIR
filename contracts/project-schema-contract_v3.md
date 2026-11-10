@@ -310,6 +310,10 @@ scientific content. Writers enforce, per object:
   removed only by its own writer (`save_roi_sample`), in place; re-saving an
   ROI never changes or removes it (a re-save whose `sample` differs from the
   stored one is changed content)
+- `TrainingROI.use` (optional, `training` | `prediction`; absent reads
+  `training`) is set when the ROI is created; afterwards only
+  `save_roi_use` changes it, in place; a re-save whose `use` differs from
+  the stored one is changed content
 - changed scientific content requires a new id
 
 Explicit exceptions, each already governed by its own contract rule:

@@ -443,3 +443,26 @@ def test_the_window_never_demands_more_width_than_the_compositor_gives(qapp, tra
         assert window._controls_dock.minimumSizeHint().width() < 400, "controls scroll"
     finally:
         window.close()
+
+
+def test_every_control_row_fits_in_the_controls_dock(qapp, trays):
+    """A scroll area let the content grow taller than the dock and hid the lower rows
+    (Predict's buttons were below the visible area)."""
+    from PyQt6.QtWidgets import QScrollArea
+
+    project, _paths = trays
+    window = _open(qapp, project)
+    try:
+        _settle(qapp, window._project_rois)
+        scroll = window._controls_dock.widget()
+        assert isinstance(scroll, QScrollArea)
+        content, viewport = scroll.widget(), scroll.viewport()
+        assert content is not None and viewport is not None
+        for page in (window._eda_view, window._modeling_view, window._prediction_view):
+            window._workspace_tabs.setCurrentWidget(page)
+            window._prediction_view._readiness_status.setText("long text " * 60)
+            qapp.processEvents()
+            assert content.height() <= viewport.height(), type(page).__name__
+    finally:
+        _settle(qapp, window._project_rois)
+        window.close()

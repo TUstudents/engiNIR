@@ -460,6 +460,9 @@ class RoiMosaic(QWidget):
         for roi_id, outline in self._outlines.items():
             value = self._values.get(roi_id)
             pen = pg.mkPen(color=_value_color(value, norm), width=1 if value is None else 2.5)
+            roi = self._rois.get(roi_id)
+            if roi is not None and roi.use == "prediction":  # a sample to predict, not training
+                pen.setStyle(Qt.PenStyle.DashLine)
             pen.setCosmetic(True)
             outline.setPen(pen)
 
@@ -664,10 +667,15 @@ def _render_means(fig: Figure, payload: Any, colors: Mapping[str, str]) -> None:
     norm = value_norm(values.values())
     cmap = colormaps["viridis"]
     x = np.asarray(payload["wavelengths"])
+    predicted = set(payload.get("prediction_ids", ()))
     for roi_id, mean in means.items():
         value = values.get(roi_id)
         color = cmap(norm(value)) if value is not None and norm is not None else GUIDE_COLOR
-        ax.plot(x, mean, color=color, linewidth=0.8, alpha=0.85)
+        ax.plot(x, mean, color=color, linewidth=0.8, alpha=0.85,
+                linestyle="--" if roi_id in predicted else "-")
+    if predicted & set(means):
+        ax.text(0.99, 0.02, "dashed: prediction ROIs", transform=ax.transAxes, ha="right",
+                va="bottom", fontsize=7, color=colors["fg"])
     if norm is not None:
         mappable = fig.colorbar(colormaps_mappable(norm, cmap), ax=ax, fraction=0.05, pad=0.02)
         mappable.set_label(payload.get("value_label", ""), color=colors["fg"], fontsize=8)
@@ -987,6 +995,9 @@ class ProjectRoisView(QWidget):
         target = state.targets.get(target_id or "")
         payload = self._payload_base()
         payload["means"] = {roi_id: s.mean for roi_id, s in self._summaries.items()}
+        payload["prediction_ids"] = [roi_id for roi_id in self._summaries
+                                     if roi_id in state.rois
+                                     and state.rois[roi_id].use == "prediction"]
         payload["values"] = {
             roi_id: (state.target_assignments[(roi_id, target_id)].value
                      if target_id and (roi_id, target_id) in state.target_assignments else None)

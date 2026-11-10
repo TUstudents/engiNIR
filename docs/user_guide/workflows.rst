@@ -41,6 +41,9 @@ One call per step:
    * - Predict a new scan
      - ``model.predict(path)``, then ``prediction.map``, ``prediction.dmodx_map``,
        ``prediction.t2_map`` or ``prediction.diagnostics``
+   * - Predict tablets (prediction ROIs)
+     - ``dataset.add_roi(name, ..., use="prediction")``, then
+       ``model.predict_rois()``: per-ROI statistics, RMSEP over ROIs with a value
 
 References need not be separate files. ``dark_frames=(first, last)`` and
 ``white_frames=(first, last)`` average frames of the same file (a white tile
@@ -55,6 +58,26 @@ reference set:
 
 ``project.set_value(roi, target, value)`` sets or replaces a reference value;
 ``value=None`` removes it.
+
+ROIs marked ``use="prediction"`` (or ``project.set_use(roi, "prediction")``)
+are samples to predict: they never enter a fit, even with a value. A model
+predicts them from the project file alone, each ROI with its own calibration:
+
+.. code-block:: python
+
+   tray = project.add_dataset("production_tray.eiff", black_level=128, white_level=3500)
+   for i, (first, last) in enumerate([(170, 349), (564, 743), (958, 1137)]):
+       tray.add_roi(f"tablet{i + 1}", frames=(first, last), rows=(70, 179), use="prediction")
+   result = model.predict_rois(exclude_dmodx=0.99)   # leave glare and substrate out
+   for row in result.rois:
+       print(project.workspace.rois[row.roi_id].name, row.mean, row.sd, row.n_removed)
+   result.rmsep, result.bias, result.n_reference      # over ROIs with a value
+
+``exclude_dmodx`` defaults to the model's own fit specification;
+``model.roi_prediction()`` returns the pixel predictions, and
+:func:`~enginir.prediction.roi_prediction_statistics` recalculates the
+statistics for another exclusion without predicting again. ``model.predict(path)``
+of a registered data file uses the file's own calibration.
 
 A tray of samples becomes one ROI per cell with :func:`~enginir._workflow.roi_grid`
 and ``dataset.add_rois``, all stored or none:

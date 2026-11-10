@@ -6,6 +6,14 @@ performs its checks without predicting. The signal-domain checks and
 conversion it relies on live in :mod:`enginir.project`.
 """
 
+from ._rois import (
+    RoiPixels,
+    RoiPrediction,
+    RoiPredictionSummary,
+    RoiStatistics,
+    predict_rois,
+    roi_prediction_statistics,
+)
 from ._service import (
     DEFAULT_CHUNK_SIZE,
     PredictionCancelCallback,
@@ -21,6 +29,12 @@ from ._service import (
 )
 
 __all__ = [
+    "RoiPixels",
+    "RoiPrediction",
+    "RoiPredictionSummary",
+    "RoiStatistics",
+    "predict_rois",
+    "roi_prediction_statistics",
     "DEFAULT_CHUNK_SIZE",
     "PredictionCancelCallback",
     "PredictionCancelledError",

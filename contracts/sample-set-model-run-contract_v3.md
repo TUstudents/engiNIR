@@ -64,6 +64,12 @@ There are two core objects:
 
 Represents one modeling dataset built from project objects.
 
+A new sample set takes every ROI with a value for its target, except ROIs
+whose `use` is `prediction` (`roi-target-contract_v3.md`): those are never
+training data. A stored sample set keeps its `roi_ids`; refitting it uses
+them as stored, and logs a warning when one of them has since been switched
+to `prediction`.
+
 Required fields:
 
 - `sample_set_id`

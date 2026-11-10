@@ -47,8 +47,10 @@ from ._theme import secondary_text_style
 
 logger = get_logger(__name__)
 
-_FIXED = ("Data file", "ROI", "Pixels", "Sample")
+_FIXED = ("Data file", "ROI", "Pixels", "Predict", "Sample")
 _SAMPLE_COLUMN = _FIXED.index("Sample")
+#: A checkbox: the ROI is a prediction ROI (roi-target contract, ``use``).
+_USE_COLUMN = _FIXED.index("Predict")
 _ALL_FILES = "__all__"
 ModelIndex = QModelIndex | QPersistentModelIndex
 
@@ -166,16 +168,25 @@ class RoiTableModel(QAbstractTableModel):
         return f"{target.name} ({target.unit})" if target.unit else target.name
 
     def data(self, index: ModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
-        if not index.isValid() or role not in (Qt.ItemDataRole.DisplayRole,
-                                               Qt.ItemDataRole.EditRole,
-                                               Qt.ItemDataRole.TextAlignmentRole):
+        if not index.isValid():
             return None
         state = self.project_state
         roi = state.rois[self._roi_ids[index.row()]]
         column = index.column()
+        if column == _USE_COLUMN:
+            if role == Qt.ItemDataRole.CheckStateRole:
+                return (Qt.CheckState.Checked if roi.use == "prediction"
+                        else Qt.CheckState.Unchecked)
+            if role == Qt.ItemDataRole.ToolTipRole:
+                return ("Prediction ROI: predicted in Predict > Predict ROIs, never used to fit"
+                        if roi.use == "prediction" else "Training ROI (tick to predict it)")
+            return None
+        if role not in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole,
+                        Qt.ItemDataRole.TextAlignmentRole):
+            return None
         if role == Qt.ItemDataRole.TextAlignmentRole:
             return (Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-                    if column >= 2 and column != _SAMPLE_COLUMN else None)
+                    if column == 2 or column > _SAMPLE_COLUMN else None)
         if column == 0:
             return self._file_name(roi.dataset_id)
         if column == 1:
@@ -189,11 +200,26 @@ class RoiTableModel(QAbstractTableModel):
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlag:
         base = super().flags(index)
+        if index.column() == _USE_COLUMN:
+            return base | Qt.ItemFlag.ItemIsUserCheckable
         editable = index.column() >= len(_FIXED) or index.column() == _SAMPLE_COLUMN
         return base | Qt.ItemFlag.ItemIsEditable if editable else base
 
     def setData(self, index: ModelIndex, value: Any,  # noqa: N802 (Qt API)
                 role: int = Qt.ItemDataRole.EditRole) -> bool:
+        if role == Qt.ItemDataRole.CheckStateRole and index.column() == _USE_COLUMN:
+            roi_id = self._roi_ids[index.row()]
+            checked = Qt.CheckState(value) == Qt.CheckState.Checked if not isinstance(
+                value, Qt.CheckState) else value == Qt.CheckState.Checked
+            use = "prediction" if checked else "training"
+            if use != self.project_state.rois[roi_id].use:
+                try:
+                    self.project_state.set_roi_uses([(roi_id, use)])
+                except (OSError, ValueError, KeyError) as exc:
+                    logger.error("ROI use not stored: {}", exc)
+                    self.edit_failed.emit(str(exc))
+                    return False
+            return True
         if role == Qt.ItemDataRole.EditRole and index.column() == _SAMPLE_COLUMN:
             roi_id = self._roi_ids[index.row()]
             label = str(value).strip() or None

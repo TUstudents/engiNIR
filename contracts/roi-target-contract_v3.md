@@ -87,6 +87,14 @@ Optional fields:
 - `sample`: label of the physical sample the ROI was taken from (e.g. the
   blend or tablet), a non-empty string; absent when the ROI is its own
   sample
+- `use`: `training` or `prediction` (engiNIR 1.4 and later); absent reads
+  `training`. A `prediction` ROI marks a sample to be predicted (e.g. a
+  tablet of a production tray): it never enters a sample set, whatever
+  target values it has; a value it has serves only the residual and RMSEP of
+  a prediction (`prediction-runtime-contract_v3.md`, Prediction ROIs). Any
+  other stored value is rejected on read with a logged error. engiNIR 1.3
+  and earlier ignore the attribute (an unknown extra) and would use such
+  ROIs for training; projects with prediction ROIs need engiNIR 1.4
 
 Required invariants:
 
@@ -114,6 +122,13 @@ v3 rule:
   fold groups it used, so later label edits do not change how it refits.
   Only `save_roi_sample` sets, changes or removes the label; re-saving an
   ROI never changes it
+- `use` is set when the ROI is created (the ROI and ROI grid dialogs,
+  `Project.add_roi`); afterwards it is mutable like `sample`: only
+  `save_roi_use` changes it, in place;
+  it never changes the ROI's identity, spectra or other fields. Switching an
+  ROI to `prediction` leaves stored sample sets and model runs that contain
+  it unchanged (they refit as they were fitted); new sample sets leave it
+  out
 - raw ROI spectra remain the scientific truth; ROI-local reference snapshots preserve the sensor-row calibration context needed to transform those raw spectra reproducibly
 - ROI spectra persist in their source dtype: uint16 for raw DN sources,
   float32 for precalibrated floating sources; float spectra must never be
@@ -331,7 +346,8 @@ When a model run is created:
 
 1. choose one `TargetDefinition`
 2. choose included ROIs
-3. filter to ROIs that have an assignment for that target
+3. filter to ROIs that have an assignment for that target and whose `use`
+   is `training`
 4. build `X` from pixel-level raw ROI spectra
 5. build `Y` by repeating the selected ROI-level target assignment across those ROI pixels
 6. build grouping metadata from `roi_id`
@@ -349,6 +365,7 @@ v3 rule:
 The viewer edits target values in an ROI table:
 
 - one row per ROI, showing its data file, name and pixel count
+- a "Use" column, training or prediction, switched in place (`save_roi_use`)
 - a "Sample" column with the ROI's sample label; typing a label sets it
   when the cell is left, clearing the cell removes it, and pasting a column
   fills consecutive rows (labels are text, so any text is accepted;

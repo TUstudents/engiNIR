@@ -154,6 +154,13 @@ and writes nothing they would reject.
   registered, the prediction not stored) and logs one entry
   (`prediction-runtime-contract_v3.md`, Result Handling). Persisting a
   prediction is a low-level operation (`enginir.io.project_store`)
+- `model.predict_rois(rois=None, *, exclude_dmodx=None)` predicts the
+  prediction ROIs (all, or the given ones) from the project file alone and
+  returns per-ROI results (`prediction-runtime-contract_v3.md`, Prediction
+  ROIs); `exclude_dmodx` a level, `False` for none, `None` the model's own
+  setting. `roi_prediction_statistics(...)` recalculates them for another
+  exclusion without predicting again. `project.set_use(roi, use)` marks an
+  ROI; `scan.add_roi(..., use="prediction")` creates one
 - read access: `project.datasets`, `project.rois`, `project.targets`,
   `project.models`, `project.predictions`, keyed by name (datasets by path,
   predictions by id; `project.predictions` lists only predictions persisted
@@ -272,7 +279,10 @@ and writes nothing they would reject.
 - **ROI**: `frames` and `rows` are inclusive `(first, last)` index ranges, the
   `spatial_bounds` convention; spectra, dark/white reference pixels and
   provenance are taken from the dataset and its active calibration
-- **Sample set**: `fit` builds it from every ROI with a value for the target
+- **Sample set**: `fit` (and `propose_bands`) builds it from every training
+  ROI with a value for the target (prediction ROIs are never included; with
+  only prediction ROIs valued, the fit is refused saying how many were left
+  out)
   (`build_sample_set`) and reuses an existing sample set with the same ROIs,
   target and recipe
 - **Recipe**: stored under an id derived from its content, so identical

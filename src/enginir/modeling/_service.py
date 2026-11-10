@@ -175,8 +175,18 @@ def plan_sample_set(
         If an ROI id is unknown or repeated, no selected ROI has a target
         value, or the ROIs have different wavelength axes.
     """
-    selected = list(rois) if roi_ids is None else [str(roi_id) for roi_id in roi_ids]
+    explicit = roi_ids is not None
+    selected = ([roi_id for roi_id, roi in rois.items() if roi.use != "prediction"]
+                if roi_ids is None else [str(roi_id) for roi_id in roi_ids])
+    left_out = 0 if explicit else sum(
+        1 for roi_id, roi in rois.items()
+        if roi.use == "prediction" and (roi_id, target_id) in target_assignments)
     if not selected:
+        if left_out:
+            log_and_raise("No training ROI has a value for target '{}' ({} prediction ROI(s) "
+                          "with a value left out)", target_id, left_out)
+        if not explicit and rois:
+            log_and_raise("Every ROI is a prediction ROI; a model needs training ROIs")
         log_and_raise("No ROIs selected for the sample set")
     repeated = sorted(roi_id for roi_id, count in Counter(selected).items() if count > 1)
     if repeated:
@@ -191,7 +201,14 @@ def plan_sample_set(
         else:
             unlabelled.append(roi_id)
     if not labelled:
+        if left_out:
+            log_and_raise("No training ROI has a value for target '{}' ({} prediction ROI(s) "
+                          "with a value left out)", target_id, left_out)
         log_and_raise("No selected ROI has a value for target '{}'", target_id)
+    switched = [roi.name for roi in labelled if roi.use == "prediction"]
+    if explicit and switched:  # a stored sample set keeps its ROIs (sample-set contract §1)
+        logger.warning("ROI(s) of the stored selection are now prediction ROIs and are used "
+                       "as stored: {}", switched)
     if unlabelled:
         logger.warning("Skipping {} ROI(s) without a value for target '{}': {}",
                        len(unlabelled), target_id, unlabelled)
@@ -793,7 +810,8 @@ def predicted_fold_warnings(*, roi_ids: Sequence[str], target_id: str,
 
     spec, _requested = resolve_fit_spec(cv, fit_spec)
     roi_ids = [roi_id for roi_id in roi_ids
-               if (roi_id, target_id) in target_assignments and roi_id in rois]
+               if (roi_id, target_id) in target_assignments and roi_id in rois
+               and rois[roi_id].use != "prediction"]
     if len(roi_ids) < 2:
         return []
     subset: Any = SimpleNamespace(roi_ids=roi_ids, target_id=target_id,

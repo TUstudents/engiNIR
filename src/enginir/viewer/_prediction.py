@@ -2,51 +2,53 @@
 
 from __future__ import annotations
 
-from threading import Event
+from collections.abc import Callable
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.colorbar import Colorbar
+from matplotlib import colormaps
 from matplotlib.colors import ListedColormap
 from matplotlib.figure import Figure
+from matplotlib.patches import Rectangle
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
 from PyQt6.QtGui import QStandardItemModel
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
-    QDialogButtonBox,
     QDoubleSpinBox,
-    QFileDialog,
-    QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QMessageBox,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from .._checks import log_and_raise
-from .._workflow import resolve_dataset, resolve_prediction_calibration
 from .._logging import get_logger
 from ..io import load_spectra
 from ..prediction import (
     PredictionProgressEvent,
     PredictionResult,
+    RoiPrediction,
+    RoiPredictionSummary,
+    predict_rois,
     predict_with_model_run,
     preflight_prediction,
+    roi_prediction_statistics,
 )
-from ..project import CalibrationSpec, check_calibration_signal_domain_compatibility
+from ..preprocessing import PreprocessingRecipe
+from ..project import CalibrationSpec
+from ._predict_dialogs import ModelChoice, PredictMapDialog, PredictRoisDialog
 from ._jobs import BackgroundWorker, BusyStatusWidget, start_background_job
 from ._state import ProjectState
-from ._theme import panel_colors, secondary_text_style
-from ..project._ids import now_iso
+from ._theme import GUIDE_COLOR, panel_colors, secondary_text_style
 from ._plot_panel import PlotColumn, PlotSpec, PlotTable, draw_placeholder, print_copy
 from ._plot_registry import register_plot
 from ._ui_helpers import LayoutState, maybe_tight_layout, style_axes
@@ -75,212 +77,33 @@ def _array_payload_fingerprint(value: Any) -> tuple[Any, ...]:
     )
 
 
-def _load_prediction_metadata(data_path: str) -> Any | None:
-    """Load dataset metadata cheaply, or return None when only a full load works.
-
-    Formats without header-only support defer the full load, dataset/calibration
-    resolution, and preflight to the background prediction job so the UI thread
-    never blocks on a large cube read.
-    """
-    try:
-        return load_spectra(data_path, header_only=True)
-    except TypeError:
-        logger.warning(
-            "Loader for {} does not support header-only metadata; deferring full "
-            "load and preflight to the prediction job",
-            data_path,
-        )
-        return None
+#: Colours of predictions below and above the map's colour range.
+_BELOW_RANGE, _ABOVE_RANGE = "#4cc3d9", "#ff5f7e"
 
 
-def _resolve_prediction_target(
-    context: Any,
-    *,
-    data_path: str,
-    spectral_data: Any,
-    dataset_id: str | None,
-    calibration: CalibrationSpec | None,
-    default_calibration: CalibrationSpec | None,
-) -> tuple[Any, CalibrationSpec, bool]:
-    """Resolve the prediction dataset and applied calibration from one snapshot.
+def _ordinal(number: int) -> str:
+    """1st, 2nd, 3rd, 4th, 11th, 12th, 13th, 21st ..."""
+    if 10 <= number % 100 <= 20:
+        return f"{number}th"
+    suffix = {1: "st", 2: "nd", 3: "rd"}.get(number % 10, "th")
+    return f"{number}{suffix}"
 
-    The dataset's active calibration is used unless ``calibration`` is given;
-    a dataset without one gets ``default_calibration``.
-    """
-    dataset, _ = resolve_dataset(context.datasets, data_path, spectral_data,
-                                 dataset_id=dataset_id)
-    calibration_input = calibration
-    if calibration_input is None:
-        active_id = context.active_calibration_ids.get(dataset.dataset_id)
-        if not active_id or active_id not in context.calibrations:
-            calibration_input = default_calibration
-    resolved_calibration, calibration_is_new = resolve_prediction_calibration(
-        dataset, context.calibrations, context.active_calibration_ids, calibration_input)
-    return dataset, resolved_calibration, calibration_is_new
+
+def describe_calibration(calibration: CalibrationSpec) -> str:
+    """A calibration in words, e.g. "detector levels 128 / 3500" or "dark/white references"."""
+    if calibration.mode == "raw_dn":
+        return "raw counts"
+    if calibration.mode == "precalibrated_import":
+        return f"calibrated {calibration.output_signal_unit.lower()} values"
+    if calibration.dark_ref_data is not None or calibration.dark_ref_source is not None:
+        return "dark/white references"
+    if calibration.black_level is not None and calibration.white_level is not None:
+        return f"detector levels {calibration.black_level:g} / {calibration.white_level:g}"
+    return "references"
 
 
 class _PredictionProgressRelay(QObject):
     progressed = pyqtSignal(object)
-
-
-class PredictionRunDialog(QDialog):
-    """Dialog for selecting one model run and dataset for prediction."""
-
-    def __init__(
-        self,
-        model_run_ids: list[str],
-        *,
-        default_model_run_id: str | None,
-        parent: QWidget | None = None,
-    ) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("Run Prediction")
-
-        layout = QFormLayout(self)
-
-        self._model_combo = QComboBox()
-        for model_run_id in model_run_ids:
-            self._model_combo.addItem(model_run_id, model_run_id)
-        layout.addRow("Model run:", self._model_combo)
-
-        path_row = QHBoxLayout()
-        self._path_edit = QLineEdit()
-        self._path_edit.setPlaceholderText("path/to/dataset")
-        btn_browse = QToolButton()
-        btn_browse.setText("Browse...")
-        btn_browse.clicked.connect(self._browse)
-        path_row.addWidget(self._path_edit)
-        path_row.addWidget(btn_browse)
-        layout.addRow("Dataset:", path_row)
-
-        self._dataset_id_edit = QLineEdit()
-        self._dataset_id_edit.setPlaceholderText("optional")
-        layout.addRow("Dataset id:", self._dataset_id_edit)
-
-        self._explicit_calibration = QCheckBox("Override existing calibration")
-        self._explicit_calibration.toggled.connect(self._sync_calibration_fields)
-        layout.addRow(self._explicit_calibration)
-
-        self._mode_combo = QComboBox()
-        self._mode_combo.addItems(["dark_white_reference", "precalibrated_import", "raw_dn"])
-        self._mode_combo.currentTextChanged.connect(self._sync_calibration_fields)
-        layout.addRow("Mode:", self._mode_combo)
-
-        self._output_unit_combo = QComboBox()
-        self._output_unit_combo.addItems(["Reflectance", "Absorbance", "DN"])
-        layout.addRow("Output unit:", self._output_unit_combo)
-
-        self._black_level_spin = QDoubleSpinBox()
-        self._black_level_spin.setRange(-1e9, 1e9)
-        self._black_level_spin.setValue(128.0)
-        layout.addRow("Black level:", self._black_level_spin)
-
-        self._white_level_spin = QDoubleSpinBox()
-        self._white_level_spin.setRange(-1e9, 1e9)
-        self._white_level_spin.setValue(3500.0)
-        layout.addRow("White level:", self._white_level_spin)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self._on_accept)
-        buttons.rejected.connect(self.reject)
-        layout.addRow(buttons)
-
-        if default_model_run_id is not None:
-            current_index = self._model_combo.findData(default_model_run_id)
-            if current_index >= 0:
-                self._model_combo.setCurrentIndex(current_index)
-        self._sync_calibration_fields()
-
-    def _browse(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Open Prediction Dataset", "", "All files (*.*)"
-        )
-        if path:
-            self._path_edit.setText(path)
-
-    def _sync_calibration_fields(self, _text: str | None = None) -> None:
-        mode = self._mode_combo.currentText()
-        for widget in (self._mode_combo, self._output_unit_combo):
-            widget.setEnabled(True)
-        level_enabled = mode == "dark_white_reference"
-        self._black_level_spin.setEnabled(level_enabled)
-        self._white_level_spin.setEnabled(level_enabled)
-
-    def _on_accept(self) -> None:
-        if not self.data_path:
-            QMessageBox.warning(self, "Validation", "Dataset path is required.")
-            return
-        mode = self._mode_combo.currentText()
-        output_unit = self._output_unit_combo.currentText()
-        if (
-            mode == "dark_white_reference"
-            and self._white_level_spin.value() == self._black_level_spin.value()
-        ):
-            QMessageBox.warning(self, "Validation", "Black and white levels must differ.")
-            return
-        if mode == "raw_dn" and output_unit != "DN":
-            QMessageBox.warning(self, "Validation", "Mode 'raw_dn' requires output unit 'DN'.")
-            return
-        if mode in {"dark_white_reference", "precalibrated_import"} and output_unit == "DN":
-            QMessageBox.warning(
-                self,
-                "Validation",
-                f"Mode '{mode}' requires output unit 'Reflectance' or 'Absorbance'.",
-            )
-            return
-        self.accept()
-
-    @property
-    def model_run_id(self) -> str:
-        """Return the selected model-run id."""
-        return str(self._model_combo.currentData())
-
-    @property
-    def data_path(self) -> str:
-        """Return the prediction dataset path entered by the user."""
-        return self._path_edit.text().strip()
-
-    @property
-    def dataset_id(self) -> str | None:
-        """Return the optional dataset id override for the prediction dataset."""
-        text = self._dataset_id_edit.text().strip()
-        return text or None
-
-    @property
-    def calibration(self) -> CalibrationSpec | None:
-        """Return an explicit calibration override, or ``None`` to reuse defaults."""
-        if not self._explicit_calibration.isChecked():
-            return None
-        return self.default_calibration
-
-    @property
-    def default_calibration(self) -> CalibrationSpec:
-        """Return a provisional calibration built from the dialog fields."""
-        return self._calibration_from_fields()
-
-    def _calibration_from_fields(self) -> CalibrationSpec:
-        mode = self._mode_combo.currentText()
-        output_unit = self._output_unit_combo.currentText()
-        black_level = None
-        white_level = None
-        if mode == "dark_white_reference":
-            black_level = float(self._black_level_spin.value())
-            white_level = float(self._white_level_spin.value())
-        return CalibrationSpec(
-            calibration_id="",
-            dataset_id="",
-            mode=mode,
-            dark_ref_source=None,
-            white_ref_source=None,
-            dark_ref_data=None,
-            white_ref_data=None,
-            black_level=black_level,
-            white_level=white_level,
-            output_signal_unit=output_unit,
-            created_at=now_iso(),
-        )
 
 
 #: Pixels of the prediction-map preview (subsampled with one step on both axes).
@@ -358,6 +181,9 @@ class PredictionMapWidget(QWidget):
                                      "0.99 limit marked")
         self._layer_combo.currentIndexChanged.connect(self._on_output_changed)
         self._overlay: Any = None
+        #: Colour limits the user set (⋯ menu); ``None``: the training range of the target.
+        self.user_limits: tuple[float, float] | None = None
+        self._shown_limits: tuple[float, float] | None = None
         # Drives pan and zoom from the plot header; the toolbar itself is not shown.
         self._toolbar = NavigationToolbar(self._canvas, self)
         self._toolbar.hide()
@@ -477,14 +303,36 @@ class PredictionMapWidget(QWidget):
         self._ax.clear()
         style_axes(self._ax)
         # Each shown pixel covers ``step`` true frames and rows, starting at its index * step.
+        extent = (-0.5, arr.shape[1] * step - 0.5, arr.shape[0] * step - 0.5, -0.5)
+        limits = None
+        cmap: Any = "viridis" if layer == "Prediction" else "magma"
+        if layer == "Prediction":
+            # The training range (or the user's limits); values outside get their own colours.
+            limits = self.user_limits or payload.get("colour_range")
+            if limits is not None and limits[1] > limits[0]:
+                cmap = colormaps["viridis"].with_extremes(under=_BELOW_RANGE, over=_ABOVE_RANGE)
+            else:
+                limits = None
+        self._shown_limits = limits
         image = self._ax.imshow(
-            arr,
-            cmap="viridis" if layer == "Prediction" else "magma",
-            origin="upper",
-            aspect="auto",
-            interpolation="nearest",
-            extent=(-0.5, arr.shape[1] * step - 0.5, arr.shape[0] * step - 0.5, -0.5),
-        )
+            arr, cmap=cmap, origin="upper", aspect="auto", interpolation="nearest",
+            extent=extent, vmin=None if limits is None else float(limits[0]),
+            vmax=None if limits is None else float(limits[1]))
+        removed_limit = payload.get("removed_limit")
+        dmodx = (payload.get("layers") or {}).get("DModX")
+        if layer == "Prediction" and removed_limit is not None and dmodx is not None:
+            removed = self._display_spatial_map(dmodx)
+            if removed is not None and removed.shape == arr.shape:
+                self._ax.imshow(np.ma.masked_where(~(removed > removed_limit),
+                                                   np.ones_like(arr)),
+                                cmap=ListedColormap([GUIDE_COLOR]), alpha=0.85, origin="upper",
+                                aspect="auto", interpolation="nearest", extent=extent)
+        for (f0, f1, r0, r1), label in payload.get("roi_overlays") or ():
+            self._ax.add_patch(Rectangle((f0 - 0.5, r0 - 0.5), f1 - f0 + 1, r1 - r0 + 1,
+                                         fill=False, edgecolor=colors["fg"], linewidth=1.0,
+                                         linestyle="--"))
+            self._ax.text(f0, r0 - 1, label, fontsize=7, color=colors["fg"], va="bottom",
+                          clip_on=True)
         self._current_display_map = arr
         self._step = step
         self._rendered_output_index = output_index
@@ -501,17 +349,18 @@ class PredictionMapWidget(QWidget):
         self._set_title(f"{layer} Map{unit_suffix}")
         self._ax.set_xlabel("Frame", color=colors["fg"])
         self._ax.set_ylabel("Row", color=colors["fg"])
-        self._colorbar = self._fig.colorbar(image, ax=self._ax, fraction=0.046, pad=0.04)
+        self._colorbar = self._fig.colorbar(image, ax=self._ax, fraction=0.046, pad=0.04,
+                                            extend="both" if limits is not None else "neither")
         self._style_colorbar(unit_suffix=unit_suffix)
 
         finite = arr[np.isfinite(arr)]
-        preview = f" | preview every {step}th frame and row" if step > 1 else ""
+        preview = f" | preview: every {_ordinal(step)} frame and row" if step > 1 else ""
         if finite.size == 0:
             self._stats_label.setText(f"Map stats: no finite values.{preview}")
         else:
             self._stats_label.setText(
-                "Map stats: "
-                f"shape={arr.shape[0]} x {arr.shape[1]} | "
+                ("Map stats (preview): " if step > 1 else "Map stats: ")
+                + f"{arr.shape[1]} frames x {arr.shape[0]} rows shown | "
                 f"min={float(np.min(finite)):.4g} | "
                 f"mean={float(np.mean(finite)):.4g} | "
                 f"max={float(np.max(finite)):.4g}{self._limit_text(payload, layer)}{preview}"
@@ -602,6 +451,13 @@ class PredictionMapWidget(QWidget):
                          column_index=np.arange(arr.shape[1]) * self._step,
                          metadata=self.plot_table_metadata())
 
+    def set_user_limits(self, limits: tuple[float, float] | None) -> None:
+        """Colour limits of the prediction layer; ``None`` returns to the training range."""
+        self.user_limits = limits
+        payload, self._last_payload = self._last_payload, None  # force a redraw
+        if payload is not None:
+            self.update_data(payload, empty_reason=self._last_empty_reason or "")
+
     def plot_table_metadata(self) -> dict[str, Any]:
         payload = self._last_payload or {}
         metadata: dict[str, Any] = {"layer": self.layer, "output": self._output_name(),
@@ -609,6 +465,10 @@ class PredictionMapWidget(QWidget):
         limit = self._layer_limit(payload, self.layer)
         if limit is not None:
             metadata["limit_099"] = f"{limit:.6g}"
+        if self.layer == "Prediction" and self._shown_limits is not None:
+            low, high = self._shown_limits
+            metadata["colour_scale"] = (f"{low:.6g} .. {high:.6g} "
+                                        f"({'user limits' if self.user_limits else 'training range'})")
         if self._step > 1:
             metadata["preview_step"] = self._step
             full_shape = payload.get("full_map_shape")
@@ -778,7 +638,10 @@ PREDICTION_HISTOGRAM = register_plot(PlotSpec(
 
 
 class PredictionView(QWidget):
-    """Prediction controls for running saved model runs on new datasets."""
+    """Predict ROIs and Predict map: saved models on prediction ROIs and project data files."""
+
+    #: The ROI results changed (a prediction, or another exclusion).
+    results_changed = pyqtSignal()
 
     def __init__(
         self,
@@ -795,8 +658,14 @@ class PredictionView(QWidget):
         self._job_cancel_event: Event | None = None
         self._job_project_path: str | None = None
         self._last_prediction_phase: str | None = None
-        self._cached_workspace_visual_token: str | None = None
+        self._cached_workspace_visual_token: Any = None
         self._cached_workspace_visual_payload: dict[str, Any] | None = None
+        self._roi_predictions: list[RoiPrediction] = []
+        self._roi_summaries: list[RoiPredictionSummary] = []
+        self._roi_scope = ""
+        self._results_revision = 0
+        self._roi_payload_cache: tuple[Any, dict[str, Any]] | None = None
+        self._data_file_adder: Callable[[str], str | None] | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -807,6 +676,8 @@ class PredictionView(QWidget):
         self.project_state.predictions_changed.connect(self._update_status)
         self.project_state.predictions_changed.connect(self._invalidate_prediction_workspace_cache)
         self.project_state.prediction_completed.connect(self._on_prediction_completed)
+        # A changed reference value changes residuals and RMSEP.
+        self.project_state.target_assignments_changed.connect(self._recompute_if_results)
         self._update_status()
 
     def _build_group(self) -> QGroupBox:
@@ -824,8 +695,17 @@ class PredictionView(QWidget):
         layout.addWidget(self._readiness_status)
 
         button_row = QHBoxLayout()
+        self._btn_predict_rois = QToolButton()
+        self._btn_predict_rois.setText("Predict ROIs...")
+        self._btn_predict_rois.setToolTip(
+            "Predict the prediction ROIs (tablets) with one or more models, from the project "
+            "file alone; one result per ROI")
+        self._btn_predict_rois.clicked.connect(self.predict_rois_clicked)
+        button_row.addWidget(self._btn_predict_rois)
         self._btn_predict = QToolButton()
-        self._btn_predict.setText("Predict...")
+        self._btn_predict.setText("Predict map...")
+        self._btn_predict.setToolTip("Predict every pixel of a project data file with one model, "
+                                     "with the results of its prediction ROIs")
         self._btn_predict.clicked.connect(self.predict_btn_clicked)
         button_row.addWidget(self._btn_predict)
         self._btn_cancel = QToolButton()
@@ -836,72 +716,300 @@ class PredictionView(QWidget):
         button_row.addStretch(1)
         layout.addLayout(button_row)
 
+        exclusion_row = QHBoxLayout()
+        self._exclusion_check = QCheckBox("Remove pixels above the DModX limit")
+        self._exclusion_check.setToolTip(
+            "Leave pixels outside the model (glare, exposed substrate, direct reflections) "
+            "out of every ROI statistic; recalculated without predicting again")
+        self._exclusion_level = QDoubleSpinBox()
+        self._exclusion_level.setRange(0.5, 0.999)
+        self._exclusion_level.setDecimals(3)
+        self._exclusion_level.setSingleStep(0.01)
+        self._exclusion_level.setValue(0.99)
+        self._exclusion_level.setPrefix("level ")
+        self._exclusion_check.toggled.connect(self._recompute_roi_results)
+        self._exclusion_level.valueChanged.connect(self._recompute_roi_results)
+        exclusion_row.addWidget(self._exclusion_check)
+        exclusion_row.addWidget(self._exclusion_level)
+        exclusion_row.addStretch(1)
+        layout.addLayout(exclusion_row)
+
         self._service_status = BusyStatusWidget(idle_text="Service: idle", parent=self)
         layout.addWidget(self._service_status)
         return box
 
-    def predict_btn_clicked(self) -> None:
+    # -- choices ----------------------------------------------------------
+
+    def _model_choices(self) -> list[ModelChoice]:
+        """The project's models by name, each with the chain a prediction applies."""
+        state = self.project_state
+        choices = []
+        for model_run_id, run in state.model_runs.items():
+            name = run.name or f"{run.model_type} model"
+            sample_set = state.sample_sets.get(run.sample_set_id)
+            domain = state.signal_domains.get(run.signal_domain_id)
+            recipe = "none"
+            if sample_set is not None and sample_set.preprocessing_recipe_id in state.recipes:
+                recipe = PreprocessingRecipe.from_dict(
+                    state.recipes[sample_set.preprocessing_recipe_id]).describe()
+            unit = "?" if domain is None else domain.required_signal_unit
+            chain = (f"the data file's calibration → {unit} → {recipe} → {name}; "
+                     f"trained with {self._training_calibration(run)}")
+            choices.append(ModelChoice(model_run_id, name, chain))
+        return choices
+
+    def _training_calibration(self, run: Any) -> str:
+        """How the model's training ROIs were calibrated, in words."""
+        state = self.project_state
+        sample_set = state.sample_sets.get(run.sample_set_id)
+        texts = {describe_calibration(state.calibrations[state.rois[roi_id].calibration_id])
+                 for roi_id in (sample_set.roi_ids if sample_set is not None else ())
+                 if roi_id in state.rois
+                 and state.rois[roi_id].calibration_id in state.calibrations}
+        return " / ".join(sorted(texts)) or "unknown calibration"
+
+    def _default_model_id(self) -> str | None:
+        active = self.project_state.active_model_name
+        if active in self.project_state.model_runs:
+            return active
+        return next(reversed(self.project_state.model_runs), None)
+
+    def _require_models(self) -> bool:
         if self._job_thread is not None:
-            return
+            return False
         if self.project_state.project_path is None:
-            QMessageBox.warning(
-                self, "No project open", "Open a project before running prediction."
-            )
-            return
+            QMessageBox.warning(self, "No project open", "Open a project before predicting.")
+            return False
         if not self.project_state.model_runs:
-            QMessageBox.information(self, "No models", "Fit or load a model run before prediction.")
+            QMessageBox.information(self, "No models", "Fit a model before predicting.")
+            return False
+        return True
+
+    # -- Predict ROIs -------------------------------------------------------
+
+    def predict_rois_clicked(self) -> None:
+        """Predict the prediction ROIs with the chosen models (contract, Prediction ROIs)."""
+        if not self._require_models():
             return
-        dlg = PredictionRunDialog(
-            list(self.project_state.model_runs),
-            default_model_run_id=self.project_state.active_model_name,
-            parent=self,
-        )
-        if dlg.exec() != QDialog.DialogCode.Accepted:
+        state = self.project_state
+        counts: dict[str, int] = {}
+        for roi in state.rois.values():
+            if roi.use == "prediction":
+                counts[roi.dataset_id] = counts.get(roi.dataset_id, 0) + 1
+        files = sorted(((dataset_id, state.data_file_label(dataset_id), count)
+                        for dataset_id, count in counts.items()),
+                       key=lambda item: item[1].lower())
+        dialog = PredictRoisDialog(self._model_choices(), files,
+                                   default_model_id=self._default_model_id(), parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
+        model_ids, dataset_id = dialog.model_ids, dialog.dataset_id
+        rois = [roi for roi in state.rois.values() if roi.use == "prediction"
+                and (dataset_id is None or roi.dataset_id == dataset_id)]
+        self._start_roi_job(model_ids, rois, scope=(
+            "all data files" if dataset_id is None else state.data_file_label(dataset_id)))
+
+    def _start_roi_job(self, model_ids: list[str], rois: list[Any], *, scope: str) -> None:
+        state = self.project_state
+        project_path = str(state.project_path)
+        cancel_event = Event()
+        self._job_cancel_event = cancel_event
+        snapshot = {"datasets": dict(state.datasets), "calibrations": dict(state.calibrations),
+                    "signal_domains": dict(state.signal_domains),
+                    "recipes": dict(state.recipes), "sample_sets": dict(state.sample_sets)}
+        runs = [(state.model_runs[model_id], self._model_name(model_id))
+                for model_id in model_ids]
+
+        def job() -> list[RoiPrediction]:
+            return [predict_rois(project_path=project_path, model_run=run, model_name=name,
+                                 rois=rois, cancelled=cancel_event.is_set, **snapshot)
+                    for run, name in runs]
+
+        def done(predictions: list[RoiPrediction]) -> None:
+            if cancel_event.is_set():
+                self._service_status.set_idle("Service: ROI prediction cancelled")
+                return
+            self._set_roi_predictions(predictions, scope=scope)
+            refused = sum(len(prediction.refused) for prediction in predictions)
+            self._service_status.set_idle(
+                f"Service: {len(rois)} ROI(s) predicted with {len(predictions)} model(s) "
+                f"(not stored){f'; {refused} refused' if refused else ''}")
+            for prediction in predictions:
+                logger.info("Predicted {} ROI(s) of {} with model '{}' ({}); {} refused",
+                            len(prediction.pixels), project_path, prediction.model_name,
+                            prediction.model_run_id, len(prediction.refused))
+
+        self._job_project_path = project_path
+        self._set_busy(True, f"Predicting {len(rois)} ROI(s)...")
+        self._job_thread, self._job_worker, self._job_relay = start_background_job(
+            owner=self, fn=job, on_success=done,
+            on_error=lambda msg: self._on_prediction_error("ROI prediction failed", msg),
+            on_finished=self._clear_job)
+
+    def _set_roi_predictions(self, predictions: list[RoiPrediction], *, scope: str) -> None:
+        """Keep the ROI predictions of this session; the exclusion starts at the model's own."""
+        self._roi_predictions = predictions
+        self._roi_scope = scope
+        default = next((p.default_exclusion for p in predictions
+                        if p.default_exclusion is not None), None)
+        has_projection = any(p.limit_args is not None for p in predictions)
+        for widget in (self._exclusion_check, self._exclusion_level):
+            widget.blockSignals(True)
+        self._exclusion_check.setChecked(default is not None)
+        self._exclusion_level.setValue(0.99 if default is None else default)
+        self._exclusion_check.setEnabled(has_projection)
+        self._exclusion_check.setToolTip(
+            self._exclusion_check.toolTip() if has_projection
+            else "This model has no projection data (fitted before 1.3): refit it to remove "
+                 "pixels by DModX")
+        for widget in (self._exclusion_check, self._exclusion_level):
+            widget.blockSignals(False)
+        self._recompute_roi_results()
+
+    def _recompute_roi_results(self, *_args: Any) -> None:
+        """Per-ROI statistics for the current exclusion, without predicting again."""
+        level = self._exclusion_level.value() if self._exclusion_check.isChecked() else None
+        self._exclusion_level.setEnabled(self._exclusion_check.isChecked())
+        self._roi_summaries = [roi_prediction_statistics(
+            prediction, target_assignments=self.project_state.target_assignments,
+            exclude_dmodx=level) for prediction in self._roi_predictions]
+        self._results_revision += 1
+        self.results_changed.emit()
+
+    def _recompute_if_results(self, *_args: Any) -> None:
+        if self._roi_predictions:
+            self._recompute_roi_results()
+
+    def _model_name(self, model_run_id: str) -> str:
+        run = self.project_state.model_runs.get(model_run_id)
+        return model_run_id if run is None else (run.name or f"{run.model_type} model")
+
+    def roi_results_payload(self) -> dict[str, Any]:
+        """The per-ROI plot's payload: one row per ROI and model (contract, Prediction ROIs).
+
+        The same object until the results, the exclusion or names change, so a refresh
+        of the workspace does not redraw the plot.
+        """
+        state = self.project_state
+        token = (self._results_revision, tuple((roi_id, roi.name)
+                                               for roi_id, roi in state.rois.items()))
+        if self._roi_payload_cache is not None and self._roi_payload_cache[0] == token:
+            return self._roi_payload_cache[1]
+        payload = self._build_roi_results_payload()
+        self._roi_payload_cache = (token, payload)
+        return payload
+
+    def _build_roi_results_payload(self) -> dict[str, Any]:
+        state = self.project_state
+        rows: list[dict[str, Any]] = []
+        rmsep: dict[str, str] = {}
+        for prediction, summary in zip(self._roi_predictions, self._roi_summaries, strict=True):
+            for row in summary.rois:
+                roi = state.rois.get(row.roi_id)
+                rows.append({
+                    "roi": row.roi_id if roi is None else roi.name, "roi_id": row.roi_id,
+                    "data_file": "" if roi is None else state.data_file_label(roi.dataset_id),
+                    "model": prediction.model_name, "model_run_id": prediction.model_run_id,
+                    "pixels": row.n_pixels, "removed": row.n_removed, "mean": row.mean,
+                    "median": row.median, "sd": row.sd, "p05": row.p05, "p95": row.p95,
+                    "mean_dmodx": row.mean_dmodx, "mean_t2": row.mean_t2,
+                    "share_above_dcrit": row.share_above_dcrit,
+                    "share_above_t2crit": row.share_above_t2crit,
+                    "reference": row.reference, "residual": row.residual})
+            if summary.rmsep is not None:
+                rmsep[prediction.model_name] = (f"RMSEP {summary.rmsep:.4g}, bias "
+                                                f"{summary.bias:.4g}, n {summary.n_reference}")
+        level = self._exclusion_level.value() if self._exclusion_check.isChecked() else None
+        first = self._roi_predictions[0] if self._roi_predictions else None
+        unit = ""
+        if first is not None and first.target_id in state.targets:
+            unit = state.targets[first.target_id].unit
+        return {"roi_rows": rows, "target_unit": unit, "rmsep": rmsep,
+                "training_share": None if first is None else first.training_share_range,
+                "exclusion_text": ("" if not rows else "all pixels" if level is None
+                                   else f"pixels above DModX {level:g} removed"),
+                "message": (None if self._roi_predictions or not state.model_runs else
+                            "Predict ROIs to see one result per tablet.")}
+
+    def roi_summary_lines(self) -> list[str]:
+        """Plain lines for the summary panel: scope, refused ROIs, RMSEP per model."""
+        if not self._roi_predictions:
+            return []
+        lines = [f"{sum(len(p.pixels) for p in self._roi_predictions[:1])} ROI(s) of "
+                 f"{self._roi_scope}"]
+        for prediction, summary in zip(self._roi_predictions, self._roi_summaries, strict=True):
+            text = prediction.model_name
+            if summary.rmsep is not None:
+                text += (f": RMSEP {summary.rmsep:.3g}, bias {summary.bias:.3g} "
+                         f"(n {summary.n_reference})")
+            if prediction.refused:
+                text += f"; {len(prediction.refused)} ROI(s) refused"
+            lines.append(text)
+        for prediction in self._roi_predictions[:1]:
+            lines += [f"Wavelengths of {self.project_state.data_file_label(d)}: {w}"
+                      for d, w in prediction.wavelength_warnings.items()]
+        return lines
+
+    # -- Predict map --------------------------------------------------------
+
+    def set_data_file_adder(self, adder: Callable[[str], str | None]) -> None:
+        """How Predict map adds a data file (the window's Add data file dialog)."""
+        self._data_file_adder = adder
+
+    def _map_check(self, model_run_id: str, dataset_id: str) -> str | None:
+        """Why ``dataset_id`` cannot be predicted with the model, or ``None``."""
+        state = self.project_state
+        dataset = state.datasets.get(dataset_id)
+        calibration = state.active_calibration(dataset_id)
+        if dataset is None or calibration is None:
+            return "the data file has no calibration in the project"
+        if not Path(dataset.source_path).exists():
+            return f"{dataset.source_path} was not found (Locate file... in Explore)"
         try:
-            context = self.project_state.build_prediction_job_context(model_run_id=dlg.model_run_id)
+            context = state.build_prediction_job_context(model_run_id=model_run_id)
+            preflight_prediction(project_path=context.project_path, model_run=context.model_run,
+                                 signal_domain=context.signal_domain, recipe=context.recipe,
+                                 dataset=dataset, calibration=calibration,
+                                 model_registry=context.model_registry, prefer_saved_model=True)
+        except Exception as exc:  # every refusal is shown, not raised
+            return str(exc)
+        return None
+
+    def predict_btn_clicked(self) -> None:
+        """Predict every pixel of a project data file, and its prediction ROIs."""
+        if not self._require_models():
+            return
+        state = self.project_state
+        files = sorted(((dataset_id, state.data_file_label(dataset_id))
+                        for dataset_id in state.datasets), key=lambda item: item[1].lower())
+        adder = self._data_file_adder
+        dialog = PredictMapDialog(
+            self._model_choices(), files, check=self._map_check,
+            add_data_file=None if adder is None else adder, file_label=state.data_file_label,
+            default_model_id=self._default_model_id(), parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted or dialog.dataset_id is None:
+            return
+        self._start_map_job(dialog.model_id, dialog.dataset_id)
+
+    def _start_map_job(self, model_run_id: str, dataset_id: str) -> None:
+        state = self.project_state
+        try:
+            context = state.build_prediction_job_context(model_run_id=model_run_id)
         except Exception as exc:
             logger.error("Prediction failed while building job context: {}", exc)
             QMessageBox.warning(self, "Prediction failed", str(exc))
             return
-
-        data_path = dlg.data_path
-        calibration = dlg.calibration
-        default_calibration = dlg.default_calibration
-        dataset_id = dlg.dataset_id
-        dataset: Any = None
-        resolved_calibration: CalibrationSpec | None = None
-        try:
-            if calibration is not None:
-                check_calibration_signal_domain_compatibility(
-                    calibration=calibration,
-                    signal_domain=context.signal_domain,
-                )
-            spectral_data = _load_prediction_metadata(data_path)
-            if spectral_data is not None:
-                dataset, resolved_calibration, _ = _resolve_prediction_target(
-                    context,
-                    data_path=data_path,
-                    spectral_data=spectral_data,
-                    dataset_id=dataset_id,
-                    calibration=calibration,
-                    default_calibration=default_calibration,
-                )
-                preflight_prediction(
-                    project_path=context.project_path,
-                    model_run=context.model_run,
-                    signal_domain=context.signal_domain,
-                    recipe=context.recipe,
-                    dataset=dataset,
-                    calibration=resolved_calibration,
-                    model_registry=context.model_registry,
-                    prefer_saved_model=True,
-                )
-        except Exception as exc:
-            logger.error("Prediction failed during preflight: {}", exc)
-            QMessageBox.warning(self, "Prediction failed", str(exc))
+        dataset = state.datasets[dataset_id]
+        calibration = state.active_calibration(dataset_id)
+        if calibration is None:
+            QMessageBox.warning(self, "Prediction failed", "The data file has no calibration.")
             return
-
+        rois = [roi for roi in state.rois.values()
+                if roi.use == "prediction" and roi.dataset_id == dataset_id]
+        name = self._model_name(model_run_id)
+        snapshot = {"datasets": dict(state.datasets), "calibrations": dict(state.calibrations),
+                    "signal_domains": dict(state.signal_domains),
+                    "recipes": dict(state.recipes), "sample_sets": dict(state.sample_sets)}
         cancel_event = Event()
         self._job_cancel_event = cancel_event
         progress_relay = _PredictionProgressRelay(self)
@@ -911,49 +1019,36 @@ class PredictionView(QWidget):
         def emit_progress(event: PredictionProgressEvent) -> None:
             progress_relay.progressed.emit(event)
 
-        def job() -> PredictionResult:
-            # Nothing is written: the scan and its calibration stay in memory
-            # (prediction-runtime contract, Result Handling).
-            local_spectral = spectral_data
-            local_dataset = dataset
-            local_calibration = resolved_calibration
-            if local_spectral is None:
-                local_spectral = load_spectra(data_path)
-                local_dataset, local_calibration, _ = _resolve_prediction_target(
-                    context,
-                    data_path=data_path,
-                    spectral_data=local_spectral,
-                    dataset_id=dataset_id,
-                    calibration=calibration,
-                    default_calibration=default_calibration,
-                )
-            if local_dataset is None or local_calibration is None:
-                log_and_raise("Prediction target resolution produced no dataset/calibration")
-            return predict_with_model_run(
-                project_path=context.project_path,
-                model_run=context.model_run,
-                signal_domain=context.signal_domain,
-                recipe=context.recipe,
-                dataset=local_dataset,
-                calibration=local_calibration,
-                model_registry=context.model_registry,
-                data_path=data_path,
-                spectral_data=local_spectral,
+        def job() -> tuple[PredictionResult, RoiPrediction | None]:
+            # Nothing is written: the prediction stays in memory (Result Handling).
+            spectral_data = load_spectra(dataset.source_path)
+            result = predict_with_model_run(
+                project_path=context.project_path, model_run=context.model_run,
+                signal_domain=context.signal_domain, recipe=context.recipe, dataset=dataset,
+                calibration=calibration, model_registry=context.model_registry,
+                data_path=dataset.source_path, spectral_data=spectral_data,
                 preprocessing_recipe_id=context.preprocessing_recipe_id,
-                progress_callback=emit_progress,
-                cancel_callback=cancel_event.is_set,
-                prefer_saved_model=True,
-            )
+                progress_callback=emit_progress, cancel_callback=cancel_event.is_set,
+                prefer_saved_model=True)
+            # The ROI results come from the ROIs' stored pixels, as with Predict ROIs.
+            roi_prediction = None if not rois else predict_rois(
+                project_path=context.project_path, model_run=context.model_run,
+                model_name=name, rois=rois, **snapshot)
+            return result, roi_prediction
+
+        def done(outcome: tuple[PredictionResult, RoiPrediction | None]) -> None:
+            result, roi_prediction = outcome
+            self._on_prediction_success(result)
+            if roi_prediction is not None:
+                self._set_roi_predictions([roi_prediction],
+                                          scope=state.data_file_label(dataset_id))
 
         self._job_project_path = context.project_path
         self._set_busy(True, "Running prediction...")
         self._job_thread, self._job_worker, self._job_relay = start_background_job(
-            owner=self,
-            fn=job,
-            on_success=self._on_prediction_success,
+            owner=self, fn=job, on_success=done,
             on_error=lambda msg: self._on_prediction_error("Prediction failed", msg),
-            on_finished=self._clear_job,
-        )
+            on_finished=self._clear_job)
 
     def _update_status(self, _value: str | None = None) -> None:
         active_model = self.project_state.active_model_name
@@ -992,24 +1087,29 @@ class PredictionView(QWidget):
                     )
 
         model_text = "none"
+        recipe_text = "-"
         if model_run is not None:
-            model_text = f"{model_run.model_type} [{model_run.name or model_run.model_run_id}]"
+            model_text = self._model_name(model_run.model_run_id)
+            sample_set = self.project_state.sample_sets.get(model_run.sample_set_id)
+            if sample_set is not None and sample_set.preprocessing_recipe_id in \
+                    self.project_state.recipes:
+                recipe_text = PreprocessingRecipe.from_dict(
+                    self.project_state.recipes[sample_set.preprocessing_recipe_id]).describe()
 
         dataset_text = "none"
         calibration_text = "none"
         if result is not None:
-            dataset_text = Path(result.dataset.source_path).name or "none"
-            calibration = result.calibration
-            calibration_text = f"{calibration.mode} -> {calibration.output_signal_unit}"
+            dataset_text = (self.project_state.data_file_label(result.dataset.dataset_id)
+                            if result.dataset.dataset_id in self.project_state.datasets
+                            else Path(result.dataset.source_path).name or "none")
+            calibration_text = describe_calibration(result.calibration)
 
         format_text = "-"
         signal_text = "-"
         bands_text = "-"
         if signal_domain is not None:
             format_text = f"{signal_domain.input_format} | {signal_domain.source_modality}"
-            signal_text = (
-                f"{signal_domain.required_signal_unit} | {signal_domain.required_calibration_mode}"
-            )
+            signal_text = f"{signal_domain.required_signal_unit}, {recipe_text}"
             bands_text = str(signal_domain.n_bands)
 
         map_shape_text = "-"
@@ -1035,7 +1135,8 @@ class PredictionView(QWidget):
             "status": status_text,
             "readiness": readiness_text,
             "service": self._service_status.label.text(),
-            "prediction": "none" if run is None else run.prediction_run_id,
+            "prediction": "none" if result is None else f"map of {dataset_text}",
+            "rois": "\n".join(self.roi_summary_lines()) or "none",
             "model": model_text,
             "dataset": dataset_text,
             "calibration": calibration_text,
@@ -1080,7 +1181,8 @@ class PredictionView(QWidget):
             self._cached_workspace_visual_payload = None
             return None
         run = result.prediction_run
-        if self._cached_workspace_visual_token == run.prediction_run_id:
+        token = (run.prediction_run_id, self._results_revision)
+        if self._cached_workspace_visual_token == token:
             return self._cached_workspace_visual_payload
         model_run = self.project_state.model_runs.get(run.model_run_id)
         target_unit = ""
@@ -1096,9 +1198,40 @@ class PredictionView(QWidget):
             if key in run.artifact_refs:
                 payload[key] = run.artifact_refs[key]
         payload.update(_map_previews(result))
-        self._cached_workspace_visual_token = run.prediction_run_id
+        payload.update(self._map_extras(run.model_run_id, result.dataset.dataset_id))
+        self._cached_workspace_visual_token = token
         self._cached_workspace_visual_payload = payload
         return payload
+
+    def _map_extras(self, model_run_id: str, dataset_id: str) -> dict[str, Any]:
+        """Colour range (the training values), ROI outlines with their means, removal limit."""
+        state = self.project_state
+        extras: dict[str, Any] = {}
+        run = state.model_runs.get(model_run_id)
+        sample_set = None if run is None else state.sample_sets.get(run.sample_set_id)
+        if sample_set is not None:
+            values = [state.target_assignments[(roi_id, sample_set.target_id)].value
+                      for roi_id in sample_set.roi_ids
+                      if (roi_id, sample_set.target_id) in state.target_assignments]
+            if values:
+                extras["colour_range"] = (float(min(values)), float(max(values)))
+        means: dict[str, float] = {}
+        for prediction, summary in zip(self._roi_predictions, self._roi_summaries, strict=True):
+            if prediction.model_run_id == model_run_id:
+                means = {row.roi_id: row.mean for row in summary.rois}
+                if self._exclusion_check.isChecked():
+                    extras["removed_limit"] = prediction.dmodx_limit_at(
+                        self._exclusion_level.value())
+        from ._project_rois import _short_names
+
+        rois = [roi for roi in state.rois.values()
+                if roi.dataset_id == dataset_id and roi.use == "prediction"]
+        short = _short_names({roi.roi_id: roi.name for roi in rois}, {})
+        extras["roi_overlays"] = [
+            (roi.spatial_bounds, short[roi.roi_id] if roi.roi_id not in means
+             else f"{short[roi.roi_id]}  {means[roi.roi_id]:.3g}")
+            for roi in rois]
+        return extras
 
     @staticmethod
     def _prediction_map_summary_fields(result: PredictionResult) -> tuple[str, str]:
@@ -1212,6 +1345,7 @@ class PredictionView(QWidget):
 
     def _set_busy(self, busy: bool, text: str | None = None) -> None:
         self._btn_predict.setEnabled(not busy)
+        self._btn_predict_rois.setEnabled(not busy)
         self._btn_cancel.setEnabled(busy)
         if busy:
             self._service_status.set_busy(text or "Working...")
@@ -1235,6 +1369,7 @@ class PredictionView(QWidget):
         self._job_cancel_event = None
         self._last_prediction_phase = None
         self._btn_predict.setEnabled(True)
+        self._btn_predict_rois.setEnabled(True)
         self._btn_cancel.setEnabled(False)
 
     def _resolved_workspace_prediction(self) -> PredictionResult | None:
@@ -1247,4 +1382,4 @@ class PredictionView(QWidget):
         return predictions[next(reversed(predictions))] if predictions else None
 
 
-__all__ = ["PredictionMapWidget", "PredictionRunDialog", "PredictionView"]
+__all__ = ["PredictionMapWidget", "PredictionView", "describe_calibration"]

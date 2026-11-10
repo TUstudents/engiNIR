@@ -316,7 +316,12 @@ Required controls:
 - filtering/preprocessing preview controls
 - axis controls
 - ROI creation, single and as a grid (the grid dialog opens with the Options
-  defaults and shows the cells on the image, outside cells in red)
+  defaults and shows the cells on the image, outside cells in red); both dialogs have a **Prediction only**
+  checkbox that sets the ROIs' `use` and remembers the last choice per data
+  file (user settings); prediction ROIs are marked in the ROI table (a Use
+  column), the browser, the mosaic (dashed outline) and the ROI spectra
+  (dashed lines, still coloured by value); counts of ROIs with a value name
+  training and prediction ROIs separately
 - ROI table (sample labels and target values)
 - ROI export
 
@@ -405,11 +410,12 @@ Required controls:
   ROIs are held out together (each
   ROI, same sample label, same target value;
   `sample-set-model-run-contract_v3.md` §4.1), and a Fitting group: pixels
-  per ROI with seed (at most the smallest ROI with a value), X and Y scaling
+  per ROI with seed (at most the smallest training ROI with a value), X and Y scaling
   (Y for PLS only), and DModX pixel exclusion with level, rounds, the
   largest share per ROI and unweighted or modelling-power weighted
-  residuals (§7); it builds or reuses the sample set of all ROIs with a value
-  for the target, from all data files
+  residuals (§7); it builds or reuses the sample set of all training ROIs
+  with a value for the target, from all data files; the counts, fold
+  warnings and readiness consider training ROIs only
 - **Fit again...** opens the fit dialog with every choice of the selected
   model (target, preprocessing, model, components, scaling, folds, pixel
   sample, exclusion), e.g. to fit with another number of components; the
@@ -472,14 +478,14 @@ v3 note:
 
 Purpose:
 
-- choose a saved model run
-- choose a prediction dataset
-- choose or reuse calibration
-- run prediction
+- choose saved model runs, by name
+- choose prediction ROIs (Predict ROIs) or a project data file (Predict map)
+- run prediction and read the per-ROI results
 
 Primary task:
 
-- run one saved model against one dataset and inspect the result
+- predict the tablets (prediction ROIs) of one or all data files with one or
+  more models, and inspect the per-ROI results and the map
 
 Primary content region:
 
@@ -493,30 +499,61 @@ Secondary content region:
 Required visible information:
 
 - active or selected model run
-- the latest prediction of this session or `none` (predictions are not
-  stored; earlier stored predictions in a project are not shown)
+- the latest results of this session or `none`: the per-ROI table of the
+  last Predict ROIs and the map of the last Predict map (predictions are
+  not stored; earlier stored predictions in a project are not shown)
 - service status for prediction
 
 Required controls:
 
-- prediction dataset selection
-- model-run selection
-- calibration choice
-- prediction execution
+- **Predict ROIs**: one or more models (by name) on the prediction ROIs of
+  one data file or of all data files (`prediction-runtime-contract_v3.md`,
+  Prediction ROIs); needs only the project file
+- **Predict map**: one model on one project data file, every pixel, with
+  the per-ROI results of that file's prediction ROIs
+- the data file is a project data file; **Add data file...** opens the Add
+  data file dialog (calibration chosen there, never reused from training
+  silently; the dialog shows what the model was trained with). There is no
+  free path, dataset id or calibration field in the prediction dialog
+- the dialog shows the chain read-only, from the model: the data file's
+  calibration, the model's signal unit, its recipe and the model; an
+  incompatible file is refused before running, with the reason
+- **Remove pixels above the DModX limit** with its level, defaulting to the
+  model's fit specification; the per-ROI results follow without predicting
+  again
 
 Required prediction-map interaction:
 
 - map axes must match the main spatial image orientation: `Frame` on x and
   `Row` on y
-- a color scale/legend must be visible for numeric prediction values
+- a color scale/legend must be visible for numeric prediction values; the
+  scale is the target's range in the model's training values, values outside
+  in their own colours, or limits the user sets (⋯ menu); the colour bar and
+  the CSV record the scale
+- the prediction ROIs of the shown data file are drawn on the map with their
+  mean; with the exclusion on, removed pixels are greyed
+- a per-ROI plot (a plot panel): each ROI's mean with its 5–95 % range, the
+  share of pixels above DCrit (0.99) against the training ROIs' range (like for
+  like; the removed count is in the table), the reference value when
+  present; a bar selects its ROI; with several models, one bar per ROI and
+  model, grouped by ROI and coloured by model. Its CSV is the per-ROI table
+  in long format, one row per ROI and model (ROI name and id, data file,
+  model name and id, pixels, removed, mean, median, SD, 5 %, 95 %, mean
+  DModXPS and T²PS, shares above the limits, reference, residual), with the
+  exclusion and its level, and RMSEP, bias and *n* per model, as metadata
+- the pixel histogram shows the kept pixels of the prediction ROIs (all
+  pixels of the map when the data file has no prediction ROI)
+- the summary names the model and data file (never ids) and groups the
+  chain, the scan and the applicability
 - multi-output prediction artifacts must expose an explicit target/output
   selector before the map is rendered
 - a layer selector shows the prediction, the distance to the model (DModXPS)
   or Hotelling T² (T²PS); on these two the pixels above the 0.99 limit are
   marked and the share above is shown (`prediction-runtime-contract_v3.md`,
   Applicability Diagnostics)
-- the Predict workspace writes nothing to the project: the scan is not
-  registered and the prediction is not stored; the plot panels export it
+- the Predict workspace writes nothing to the project: predictions and
+  per-ROI results are not stored; the plot panels export them. A scan to
+  predict is a project data file the user added beforehand
 - pan and zoom must be available for the prediction map
 - the map is a plot panel (see Plot Panel Policy). Its CSV export is the
   displayed output as a matrix, with one CSV row per map row and one column
@@ -553,7 +590,7 @@ Required preconditions surfaced in UI before running:
 
 Forbidden controls in Predict:
 
-- ROI drawing
+- ROI drawing (prediction ROIs are drawn in Explore)
 - target assignment editing
 - model fit controls
 

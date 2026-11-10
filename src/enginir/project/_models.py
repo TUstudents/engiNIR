@@ -356,6 +356,22 @@ class CalibrationSpec(SerializableModel):
 # ---------------------------------------------------------------------------
 
 
+#: What an ROI is for (roi-target contract, ``use``).
+ROI_USES = ("training", "prediction")
+
+
+def roi_use(value: Any) -> str:
+    """An ROI's ``use``: ``"training"`` or ``"prediction"``; absent (``None``) is training."""
+    if value is None:
+        return "training"
+    if isinstance(value, bytes):
+        value = value.decode()
+    if value not in ROI_USES:
+        log_and_raise("An ROI's use must be one of {}, got {!r}", list(ROI_USES), value,
+                      depth=2)
+    return str(value)
+
+
 def sample_label(value: Any) -> str | None:
     """A sample label as stored: text without surrounding spaces, ``None`` when empty.
 
@@ -402,6 +418,10 @@ class TrainingROI(SerializableModel):
         Label of the physical sample the ROI was taken from (may be changed);
         ROIs with equal labels are held out together when folds are grouped
         by sample. ``None`` (default): the ROI is its own sample.
+    use : str
+        ``"training"`` (default) or ``"prediction"`` (may be changed): a
+        prediction ROI marks a sample to predict and never enters a sample
+        set (roi-target contract, ``use``).
     """
 
     roi_id: str
@@ -415,10 +435,12 @@ class TrainingROI(SerializableModel):
     created_at: str
     provenance: dict[str, Any]
     sample: str | None = None
+    use: str = "training"
 
     def __post_init__(self) -> None:
         self.roi_id = _text(self.roi_id, "roi_id")
         self.sample = sample_label(self.sample)
+        self.use = roi_use(self.use)
         self.dataset_id = _text(self.dataset_id, "dataset_id")
         self.calibration_id = _text(self.calibration_id, "calibration_id")
         self.name = _text(self.name, "name")
@@ -432,6 +454,13 @@ class TrainingROI(SerializableModel):
         self.source_file = os.path.abspath(_text(self.source_file, "source_file"))
         self.created_at = _timestamp(self.created_at, "created_at")
         self.provenance = self._checked_provenance(_mapping(self.provenance, "provenance"))
+
+    def to_dict(self) -> dict[str, Any]:
+        """The stored fields; ``use="training"`` is stored as no ``use`` (as before 1.4)."""
+        payload = SerializableModel.to_dict(self)  # slotted dataclass: no zero-argument super
+        if payload.get("use") == "training":
+            payload["use"] = None
+        return payload
 
     def _checked_provenance(self, provenance: dict[str, Any]) -> dict[str, Any]:
         required = ("dataset_id", "calibration_id", "signal_unit", "preview_recipe_summary",

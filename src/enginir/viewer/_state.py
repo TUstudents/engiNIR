@@ -334,6 +334,21 @@ class ProjectState(QObject):
         elif changes:
             self.saved.emit(f"{len(changes)} sample labels saved to project")
 
+    def set_roi_uses(self, changes: list[tuple[str, str]]) -> None:
+        """Mark ROIs for ``"training"`` or ``"prediction"`` (``use``, roi-target contract)."""
+        project = self._require_project("set_roi_uses")
+        for roi_id, use in changes:
+            project.save_roi_use(roi_id, use)
+        self._written()
+        self.rois_changed.emit()
+        if len(changes) == 1:
+            roi_id, use = changes[0]
+            roi = self.rois.get(roi_id)
+            name = roi.name if roi is not None else roi_id
+            self.saved.emit(f"ROI '{name}' is now a {use} ROI")
+        elif changes:
+            self.saved.emit(f"{len(changes)} ROI uses saved to project")
+
     def add_roi(
         self,
         roi: TrainingROI,

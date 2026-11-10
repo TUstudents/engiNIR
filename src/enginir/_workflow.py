@@ -45,7 +45,13 @@ from .project import (
     validate_project_relationships,
 )
 from .project._ids import new_id, now_iso
-from .project._models import sample_label
+from .project._models import roi_use, sample_label
+from .prediction._rois import (
+    RoiPrediction,
+    RoiPredictionSummary,
+    predict_rois,
+    roi_prediction_statistics,
+)
 
 logger = get_logger(__name__)
 
@@ -272,6 +278,14 @@ class Project:
         together. The label never changes the ROI itself.
         """
         self.save_roi_sample(self._roi_of(roi).roi_id, label)
+
+    def set_use(self, roi: str | TrainingROI, use: str) -> None:
+        """Mark ``roi`` (name or object) for ``"training"`` or ``"prediction"``.
+
+        A prediction ROI is a sample to predict (``model.predict_rois()``); it
+        never enters a sample set, whatever values it has.
+        """
+        self.save_roi_use(self._roi_of(roi).roi_id, use)
 
     def set_value(self, roi: str | TrainingROI, target: str | TargetDefinition,
                   value: float | None) -> None:
@@ -504,6 +518,13 @@ class Project:
                                 dark_ref_spectra=dark_ref_spectra,
                                 white_ref_spectra=white_ref_spectra)
         self.workspace.rois[roi.roi_id] = roi
+
+    def save_roi_use(self, roi_id: str, use: str) -> None:
+        """Set a stored ROI's use: ``"training"`` or ``"prediction"`` (never in a sample set)."""
+        roi = _with_id(self.workspace.rois, roi_id, "ROI")
+        use = roi_use(use)
+        store.save_roi_use(self.path, roi_id, use)
+        self.workspace.rois[roi_id] = replace(roi, use=use)
 
     def save_roi_sample(self, roi_id: str, sample: str | None) -> None:
         """Set (or, with ``None`` or blank text, remove) the sample label of a stored ROI."""
@@ -800,7 +821,8 @@ class Dataset:
                          if roi.dataset_id == self.ref.dataset_id], "ROI", "roi_id")
 
     def add_roi(self, name: str, *, frames: tuple[int, int], rows: tuple[int, int],
-                values: Mapping[str, float] | None = None) -> TrainingROI:
+                values: Mapping[str, float] | None = None,
+                use: str = "training") -> TrainingROI:
         """Store the pixels ``frames`` x ``rows`` as an ROI with its reference values.
 
         Parameters
@@ -813,6 +835,9 @@ class Dataset:
             Inclusive ``(first, last)`` index ranges.
         values:
             Reference values ``{target name: value}``.
+        use:
+            ``"training"`` (default) or ``"prediction"``: a sample to predict
+            (``model.predict_rois()``), never in a sample set.
 
         Returns
         -------
@@ -825,7 +850,7 @@ class Dataset:
         first, last = _index_range(frames, n_frames, "frames")
         roi, spectra, refs = make_roi(self.ref, self.calibration, name=name,
                                       frames=(first, last), rows=rows,
-                                      pixels=read_frames(self.path, first, last))
+                                      pixels=read_frames(self.path, first, last), use=use)
         created_at = roi.created_at
         assignments = [TargetAssignment(roi_id=roi.roi_id, target_id=target.target_id,
                                         value=float(values[target_name]), assigned_at=created_at)
@@ -1087,6 +1112,57 @@ class Model:
                 changed.append(str(roi_id))
         return changed
 
+    def predict_rois(self, rois: Sequence[str | TrainingROI] | None = None, *,
+                     exclude_dmodx: float | bool | None = None) -> RoiPredictionSummary:
+        """Predict the prediction ROIs from the project file alone, with per-ROI statistics.
+
+        Each ROI's stored pixels are converted with its own calibration (as the
+        fit does), preprocessed with the model's recipe and predicted; no data
+        file is read and nothing is written (prediction-runtime contract,
+        Prediction ROIs). The result is logged once.
+
+        Parameters
+        ----------
+        rois:
+            ROI names or objects; default every prediction ROI of the project.
+        exclude_dmodx:
+            Remove pixels above the DModX limit at this level from the
+            statistics; ``False`` keeps every pixel; ``None`` (default) the
+            model's own setting (its fit specification's DModX exclusion).
+
+        Returns
+        -------
+        RoiPredictionSummary
+            Per-ROI statistics, RMSEP and bias over ROIs with a value. Call
+            :meth:`roi_prediction` and
+            :func:`~enginir.prediction.roi_prediction_statistics` to change
+            the exclusion without predicting again.
+        """
+        prediction = self.roi_prediction(rois)
+        level = prediction.default_exclusion if exclude_dmodx is None else (
+            None if exclude_dmodx is False else float(exclude_dmodx))
+        summary = roi_prediction_statistics(
+            prediction, target_assignments=self.project.workspace.target_assignments,
+            exclude_dmodx=level)
+        logger.info("Predicted {} ROI(s) of {} with model '{}' ({}); exclusion {}; {} refused; "
+                    "RMSEP {} over {} ROI(s) with a value", len(prediction.pixels),
+                    self.project.path, self.name, self.ref.model_run_id,
+                    "none" if summary.exclusion is None else f"DModX {summary.exclusion}",
+                    len(prediction.refused), summary.rmsep, summary.n_reference)
+        return summary
+
+    def roi_prediction(self, rois: Sequence[str | TrainingROI] | None = None) -> RoiPrediction:
+        """The pixel predictions of the prediction ROIs (see :meth:`predict_rois`)."""
+        ws = self.project.workspace
+        chosen = ([roi for roi in ws.rois.values() if roi.use == "prediction"] if rois is None
+                  else [self.project._roi_of(roi) for roi in rois])
+        if not chosen:
+            log_and_raise("No prediction ROIs to predict; mark ROIs with use='prediction'")
+        return predict_rois(
+            project_path=self.project.path, model_run=self.ref, model_name=self.name,
+            rois=chosen, datasets=ws.datasets, calibrations=ws.calibrations,
+            signal_domains=ws.signal_domains, recipes=ws.recipes, sample_sets=ws.sample_sets)
+
     def predict(self, path: str | os.PathLike[str], *,
                 dark: str | os.PathLike[str] | np.ndarray | None = None,
                 white: str | os.PathLike[str] | np.ndarray | None = None,
@@ -1111,8 +1187,15 @@ class Model:
         domain = ws.signal_domains[self.ref.signal_domain_id]
         recipe_id = ws.sample_sets[self.ref.sample_set_id].preprocessing_recipe_id
         recipe = PreprocessingRecipe.from_dict(ws.recipes[recipe_id])
-        dataset, calibration, _new_dataset, _new_calibration = project._resolve_dataset(
-            path, dark=dark, white=white, unit=domain.required_signal_unit)
+        registered = project._dataset_ref(_native_path(path))
+        if registered is not None and dark is None and white is None:
+            # A registered file is predicted with its own active calibration, the one its
+            # ROIs were recorded with (not a new one from the detector levels).
+            dataset = registered
+            calibration = ws.calibrations[ws.active_calibration_ids[registered.dataset_id]]
+        else:
+            dataset, calibration, _new_dataset, _new_calibration = project._resolve_dataset(
+                path, dark=dark, white=white, unit=domain.required_signal_unit)
         common: dict[str, Any] = dict(project_path=project.path, model_run=self.ref, signal_domain=domain,
                       recipe=recipe, dataset=dataset, calibration=calibration,
                       model_registry={})
@@ -1631,6 +1714,7 @@ def make_roi(
     preview_recipe: PreprocessingRecipe | None = None,
     created_at: str | None = None,
     grid_cell: GridCell | None = None,
+    use: str = "training",
 ) -> tuple[TrainingROI, np.ndarray, tuple[np.ndarray, np.ndarray] | None]:
     """Build an ROI of ``dataset`` from its frames ``pixels`` ``(frames, height, n_bands)``.
 
@@ -1658,7 +1742,7 @@ def make_roi(
     created_at = created_at or now_iso()
     recipe = preview_recipe or PreprocessingRecipe()
     roi = TrainingROI(
-        roi_id=new_id(), dataset_id=dataset.dataset_id,
+        roi_id=new_id(), use=roi_use(use), dataset_id=dataset.dataset_id,
         calibration_id=calibration.calibration_id, name=name,
         wavelengths=dataset.wavelengths, n_pixels=int(spectra.shape[0]),
         spatial_bounds=(f0, f1, r0, r1), source_file=dataset.source_path, created_at=created_at,

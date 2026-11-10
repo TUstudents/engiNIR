@@ -246,6 +246,9 @@ accepted when it equals the path id and rejected when it contradicts it. An
 ├── @name                   mutable display label
 ├── @sample                 optional sample label (mutable); ROIs with equal
 │                           labels are one physical sample for fold groups
+├── @use                    optional: training | prediction (mutable, 1.4+);
+│                           absent = training; prediction ROIs never enter
+│                           a sample set
 ├── @source_file
 ├── @n_pixels
 ├── @created_at
