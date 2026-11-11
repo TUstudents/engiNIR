@@ -246,7 +246,7 @@ def modelling_power(residuals: np.ndarray, centred_x: np.ndarray, n_components: 
     initial_sd = np.sqrt((Xc ** 2).sum(axis=0) / (n - 1))
     constant = initial_sd < _EPS
     if np.any(constant):
-        logger.warning("MPow: {} constant variable(s) get modelling power 0",
+        logger.warning("MPow: {} constant band(s) get modeling power 0",
                        int(constant.sum()))
     ratio = np.divide(residual_sd, initial_sd, out=np.ones_like(residual_sd),
                       where=~constant)

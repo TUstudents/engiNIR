@@ -1,7 +1,7 @@
 enginir.preprocessing
 =====================
 
-Scatter Correction
+Scatter correction
 ------------------
 
 .. autoclass:: enginir.preprocessing.SNV
@@ -19,7 +19,7 @@ Derivatives
 .. autoclass:: enginir.preprocessing.SavitzkyGolay
    :members: fit, transform
 
-Baseline Correction
+Baseline correction
 -------------------
 
 .. autoclass:: enginir.preprocessing.AsLSBaseline
@@ -31,7 +31,7 @@ Baseline Correction
 .. autoclass:: enginir.preprocessing.Smoother
    :members: fit, transform
 
-Band Selection
+Band selection
 --------------
 
 .. autoclass:: enginir.preprocessing.BandSelection

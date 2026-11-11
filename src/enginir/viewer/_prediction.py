@@ -117,7 +117,7 @@ _MAP_PREVIEW_PIXELS = 512 * 512
 
 
 #: Map layers of the Predict workspace; the diagnostics come with the saved model's
-#: projection data (prediction-runtime contract, Applicability Diagnostics).
+#: projection data (prediction-runtime contract, Applicability diagnostics).
 MAP_LAYERS = ("Prediction", "DModX", "T²", "Prediction interval")
 _LAYER_LIMITS = {"DModX": ("dcrit_099", "n_above_dcrit", "share_above_dcrit", "DCrit"),
                  "T²": ("t2_crit_099", "n_above_t2crit", "share_above_t2crit", "T²Crit")}
@@ -1398,7 +1398,7 @@ class PredictionView(QWidget):
             progress_relay.progressed.emit(event)
 
         def job() -> tuple[PredictionResult, RoiPrediction | None]:
-            # Nothing is written: the prediction stays in memory (Result Handling).
+            # Nothing is written: the prediction stays in memory (Result handling).
             spectral_data = load_spectra(dataset.source_path)
             result = predict_with_model_run(
                 project_path=context.project_path, model_run=context.model_run,
@@ -1549,7 +1549,7 @@ class PredictionView(QWidget):
         }
 
     def workspace_provenance(self) -> dict[str, str]:
-        """Provenance lines for exported prediction plots (Plot Panel Policy)."""
+        """Provenance lines for exported prediction plots (Plot panel policy)."""
         provenance = {"project_id": str(self.project_state.project_meta.get("project_id", ""))}
         result = self._resolved_workspace_prediction()
         if result is None:

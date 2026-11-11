@@ -113,7 +113,7 @@ def test_a_prediction_writes_nothing_to_the_project_and_logs_one_entry(tmp_path)
     assert _counts(project) == before
     assert _file_digest(project.path) == digest, "the project file is unchanged"
     assert new not in Project.open(project.path).datasets
-    entries = [m for m in messages if "Prediction with model run" in m]
+    entries = [m for m in messages if "Prediction with model" in m]
     assert len(entries) == 2 and model.ref.model_run_id in entries[0]
     record = prediction.provenance["files"][0]
     assert record["sha256"] == _file_digest(new) and record["size"] > 0

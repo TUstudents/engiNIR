@@ -304,7 +304,7 @@ def _safe_denominator(
     n_small = int(np.count_nonzero(small))
     if n_small:
         stats.near_zero_denominator_count += n_small
-        logger.warning("Calibration '{}': {} white - dark value(s) are near zero; using +/-{}",
+        logger.warning("Reference correction '{}': {} white - dark value(s) are near zero; using +/-{}",
                        calibration.calibration_id, n_small, float(_EPS))
         denominator = np.where(small, np.where(denominator >= 0, _EPS, -_EPS), denominator)
     return denominator.astype(_WORKING_DTYPE, copy=False)
@@ -373,7 +373,7 @@ def _reflectance_to_absorbance(reflectance: np.ndarray, calibration: Calibration
     n_low = int(np.count_nonzero(reflectance < REFLECTANCE_MIN))
     if n_low:
         stats.clip_low_count += n_low
-        logger.warning("Calibration '{}': raised {} reflectance value(s) below {} to {} before "
+        logger.warning("Reference correction '{}': raised {} reflectance value(s) below {} to {} before "
                        "converting to absorbance", calibration.calibration_id, n_low,
                        float(REFLECTANCE_MIN), float(REFLECTANCE_MIN))
     np.maximum(reflectance, REFLECTANCE_MIN, out=reflectance)

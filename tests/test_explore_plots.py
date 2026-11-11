@@ -1,4 +1,4 @@
-"""Explore plots as plot frames: exports, header titles and maximize (Plot Panel Policy)."""
+"""Explore plots as plot frames: exports, header titles and maximize (Plot panel policy)."""
 
 from __future__ import annotations
 

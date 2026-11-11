@@ -2,7 +2,7 @@
 
 This directory contains concrete versioned contracts for the scientist workflow.
 
-They freeze the behaviour that the library, the viewer and the project file
+They freeze the behavior that the library, the viewer and the project file
 must all follow. `docs/contract_coverage.md` maps each rule to its
 implementation and tests.
 

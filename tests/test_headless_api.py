@@ -36,7 +36,7 @@ def test_headless_packages_do_not_import_qt():
 
 def test_viewer_writes_projects_only_through_project():
     """ProjectState delegates to enginir.Project; the viewer calls no writer itself, and a
-    prediction writes nothing (prediction-runtime contract, Result Handling)."""
+    prediction writes nothing (prediction-runtime contract, Result handling)."""
     import ast
     from pathlib import Path
 

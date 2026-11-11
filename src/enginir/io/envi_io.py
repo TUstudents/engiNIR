@@ -247,14 +247,14 @@ def _resolve_paths(path: Path) -> tuple[Path, Path]:
         header_path = next((header for header in headers if header.is_file()), headers[0])
         candidates = [path]
     else:
-        log_and_raise("Expected an ENVI header (.hdr) or data file ({}), got {}",
+        log_and_raise("Expected an ENVI header (.hdr) or image file ({}), got {}",
                       ", ".join(suffix for suffix in _DATA_SUFFIXES if suffix), path,
                       error=ENVIError)
     if not header_path.is_file():
         log_and_raise("ENVI header not found: {}", header_path, error=FileNotFoundError)
     data_path = next((candidate for candidate in candidates if candidate.is_file()), None)
     if data_path is None:
-        log_and_raise("No ENVI data file found for {}", header_path, error=FileNotFoundError)
+        log_and_raise("No ENVI image file found for {}", header_path, error=FileNotFoundError)
     return header_path, data_path
 
 

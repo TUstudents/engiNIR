@@ -1,4 +1,4 @@
-# Headless Workflow Contract v3
+# Headless workflow contract v3
 
 ## Status
 
@@ -13,11 +13,11 @@
 engiNIR is a library first. The viewer is one client of the scientific
 services, not their owner. This contract freezes the boundary that makes the
 complete v3 workflow — create project, register data, persist ROIs, define
-targets, build sample sets, fit models, predict — usable without any Qt
+targets, build calibration sets, fit models, predict — usable without any Qt
 dependency, so notebook and script workflows are first-class and cannot be
 broken by viewer refactors.
 
-## Problem This Contract Solves
+## Problem this contract solves
 
 Without a headless contract, the system cannot answer reliably:
 
@@ -31,7 +31,7 @@ Without a headless contract, the system cannot answer reliably:
 The failure mode is drift: workflow logic accumulating in Qt-side classes
 until the library can no longer run its own scientific workflow headless.
 
-## Core Decisions
+## Core decisions
 
 - the packages `enginir.io`, `enginir.project`, `enginir.modeling`,
   `enginir.prediction`, `enginir.preprocessing`, `enginir.models`, and
@@ -46,7 +46,7 @@ until the library can no longer run its own scientific workflow headless.
 - service callbacks (progress, cancellation) use plain Python callables and
   value objects, never Qt signal/slot types
 
-## The Headless Surface
+## The headless surface
 
 The v3 headless workflow composes a project facade over four layers. Function
 lists name the current public entry points; additions are allowed, removals or
@@ -56,8 +56,8 @@ Qt-contamination are contract violations.
 
 `Project` is the primary user entry point. It runs the complete workflow with
 the objects a scientist works with — datasets, ROIs, targets, models,
-predictions — and creates the bookkeeping objects (calibrations, sample sets,
-signal domains, recipes as stored objects, provenance) itself. Its rules are
+predictions — and creates the bookkeeping objects (reference corrections, calibration sets,
+input contracts, recipes as stored objects, provenance) itself. Its rules are
 defined in [Project Facade Rules](#project-facade-rules). The layers below
 remain public for advanced use; the facade adds no rule they do not enforce
 and writes nothing they would reject.
@@ -88,10 +88,10 @@ and writes nothing they would reject.
 - `hydrate_project_store` builds a validated `ProjectWorkspace` from a raw
   store
 - `validate_project_relationships` enforces the id graph
-- the signal-domain checks (`check_signal_domain_compatibility`,
+- the input-contract checks (`check_signal_domain_compatibility`,
   `check_calibration_signal_domain_compatibility`) and
   `transform_spectra_to_signal_domain`, which converts raw spectra under a
-  calibration context identically for training and prediction
+  reference correction context identically for calibration and prediction
 
 ### 3. Modeling service (`enginir.modeling`)
 
@@ -109,19 +109,19 @@ and writes nothing they would reject.
 - `predict_with_model_run` executes the chunked runtime contract
 - `build_dataset_ref_from_spectral_data` creates prediction dataset identity
 
-## Project Facade Rules
+## Project facade rules
 
 ### Entry points
 
 - `Project.create(path)` creates an empty project; `Project.open(path)` opens
   an existing one and validates it completely (`hydrate_project_store`)
 - `project.add_dataset(path, *, dark=None, white=None, unit="Absorbance")`
-  registers a dataset with its calibration and returns a dataset handle
+  registers a dataset with its reference correction and returns a dataset handle
 - `project.add_target(name, *, unit)` defines a target
 - `dataset.add_roi(name, *, frames, rows, values=None)` stores an ROI cut from
-  the dataset, with its reference values (`{target name: value}`)
+  the dataset, with its target values (`{target name: value}`)
 - `project.fit(target, *, recipe, model, name=None, cv=None, fit_spec=None,
-  **hyperparameters)` builds the sample set, fits and cross-validates, and
+  **hyperparameters)` builds the calibration set, fits and cross-validates, and
   returns a model handle. `fit_spec` (a `FitSpec` or a mapping with the keys
   of `sample-set-model-run-contract_v3.md` §7) gives full control; keys it
   leaves out take their defaults. `cv` is the short form of the fold rule
@@ -129,14 +129,14 @@ and writes nothing they would reject.
   `fit_spec` gives the folds) and is refused together with a `fit_spec`
   that sets the folds. The complete specification is stored with
   the run
-- `model.refit(*, name=None)` fits the model again on its stored sample set,
-  recipe, signal domain, hyperparameters and fit specification and stores
+- `model.refit(*, name=None)` fits the model again on its stored calibration set,
+  recipe, input contract, hyperparameters and fit specification and stores
   the new run (`sample-set-model-run-contract_v3.md`, Refitting a stored model)
 - `project.fit(..., n_components="auto")` chooses the number of components
   from the component curve with `fit_spec={"components": {"rule": ...,
   "max": ...}}` (default rule `one_se`); every PLS/PCR model has the curve
   (`model.component_curve`: a dict of arrays and the suggestions, or `None`
-  for a model fitted before 1.3) and the training diagnostics
+  for a model fitted before 1.3) and the calibration diagnostics
   (`sample-set-model-run-contract_v3.md` §7.4, §7.5)
 - `project.set_sample(roi, label)` sets the sample label of an ROI (name or
   object); `None` or an empty or blank text removes it
@@ -148,14 +148,14 @@ and writes nothing they would reject.
   groups stored with the run and warns when current labels or values would
   group differently
 - `model.predict(path, *, dark=None, white=None, checksum=False)` predicts a
-  data file and returns an in-memory `Prediction` (`enginir._workflow.Prediction`: `map`, `y_pred`,
+  dataset and returns an in-memory `Prediction` (`enginir._workflow.Prediction`: `map`, `y_pred`,
   `dmodx_map`, `t2_map`, `diagnostics` with limits and summary,
   `provenance`, and `interval_map(level=0.95)`, the pixel prediction
   interval's half-width as an image, NaN outside the model, `None` without
   the interval inputs; `prediction-runtime-contract_v3.md`, Prediction
   Intervals); it writes nothing to the project (the file is not
   registered, the prediction not stored) and logs one entry
-  (`prediction-runtime-contract_v3.md`, Result Handling). Persisting a
+  (`prediction-runtime-contract_v3.md`, Result handling). Persisting a
   prediction is a low-level operation (`enginir.io.project_store`)
 - `model.predict_rois(rois=None, *, exclude_dmodx=None)` predicts the
   prediction ROIs (all, or the given ones) from the project file alone and
@@ -179,7 +179,7 @@ and writes nothing they would reject.
 - `project.propose_bands(target, *, recipe=None, model="PLS",
   n_intervals=20, max_steps=None, fit_spec=None, progress=None,
   cancel=None)` proposes band ranges by forward interval PLS (iPLS; PCR
-  with `model="PCR"`) and returns a `BandProposal` (`ranges`, the RMSECV
+  with `model="PCR"`) and returns a `BandProposal` (`ranges`, the RMSECV (per ROI)
   after each step with its standard error, `nested_rmsecv`,
   `all_bands_rmsecv`, the intervals and the chosen number of components per
   step). It writes nothing to the project and logs one entry
@@ -195,31 +195,31 @@ and writes nothing they would reject.
   component rule of `fit_spec` (default `one_se`) with
   Amax = min(the `fit_spec` maximum, or the default of
   `sample-set-model-run-contract_v3.md` §7.4 with the fold groups and rank
-  limit of the current training part, the candidate's band count); a
-  `fixed` number is capped at that Amax with a warning. The RMSECV and SE
+  limit of the current calibration part, the candidate's band count); a
+  `fixed` number is capped at that Amax with a warning. The RMSECV (per ROI) and SE
   of a candidate are the §7.4 values at that number
-- forward: step 0 is the mean predictor (the training-fold mean of y,
-  its RMSECV and SE by §7.4); each step adds the interval whose candidate
-  has the lowest RMSECV (ties: the lower interval index). The search stops
-  when that RMSECV is not lower than the current RMSECV minus the current
+- forward: step 0 is the mean predictor (the calibration-fold mean of y,
+  its RMSECV (per ROI) and SE by §7.4); each step adds the interval whose candidate
+  has the lowest RMSECV (per ROI) (ties: the lower interval index). The search stops
+  when that RMSECV (per ROI) is not lower than the current RMSECV (per ROI) minus the current
   SE (the one-SE idea), when `max_steps` intervals are chosen, or when
   every interval is chosen. Each proposed range is [λ of its first band,
   λ of its last band] of a run of adjacent chosen intervals
-- the RMSECV of every candidate uses the run's fold scheme (`fit_spec`
+- the RMSECV (per ROI) of every candidate uses the run's fold scheme (`fit_spec`
   folds and fold groups, ROI-grouped; `sample-set-model-run-contract_v3.md`
   §4.1) on ROI means, with stateful preprocessing fitted inside the folds,
   like a fit; the pixel sample of `fit_spec` is applied once before the
   search; no DModX exclusion is used in the search, the outer refits or
-  `all_bands_rmsecv`, so `all_bands_rmsecv` can differ from a run's RMSECV.
+  `all_bands_rmsecv`, so `all_bands_rmsecv` can differ from a run's RMSECV (per ROI).
   `propose_bands` refuses fewer than 3 fold groups
 - nested validation: for each outer fold of that scheme, the whole search
-  runs on the outer training ROIs only, with inner folds built from them
+  runs on the outer calibration ROIs only, with inner folds built from them
   by the same rule (k = min(F, inner fold groups)); the chosen ranges are
   fitted on those ROIs with the number of components of the inner
   search's last step and predict the held-out ROIs; `nested_rmsecv` is the
-  RMSECV of these held-out predictions. It estimates the error of the
+  RMSECV (per ROI) of these held-out predictions. It estimates the error of the
   whole procedure (selection included) and is reported next to
-  `all_bands_rmsecv`, the RMSECV of the recipe without a band selection.
+  `all_bands_rmsecv`, the RMSECV (per ROI) of the recipe without a band selection.
   The proposed `ranges` come from the search on all ROIs
 - the proposal only proposes: a fit with the ranges is an ordinary fit
   with `bands_keep`, and a refit never searches again
@@ -232,7 +232,7 @@ and writes nothing they would reject.
 - every object has a generated stable id; ids are its only identity and what
   the project file links by (`project-schema-contract_v3.md` §2–3). Names
   are display labels: mutable, and they may repeat within a project, for
-  example ROIs from two data files with the same file name
+  example ROIs from two datasets with the same file name
 - addressing objects by name is a convenience of this facade (`Project`,
   `Dataset`, `Model`) for scripts and interactive work. It is not a
   reproducible reference: a renamed or reused name refers to another object
@@ -267,7 +267,7 @@ and writes nothing they would reject.
   returns the existing dataset after checking that the file still has the
   registered format, shape and (if the file states one) modality; wavelength
   values are metadata, not a gate (`dataset-calibration-contract_v3.md`)
-- **Calibration**: built from the arguments exactly as the viewer builds it:
+- **Reference correction**: built from the arguments exactly as the viewer builds it:
   - `unit="DN"`: mode `raw_dn`, no references
   - floating-point data: mode `precalibrated_import` (the data are already
     reflectance or absorbance)
@@ -277,26 +277,26 @@ and writes nothing they would reject.
     `white_level` metadata, else the instrument levels
     `DEFAULT_BLACK_LEVEL = 128` and `DEFAULT_WHITE_LEVEL = 3500` (EVK)
 
-  A calibration with the same content as an existing one of that dataset is
+  A reference correction with the same content as an existing one of that dataset is
   reused (`CalibrationSpec.same_content_as`), never duplicated; the one used
-  becomes the dataset's active calibration
+  becomes the dataset's active reference correction
 - **ROI**: `frames` and `rows` are inclusive `(first, last)` index ranges, the
   `spatial_bounds` convention; spectra, dark/white reference pixels and
-  provenance are taken from the dataset and its active calibration
-- **Sample set**: `fit` (and `propose_bands`) builds it from every training
+  provenance are taken from the dataset and its active reference correction
+- **Calibration set**: `fit` (and `propose_bands`) builds it from every calibration
   ROI with a value for the target (prediction ROIs are never included; with
   only prediction ROIs valued, the fit is refused saying how many were left
   out)
-  (`build_sample_set`) and reuses an existing sample set with the same ROIs,
+  (`build_sample_set`) and reuses an existing calibration set with the same ROIs,
   target and recipe
 - **Recipe**: stored under an id derived from its content, so identical
   recipes are stored once
-- **Signal domain**: derived with `SignalDomainContract.for_training_data`
-  from the training datasets and calibrations; `fit` refuses ROIs whose
-  datasets or calibrations would need different signal domains
-- **Prediction**: `predict` resolves the data file and its calibration as
+- **Input contract**: derived with `SignalDomainContract.for_training_data`
+  from the calibration datasets and reference corrections; `fit` refuses ROIs whose
+  datasets or reference corrections would need different input contracts
+- **Prediction**: `predict` resolves the dataset and its reference correction as
   `add_dataset` does, with the model's signal unit as `unit`, but in memory
-  only (a registered file reuses its stored calibration read-only), then
+  only (a registered file reuses its stored reference correction read-only), then
   runs `preflight_prediction` and `predict_with_model_run` without
   persisting; nothing is written to the project
 
@@ -304,8 +304,7 @@ and writes nothing they would reject.
 
 - every call validates and computes everything it can before its first write;
   a call that fails there leaves the project file and the `Project` unchanged
-- writes happen in dependency order (dataset, calibration, recipe, sample
-  set, signal domain, model run; for low-level persistence also prediction
+- writes happen in dependency order (dataset, reference correction, recipe, calibration set, input contract, model; for low-level persistence also prediction
   run), each one atomic; a failure
   during writing can leave complete, valid objects that nothing references
   yet, never a broken reference
@@ -314,7 +313,7 @@ and writes nothing they would reject.
   which are read on demand; single-object writes update memory without
   rereading the file
 
-## Callback Contract
+## Callback contract
 
 Required behavior:
 
@@ -326,7 +325,7 @@ Required behavior:
 - no service signature may require a Qt type; the viewer adapts callables to
   signals on its side of the boundary (`_jobs.py`), never the reverse
 
-## Notebook Rules
+## Notebook rules
 
 Required behavior:
 
@@ -339,7 +338,7 @@ Required behavior:
   call with callbacks); background threading is a caller decision, not a
   service requirement
 
-## Viewer Relationship
+## Viewer relationship
 
 - `enginir.viewer.open_viewer` and `enginir.viewer.open_project` are Qt entry
   points and are not part of the headless surface
@@ -350,7 +349,7 @@ Required behavior:
   eager writes, placeholder rules) bind headless callers exactly as they bind
   the viewer
 
-## Required Tests
+## Required tests
 
 - importing the headless packages must not import Qt (asserted in a clean
   interpreter)
@@ -359,14 +358,14 @@ Required behavior:
 - the facade rules (names, derived objects, failures) each have a test, and
   the documented workflow example runs as a test
 
-## Out Of Scope For v3
+## Out of scope for v3
 
 - a stable plugin or extension API
 - remote/async execution services
 - notebook widgets or IPython display integrations
 - CLI workflow tooling beyond the existing viewer launcher
 
-## Acceptance Criteria
+## Acceptance criteria
 
 This contract is implemented correctly when:
 

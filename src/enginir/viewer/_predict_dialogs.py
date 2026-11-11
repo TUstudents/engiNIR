@@ -313,16 +313,17 @@ def _table_roi_results(payload: Any) -> PlotTable:
         return PlotTable()
     unit = str(payload.get("target_unit", ""))
 
-    def column(key: str, unit_: str = "") -> PlotColumn:
-        return PlotColumn(key, [row[key] for row in rows], unit_)
+    def column(key: str, unit_: str = "", *, title: str | None = None) -> PlotColumn:
+        return PlotColumn(title or key, [row[key] for row in rows], unit_)
 
     return PlotTable(
-        columns=(column("roi"), column("roi_id"), column("data_file"), column("model"),
-                 column("model_run_id"), column("pixels"), column("removed"),
+        columns=(column("roi"), column("roi_id"), column("data_file", title="dataset"),
+                 column("model"), column("model_run_id"), column("pixels"),
+                 column("removed", title="excluded"),
                  column("mean", unit), column("median", unit), column("sd", unit),
                  column("p05", unit), column("p95", unit), column("mean_dmodx"),
                  column("mean_t2"), column("share_above_dcrit"), column("share_above_t2crit"),
-                 PlotColumn("reference", [np.nan if row["reference"] is None
+                 PlotColumn("target_value", [np.nan if row["reference"] is None
                                           else row["reference"] for row in rows], unit),
                  PlotColumn("residual", [np.nan if row["residual"] is None
                                          else row["residual"] for row in rows], unit)),

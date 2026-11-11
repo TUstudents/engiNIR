@@ -1,10 +1,10 @@
-# Model Workspace Diagnostics Contract v3
+# Model workspace diagnostics contract v3
 
 ## Status
 
 - Version: `v3`
 - Status: active contract for engiNIR 1.0; v3 is the default and only supported project schema
-- Scope: `Model` workspace visual hierarchy, required diagnostics, PLS/PCR plot contract, persistence expectations for reopening saved model runs
+- Scope: `Model` workspace visual hierarchy, required diagnostics, PLS/PCR plot contract, persistence expectations for reopening saved models
 
 ## Goal
 
@@ -14,7 +14,7 @@ that fitting is not just a form submission followed by a status line.
 The `Model` workspace must answer these questions immediately:
 
 - what target is being modeled
-- whether the current sample set is valid and ready to fit
+- whether the current calibration set is valid and ready to fit
 - whether the fitted model is good enough
 - where the model fails
 - what the latent variables are doing
@@ -38,16 +38,16 @@ This contract depends on:
 If this contract conflicts with a looser UI convenience, scientific
 interpretability wins.
 
-## Core Decisions
+## Core decisions
 
 - the `Model` workspace is a diagnostics workspace, not only a fit-control form
-- one model run has one primary diagnostics view and multiple secondary diagnostics
+- one model has one primary diagnostics view and multiple secondary diagnostics
 - `Predicted vs Reference` is the required primary plot after fit
 - diagnostics must render for reopened saved `ModelRun`s without refitting
 - the diagnostics shell is model-agnostic first, with PLS/PCR-specific detail plots layered underneath
 - ROI-grouped validation semantics from `sample-set-model-run-contract_v3.md` remain authoritative
 
-## Layout Contract
+## Layout contract
 
 The `Model` workspace must expose three functional regions:
 
@@ -64,12 +64,12 @@ Must contain:
 - target selection / definition entry point
 - target assignment entry point (the ROI table)
 - fit-model entry point: one dialog with target, signal unit, preprocessing,
-  model, components and CV. It builds or reuses the sample set (all ROIs with
-  a value for the target, from all data files), so there is no separate
+  model, components and CV. It builds or reuses the calibration set (all ROIs with
+  a value for the target, from all datasets), so there is no separate
   sample-set build step. The preprocessing defaults to the Explore preview,
   but is shown and chosen in the dialog, never taken silently.
 - fit preflight / readiness state, including the number of labeled ROIs per
-  data file and the ROIs left out (for example by a different wavelength
+  dataset and the ROIs left out (for example by a different wavelength
   axis)
 - fit hyperparameters and CV controls
 
@@ -97,9 +97,9 @@ Required v3 pages, in this order:
    - `Residuals`
    - target distribution
    - latent scores, with the Hotelling T² ellipses at 0.95 and 0.99 of the
-     first two components (engiNIR 1.3 and later): of the training pixels
-     (the pixels are the observations of the fit), and of the ROIs (their
-     mean scores as observations: centred on their mean, shaped by their
+     first two components (engiNIR 1.3 and later): of the calibration pixels
+     (the pixels the model is fitted on), and of the ROIs (computed from their
+     mean scores: centered on their mean, shaped by their
      covariance, limit `2(n−1)/(n−2)·F(level; 2, n−2)` for `n` ROIs, at
      least 4), with a legend naming both
 2. `Spectral`
@@ -117,7 +117,7 @@ Required v3 pages, in this order:
    bands
 3. `Components` (1.3 and later; `sample-set-model-run-contract_v3.md` §7.4),
    2 × 2, every plot naming its level:
-   - **RMSECV per ROI** with its standard error, RMSEE per ROI (1.4 and
+   - **RMSECV (per ROI) per ROI** with its standard error, RMSEE (per ROI) per ROI (1.4 and
      later) as a second line, the model's number marked, and every rule's
      suggestion listed with its reason (e.g. "Q² limit: 1 (Q²₂ = −0.02 ≤
      0.05)"); with the noise guard, the rule's number and the guarded
@@ -129,23 +129,23 @@ Required v3 pages, in this order:
    - **per component**: Q²ₐ (bars, per ROI, with the R1 limit *L* as a
      line), ΔR²X (bars, per pixel) and the Durbin–Watson value of the
      weights (1.4 and later, line on its own axis); the legend names the
-     level of each; noise components drawn grey
+     level of each; noise components drawn gray
    - **per pixel**: R²X(cum) and R²Y(cum) over the drawn pixels, with a note
      that single pixels are noisy, so R²Y per pixel stays below the ROI value
-   Runs from before 1.4 show what they store (no RMSEE line, no
+   Runs from before 1.4 show what they store (no RMSEE (per ROI) line, no
    Durbin–Watson, no noise flags)
 4. `Distance` (1.3 and later; §7.5)
-   - the training pixels' normalised DModX with DCrit (0.99) and the share
+   - the calibration pixels' normalized DModX with DCrit (0.99) and the share
      above it next to the 1 % a 0.99 limit expects; bins up to the 99.5th
      percentile and the pixels above it as one overflow bar (count and
      largest value stated), so a long tail does not hide the distribution
    - their Hotelling T² with T²Crit (0.99), drawn the same way
-   - per ROI: the share of its training pixels above DCrit (bars, coloured
-     by reference value) and above T²Crit (markers), sorted from the largest
+   - per ROI: the share of its calibration pixels above DCrit (bars, colored
+     by target value) and above T²Crit (markers), sorted from the largest
      DModX share, with the expected 1 % as a line; a bar selects its ROI
 
 Runs fitted before engiNIR 1.3 show "refit" placeholders on the new pages.
-The fit summary shows RMSEE and R²adj, per ROI, when the run has them.
+The fit summary shows RMSEE (per ROI) and R²adj, per ROI, when the run has them.
 
 The `Fit` page is shown after a fit and when a saved run is opened. The page
 labels are not contract-frozen; their order and content are. New diagnostics
@@ -171,9 +171,9 @@ Every metric, axis, legend entry, CSV column and summary row names its
 level:
 
 - **per ROI**: computed over ROI means (the target, the folds and the
-  reported model quality): R², Q², RMSECV, RMSEE, bias, RPD, the ROI T²
+  reported model quality): R², Q², RMSECV (per ROI), RMSEE (per ROI), bias, RPD, the ROI T²
   ellipses, the per-ROI shares above the distance limits
-- **per pixel**: computed over single spectra (the observations of the fit):
+- **per pixel**: computed over single spectra (the pixels the model is fitted on):
   R²X, R²Y over pixels, `pixel_*` metrics, DModX, T² and their limits
 
 A number answering "how good is the model" is per ROI by default. A plot may
@@ -183,27 +183,27 @@ draw both levels only when its legend names the level of every element.
 
 Every Model diagnostics plot has a help text (what is drawn, at which
 level, how to read it, what a bad sign looks like), opened from the plot
-header (Plot Panel Policy); the user guide carries the same text.
+header (Plot panel policy); the user guide carries the same text.
 
-## Required Fit Summary
+## Required fit summary
 
 The `Model` workspace must display the following current-run summary fields:
 
 - target name
 - target unit
-- sample set id or label
+- calibration set id or label
 - model type
 - number of components
 - CV specification
-- signal-domain / preprocessing context
-- ROI count, and the number of data files they come from
+- input-contract / preprocessing context
+- ROI count, and the number of datasets they come from
 - pixel count
 - readiness state
 
 If no fitted run exists yet, the summary must still show the current intended
 fit context and block reasons.
 
-## Required Metrics
+## Required metrics
 
 v3 primary reported metrics must reflect ROI-grouped validation.
 
@@ -243,7 +243,7 @@ Forbidden v3 behavior:
 - showing naive per-pixel validation metrics as the primary fit quality signal
 - mixing ROI-level and pixel-level metrics without explicit labeling
 
-## Required Primary Plot: Predicted vs Reference
+## Required primary plot: predicted vs target value
 
 The primary diagnostics plot must show:
 
@@ -263,7 +263,7 @@ Recommended behavior:
 - point selection should map back to the originating ROI in the project browser
 - selected ROI should propagate to the inspector
 
-## Required Primary Plot: Residuals
+## Required primary plot: residuals
 
 The residual diagnostics plot must show:
 
@@ -278,17 +278,17 @@ Purpose:
 - expose heteroscedasticity
 - expose nonlinearity not obvious in the `Predicted vs Reference` plot
 
-## Secondary Diagnostics Contract
+## Secondary diagnostics contract
 
 ### 1. Target distribution
 
 Required content:
 
-- ROI-level target distribution for the active sample set
+- ROI-level target distribution for the active calibration set
 
 Purpose:
 
-- reveal narrow calibration ranges
+- reveal narrow reference correction ranges
 - reveal imbalance or sparse target coverage
 
 ### 2. Latent scores
@@ -301,7 +301,7 @@ Required for PLS and PCR:
 Required behavior:
 
 - one point per ROI, not one point per pixel
-- the ROI-level score is the arithmetic mean of the training scores of that
+- the ROI-level score is the arithmetic mean of the calibration scores of that
   ROI's fitted pixels (the drawn pixels with a pixel sample, the kept pixels
   with DModX exclusion), computed and stored by the fit (`diagnostics/
   roi_scores`, sample-set-model-run contract §7.5); the viewer never
@@ -310,7 +310,7 @@ Required behavior:
   explicit placeholder asking to fit the model again; an ROI without fitted
   pixels has no point, and the plot says how many ROIs that are
 - ROI selection should be possible or at least inspectable
-- the plot must label the scores as training scores, so that they are not
+- the plot must label the scores as calibration scores, so that they are not
   mistaken for cross-validated scores
 
 ### 3. Spectral diagnostics
@@ -340,7 +340,7 @@ Purpose:
 - explain what spectral regions drive the model
 - support scientific interpretation, not only fit acceptance
 
-## PLS-Specific Expectations
+## PLS-specific expectations
 
 For `PLS`, the diagnostics contract must support these persisted quantities when
 available:
@@ -365,7 +365,7 @@ Recommended:
 - `Loadings`
 - `VIP`
 
-## PCR Expectations
+## PCR expectations
 
 `PCR` reuses the same diagnostics shell.
 
@@ -383,13 +383,13 @@ Recommended:
 The UI must not special-case PLS so heavily that PCR becomes second-class or
 empty.
 
-## Persistence Contract
+## Persistence contract
 
 Diagnostics must reopen from a persisted `ModelRun` without requiring refit.
 
 Required persisted or reconstructable information:
 
-- ROI-level reference values
+- ROI-level target values
 - ROI-level cross-validated predictions
 - ROI-level residuals
 - primary ROI-level metrics
@@ -397,7 +397,7 @@ Required persisted or reconstructable information:
 - model type
 - target identity
 - sample-set identity
-- preprocessing / signal-domain identity
+- preprocessing / input-contract identity
 - spectral axis for coefficient/loadings plots
 
 Required when supported by the fitted backend artifact:
@@ -414,7 +414,7 @@ Forbidden behavior:
 
 - refitting the model just to render diagnostics for a saved `ModelRun`
 
-## Selection and Coordination
+## Selection and coordination
 
 The `Model` workspace must coordinate with the persistent browser/inspector.
 
@@ -424,7 +424,7 @@ Required behavior:
 - selecting a plotted ROI point should update browser/inspector selection when feasible
 - browser selection remains authoritative when an explicit object is selected
 
-## Empty and Preflight States
+## Empty and preflight states
 
 If the user is not ready to fit, the `Model` workspace must still provide useful
 diagnostic readiness information.
@@ -433,16 +433,16 @@ Required blocking/preflight states include:
 
 - no target selected
 - no labeled ROIs for the selected target
-- no sample set built
+- no calibration set built
 - invalid CV grouping
-- calibration or signal-domain mismatch
+- reference correction or input-contract mismatch
 
 Required UI behavior:
 
 - show the blocking reason in the fit summary / readiness region
 - do not launch a background fit job for obviously invalid runs
 
-## Non-Goals for v3
+## Non-goals for v3
 
 This contract does not require:
 
@@ -455,7 +455,7 @@ This contract does not require:
 
 These may be added later, but the v3 shell must remain simple and reliable.
 
-## Acceptance Criteria
+## Acceptance criteria
 
 v3 is satisfied when:
 

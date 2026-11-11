@@ -269,7 +269,7 @@ same quantity), and the words it replaces.
 
 **Prediction interval**
 : ŷ ± q · s · √(1 + h), the leverage formula as in ASTM E1655
-  (`prediction-runtime-contract_v3.md`, Prediction Intervals); shown as "±"
+  (`prediction-runtime-contract_v3.md`, Prediction intervals); shown as "±"
   with its level ("Prediction interval (±, 95 %)"). API
   `prediction.interval_map(level)`.
 : Elsewhere: SIMCA *YPredPS confidence interval* (jack-knifed, a different

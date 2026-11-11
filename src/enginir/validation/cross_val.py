@@ -356,7 +356,7 @@ def aggregate_regression_predictions(
             groups.size,
         )
     if y_true.size == 0:
-        log_and_raise("at least one observation is required")
+        log_and_raise("at least one spectrum is required")
     if not (np.all(np.isfinite(y_true)) and np.all(np.isfinite(y_pred))):
         log_and_raise("y_true and y_pred must contain only finite values")
 

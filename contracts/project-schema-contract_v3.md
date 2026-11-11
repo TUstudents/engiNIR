@@ -1,4 +1,4 @@
-# Project Schema Contract v3
+# Project schema contract v3
 
 ## Status
 
@@ -10,18 +10,18 @@
 
 Define the concrete project-level schema contract that ties together:
 
-- dataset identity and calibration
+- dataset identity and reference correction
 - persisted ROIs
 - target definitions and assignments
 - preprocessing recipes
-- sample sets
-- model runs
+- calibration sets
+- models
 - prediction runs
 
 This contract exists so the project file becomes the persistent scientific
 workspace, not just a loose container of ROI blobs and model artifacts.
 
-## Core Decisions
+## Core decisions
 
 - the project file is the authoritative persistence boundary for v3
 - all first-class scientific objects are persisted inside the project file
@@ -37,20 +37,20 @@ workspace, not just a loose container of ROI blobs and model artifacts.
   - `sample-set-model-run-contract_v3.md`
   - `prediction-runtime-contract_v3.md`
 
-## Problem This Contract Solves
+## Problem this contract solves
 
 Without a project schema contract, the system cannot reliably answer:
 
 - which dataset a ROI came from
-- which calibration context was used for ROI extraction
+- which reference correction context was used for ROI extraction
 - which target a model was fit against
-- which preprocessing recipe and signal-domain contract a model requires
-- which prediction run used which model and which dataset-local calibration
+- which preprocessing recipe and input contract a model requires
+- which prediction run used which model and which dataset-local reference correction
 
 The result would be a project file that stores data, but does not preserve the
 scientific relationships needed for reproducibility.
 
-## Project Definition
+## Project definition
 
 A v3 project is a versioned file that persists the minimum scientific objects
 required for:
@@ -63,23 +63,23 @@ required for:
 The project file must be sufficient to reconstruct:
 
 - dataset references used by the project
-- active calibration records for those datasets
+- active reference correction records for those datasets
 - persisted ROIs and their provenance
 - target definitions and assignments
 - preprocessing recipes
-- sample sets
-- model runs
+- calibration sets
+- models
 - prediction runs
 
 v3 workflow note:
 
 - the project file may exist as an empty scientific workspace before any
   dataset is attached to a viewer window
-- creating a project must not implicitly create a dataset, calibration, or ROI
+- creating a project must not implicitly create a dataset, reference correction, or ROI
 - viewer workflow rules for project-only versus dataset-attached mode are
   defined in `project-dataset-attachment-contract_v3.md`
 
-## First-Class Objects In v3
+## First-class objects in v3
 
 The following are first-class persisted objects:
 
@@ -97,7 +97,7 @@ The following are first-class persisted objects:
 
 These objects are persisted independently and connected by ids.
 
-## Empty Project Rule
+## Empty project rule
 
 An empty project is valid in v3.
 
@@ -106,11 +106,11 @@ That means a newly created project may legally contain:
 - `project_meta`
 - empty top-level object groups
 - no datasets
-- no calibrations
+- no reference corrections
 - no ROIs
 - no targets
-- no sample sets
-- no model runs
+- no calibration sets
+- no models
 - no predictions
 
 Required invariant:
@@ -118,7 +118,7 @@ Required invariant:
 - project creation initializes workspace structure only
 - project creation must not infer scientific data from placeholder viewer state
 
-## Object Identity Rules
+## Object identity rules
 
 ### 1. Project identity
 
@@ -217,11 +217,10 @@ only when set:
 
 - `bands_keep`, `bands_exclude`: lists of inclusive `[low, high]` ranges on
   the recipe's axis after the Savitzky-Golay step (wavelengths in nm; for
-  data without wavelengths, the band numbers of the data file, i.e. the
+  data without wavelengths, the band numbers of the dataset, i.e. the
   input index 0 … K − 1, so dropping edges does not renumber). A band is
   selected when it lies in a keep range (or no keep list is given) and in
-  no exclude range. λ is the axis value as stored (float32 for a signal
-  domain) converted to float64; a band lies in a range when
+  no exclude range. λ is the axis value as stored (float32 for a input contract) converted to float64; a band lies in a range when
   low − τ ≤ λ ≤ high + τ, with τ = 10⁻³ times the smallest band spacing of
   the axis (10⁻⁶ for a single band), so a typed bound equal to a stored
   float32 wavelength matches it. Normalized before the id is computed,
@@ -251,7 +250,7 @@ weights are p where zᵢ > bᵢ and 1 − p otherwise; for `Reflectance` and `DN
 (absorption bands are dips, the baseline lies over the spectrum) the step
 is AsLS of −z, negated: weights p where zᵢ < bᵢ and 1 − p otherwise. A
 recipe with AsLS cannot be applied without a signal unit. The signal unit
-is the model's (its signal domain), so fitting and prediction use the same
+is the model's (its input contract), so fitting and prediction use the same
 direction. λ is applied as given, not rescaled with the band count; the
 stiffness grows roughly with K⁴, so a camera with more bands needs a larger
 λ. AsLS runs on the full input axis (before Savitzky-Golay); input and
@@ -277,7 +276,7 @@ loadings, `x_mean`, `x_std`, `rotations`, stored `wavelengths` of
 `prediction_model` and `diagnostics`), K in the DModX, s0, DCrit and DModXPS
 formulas (as SIMCA's K = 86 of 100 bands for a 15-point window),
 preprocessed ROI spectrum summaries and plots, and prediction use the
-output axis after band selection; the signal domain keeps the input bands.
+output axis after band selection; the input contract keeps the input bands.
 
 Projects with these fields need the release that introduced them or later:
 an older version would discard them as unknown fields and replay a
@@ -293,7 +292,7 @@ than being silently retained.
 Recipe identity is content-stable. Once `/recipes/{recipe_id}` exists, saving
 the same normalized content is idempotent, but changing any executable field
 under that id is forbidden. Changed preprocessing requires a new `recipe_id` so
-existing sample sets, model runs, and prediction runs cannot be reinterpreted.
+existing calibration sets, models, and prediction runs cannot be reinterpreted.
 
 ### 5. Content immutability of stable ids
 
@@ -320,7 +319,7 @@ scientific content. Writers enforce, per object:
 
 Explicit exceptions, each already governed by its own contract rule:
 
-- `CalibrationSpec`: replacing a dataset's single active calibration
+- `CalibrationSpec`: replacing a dataset's single active reference correction
   overwrites in place by design (`dataset-calibration-contract_v3.md`)
 - `TargetAssignment`: updating the value of an existing `(roi_id, target_id)`
   pair is the documented editing model (`roi-target-contract_v3.md`)
@@ -334,29 +333,29 @@ Explicit exceptions, each already governed by its own contract rule:
 - `TargetAssignment` removal: deleting the assignment of a `(roi_id,
   target_id)` pair returns it to "no value" (`roi-target-contract_v3.md`)
 
-## Required Object Relationships
+## Required object relationships
 
 These references are mandatory in v3.
 
-### Dataset and calibration
+### Dataset and reference correction
 
 - `CalibrationSpec.dataset_id -> DatasetRef.dataset_id`
 
 v3 rule:
 
-- one dataset has exactly one active calibration spec in v3
-- identical executable calibration content for the same dataset should resolve to
-  one calibration id instead of repeated duplicate records
+- one dataset has exactly one active reference correction spec in v3
+- identical executable reference correction content for the same dataset should resolve to
+  one reference correction id instead of repeated duplicate records
 
 v3 identity rule:
 
-- calibration ids must be unique across the whole project, not only within one
-  dataset subtree, because ROIs and prediction runs reference calibrations by
+- reference correction ids must be unique across the whole project, not only within one
+  dataset subtree, because ROIs and prediction runs refer to reference corrections by
   `calibration_id` alone
 - the reader rejects a project where two dataset subtrees persist the same
-  calibration id
+  reference correction id
 - a persisted dataset `active_calibration_id` must reference an existing
-  calibration owned by that dataset; the reader validates this during
+  reference correction owned by that dataset; the reader validates this during
   hydration
 
 ### ROI relationships
@@ -379,21 +378,21 @@ v3 identity rule:
 v3 coverage invariant:
 
 - `dataset_ids` must contain the `dataset_id` of every included ROI that
-  resolves in the project; validation rejects a sample set whose live ROI
+  resolves in the project; validation rejects a calibration set whose live ROI
   references a dataset missing from `dataset_ids`
 
 ### Model-run relationships
 
 - `ModelRun.sample_set_id -> SampleSet.sample_set_id`
 - `ModelRun.signal_domain_id -> SignalDomainContract.signal_domain_id`
-- `ModelRun.fit_spec/folds/groups` has one entry per ROI of its sample set's
+- `ModelRun.fit_spec/folds/groups` has one entry per ROI of its calibration set's
   `roi_ids`, and its values are well-formed fold-group indices
   (`sample-set-model-run-contract_v3.md` §7); a run that breaks this is
   rejected when the project is read
 
 v3 note:
 
-- the selected target and recipe are reached through the sample set
+- the selected target and recipe are reached through the calibration set
 
 ### Prediction-run relationships
 
@@ -403,7 +402,7 @@ v3 note:
 - `PredictionRun.signal_domain_id -> SignalDomainContract.signal_domain_id`
 - `PredictionRun.preprocessing_recipe_id -> PreprocessingRecipe.recipe_id`
 
-## Required Top-Level Project Structure
+## Required top-level project structure
 
 v3 requires these top-level groups:
 
@@ -425,7 +424,7 @@ Required invariant:
 
 - all top-level groups exist even if some are empty
 
-## Hydration And Memory Rules
+## Hydration and memory rules
 
 The schema must support two distinct read patterns in v3:
 
@@ -464,10 +463,10 @@ Allowed v3 implementation pattern:
   hydrating the complete output array
 - integrity checks over stored array shape and dtype during metadata-first
   open, using HDF5 dataset metadata only; the reader must reject ROI groups
-  whose stored spectra, wavelengths, or calibration-reference shapes
+  whose stored spectra, wavelengths, or reference correction-reference shapes
   contradict their metadata, without materializing the arrays
 
-## v3 HDF5 Shape Basis
+## v3 HDF5 shape basis
 
 The minimum object layout is:
 
@@ -607,7 +606,7 @@ the lossless spatial interpretation. A separate full `spatial_map` dataset is
 not required when it would only duplicate `y_pred`; readers must accept both
 the canonical single-array layout and existing dual-array files.
 
-## Required Schema Semantics
+## Required schema semantics
 
 ### 1. Project metadata
 
@@ -619,13 +618,13 @@ the canonical single-array layout and existing dual-array files.
 
 This is mandatory.
 
-### 2. Dataset-local calibration storage
+### 2. Dataset-local reference correction storage
 
-Calibration must live under the dataset that owns it.
+Reference correction must live under the dataset that owns it.
 
 v3 requirement:
 
-- calibration is not a project-global free-floating object
+- reference correction is not a project-global free-floating object
 
 Therefore:
 
@@ -647,14 +646,14 @@ v3 requirement:
 
 - the schema must persist `observation_unit`, `target_level`, `grouping_unit`, `validation_unit`, `weighting_policy`, `reporting_level`, and `roi_aggregation`
 
-### 5. Model runs are not just fitted arrays
+### 5. Models are not just fitted arrays
 
 Model artifacts alone are not enough.
 
 v3 requirement:
 
-- a model run must persist the references and semantics needed to interpret those artifacts
-- reading a model run for navigation or summary display must not require eager
+- a model must persist the references and semantics needed to interpret those artifacts
+- reading a model for navigation or summary display must not require eager
   hydration of all fitted numeric artifacts
 
 ### 6. Prediction provenance must be explicit
@@ -665,9 +664,9 @@ v3 requirement:
 
 - every prediction run must reference:
   - prediction dataset
-  - applied calibration
-  - model run
-  - signal-domain contract
+  - applied reference correction
+  - model
+  - input contract
   - preprocessing recipe
 - reading a prediction run for navigation or summary display must not require
   eager hydration of `y_pred` or `spatial_map`
@@ -678,7 +677,7 @@ v3 requirement:
   sufficient for the UI to select a target/output explicitly
 - wavelength metadata may be stored for diagnostics, but completed prediction
   runs do not need wavelength proof to be considered valid
-- a completed calibrated prediction run must store reflectance clipping telemetry
+- a completed corrected prediction run must store reflectance clipping telemetry
   when any values were clipped
 - failed or partial prediction output must not be indistinguishable from a
   finalized prediction run
@@ -700,7 +699,7 @@ Required semantics:
   persist an already-complete prediction run in one operation may omit it
 - the staged write path sets `writing` at artifact initialization and sets
   `complete` only during finalization
-- a failed or cancelled staged run is discarded by deleting the prediction
+- a failed or canceled staged run is discarded by deleting the prediction
   group; v3 persists no `failed` or `cancelled` status value
 - the reader must reject a project containing a prediction run marked
   `writing` with a logged error
@@ -708,7 +707,7 @@ Required semantics:
   error; unknown status values are not extras to warn about, because they
   change whether the run may be interpreted as finalized
 
-## Required Serialization Rules
+## Required serialization rules
 
 ### Arrays
 
@@ -753,7 +752,7 @@ v3 requirement:
 
 - structure must be reconstructable without relying on implicit Python objects or pickled state
 
-## Schema Validation And Extra-Field Policy
+## Schema validation and extra-field policy
 
 The reader always interprets a project using the newest schema implemented by
 the running engiNIR version.
@@ -770,8 +769,8 @@ Required read behavior:
    promoting them into current objects or artifact metadata
 
 The scan applies at each schema object boundary: the root, project metadata,
-and every identified dataset, calibration, ROI, target, assignment, recipe,
-signal-domain contract, sample set, model run, and prediction run. A field that
+and every identified dataset, reference correction, ROI, target, assignment, recipe,
+input contract, calibration set, model, and prediction run. A field that
 the current object schema does not declare is an extra at that boundary.
 
 Declared structured fields are values, not additional object-schema
@@ -801,21 +800,21 @@ The executable model of a ModelRun is stored exclusively in
 missing that state fails prediction preflight rather than refitting on
 prediction data.
 
-Calibration content hashes are derived comparison aids, not persisted
-scientific fields in v3. Calibration identity is determined from the canonical
+Reference correction content hashes are derived comparison aids, not persisted
+scientific fields in v3. Reference correction identity is determined from the canonical
 executable fields; implementations may compute hashes in memory to accelerate
 comparison but must not make a stored hash authoritative over that content.
 
-## Required Invariants
+## Required invariants
 
 - schema version is explicit
 - every persisted id is unique within its object namespace
 - all inter-object references resolve to an existing object
-- every ROI references an existing dataset and calibration
+- every ROI references an existing dataset and reference correction
 - every target assignment references an existing ROI and target
-- every sample set references existing ROIs, a target, and a recipe
-- every model run references an existing sample set and signal-domain contract
-- every prediction run references an existing dataset, calibration, model run, signal-domain contract, and recipe
+- every calibration set references existing ROIs, a target, and a recipe
+- every model references an existing calibration set and input contract
+- every prediction run references an existing dataset, reference correction, model, input contract, and recipe
 - every completed prediction run with multiple outputs stores explicit
   output-axis metadata
 - every persisted prediction run carries an `artifact_write_status` that is
@@ -824,18 +823,18 @@ comparison but must not make a stored hash authoritative over that content.
 - wavelength metadata differences do not invalidate an otherwise completed
   prediction run
 
-## Out Of Scope For v3
+## Out of scope for v3
 
 These are intentionally deferred:
 
 - schema migration from pre-v3 project formats
-- multiple active calibration variants per dataset
+- multiple active reference correction variants per dataset
 - project-external object registries as a requirement
 - object-level history/version timelines
 - distributed or split project storage
 - non-HDF5 backends
 
-## Open Questions After This Decision
+## Open questions after this decision
 
 These remain open after the v3 project-schema contract.
 
@@ -858,7 +857,7 @@ Resolved for v3:
 - `/predictions/{prediction_run_id}/` is written only by the low-level
   writers when a script asks for it; the facade and the viewer do not store
   predictions or register predicted scans as datasets
-  (`prediction-runtime-contract_v3.md`, Result Handling)
+  (`prediction-runtime-contract_v3.md`, Result handling)
 - `fit_spec` persists what was requested: fold rule and fold groups (with
   the group index of every ROI as used), pixel sample (count, seed,
   checksum) and DModX exclusion
@@ -875,10 +874,10 @@ Resolved for v3:
 
 Resolved for v3:
 
-- updates follow the content-immutability rule in Object Identity Rules §5:
+- updates follow the content-immutability rule in Object identity rules §5:
   idempotent re-saves and label-only changes overwrite in place; changed
   scientific content requires a new id
-- calibration replacement, target-assignment value updates, and prediction
+- reference correction replacement, target-assignment value updates, and prediction
   staging are the documented overwrite-in-place exceptions
 - an ROI's `sample` label is a label-only change: it is set, changed or
   removed in place by `save_roi_sample`, never the ROI's other content
@@ -905,19 +904,19 @@ Resolved for v3:
   per ROI); re-saving such an ROI there is refused as changed content, as
   above
 
-## Acceptance Criteria
+## Acceptance criteria
 
 This contract is implemented correctly when:
 
 - the project file declares a schema version explicitly
-- dataset identity and calibration live inside the project file
+- dataset identity and reference correction live inside the project file
 - persisted ROIs are keyed by stable `roi_id`
 - targets and target assignments are first-class persisted objects
-- sample sets are first-class persisted objects
-- model runs and prediction runs store explicit references to the objects they depend on
-- calibration is dataset-owned and targets are explicit objects, not a
-  project-global calibration or one anonymous ROI `y_value`
-- duplicate explicit prediction calibrations can be detected by persisted
-  calibration content identity
+- calibration sets are first-class persisted objects
+- models and prediction runs store explicit references to the objects they depend on
+- reference correction is dataset-owned and targets are explicit objects, not a
+  project-global reference correction or one anonymous ROI `y_value`
+- duplicate explicit prediction reference corrections can be detected by persisted
+  reference correction content identity
 - prediction runtime metadata records output-axis and clipping telemetry needed
   to interpret disk-backed artifacts without loading them

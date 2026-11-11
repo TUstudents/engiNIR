@@ -321,12 +321,12 @@ def test_refit_reports_changed_values_and_refuses_deleted_rois(tmp_path):
     model = project.fit("API", n_components=1, cv="logo")
     project.set_value("s2", "API", 7.5)
     refitted, warnings = _warnings_during(model.refit)
-    assert any("1 reference value(s) changed" in w for w in warnings)
+    assert any("1 target value(s) changed" in w for w in warnings)
     assert any("differs in" in w and "rmsecv" in w for w in warnings)
     assert refitted.metrics["rmsecv"] != pytest.approx(model.metrics["rmsecv"])
     with pytest.raises(ValueError, match="model called 'PLS 1 LV, raw' already exists"):
         model.refit(name="PLS 1 LV, raw")
 
     project.remove_roi(project.roi("s0").roi_id)
-    with pytest.raises(ValueError, match="Cannot refit the model: sample set .* lists deleted"):
+    with pytest.raises(ValueError, match="Cannot refit the model: calibration set .* lists deleted"):
         model.refit()

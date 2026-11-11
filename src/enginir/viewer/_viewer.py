@@ -723,7 +723,7 @@ class HSIViewer(QMainWindow):
         self._explore_plot_visibility = dict(self._default_explore_plot_visibility)
 
     # ------------------------------------------------------------------
-    # Explore plot frames (Plot Panel Policy)
+    # Explore plot frames (Plot panel policy)
     # ------------------------------------------------------------------
 
     def _explore_frame(self, panel: _ExplorePanel, plot_id: str) -> PlotFrame:

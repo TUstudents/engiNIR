@@ -1,4 +1,4 @@
-Chemometric Models
+Chemometric models
 ==================
 
 All models follow the scikit-learn estimator API and are usable inside
@@ -8,7 +8,7 @@ Regression
 ----------
 
 PLSRegression (PLS1 / PLS2)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Partial Least Squares regression.  PLS1 handles a single response variable;
 PLS2 handles multiple responses simultaneously.
@@ -30,12 +30,12 @@ PLS2 handles multiple responses simultaneously.
 `PLSRegression` also exposes public fitted normalization statistics on the
 enginir wrapper:
 
-- ``x_mean_`` and ``x_std_`` for the training X centering/scaling
-- ``y_mean_`` and ``y_std_`` for the training Y centering/scaling
+- ``x_mean_`` and ``x_std_`` for the calibration X centering/scaling
+- ``y_mean_`` and ``y_std_`` for the calibration Y centering/scaling
 - ``coef_`` and ``intercept_`` in raw data units, so that
   ``y = X @ coef_ + intercept_`` (the same contract as :class:`PCR`)
 
-``coef_`` and ``intercept_`` are the values stored in project model runs
+``coef_`` and ``intercept_`` are the values stored in project models
 (``model_runs/{id}/artifact_refs/prediction_model``) and replayed for
 prediction.
 
@@ -43,8 +43,8 @@ prediction.
 spectra give float32 predictions and scores without a float64 copy. Fitting
 uses scikit-learn's NIPALS implementation, which works in float64 internally.
 
-PCR (Principal Component Regression)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+PCR (principal component regression)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 PCA followed by ordinary least squares on the retained scores.
 
@@ -56,7 +56,7 @@ PCA followed by ordinary least squares on the retained scores.
    model.fit(X_train, y_train)
    y_pred = model.predict(X_test)
 
-Machine Learning Models
+Machine learning models
 -----------------------
 
 Thin wrappers around scikit-learn estimators with the same input validation
@@ -86,8 +86,8 @@ Multi-Layer Perceptron::
 Classification
 --------------
 
-SIMCA (Soft Independent Modelling of Class Analogy)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+SIMCA (soft independent modeling of class analogy)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 SIMCA builds one PCA model per class. A sample is accepted by a class when
 its Q residual (squared distance to the class PCA subspace) is below the
@@ -112,8 +112,8 @@ Series), ``nan`` for float labels and ``None`` otherwise. Requested
 ``n_components`` are reduced, with a warning, for classes whose data have too
 few independent samples to leave a residual subspace.
 
-LDA Classifier
-~~~~~~~~~~~~~~~
+LDA classifier
+~~~~~~~~~~~~~~
 
 Linear Discriminant Analysis with optional PCA pre-reduction to handle
 high-dimensional spectral data.
@@ -153,7 +153,7 @@ Choosing a model
      - Large datasets with complex non-linearities
    * - SIMCA
      - Classification
-     - Class modelling; detection of samples outside all classes
+     - Class modeling; detection of samples outside all classes
    * - LDAClassifier
      - Classification
      - Multi-class discrimination; linear decision boundaries
@@ -161,12 +161,12 @@ Choosing a model
 Models in a project
 -------------------
 
-In a project (:class:`enginir.Project`), every pixel spectrum of an ROI is an
-observation with the ROI's reference value; cross-validation keeps the pixels
+In a project (:class:`enginir.Project`), every pixel spectrum of an ROI is a data point of the fit with the ROI's
+target value; cross-validation keeps the pixels
 of one ROI together, and the reported metrics are per ROI, from the mean of
 its held-out pixel predictions.
 
-Project model runs are ``PLS`` or ``PCR``. :meth:`enginir.Project.fit` uses
+Project models are ``PLS`` or ``PCR``. :meth:`enginir.Project.fit` uses
 every ROI with a value for the target:
 
 .. code-block:: python
@@ -178,15 +178,15 @@ every ROI with a value for the target:
                        model="PCR", n_components=5)
    print(model.metrics["rmsecv"])
 
-The project stores the sample set, the cross-validation scheme, the metrics
-and the fitted model. Training converts each ROI's raw spectra with its own
-calibration before the recipe is applied (raw counts stay ``uint16`` until
+The project stores the calibration set, the cross-validation scheme, the metrics
+and the fitted model. Calibration converts each ROI's raw spectra with its own
+reference correction before the recipe is applied (raw counts stay ``uint16`` until
 then). A model therefore fixes three pieces of input provenance:
 
 - the sample-set contract
-- the signal-domain contract
+- the input contract
 - the preprocessing recipe
 
 Prediction must satisfy that frozen contract before the estimator is used.
-When the recipe enables MSC or EMSC, the fitted training-side transformer state
+When the recipe enables MSC or EMSC, the fitted calibration-side transformer state
 is stored with the prediction-model artifact and restored after project reopen.

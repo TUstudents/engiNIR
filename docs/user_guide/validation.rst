@@ -1,5 +1,5 @@
-Validation & Figures of Merit
-==============================
+Validation & figures of merit
+=============================
 
 Metrics
 -------
@@ -17,7 +17,7 @@ Inputs must have matching non-empty shapes and finite numeric values.
      - Notes
    * - ``rmsec``
      - :math:`\sqrt{\frac{1}{n}\sum(y - \hat{y})^2}`
-     - Applied to calibration-set predictions
+     - Applied to reference correction-set predictions
    * - ``rmsecv``
      - :math:`\sqrt{\frac{1}{n}\sum(y - \hat{y}_{cv})^2}`
      - Applied to cross-validated predictions
@@ -71,7 +71,7 @@ metrics_report
 ~~~~~~~~~~~~~~
 
 :func:`~enginir.validation.metrics_report` computes all figures of merit at once.
-Pass calibration predictions for RMSEC/R2_cal, cross-validated predictions for
+Pass reference correction predictions for RMSEC/R2_cal, cross-validated predictions for
 RMSECV/R2_cv, and independent test set predictions for RMSEP/SEP/bias/RPD/RPIQ:
 
 .. code-block:: python
@@ -121,7 +121,7 @@ used, e.g. ``{"type": "KFold", "n_splits": 7}``.
    # regression metrics (rmsecv, r2, ...) are omitted for classifiers
 
 Grouped cross-validation
-~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~
 
 When X contains multiple spectra (pixels) from the same physical sample,
 as in ROI-based data, standard k-fold allows pixels from the same
@@ -150,15 +150,14 @@ in the same fold:
    results_logo = cross_validate(model, X, y, cv="logo", groups=groups)
 
    # Round-robin: the i-th group (sorted labels) is held out in fold i mod 7,
-   # SIMCA's "every Nth" rule applied to groups; what model runs use.
+   # SIMCA's "every Nth" rule applied to groups; what models use.
    from enginir.validation import RoundRobinGroups
    results_rr = cross_validate(model, X, y, cv=RoundRobinGroups(7), groups=groups)
 
 Explicit integer ``cv`` uses ``GroupKFold(n_splits=cv)`` and therefore requires
 at least that many unique groups. ``GroupKFold`` assigns groups to folds by size
 and, among groups of equal size, by the order of their labels, so use labels
-whose order is reproducible (for example sample numbers, not random ids); model
-runs label each ROI with its position in the sample set and use
+whose order is reproducible (for example sample numbers, not random ids); models label each ROI with its position in the calibration set and use
 :class:`~enginir.validation.RoundRobinGroups`. ``cv="loo"`` remains available for explicit
 observation-level leave-one-out, but it ignores groups, logs that choice when
 groups are present, and is not the default.
@@ -172,13 +171,12 @@ a variable (for example the concentration) has no equivalent on purpose:
 SIMCA sorts the observations by the value and cuts them into equal blocks,
 which can split the spectra of one sample across folds and leaves the
 lowest and highest concentrations to be predicted by extrapolation.
-Model runs in a project can hold the ROIs of one sample out together
+Models in a project can hold the ROIs of one sample out together
 instead; see :doc:`fit_specification`.
 
 The metrics in ``results`` are computed over pixels. For ROI-based data the
 primary figures of merit are ROI-level: average the out-of-fold predictions per
-group first, then compute the metrics on one value per ROI. This is how model
-runs report RMSECV, R² and bias.
+group first, then compute the metrics on one value per ROI. This is how models report RMSECV, R² and bias.
 
 .. code-block:: python
 
@@ -189,11 +187,11 @@ runs report RMSECV, R² and bias.
    )
    print(f"ROI-level RMSECV = {rmsecv(y_roi, y_pred_roi):.4f}")
 
-Kennard-Stone Split
+Kennard-Stone split
 -------------------
 
-Kennard-Stone selects a representative calibration subset that spans the
-full range of spectral variation, maximising coverage of the spectral space.
+Kennard-Stone selects a representative reference correction subset that spans the
+full range of spectral variation, maximizing coverage of the spectral space.
 
 .. code-block:: python
 
@@ -212,16 +210,16 @@ Distances are computed one row at a time, never as the full
 samples; run time still grows quadratically, because the first step searches
 for the two most distant samples.
 
-Outlier Detection
+Outlier detection
 -----------------
 
 Leverage outliers (hat matrix)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Identifies samples with high influence on the regression model. The leverage
 :math:`h_i = 1/n + t_i^\top (T^\top T)^{-1} t_i` is computed from the
-mean-centred input; the default threshold is :math:`3(r+1)/n`, three times the
-mean leverage, where :math:`r` is the rank of the centred input.
+mean-centered input; the default threshold is :math:`3(r+1)/n`, three times the
+mean leverage, where :math:`r` is the rank of the centered input.
 
 Pass model scores, not raw spectra: with more wavelengths than samples every
 spectrum has leverage 1 and the function warns.
@@ -234,7 +232,7 @@ spectrum has leverage 1 and the function warns.
    print(f"{mask.sum()} leverage outliers detected")
 
 Hotelling T2 (score space)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Detects outliers in the latent variable space using the Hotelling T2
 statistic. For the calibration samples themselves the critical value comes
@@ -253,7 +251,7 @@ the F-distribution limit is used (Tracy et al., 1992).
                                                 calibration_scores=T)
 
 Q-residuals (spectral outliers)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Detects samples that are poorly reconstructed by the model: spectral
 features not captured by the latent variables. The residual

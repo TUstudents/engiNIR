@@ -71,6 +71,6 @@ Results and progress
 
 .. autoexception:: enginir.prediction.PredictionCancelledError
 
-Model runs using MSC or EMSC store their fitted preprocessing state in the
+Models using MSC or EMSC store their fitted preprocessing state in the
 prediction-model artifact; prediction restores it and never refits on
 prediction data.

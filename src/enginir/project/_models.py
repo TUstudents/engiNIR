@@ -325,29 +325,29 @@ class CalibrationSpec(SerializableModel):
                               ("dark_ref_data", "white_ref_data"),
                               ("black_level", "white_level")):
             if (getattr(self, first) is None) != (getattr(self, second) is None):
-                log_and_raise("Calibration '{}': {} and {} must be set together",
+                log_and_raise("Reference correction '{}': {} and {} must be set together",
                               self.calibration_id, first, second)
         if self.mode != "dark_white_reference":
             expected_units = ("DN",) if self.mode == "raw_dn" else ("Reflectance", "Absorbance")
             if self.output_signal_unit not in expected_units:
-                log_and_raise("Calibration '{}': mode {!r} requires output_signal_unit in {}",
+                log_and_raise("Reference correction '{}': mode {!r} requires output_signal_unit in {}",
                               self.calibration_id, self.mode, list(expected_units))
             if has_paths or has_arrays or has_levels:
-                log_and_raise("Calibration '{}': mode {!r} must not store reference context",
+                log_and_raise("Reference correction '{}': mode {!r} must not store reference context",
                               self.calibration_id, self.mode)
             return
         if self.output_signal_unit == "DN":
-            log_and_raise("Calibration '{}': mode 'dark_white_reference' produces Reflectance "
-                          "or Absorbance, not DN", self.calibration_id)
+            log_and_raise("Reference correction '{}': mode 'dark_white_reference' produces "
+                          "Reflectance or Absorbance, not raw counts (DN)", self.calibration_id)
         if has_arrays == has_levels:
-            log_and_raise("Calibration '{}' needs either reference arrays or scalar levels "
+            log_and_raise("Reference correction '{}' needs either reference arrays or scalar levels "
                           "(exactly one of them)", self.calibration_id)
         if has_paths and not has_arrays:
-            log_and_raise("Calibration '{}': reference source paths are provenance only and "
+            log_and_raise("Reference correction '{}': reference source paths are provenance only and "
                           "need the reference arrays", self.calibration_id)
         if (self.dark_ref_data is not None and self.white_ref_data is not None
                 and self.dark_ref_data.shape != self.white_ref_data.shape):
-            log_and_raise("Calibration '{}': dark and white reference arrays differ in shape",
+            log_and_raise("Reference correction '{}': dark and white reference arrays differ in shape",
                           self.calibration_id)
 
 
@@ -646,12 +646,12 @@ class SignalDomainContract(SerializableModel):
                                               "calibrated_input_allowed")
         produces_dn = self.required_calibration_mode == "raw_dn"
         if produces_dn != (self.required_signal_unit == "DN"):
-            log_and_raise("Signal domain '{}': calibration mode {!r} cannot produce {!r} spectra",
+            log_and_raise("Input contract '{}': reference correction mode {!r} cannot produce {!r} spectra",
                           self.signal_domain_id, self.required_calibration_mode,
                           self.required_signal_unit)
         if ((self.requires_dark_ref or self.requires_white_ref)
                 and self.required_calibration_mode != "dark_white_reference"):
-            log_and_raise("Signal domain '{}': reference requirements need calibration mode "
+            log_and_raise("Input contract '{}': reference requirements need reference correction mode "
                           "'dark_white_reference', got {!r}", self.signal_domain_id,
                           self.required_calibration_mode)
         self.n_bands = check_integer(self.n_bands, "n_bands", minimum=1)
@@ -688,7 +688,7 @@ class SignalDomainContract(SerializableModel):
         from ._ids import new_id, now_iso
 
         if calibration.dataset_id != dataset.dataset_id:
-            log_and_raise("Calibration '{}' belongs to dataset '{}', not '{}'",
+            log_and_raise("Reference correction '{}' belongs to dataset '{}', not '{}'",
                           calibration.calibration_id, calibration.dataset_id, dataset.dataset_id)
         has_dark = any(value is not None for value in (
             calibration.dark_ref_source, calibration.dark_ref_data, calibration.black_level))
@@ -767,13 +767,13 @@ class SampleSet(SerializableModel):
                                              "preprocessing_recipe_id")
         self.roi_ids = _text_list(self.roi_ids, "roi_ids")
         if not self.roi_ids:
-            log_and_raise("Sample set '{}' has no roi_ids", self.sample_set_id)
+            log_and_raise("Calibration set '{}' has no roi_ids", self.sample_set_id)
         if len(set(self.roi_ids)) != len(self.roi_ids):
-            log_and_raise("Sample set '{}' lists an ROI more than once: {}", self.sample_set_id,
+            log_and_raise("Calibration set '{}' lists an ROI more than once: {}", self.sample_set_id,
                           self.roi_ids)
         self.dataset_ids = _text_list(self.dataset_ids, "dataset_ids")
         if not self.dataset_ids:
-            log_and_raise("Sample set '{}' has no dataset_ids", self.sample_set_id)
+            log_and_raise("Calibration set '{}' has no dataset_ids", self.sample_set_id)
         for name, allowed in SAMPLE_SET_SEMANTICS.items():
             setattr(self, name, _choice(getattr(self, name), name, (allowed,)))
         self.created_at = _timestamp(self.created_at, "created_at")

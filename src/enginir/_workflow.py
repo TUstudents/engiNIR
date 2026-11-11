@@ -623,8 +623,8 @@ class Project:
         for key in [key for key in ws.target_assignments if key[0] == roi_id]:
             del ws.target_assignments[key]
         if affected:
-            logger.warning("Deleted ROI '{}' is still listed by sample set(s) {}; their model "
-                           "runs remain usable for prediction, but they cannot be refitted",
+            logger.warning("Deleted ROI '{}' is still listed by calibration set(s) {}; their "
+                           "models remain usable for prediction, but they cannot be refitted",
                            roi_id, affected)
         return affected
 
@@ -638,7 +638,7 @@ class Project:
         """Refuse ``action`` on a sample set that lists deleted ROIs."""
         missing = self.missing_rois(sample_set_id)
         if missing:
-            log_and_raise("Cannot {}: sample set '{}' lists deleted ROI(s) {}; its model runs "
+            log_and_raise("Cannot {}: calibration set '{}' lists deleted ROI(s) {}; its models "
                           "remain usable for prediction, but it cannot be altered or refit "
                           "until recreated", action, sample_set_id, missing, depth=2)
 
@@ -695,7 +695,7 @@ class Project:
         sensor = dataset.cube_shape[1:]
         if references_from is not None:
             if any(value is not None for value in (dark, white, dark_frames, white_frames)):
-                log_and_raise("references_from takes both references from another data file; "
+                log_and_raise("references_from takes both references from another dataset; "
                               "do not combine it with dark, white or reference frames")
             references = self._references_of(references_from, sensor)
         else:
@@ -762,8 +762,8 @@ class Project:
                 required_signal_unit=calibration.output_signal_unit)
             if domains and not _same_signal_domain(domains[0], domain):
                 log_and_raise("ROI '{}' was recorded with a different signal (format, unit, "
-                              "calibration or wavelengths) than ROI '{}'; one model needs one "
-                              "signal domain", roi.name, ws.rois[sample_set.roi_ids[0]].name)
+                              "reference correction or wavelengths) than ROI '{}'; one model needs one "
+                              "input contract", roi.name, ws.rois[sample_set.roi_ids[0]].name)
             domains.append(domain)
         return domains[0]
 
@@ -885,7 +885,7 @@ class Dataset:
         abs_path = _native_path(path)
         other = project._dataset_ref(abs_path)
         if other is not None and other.dataset_id != self.ref.dataset_id:
-            log_and_raise("{} is already registered as another data file of the project",
+            log_and_raise("{} is already registered as another dataset of the project",
                           abs_path)
         rois = [roi for roi in ws.rois.values() if roi.dataset_id == self.ref.dataset_id]
         check_data_file_location(project.path, self.ref, rois, abs_path)
@@ -1031,7 +1031,7 @@ class Model:
                                       key=project._model_name)
         changed = self._changed_values(sample_set)
         if changed:
-            logger.warning("Refitting model '{}': {} reference value(s) changed since it was "
+            logger.warning("Refitting model '{}': {} target value(s) changed since it was "
                            "fitted (ROI ids {}); the metrics will differ", self.name,
                            len(changed), changed[:5])
         spec = self.ref.fit_specification
@@ -1147,7 +1147,7 @@ class Model:
             prediction, target_assignments=self.project.workspace.target_assignments,
             exclude_dmodx=level)
         logger.info("Predicted {} ROI(s) of {} with model '{}' ({}); exclusion {}; {} refused; "
-                    "RMSEP {} over {} ROI(s) with a value", len(prediction.pixels),
+                    "RMSEP (per ROI) {} over {} ROI(s) with a value", len(prediction.pixels),
                     self.project.path, self.name, self.ref.model_run_id,
                     "none" if summary.exclusion is None else f"DModX {summary.exclusion}",
                     len(prediction.refused), summary.rmsep, summary.n_reference)
@@ -1406,15 +1406,15 @@ def check_data_file_location(
         checks.append(("modality", header.meta["source_modality"], dataset.source_modality))
     for label, now, then in checks:
         if now != then:
-            log_and_raise("{} is not this data file: it has {} {!r}, the data file has {!r}",
+            log_and_raise("{} is not this dataset: it has {} {!r}, the dataset has {!r}",
                           abs_path, label, now, then)
     wavelengths = np.asarray(header.wavelengths, dtype=np.float32)
     if wavelengths.shape != np.shape(dataset.wavelengths) or not np.allclose(
             wavelengths, np.asarray(dataset.wavelengths, dtype=np.float32), atol=1e-6, rtol=0.0):
-        log_and_raise("{} is not this data file: its wavelengths differ", abs_path)
+        log_and_raise("{} is not this dataset: its wavelengths differ", abs_path)
     rois = list(rois)
     if not rois:
-        logger.warning("Data file {} has no ROIs; only its format, shape and wavelengths "
+        logger.warning("Dataset {} has no ROIs; only its format, shape and wavelengths "
                        "were compared", abs_path)
         return
     first = min(roi.spatial_bounds[0] for roi in rois)
@@ -1427,9 +1427,9 @@ def check_data_file_location(
             pixels[f0 - first:f1 - first + 1, r0:r1 + 1].reshape(-1, n_bands))
         stored = store.load_roi_spectra(project_path, f"/rois/{roi.roi_id}/spectra")
         if found.shape != stored.shape or not np.array_equal(found, stored):
-            log_and_raise("{} is not this data file: the pixels of ROI '{}' differ from the "
+            log_and_raise("{} is not this dataset: the pixels of ROI '{}' differ from the "
                           "stored ones", abs_path, roi.name)
-    logger.info("{} matches data file '{}' ({} ROIs compared)", abs_path, dataset.dataset_id,
+    logger.info("{} matches dataset '{}' ({} ROIs compared)", abs_path, dataset.dataset_id,
                 len(rois))
 
 
@@ -1716,7 +1716,7 @@ def resolve_prediction_calibration(
     active_id = active_calibration_ids.get(dataset.dataset_id)
     if active_id and active_id in calibrations:
         return calibrations[active_id], False
-    log_and_raise("Prediction dataset '{}' has no calibration yet; explicit calibration required",
+    log_and_raise("Prediction dataset '{}' has no reference correction yet; explicit reference correction required",
                   dataset.dataset_id)
 
 

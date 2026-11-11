@@ -182,7 +182,7 @@ class FitSpec:
             return cls(fold_rule="leave_one_group_out")
         if isinstance(requested, (int, np.integer)) and not isinstance(requested, bool):
             return cls(fold_rule="group_kfold", n_folds=int(requested))
-        log_and_raise("A legacy model run has an unknown cv_spec/requested value {!r}", requested)
+        log_and_raise("A legacy model has an unknown cv_spec/requested value {!r}", requested)
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> FitSpec:

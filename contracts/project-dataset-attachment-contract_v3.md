@@ -1,10 +1,10 @@
-# Project Dataset Attachment Contract v3
+# Project dataset attachment contract v3
 
 ## Status
 
 - Version: `v3`
 - Status: active contract for engiNIR 1.0; v3 is the default and only supported project schema
-- Scope: viewer/project workflow states, dataset attachment, data files of a project, project-only behavior, mismatch validation, eager-write semantics
+- Scope: viewer/project workflow states, dataset attachment, datasets of a project, project-only behavior, mismatch validation, eager-write semantics
 
 ## Goal
 
@@ -19,7 +19,7 @@ Define the concrete workflow contract for:
 This contract exists to prevent project corruption caused by placeholder viewer
 state being treated as real scientific context.
 
-## Core Decisions
+## Core decisions
 
 - a project file is a scientific workspace, not a viewer session snapshot
 - a viewer window may open a project without an attached dataset
@@ -28,14 +28,13 @@ state being treated as real scientific context.
 - placeholder cubes are UI bootstraps only and must never be promoted to project data
 - project/dataset attach validation must live in one shared attach operation
 - v3 project writes are eager; there is no deferred unsaved project graph
-- a project collects ROIs from several data files; one window shows one
-  data file of its project at a time and switches between them (see Data
-  Files Of A Project)
+- a project collects ROIs from several datasets; one window shows one
+  dataset of its project at a time and switches between them (see Datasets Of A Project)
 - stored ROIs carry their raw pixels and references, so inspecting them,
-  editing their target values, building sample sets and fitting models need
+  editing their target values, building calibration sets and fitting models need
   only the project file
 
-## Problem This Contract Solves
+## Problem this contract solves
 
 Without an explicit project/dataset workflow contract, the system cannot answer
 reliably:
@@ -52,23 +51,21 @@ The result is repeated workflow bugs:
 - mismatch warnings firing in one open path but not another
 - project state mutating before the scientific context is valid
 
-## Domain Summary
+## Domain summary
 
 There are three distinct concepts:
 
 1. `ProjectWorkspace`
    The persisted v3 scientific workspace stored in the project file.
 2. `ViewerDatasetContext`
-   The currently loaded real dataset in one viewer window: the *shown data
-   file*. In a project window it is one of the project's registered data
-   files.
+   The currently loaded real dataset in one viewer window: the *shown dataset*. In a project window it is one of the project's registered datasets.
 3. `ProjectAttachment`
    The binding between the active project workspace and the current viewer dataset context.
 
 The viewer must not infer scientific validity from the mere existence of a
 `ViewerState.cube`.
 
-## Viewer Workflow States
+## Viewer workflow states
 
 v3 defines three valid window states:
 
@@ -97,13 +94,13 @@ Allowed:
 
 - inspect existing project objects
 - inspect ROIs already stored in the project
-- inspect targets, sample sets, model runs, and predictions
+- inspect targets, calibration sets, models, and predictions
 - export persisted project-backed data that does not depend on the current viewer cube
 - attach a real dataset to the current window
 - show the stored ROIs from the project file (the Project ROIs view of the
   viewer workspace UI contract)
 - create, edit and remove target assignments of stored ROIs
-- build sample sets from stored ROIs and fit models; both read only the
+- build calibration sets from stored ROIs and fit models; both read only the
   project file
 
 Forbidden:
@@ -121,15 +118,15 @@ Forbidden:
 Allowed:
 
 - all project-backed workflow actions
-- ROI creation on the shown data file
-- dataset-local calibration creation or reuse
+- ROI creation on the shown dataset
+- dataset-local reference correction creation or reuse
 - sample-set build
 - model fit
 - prediction against the attached or explicitly loaded dataset
-- switching the shown data file to another registered data file, or adding
-  a new data file
+- switching the shown dataset to another registered dataset, or adding
+  a new dataset
 
-## Placeholder Viewer Rule
+## Placeholder viewer rule
 
 Some startup paths may use a placeholder cube to bootstrap the UI shell.
 
@@ -175,7 +172,7 @@ Required invariant:
 
 - no dataset-derived mutation may run unless `is_real_dataset = true`
 
-## Project Creation Contract
+## Project creation contract
 
 ### 1. Create empty project
 
@@ -186,7 +183,7 @@ Required behavior:
 - create all top-level v3 groups
 - write `project_meta`
 - do not create any dataset implicitly
-- do not create any calibration implicitly
+- do not create any reference correction implicitly
 - do not create any ROI implicitly
 
 ### 2. Attach dataset later
@@ -196,10 +193,10 @@ Attaching a dataset to a project is a separate operation from creating the proje
 Required behavior:
 
 - resolve or create `DatasetRef` from the real attached dataset
-- resolve or create dataset-local active calibration
+- resolve or create dataset-local active reference correction
 - mark the current window as dataset-attached
 
-## Project Attach Contract
+## Project attach contract
 
 Attaching a project to a dataset-backed window must go through one shared
 operation used by:
@@ -215,11 +212,11 @@ Required invariant:
 
 This means attach validation must not live only inside one UI button handler.
 
-## Mismatch Validation Contract
+## Mismatch validation contract
 
-Validation is per data file. When a data file is attached to a project window
-(at startup, by Open Data, or by switching the shown data file), it is compared
-with its own registration, never with the data files of other ROIs.
+Validation is per dataset. When a dataset is attached to a project window
+(at startup, by Open Data, or by switching the shown dataset), it is compared
+with its own registration, never with the datasets of other ROIs.
 
 Comparison basis:
 
@@ -235,13 +232,12 @@ v3 result categories:
 ### Safe
 
 - the file is registered and matches its `DatasetRef`, or
-- the file is not registered yet; it is added to the project as a new data
-  file (see Data Files Of A Project)
+- the file is not registered yet; it is added to the project as a new dataset (see Datasets Of A Project)
 
 Behavior:
 
 - attach without warning
-- ROIs of other data files are never a mismatch
+- ROIs of other datasets are never a mismatch
 
 ### Warning
 
@@ -265,55 +261,55 @@ Behavior:
 - allow project open
 - keep dataset-derived mutations disabled
 
-## Data Files Of A Project
+## Datasets of a project
 
-A project registers every data file its ROIs come from (`DatasetRef`), each
-with its own active calibration (`dataset-calibration-contract_v3.md`).
+A project registers every dataset its ROIs come from (`DatasetRef`), each
+with its own active reference correction (`dataset-calibration-contract_v3.md`).
 
-### Adding a data file
+### Adding a dataset
 
-`Add data file...`, and `Open Data...` in a project window, add a data file
+`Add data file...`, and `Open Data...` in a project window, add a dataset
 to the project in the same window.
 
 Required behavior:
 
-- the user chooses the calibration together with the file:
+- the user chooses the reference correction together with the file:
   - raw counts
   - already reflectance or absorbance
   - dark/white references, each from another file or from a frame range of
     this file
-  - the references of another data file of the project
+  - the references of another dataset of the project
   - detector levels (black and white) without references: the file's own
     levels, else the instrument defaults; for counts this is the preselected
     choice, so references are always chosen deliberately
 - the `DatasetRef` and its `CalibrationSpec` are written together, before any
   ROI is drawn; if either fails, neither is written
-- the added file becomes the shown data file
-- a data file is never opened in a separate window without the project
+- the added file becomes the shown dataset
+- a dataset is never opened in a separate window without the project
 
-### Switching the shown data file
+### Switching the shown dataset
 
 Required behavior:
 
-- choosing a registered data file loads it from its `source_path` and makes
-  its active calibration current
-- the image shows only the ROIs of the shown data file
+- choosing a registered dataset loads it from its `source_path` and makes
+  its active reference correction current
+- the image shows only the ROIs of the shown dataset
 - loading runs off the UI thread with visible progress
 
 ### Missing and moved files
 
-A data file whose `source_path` does not exist is a normal state, not an
+A dataset whose `source_path` does not exist is a normal state, not an
 error.
 
 Required behavior:
 
 - it is marked as not found
-- its ROIs, their target assignments, sample sets and models remain fully
+- its ROIs, their target assignments, calibration sets and models remain fully
   usable, because they need only the project file
 - `Locate file...` accepts a new path only if:
   - the file matches the `DatasetRef` (format, modality, shape, wavelength
     axis), and
-  - for every ROI of that data file, the stored raw pixels equal the file's
+  - for every ROI of that dataset, the stored raw pixels equal the file's
     pixels at the ROI's `spatial_bounds`
 - an accepted path updates `DatasetRef.source_path` (an identity exception
   of `project-schema-contract_v3.md` §5) and is logged
@@ -322,10 +318,9 @@ Required behavior:
 
 Required behavior:
 
-- a project with ROIs opens on the stored ROIs (Project ROIs view); no data
-  file is loaded until the user shows one
+- a project with ROIs opens on the stored ROIs (Project ROIs view); no dataset is loaded until the user shows one
 - a project without ROIs opens on the data-file view with `Add data file...`
-- the last shown data file of a project is UI state, kept in the user
+- the last shown dataset of a project is UI state, kept in the user
   settings by `project_id`, never in the project file
 
 ### Several windows on one project
@@ -336,7 +331,7 @@ Required behavior:
   window of the same process wrote to that project
 - no action opens a second window on the same project implicitly
 
-## Dataset-Derived Mutation Contract
+## Dataset-derived mutation contract
 
 A dataset-derived mutation is any action that creates or mutates project objects
 using the current viewer dataset context.
@@ -344,10 +339,10 @@ using the current viewer dataset context.
 Examples:
 
 - create ROI
-- create dataset-local calibration defaults from current viewer state
+- create dataset-local reference correction defaults from current viewer state
 - predict against the current viewer dataset
 
-Not dataset-derived: building a sample set from stored ROIs, fitting a model
+Not dataset-derived: building a calibration set from stored ROIs, fitting a model
 on it, and editing target assignments. They read only the project file and
 are allowed in project-only mode.
 
@@ -357,13 +352,13 @@ Required invariant:
 
 Project-only mode must reject these actions explicitly.
 
-## ROI Creation Contract
+## ROI creation contract
 
 Creating a `TrainingROI` requires:
 
 - active project
 - real attached dataset context
-- resolved dataset-local calibration
+- resolved dataset-local reference correction
 - non-empty canonical dataset source path
 
 Required invariants:
@@ -373,7 +368,7 @@ Required invariants:
 - `source_file` must not be empty
 - ROI provenance must come from real dataset context, not placeholder viewer state
 
-## Save Semantics
+## Save semantics
 
 v3 project object writes are eager.
 
@@ -385,11 +380,11 @@ Required interpretation:
 Resolved for v3:
 
 - `Save Project` is removed from the UI; no save action exists or is required
-  to persist ROIs, targets, sample sets, models, or predictions
+  to persist ROIs, targets, calibration sets, models, or predictions
 - reintroducing a save-like action requires a real transaction model defined
   in a future contract revision, not a placeholder button over eager writes
 
-## Public API Requirements
+## Public API requirements
 
 ### `open_project(path)`
 
@@ -410,13 +405,13 @@ Required behavior:
 ### In-window `Open Data...` in a project window
 
 Required behavior, from project-only mode and from a window that already
-shows a data file:
+shows a dataset:
 
-- add the data file to the project (or show it, if it is registered) in the
+- add the dataset to the project (or show it, if it is registered) in the
   same window
 - do not fork the user into a separate dataset-only child window
 
-## Error Handling Requirements
+## Error handling requirements
 
 UI-triggered contract violations must be user-visible and non-destructive.
 
@@ -432,14 +427,14 @@ Orphan definition for this rule:
   persisted object references and that is not a content-stable shared value
   object
 - content-stable idempotent objects — preprocessing recipes and
-  content-deduplicated calibrations — are exempt: identical content resolves
+  content-deduplicated reference corrections — are exempt: identical content resolves
   to the same id, so a pre-existing or re-creatable value object left behind
   by a failed downstream step is not corruption
-- the current implementation satisfies this by ordering: signal domains,
-  sample sets, model runs, and prediction finalization are persisted only
+- the current implementation satisfies this by ordering: input contracts,
+  calibration sets, models, and prediction finalization are persisted only
   after their producing computation succeeds
 
-## Required Tests
+## Required tests
 
 v3 requires regression coverage for:
 
@@ -449,22 +444,22 @@ v3 requires regression coverage for:
 - in-window dataset attach from project-only mode reuses the same window
 - failed dataset-derived actions are side-effect free
 - `Save Project` semantics match the documented behavior
-- a project window shows only the ROIs of the shown data file
-- attaching a data file never warns about ROIs of other data files, and warns
+- a project window shows only the ROIs of the shown dataset
+- attaching a dataset never warns about ROIs of other datasets, and warns
   when a registered file no longer matches its `DatasetRef`
-- `Add data file...` writes the dataset and its calibration together or not
+- `Add data file...` writes the dataset and its reference correction together or not
   at all
 - `Open Data...` in a project window keeps the project
 - `Locate file...` refuses a file whose pixels differ from the stored ROI
   pixels
-- target assignments, sample sets and fits work with every data file
+- target assignments, calibration sets and fits work with every dataset
   missing
 
-## Non-Goals For v3
+## Non-goals for v3
 
 This contract does not define:
 
-- showing several data files at once in one window (one shown data file at a
+- showing several datasets at once in one window (one shown dataset at a
   time is in scope)
 - transactional undo/redo of project writes
 - multi-user locking semantics
@@ -475,8 +470,8 @@ This contract does not define:
 The key v3 workflow rules are:
 
 - a project may be open without a dataset, but dataset-derived mutations are forbidden until a real dataset is attached
-- a project window shows one registered data file at a time and draws only
-  its ROIs; everything built from stored ROIs works without any data file
+- a project window shows one registered dataset at a time and draws only
+  its ROIs; everything built from stored ROIs works without any dataset
 
 This is the boundary that prevents placeholder viewer state from becoming
 scientific project state and ensures that all project attach paths obey the

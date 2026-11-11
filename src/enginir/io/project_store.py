@@ -247,7 +247,7 @@ def save_calibration_spec(
         with replacement_group(calibrations, calibration_id) as group:
             write_mapping(group, calibration_dict, compression)
         dataset_group.attrs["active_calibration_id"] = calibration_id
-    logger.info("Saved calibration '{}' of dataset '{}' to {}", calibration_id, dataset_id, path)
+    logger.info("Saved reference correction '{}' of dataset '{}' to {}", calibration_id, dataset_id, path)
 
 
 def save_target_definition(
@@ -359,12 +359,12 @@ def save_training_roi(
                       np.shape(declared_wavelengths), n_bands)
     payload = {**roi_dict, "spectra": spectra}
     if (dark_ref_spectra is None) != (white_ref_spectra is None):
-        log_and_raise("ROI calibration references need both dark_ref_spectra and white_ref_spectra")
+        log_and_raise("ROI references need both dark_ref_spectra and white_ref_spectra")
     if dark_ref_spectra is not None and white_ref_spectra is not None:
         dark = np.asarray(dark_ref_spectra, dtype=np.float32)
         white = np.asarray(white_ref_spectra, dtype=np.float32)
         if dark.shape != spectra.shape or white.shape != spectra.shape:
-            log_and_raise("ROI calibration references must have shape {}, got dark={} white={}",
+            log_and_raise("ROI references must have shape {}, got dark={} white={}",
                           spectra.shape, dark.shape, white.shape)
         payload["calibration_refs"] = {"dark": dark, "white": white}
     _save_object(path, "rois", roi_id, payload, "TrainingROI", compression,

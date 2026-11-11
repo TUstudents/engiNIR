@@ -106,7 +106,7 @@ def test_prediction_rois_never_enter_a_fit(tray):
 
     for name in [f"t{i:02d}" for i in range(1, 8)]:
         project.set_use(name, "prediction")
-    with pytest.raises(ValueError, match=r"No training ROI has a value .*10 prediction ROI"):
+    with pytest.raises(ValueError, match=r"No calibration ROI has a value .*10 prediction ROI"):
         project.fit("API", n_components=2, cv=3)
 
 

@@ -6,7 +6,7 @@ intentionally uses explicit raw-data accessors to show unprocessed cube data.
 
 Each panel is a :class:`~enginir.viewer._plot_panel.PlotSource`: the viewer
 shows it in a plot frame whose header carries the title (``plot_title``) and
-exports the panel's current view (Plot Panel Policy). Panels update their
+exports the panel's current view (Plot panel policy). Panels update their
 artists in place, so the CSV is read from the drawn artists.
 """
 

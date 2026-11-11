@@ -1,4 +1,4 @@
-"""Prediction intervals by the leverage formula (prediction-runtime contract, Prediction Intervals)."""
+"""Prediction intervals by the leverage formula (prediction-runtime contract, Prediction intervals)."""
 
 from __future__ import annotations
 

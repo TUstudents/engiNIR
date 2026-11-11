@@ -1581,7 +1581,7 @@ class ModelingView(QWidget):
         return roi, pixel, warnings
 
     def workspace_diagnostics_provenance(self) -> dict[str, str]:
-        """Provenance lines for exported diagnostics (Plot Panel Policy)."""
+        """Provenance lines for exported diagnostics (Plot panel policy)."""
         provenance = {"project_id": str(self.project_state.project_meta.get("project_id", ""))}
         model_run = self._resolved_workspace_model_run()
         if model_run is None:

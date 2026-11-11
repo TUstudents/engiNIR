@@ -1,4 +1,4 @@
-Loading and Saving Spectra
+Loading and saving spectra
 ==========================
 
 The :mod:`enginir.io` module provides readers and writers for common NIR
@@ -77,7 +77,7 @@ For Excel, pass ``sheet_name`` to select the worksheet::
 .. _image-cubes:
 
 Hyperspectral image cubes
---------------------------
+-------------------------
 
 Image loaders (ENVI, EIFF, HDF5) return a 3-D array with the spectral axis
 last: ``(n_frames, height, n_bands)`` for the push-broom formats and
@@ -103,7 +103,7 @@ band-interleaved-by-pixel (BIP) files, which matches the in-memory layout and
 needs no copy. Point-spectrum readers (CSV, SPC, SPA, JCAMP-DX) return
 ``float64``.
 
-Raw HDF5 Spectral Cubes
+Raw HDF5 spectral cubes
 -----------------------
 
 ``load_spectra()`` opens ``.h5`` / ``.hdf5`` files as raw spectral data unless
@@ -118,20 +118,20 @@ cross-track pixels or band count may vary with camera setup; enginir reads
 those dimensions from the file. Other vendor HDF5 schemas are not covered by
 this profile and should be added explicitly when needed.
 
-HDF5 Project Files
+HDF5 project files
 ------------------
 
 A project file (HDF5, schema ``viewer-v3``) records a whole analysis:
 
 - project metadata and schema version
 - dataset references
-- dataset-owned calibration records
-- training ROIs
+- dataset-owned reference correction records
+- calibration ROIs
 - target definitions and assignments
 - preprocessing recipes
-- signal-domain contracts
-- sample sets
-- model runs
+- input contracts
+- calibration sets
+- models
 - prediction runs
 
 See :doc:`/hdf5_format` for the schema overview and object layout.
@@ -256,25 +256,25 @@ ROIs, targets, models and predictions by name or by id (see
    prediction.diagnostics    # 0.99 limits and the share of pixels above them
    prediction.interval_map(0.95)   # ± half-width of each pixel's prediction interval
 
-``predict`` resolves the scan's calibration in the model's signal unit (a
+``predict`` resolves the scan's reference correction in the model's signal unit (a
 registered scan reuses its stored one) and checks that the scan can produce
 what the model was trained on (instrument format, number of bands,
-calibration and signal unit) before the data are read. Wavelength values
+reference correction and signal unit) before the data are read. Wavelength values
 never block a prediction, but when the scan and the model both have a real
-wavelength axis and they differ (beyond the signal domain's
+wavelength axis and they differ (beyond the input contract's
 ``wavelength_tolerance_nm``, by default any difference), the prediction logs
 a warning with the largest difference and records it in
 ``prediction.provenance["wavelength_warning"]``. A prediction is an application of the model,
-not part of the calibration: nothing is written to the project. Its
-provenance (model, data file with size and modification time, calibration,
+not part of the reference correction: nothing is written to the project. Its
+provenance (model, dataset with size and modification time, reference correction,
 time, the summary) is on ``prediction.provenance`` and in the log;
-``checksum=True`` adds the SHA-256 of the data file. Model runs with ``MSC``
+``checksum=True`` adds the SHA-256 of the dataset. Models with ``MSC``
 or ``EMSC`` store their fitted preprocessing state; prediction restores it
 without fitting on the new data.
 
 Storing a prediction in the project is a low-level operation for scripts
 (``enginir.prediction.predict_with_model_run(..., persist_artifacts=True)``
-after writing the scan's dataset and calibration); such runs are listed in
+after writing the scan's dataset and reference correction); such runs are listed in
 ``project.predictions``.
 
 See :doc:`workflows` for the complete workflow from a raw scan to a

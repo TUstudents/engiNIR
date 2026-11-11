@@ -306,7 +306,7 @@ def training_diagnostics(fitted: Any, X: np.ndarray, y: np.ndarray, kept: np.nda
     ``kept`` marks the pixels the model was fitted on (all, unless DModX
     excluded some); excluded pixels get the same formulas. The projection
     data let predictions compute DModXPS and T²PS (prediction-runtime
-    contract, Applicability Diagnostics).
+    contract, Applicability diagnostics).
     """
     model: Any = fitted[-1] if isinstance(fitted, Pipeline) else fitted
     projection = project(fitted, X)

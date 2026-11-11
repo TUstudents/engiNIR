@@ -2,8 +2,8 @@ enginir.Project
 ===============
 
 :class:`Project` runs the project workflow in one call per step: register
-datasets, define targets, store ROIs with reference values, fit models and
-predict. It creates calibrations, sample sets, signal domains, stored recipes
+datasets, define targets, store ROIs with target values, fit models and
+predict. It creates reference corrections, calibration sets, input contracts, stored recipes
 and provenance itself; see :doc:`/user_guide/workflows` for a complete
 example.
 
@@ -43,8 +43,8 @@ StoredPrediction
 Shared rules
 ------------
 
-The viewer and :class:`Project` resolve datasets and calibrations, build
-ROIs, and find the sample set and signal domain of a fit with these functions, so a project written from a script and one written
+The viewer and :class:`Project` resolve datasets and reference corrections, build
+ROIs, and find the calibration set and input contract of a fit with these functions, so a project written from a script and one written
 in the viewer follow the same rules.
 
 .. autofunction:: enginir._workflow.resolve_dataset
@@ -76,8 +76,8 @@ in the viewer follow the same rules.
 .. autoclass:: enginir._workflow.GridCell
    :no-members:
 
-Calibration defaults
---------------------
+Reference correction defaults
+-----------------------------
 
 .. autodata:: enginir._workflow.DEFAULT_BLACK_LEVEL
 

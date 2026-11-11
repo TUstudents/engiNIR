@@ -7,7 +7,7 @@ enginir.modeling
 .. automodule:: enginir.modeling._service
    :no-members:
 
-The fixed modeling semantics of a sample set (pixels as observations, ROI
+The fixed modeling semantics of a calibration set (pixels as the data points of the fit, ROI
 groups for validation, ROI-mean reporting) are listed in
 :class:`enginir.project.SampleSet`.
 
@@ -51,5 +51,5 @@ groups for validation, ROI-mean reporting) are listed in
 
 The saved ``prediction_model`` artifact holds ``coef_`` and ``intercept_`` of
 the fitted model (``y = X @ coef_ + intercept_`` on preprocessed
-signal-domain spectra), the wavelengths, the target name and, for MSC/EMSC
+spectra in the model's signal), the wavelengths, the target name and, for MSC/EMSC
 recipes, the fitted preprocessing state.

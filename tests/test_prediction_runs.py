@@ -517,7 +517,7 @@ def test_predict_dataset_requires_explicit_calibration_when_defaults_absent(tmp_
         pred_path, wavelengths=np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
     )
 
-    with pytest.raises(ValueError, match="explicit calibration required"):
+    with pytest.raises(ValueError, match="explicit reference correction required"):
         state.predict_dataset(
             model_run_id="model_run_1",
             data_path=pred_path,
@@ -1721,7 +1721,7 @@ def test_preflight_rejects_a_signal_domain_of_another_model_run(tmp_path, qapp):
     X = np.full((2, 2, 3), 10.0, dtype=np.float32)
     context, spectral_data, dataset, calibration = _second_review_setup(tmp_path, "foreign", X)
     foreign = replace(context.signal_domain, signal_domain_id="signal_domain_other")
-    with pytest.raises(ValueError, match="is not the one of model run"):
+    with pytest.raises(ValueError, match="is not the one of model"):
         predict_with_model_run(**_predict_kwargs(
             context, spectral_data, dataset, calibration, _SumPredictor(),
             signal_domain=foreign))

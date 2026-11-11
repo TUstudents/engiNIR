@@ -1,6 +1,7 @@
 # Plan: engiNIR 1.5.0, the terminology applied
 
-Status: decided (2026-11-11); scope, branches, contract depth and the open
+Status: implemented (2026-11-11), phases 1–4 on `terminology/contract`; release
+pending. Scope, branches, contract depth and the open
 points O1–O3 decided by the user.
 
 ## Goal

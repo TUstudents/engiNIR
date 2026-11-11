@@ -1,4 +1,4 @@
-"""Export of all workspace plots and the plot layout in user settings (Plot Panel Policy)."""
+"""Export of all workspace plots and the plot layout in user settings (Plot panel policy)."""
 
 from __future__ import annotations
 

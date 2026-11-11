@@ -12,17 +12,17 @@
 engiNIR turns near-infrared spectra and hyperspectral images into validated
 calibration models and property predictions, with every step recorded. It is
 built for pharmaceutical process analytics: tablets on a tray, scanned by a
-push-broom camera, measured against reference values.
+push-broom camera, measured against target values.
 
 ## Workflow
 
 1. **Import** EVK EIFF, ENVI, HDF5, CSV/Excel, SPC, SPA and JCAMP-DX data.
    Several scans form one project; references can come from separate files,
    frames of the same scan or another scan.
-2. **Calibrate** raw counts to reflectance or absorbance with dark and white
+2. **Correct** raw counts to reflectance or absorbance with dark and white
    references or detector levels.
 3. **Draw regions** (ROIs) on the samples, one by one or as a grid over a
-   tray, and assign reference values.
+   tray, and assign target values.
 4. **Preprocess** with recipes: Savitzky-Golay smoothing and derivatives, SNV,
    MSC, EMSC, detrending, AsLS baseline correction and band selection.
 5. **Model** with PLS or PCR, cross-validated by ROI so that no sample's
@@ -36,12 +36,12 @@ push-broom camera, measured against reference values.
 
 ## Guarantees
 
-- Training and prediction run through the same calibration and preprocessing
+- Calibration and prediction run through the same reference correction and preprocessing
   pipeline; fitted MSC/EMSC states are stored with the model.
-- Pixels are observations, samples are ROIs: cross-validation, reported
+- Pixels are the data points of the fit, ROIs the reporting unit: cross-validation, reported
   metrics and stateful preprocessing respect the ROI.
 - Prediction is refused when a scan does not match the model's instrument
-  format, number of bands, calibration or signal unit.
+  format, number of bands, reference correction or signal unit.
 - Every pixel prediction says whether it is inside the model (DModXPS and
   T²PS against their 0.99 limits) and how precise it is (leverage-based
   interval); outside the model it gets no interval.
@@ -65,7 +65,7 @@ To work on engiNIR itself, clone the repository and run `uv sync --all-extras`.
 The desktop viewer runs the whole workflow interactively:
 
 - **Explore**: images and spectra of the project's scans, ROIs and ROI grids.
-- **Model**: reference values, fitting and refitting, and the diagnostics
+- **Model**: target values, fitting and refitting, and the diagnostics
   pages Fit, Spectral (coefficients, loadings, VIP), Components and Distance
   (DModX and T²).
 - **Predict**: prediction ROIs and maps with diagnostic and uncertainty

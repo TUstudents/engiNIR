@@ -156,7 +156,7 @@ def predict_rois(
     from ..modeling import roi_to_signal_domain  # modeling imports prediction
 
     if model_run.signal_domain_id not in signal_domains:
-        log_and_raise("Model run '{}' has an unknown signal domain '{}'",
+        log_and_raise("Model '{}' has an unknown input contract '{}'",
                       model_run.model_run_id, model_run.signal_domain_id)
     domain = signal_domains[model_run.signal_domain_id]
     sample_set = sample_sets[model_run.sample_set_id]
@@ -214,7 +214,7 @@ def predict_rois(
         result.pixels[roi.roi_id] = RoiPixels(y=y, dmodx=np.asarray(dmodx, np.float32),
                                               t2=np.asarray(t2, np.float32), scores=scores)
     for dataset_id, warning in result.wavelength_warnings.items():
-        logger.warning("Data file '{}': {}", dataset_id, warning)
+        logger.warning("Dataset '{}': {}", dataset_id, warning)
     return result
 
 
@@ -237,7 +237,7 @@ def roi_prediction_statistics(
                           exclude_dmodx)
         limit = prediction.dmodx_limit_at(float(exclude_dmodx))
         if limit is None:
-            logger.warning("Model '{}' has no projection data: pixels cannot be removed by "
+            logger.warning("Model '{}' has no projection data: pixels cannot be excluded by "
                            "DModX", prediction.model_name)
     rows: list[RoiStatistics] = []
     for roi_id, pixels in prediction.pixels.items():

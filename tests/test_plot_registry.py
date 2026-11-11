@@ -1,4 +1,4 @@
-"""Every registered plot meets the Plot Panel Policy.
+"""Every registered plot meets the Plot panel policy.
 
 For each plot of the viewer: the empty state is visible and cannot be
 exported; with data, PNG, SVG and CSV are written; the title is only in the

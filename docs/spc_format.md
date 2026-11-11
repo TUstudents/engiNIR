@@ -1,4 +1,4 @@
-# SPC Binary Format Reference
+# SPC binary format reference
 
 SPC (Spectral Data Format) is a binary file format originally developed by
 Galactic Industries Corporation and later adopted by Thermo Scientific as the
@@ -11,7 +11,7 @@ format (`0x4D`) is not supported.
 
 ---
 
-## 1. File Structure
+## 1. File structure
 
 An SPC file consists of:
 
@@ -28,7 +28,7 @@ All multi-byte integers are **little-endian** unless stated otherwise.
 
 ---
 
-## 2. Main Header (512 bytes)
+## 2. Main header (512 bytes)
 
 | Offset | Size | Type    | Field    | Description |
 |--------|------|---------|----------|-------------|
@@ -54,7 +54,7 @@ All multi-byte integers are **little-endian** unless stated otherwise.
 | 248    | 4    | u32 LE  | flogoff  | Byte offset to log block; 0 = no log |
 | 252    | 4    | u32 LE  | fmods    | File modification flags |
 | 256    | 1    | u8      | fprocs   | Processing code |
-| 257    | 1    | u8      | flevel   | Calibration level |
+| 257    | 1    | u8      | flevel   | Reference correction level |
 | 258    | 2    | u16 LE  | fsampin  | Sub-method sample injection number |
 | 260    | 4    | f32 LE  | ffactor  | Floating-point scaling factor |
 | 264    | 48   | char[]  | fmethod  | Method/program file name |
@@ -64,7 +64,7 @@ All multi-byte integers are **little-endian** unless stated otherwise.
 | 324    | 1    | u8      | fwtype   | W axis type code |
 | 325   | 187  | bytes   | freserv  | Reserved (zero) |
 
-### 2.1 ftflgs Bit Flags
+### 2.1 ftflgs bit flags
 
 | Bit | Mask | Name    | Meaning |
 |-----|------|---------|---------|
@@ -81,7 +81,7 @@ When `TXVALS` is set, `fnpts` float32 values appear immediately after the
 main header (before the first sub-header). When `TMULTI` is not set the file
 contains exactly one sub-spectrum.
 
-### 2.2 X Axis Type Codes (fxtype)
+### 2.2 X axis type codes (fxtype)
 
 | Value | Unit |
 |-------|------|
@@ -101,7 +101,7 @@ contains exactly one sub-spectrum.
 | 13 | Raman shift (cm⁻¹) |
 | 14 | eV |
 
-### 2.3 Y Axis Type Codes (fytype)
+### 2.3 Y axis type codes (fytype)
 
 | Value | Unit |
 |-------|------|
@@ -117,7 +117,7 @@ contains exactly one sub-spectrum.
 | 129 | Reflectance |
 | 131 | Emission |
 
-### 2.4 Date Encoding (fdate)
+### 2.4 Date encoding (fdate)
 
 Packed uint32 LE:
 
@@ -140,7 +140,7 @@ year    = (fdate >> 20) & 0xFFF
 
 ---
 
-## 3. Sub-Header (32 bytes)
+## 3. Sub-header (32 bytes)
 
 Each sub-spectrum is preceded by a 32-byte sub-header.
 
@@ -159,7 +159,7 @@ Each sub-spectrum is preceded by a 32-byte sub-header.
 
 ---
 
-## 4. Y Value Encoding
+## 4. Y value encoding
 
 Y values are stored as 4 bytes per point, immediately following the
 sub-header.
@@ -187,7 +187,7 @@ y *= 2.0 ** (effective_exp - 32)
 
 ---
 
-## 5. X Axis Values
+## 5. X axis values
 
 When `TXVALS` flag is **not** set (the common case), X values are evenly
 spaced and computed from the header:
@@ -205,7 +205,7 @@ x = np.frombuffer(f.read(fnpts * 4), dtype='<f4').astype(np.float64)
 
 ---
 
-## 6. Log Block
+## 6. Log block
 
 The optional log block starts at byte offset `flogoff` (from the main header
 field). It has a 64-byte header:
@@ -232,7 +232,7 @@ IntegrationTime=0
 
 ---
 
-## 7. Python Reader
+## 7. Python reader
 
 ```python
 import struct
@@ -281,7 +281,7 @@ def load_spc(path):
 
 ---
 
-## 8. Validated File Examples
+## 8. Validated file examples
 
 | File | fnsub | fnpts | X range | fxtype | fytype |
 |------|-------|-------|---------|--------|--------|

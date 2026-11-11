@@ -6,7 +6,7 @@ shows how to read it. The same texts are collected here, page by page.
 
 Two levels appear throughout. **Per ROI** numbers are computed over ROI means: the
 target, the cross-validation folds and the reported model quality are per ROI.
-**Per pixel** numbers are computed over single spectra, the observations the model
+**Per pixel** numbers are computed over single spectra, the pixels the model
 is fitted on: R²X, R²Y over pixels, DModX and T² with their limits. Single pixels
 are noisy, so pixel numbers are worse than ROI numbers; a plot names its level in
 its title or legend.
