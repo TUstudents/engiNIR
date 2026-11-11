@@ -14,8 +14,10 @@ empty and loading states, compact Controls dock) is 1.6.0 with its own plan.
 ## Decisions (user, 2026-11-11)
 
 1. **Scope:** terminology only; the GUI polish is 1.6.0.
-2. **Branches:** phased PRs, each passing the four gates; release after the
-   last.
+2. **Branches:** one branch (`terminology/contract`), one commit per phase,
+   one draft PR opened from the start, so CI runs on every push; `main`
+   stays on 1.4.0 until the whole change is consistent, then one merge and
+   the release (changed from phased PRs, user, 2026-11-11).
 3. **Contracts and docs:** fully, in 1.5.0: US spelling, sentence-case
    headings, the new terms; internal names kept where they name code.
 
@@ -46,12 +48,12 @@ times, British spelling and title-case headings throughout).
 
 ## Phases
 
-### Phase 1: the contract (PR 1)
+### Phase 1: the contract
 
-Branch `terminology/contract` (commit 524be8c): `contracts/terminology_v3.md`,
-`plans/terminology.md`. Push and merge first, so later PRs cite it.
+Commits 524be8c (contract, decisions) and this plan, on
+`terminology/contract`; pushed as the draft PR.
 
-### Phase 2: behavior and glossary (PR 2)
+### Phase 2: behavior and glossary
 
 1. **ROI role stored as `calibration`** (terminology contract, Calibration
    and Prediction):
@@ -75,7 +77,7 @@ Branch `terminology/contract` (commit 524be8c): `contracts/terminology_v3.md`,
    (removed); prediction-runtime and headless contracts, user guide, tests.
 3. **Glossary** `docs/glossary.rst`: every term of the contract with its
    definition, synonyms in other tools and internal name; `:term:` targets.
-### Phase 3: the viewer (PR 3)
+### Phase 3: the viewer
 
 All user-visible viewer text, following the inventory. Notable changes:
 
@@ -114,7 +116,7 @@ All user-visible viewer text, following the inventory. Notable changes:
   It is added in this phase, passing from the start (O3).
 - Tests that assert old strings are updated.
 
-### Phase 4: library, docs, contracts, release (PR 4)
+### Phase 4: library, docs, contracts, release
 
 - About 80 library log and error messages.
 - User guide, API reference prose, architecture docs, README, AGENTS.md:
@@ -140,6 +142,6 @@ All user-visible viewer text, following the inventory. Notable changes:
 
 - Scripts that read exported CSVs by column title break (Breaking section).
 - Many tests assert exact viewer strings; Phase 3 updates them, which makes
-  that PR large but mechanical.
+  that commit large but mechanical.
 - `docs/examples` output is checked verbatim; changed messages need updated
   expected output.
