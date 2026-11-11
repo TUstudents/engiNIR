@@ -308,7 +308,7 @@ class RoiTableModel(QAbstractTableModel):
             roi_id = self._roi_ids[index.row()]
             checked = Qt.CheckState(value) == Qt.CheckState.Checked if not isinstance(
                 value, Qt.CheckState) else value == Qt.CheckState.Checked
-            use = "prediction" if checked else "training"
+            use = "prediction" if checked else "calibration"
             if use != self.project_state.rois[roi_id].use:
                 try:
                     self.project_state.set_roi_uses([(roi_id, use)])

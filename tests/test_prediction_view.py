@@ -407,7 +407,7 @@ def test_the_uncertainty_layer_shows_the_pixel_intervals_and_none_outside_the_mo
     view = PredictionView(state)
     view.predict_btn_clicked()
     _wait_until(qapp, lambda: bool(state.predictions), timeout=30)
-    expected = model.predict(path).uncertainty_map(0.95)
+    expected = model.predict(path).interval_map(0.95)
     assert expected is not None
     outside = np.isnan(expected)
     assert outside.any() and not outside.all(), "the dark and white frames are outside"

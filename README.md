@@ -102,7 +102,7 @@ model.metrics["rmsecv"]
 prediction = model.predict("new_scan.eiff")
 prediction.map                  # one value per pixel
 prediction.dmodx_map            # distance to the model
-prediction.uncertainty_map()    # ± half-width of the 95 % prediction interval
+prediction.interval_map()       # ± half-width of the 95 % prediction interval
 
 result = model.predict_rois()   # per tablet: mean, SD, interval, RMSEP
 ```

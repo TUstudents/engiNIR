@@ -58,16 +58,17 @@ def test_pixel_intervals_follow_the_leverage_formula_of_the_hat_matrix(tray):
     expected = (_q(0.95, N_TRAINING_ROIS, a) * model.metrics["pixel_rmsee"]
                 * np.sqrt(1 + leverage))
 
-    half = prediction.uncertainty_map(0.95)
+    half = prediction.interval_map(0.95)
+    assert not hasattr(prediction, "uncertainty_map"), "renamed in 1.5 (terminology contract)"
     assert half is not None and half.shape == prediction.map.shape
     half = half.reshape(-1)
     inside = np.isfinite(half)
     assert inside[first:last].mean() > 0.9, "almost every training pixel is inside its model"
     np.testing.assert_allclose(half[inside], expected[inside], rtol=1e-5)
-    wider = prediction.uncertainty_map(0.99)
+    wider = prediction.interval_map(0.99)
     assert wider is not None and np.all(wider.reshape(-1)[inside] > half[inside])
     with pytest.raises(ValueError, match="between 0 and 1"):
-        prediction.uncertainty_map(1.0)
+        prediction.interval_map(1.0)
 
 
 def test_pixels_outside_the_model_have_no_interval(tray, tmp_path):
@@ -80,7 +81,7 @@ def test_pixels_outside_the_model_have_no_interval(tray, tmp_path):
         cube[10, 2, : N_BANDS // 2] += 600  # a step the model never saw
         f["spectra"][...] = cube
     prediction = model.predict(odd)
-    half, dmodx, t2 = prediction.uncertainty_map(), prediction.dmodx_map, prediction.t2_map
+    half, dmodx, t2 = prediction.interval_map(), prediction.dmodx_map, prediction.t2_map
     assert half is not None and dmodx is not None and t2 is not None
     limits = prediction.diagnostics or {}
     assert dmodx[10, 2] > limits["dcrit_099"]

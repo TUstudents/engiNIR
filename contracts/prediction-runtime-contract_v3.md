@@ -394,7 +394,7 @@ means have different errors, so there are two intervals with the same
 formula and different inputs. Intervals exist for regression runs of PLS
 and PCR with projection data and a single target; other models have none.
 They are computed on demand and not stored: the pixel interval at a chosen
-`level` (`uncertainty_map(level)`, default 0.95), the mean interval of
+`level` (`interval_map(level)`, default 0.95), the mean interval of
 prediction ROIs at 0.95. A `level` outside (0, 1) raises.
 
 Inputs, all stored with the model run (an input that is missing or not

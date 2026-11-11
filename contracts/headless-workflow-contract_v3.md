@@ -150,7 +150,7 @@ and writes nothing they would reject.
 - `model.predict(path, *, dark=None, white=None, checksum=False)` predicts a
   data file and returns an in-memory `Prediction` (`enginir._workflow.Prediction`: `map`, `y_pred`,
   `dmodx_map`, `t2_map`, `diagnostics` with limits and summary,
-  `provenance`, and `uncertainty_map(level=0.95)`, the pixel prediction
+  `provenance`, and `interval_map(level=0.95)`, the pixel prediction
   interval's half-width as an image, NaN outside the model, `None` without
   the interval inputs; `prediction-runtime-contract_v3.md`, Prediction
   Intervals); it writes nothing to the project (the file is not

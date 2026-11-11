@@ -228,8 +228,8 @@ class RoiGridDialog(QDialog):
 
     @property
     def use(self) -> str:
-        """``"prediction"`` when Prediction only is ticked, else ``"training"``."""
-        return "prediction" if self.prediction_check.isChecked() else "training"
+        """``"prediction"`` when Prediction only is ticked, else ``"calibration"``."""
+        return "prediction" if self.prediction_check.isChecked() else "calibration"
 
     # -- settings (also used by tests and scripts) ----------------------
 

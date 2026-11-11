@@ -356,20 +356,49 @@ class CalibrationSpec(SerializableModel):
 # ---------------------------------------------------------------------------
 
 
-#: What an ROI is for (roi-target contract, ``use``).
-ROI_USES = ("training", "prediction")
+#: What an ROI is for (roi-target contract, ``use``; terminology contract, Calibration and
+#: Prediction).
+ROI_USES = ("calibration", "prediction")
+
+#: Stored forms that mean a calibration ROI: no ``use`` (before 1.4) and ``training``.
+_CALIBRATION_FORMS = (None, "training", "calibration")
 
 
 def roi_use(value: Any) -> str:
-    """An ROI's ``use``: ``"training"`` or ``"prediction"``; absent (``None``) is training."""
-    if value is None:
-        return "training"
+    """An ROI's ``use`` as read from a project: ``"calibration"`` or ``"prediction"``.
+
+    A missing ``use`` (``None``) and ``"training"`` (the name before 1.5) read
+    as ``"calibration"``; any other value is refused.
+    """
     if isinstance(value, bytes):
         value = value.decode()
+    if value in _CALIBRATION_FORMS:
+        return "calibration"
     if value not in ROI_USES:
         log_and_raise("An ROI's use must be one of {}, got {!r}", list(ROI_USES), value,
                       depth=2)
     return str(value)
+
+
+def check_roi_use(value: Any) -> str:
+    """An ROI's ``use`` given by a caller: ``"calibration"`` or ``"prediction"``.
+
+    ``"training"`` is refused with the rename (engiNIR 1.5); stored projects
+    still read it (:func:`roi_use`).
+    """
+    if value == "training":
+        log_and_raise("use='training' was renamed to 'calibration' in engiNIR 1.5", depth=2)
+    if value not in ROI_USES:
+        log_and_raise("An ROI's use must be one of {}, got {!r}", list(ROI_USES), value,
+                      depth=2)
+    return str(value)
+
+
+def same_roi_use(value: Any) -> str | None:
+    """The stored ``use`` reduced for the identity rule: the calibration forms are one value."""
+    if isinstance(value, bytes):
+        value = value.decode()
+    return "calibration" if value in _CALIBRATION_FORMS else value
 
 
 def sample_label(value: Any) -> str | None:
@@ -419,9 +448,10 @@ class TrainingROI(SerializableModel):
         ROIs with equal labels are held out together when folds are grouped
         by sample. ``None`` (default): the ROI is its own sample.
     use : str
-        ``"training"`` (default) or ``"prediction"`` (may be changed): a
-        prediction ROI marks a sample to predict and never enters a sample
-        set (roi-target contract, ``use``).
+        ``"calibration"`` (default) or ``"prediction"`` (may be changed): a
+        prediction ROI marks a sample to predict and never enters a
+        calibration set (roi-target contract, ``use``). A stored ``training``
+        or a missing ``use`` reads as ``"calibration"``.
     """
 
     roi_id: str
@@ -435,7 +465,7 @@ class TrainingROI(SerializableModel):
     created_at: str
     provenance: dict[str, Any]
     sample: str | None = None
-    use: str = "training"
+    use: str = "calibration"
 
     def __post_init__(self) -> None:
         self.roi_id = _text(self.roi_id, "roi_id")
@@ -454,13 +484,6 @@ class TrainingROI(SerializableModel):
         self.source_file = os.path.abspath(_text(self.source_file, "source_file"))
         self.created_at = _timestamp(self.created_at, "created_at")
         self.provenance = self._checked_provenance(_mapping(self.provenance, "provenance"))
-
-    def to_dict(self) -> dict[str, Any]:
-        """The stored fields; ``use="training"`` is stored as no ``use`` (as before 1.4)."""
-        payload = SerializableModel.to_dict(self)  # slotted dataclass: no zero-argument super
-        if payload.get("use") == "training":
-            payload["use"] = None
-        return payload
 
     def _checked_provenance(self, provenance: dict[str, Any]) -> dict[str, Any]:
         required = ("dataset_id", "calibration_id", "signal_unit", "preview_recipe_summary",

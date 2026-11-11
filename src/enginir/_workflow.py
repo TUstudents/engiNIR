@@ -45,7 +45,7 @@ from .project import (
     validate_project_relationships,
 )
 from .project._ids import new_id, now_iso
-from .project._models import roi_use, sample_label
+from .project._models import check_roi_use, sample_label
 from .prediction._rois import (
     RoiPrediction,
     RoiPredictionSummary,
@@ -280,10 +280,11 @@ class Project:
         self.save_roi_sample(self._roi_of(roi).roi_id, label)
 
     def set_use(self, roi: str | TrainingROI, use: str) -> None:
-        """Mark ``roi`` (name or object) for ``"training"`` or ``"prediction"``.
+        """Mark ``roi`` (name or object) as ``"calibration"`` or ``"prediction"``.
 
         A prediction ROI is a sample to predict (``model.predict_rois()``); it
-        never enters a sample set, whatever values it has.
+        never enters a calibration set, whatever target values it has.
+        ``"training"`` (the name before 1.5) is refused.
         """
         self.save_roi_use(self._roi_of(roi).roi_id, use)
 
@@ -520,9 +521,10 @@ class Project:
         self.workspace.rois[roi.roi_id] = roi
 
     def save_roi_use(self, roi_id: str, use: str) -> None:
-        """Set a stored ROI's use: ``"training"`` or ``"prediction"`` (never in a sample set)."""
+        """Set a stored ROI's use: ``"calibration"`` or ``"prediction"`` (never in a calibration
+        set)."""
         roi = _with_id(self.workspace.rois, roi_id, "ROI")
-        use = roi_use(use)
+        use = check_roi_use(use)
         store.save_roi_use(self.path, roi_id, use)
         self.workspace.rois[roi_id] = replace(roi, use=use)
 
@@ -822,7 +824,7 @@ class Dataset:
 
     def add_roi(self, name: str, *, frames: tuple[int, int], rows: tuple[int, int],
                 values: Mapping[str, float] | None = None,
-                use: str = "training") -> TrainingROI:
+                use: str = "calibration") -> TrainingROI:
         """Store the pixels ``frames`` x ``rows`` as an ROI with its reference values.
 
         Parameters
@@ -836,8 +838,8 @@ class Dataset:
         values:
             Reference values ``{target name: value}``.
         use:
-            ``"training"`` (default) or ``"prediction"``: a sample to predict
-            (``model.predict_rois()``), never in a sample set.
+            ``"calibration"`` (default) or ``"prediction"``: a sample to
+            predict (``model.predict_rois()``), never in a calibration set.
 
         Returns
         -------
@@ -1211,7 +1213,7 @@ class Prediction:
 
     ``map``/``y_pred`` are the predictions, ``dmodx_map``/``t2_map`` the
     applicability diagnostics (``None`` for a model fitted before engiNIR 1.3:
-    refit it), :meth:`uncertainty_map` the prediction intervals,
+    refit it), :meth:`interval_map` the prediction intervals,
     ``diagnostics`` the 0.99 limits and the summary, and ``provenance`` the
     record also written to the log.
     """
@@ -1243,7 +1245,7 @@ class Prediction:
         """T²PS per pixel as an image, or ``None`` without projection data."""
         return self.result.diagnostic_map(self.result.t2)
 
-    def uncertainty_map(self, level: float = 0.95) -> np.ndarray | None:
+    def interval_map(self, level: float = 0.95) -> np.ndarray | None:
         """Half-width of each pixel's prediction interval at ``level``, as an image.
 
         The interval is ŷ ± q · s · √(1 + h) with s the model's pixel RMSEE
@@ -1729,7 +1731,7 @@ def make_roi(
     preview_recipe: PreprocessingRecipe | None = None,
     created_at: str | None = None,
     grid_cell: GridCell | None = None,
-    use: str = "training",
+    use: str = "calibration",
 ) -> tuple[TrainingROI, np.ndarray, tuple[np.ndarray, np.ndarray] | None]:
     """Build an ROI of ``dataset`` from its frames ``pixels`` ``(frames, height, n_bands)``.
 
@@ -1757,7 +1759,7 @@ def make_roi(
     created_at = created_at or now_iso()
     recipe = preview_recipe or PreprocessingRecipe()
     roi = TrainingROI(
-        roi_id=new_id(), use=roi_use(use), dataset_id=dataset.dataset_id,
+        roi_id=new_id(), use=check_roi_use(use), dataset_id=dataset.dataset_id,
         calibration_id=calibration.calibration_id, name=name,
         wavelengths=dataset.wavelengths, n_pixels=int(spectra.shape[0]),
         spatial_bounds=(f0, f1, r0, r1), source_file=dataset.source_path, created_at=created_at,

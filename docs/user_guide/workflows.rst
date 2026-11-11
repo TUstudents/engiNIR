@@ -40,7 +40,7 @@ One call per step:
      - ``model.metrics``, ``model.diagnostics``
    * - Predict a new scan
      - ``model.predict(path)``, then ``prediction.map``, ``prediction.dmodx_map``,
-       ``prediction.t2_map``, ``prediction.uncertainty_map()`` or
+       ``prediction.t2_map``, ``prediction.interval_map()`` or
        ``prediction.diagnostics``
    * - Predict tablets (prediction ROIs)
      - ``dataset.add_roi(name, ..., use="prediction")``, then
@@ -157,7 +157,7 @@ components) and *h* the leverage, which grows with the distance of the
 spectrum from the centre of the training data. Nothing is stored; the
 interval is computed on demand.
 
-- **Pixels** (``prediction.uncertainty_map(level)``): s is the pixel RMSEE
+- **Pixels** (``prediction.interval_map(level)``): s is the pixel RMSEE
   and h = 1/R + T²PS / (R − 1). The leverage counts the ROIs, not the
   pixels, as the samples: the reference values, and with them what the model
   has learnt, come from the R ROIs. Counting the pixels would make the

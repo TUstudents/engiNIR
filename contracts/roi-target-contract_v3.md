@@ -87,14 +87,18 @@ Optional fields:
 - `sample`: label of the physical sample the ROI was taken from (e.g. the
   blend or tablet), a non-empty string; absent when the ROI is its own
   sample
-- `use`: `training` or `prediction` (engiNIR 1.4 and later); absent reads
-  `training`. A `prediction` ROI marks a sample to be predicted (e.g. a
+- `use`: `calibration` or `prediction` (`terminology_v3.md`, Calibration
+  and Prediction), stored explicitly since engiNIR 1.5. A missing `use`
+  (ROIs stored before 1.4) and `training` (the name in 1.4) read as
+  `calibration`. A `prediction` ROI marks a sample to be predicted (e.g. a
   tablet of a production tray): it never enters a sample set, whatever
   target values it has; a value it has serves only the residual and RMSEP of
   a prediction (`prediction-runtime-contract_v3.md`, Prediction ROIs). Any
-  other stored value is rejected on read with a logged error. engiNIR 1.3
-  and earlier ignore the attribute (an unknown extra) and would use such
-  ROIs for training; projects with prediction ROIs need engiNIR 1.4
+  other stored value is rejected on read with a logged error. Callers pass
+  `calibration` or `prediction`; `training` is refused with the rename.
+  engiNIR 1.4 refuses `calibration` (an unknown value), so a project with
+  ROIs stored by 1.5 needs engiNIR 1.5; engiNIR 1.3 and earlier ignore the
+  attribute (an unknown extra) and would use prediction ROIs for fitting
 
 Required invariants:
 
@@ -347,7 +351,7 @@ When a model run is created:
 1. choose one `TargetDefinition`
 2. choose included ROIs
 3. filter to ROIs that have an assignment for that target and whose `use`
-   is `training`
+   is `calibration`
 4. build `X` from pixel-level raw ROI spectra
 5. build `Y` by repeating the selected ROI-level target assignment across those ROI pixels
 6. build grouping metadata from `roi_id`

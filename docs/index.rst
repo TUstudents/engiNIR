@@ -43,7 +43,7 @@ reproduced and traced to its data (:doc:`user_guide/workflows`):
    model = project.fit("API content", recipe=PreprocessingRecipe(snv=True),
                        n_components="auto")
    prediction = model.predict("new_scan.eiff")
-   prediction.map, prediction.uncertainty_map()   # values and 95 % intervals per pixel
+   prediction.map, prediction.interval_map()   # values and 95 % intervals per pixel
 
 **Function mode** uses the building blocks directly on arrays, as
 scikit-learn estimators:
@@ -72,6 +72,7 @@ scikit-learn estimators:
 
    user_guide/installation
    user_guide/workflows
+   glossary
 
 .. toctree::
    :maxdepth: 1
