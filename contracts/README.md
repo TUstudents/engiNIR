@@ -17,3 +17,4 @@ Current contracts:
 - `project-schema-contract_v3.md`
 - `prediction-runtime-contract_v3.md`
 - `viewer-workspace-ui-contract_v3.md`
+- `terminology_v3.md` (the words; wins over the others for wording)
