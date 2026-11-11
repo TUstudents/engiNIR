@@ -1,4 +1,4 @@
-"""Prediction intervals by the leverage formula (prediction-runtime contract, Prediction Intervals).
+"""Prediction intervals by the leverage formula (prediction-runtime contract, Prediction intervals).
 
 An interval is ŷ ± q · s · √(1 + h) (ASTM E1655, ISO 12099), with s the
 model's RMSEE, q the two-sided Student t quantile with R − A − 1 degrees of
@@ -91,7 +91,7 @@ def roi_score_statistics(roi_scores: np.ndarray | None,
         return None
     cov = np.cov(scores, rowvar=False, ddof=1).reshape(a, a)
     if np.linalg.matrix_rank(cov) < a:
-        logger.warning("The training ROI scores have rank below {} components; mean intervals "
+        logger.warning("The calibration ROI scores have rank below {} components; mean intervals "
                        "use the pseudo-inverse of their covariance", a)
     return RoiScoreStatistics(
         mean=scores.mean(axis=0), cov_inv=np.linalg.pinv(cov), n_rois=r,
@@ -151,7 +151,7 @@ def pixel_half_width(t2: np.ndarray, dmodx: np.ndarray, inputs: IntervalInputs |
 
 def mean_half_width(mean_scores: np.ndarray | None, inputs: IntervalInputs | None, *,
                     level: float = DEFAULT_LEVEL) -> float:
-    """Half-width of a ROI mean's interval; NaN without one (contract, Prediction Intervals)."""
+    """Half-width of a ROI mean's interval; NaN without one (contract, Prediction intervals)."""
     check_level(level)
     if inputs is None or inputs.rmsee is None or inputs.roi_scores is None \
             or mean_scores is None:

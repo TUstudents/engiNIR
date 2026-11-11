@@ -5,8 +5,8 @@ engiNIR can be used in two ways. Both use the same readers, preprocessing,
 models and validation code; they differ in who keeps track of the analysis.
 
 **Project mode** (:class:`enginir.Project`) records every step in a project
-file: datasets with their calibrations, ROIs with reference values, the
-preprocessing recipe, the sample set and the model; predictions of new scans
+file: datasets with their reference corrections, ROIs with target values, the
+preprocessing recipe, the calibration set and the model; predictions of new scans
 are returned in memory and logged, not stored. Results
 are reproducible and traceable without any bookkeeping code. Use it unless you
 know exactly which steps you need; it is also what the viewer uses.
@@ -28,11 +28,11 @@ One call per step:
      - Call
    * - Create or open a project
      - ``Project.create(path)``, ``Project.open(path)``
-   * - Register a scan with its calibration
+   * - Register a scan with its reference correction
      - ``project.add_dataset(path, dark=..., white=..., unit="Absorbance")``
    * - Define the property to model
      - ``project.add_target("API content", unit="% w/w")``
-   * - Record ROIs with reference values
+   * - Record ROIs with target values
      - ``dataset.add_roi(name, frames=(first, last), rows=(first, last), values={...})``
    * - Fit and cross-validate
      - ``project.fit(target, recipe=PreprocessingRecipe(...), model="PLS", n_components=...)``
@@ -40,12 +40,12 @@ One call per step:
      - ``model.metrics``, ``model.diagnostics``
    * - Predict a new scan
      - ``model.predict(path)``, then ``prediction.map``, ``prediction.dmodx_map``,
-       ``prediction.t2_map``, ``prediction.uncertainty_map()`` or
+       ``prediction.t2_map``, ``prediction.interval_map()`` or
        ``prediction.diagnostics``
    * - Predict tablets (prediction ROIs)
      - ``dataset.add_roi(name, ..., use="prediction")``, then
        ``model.predict_rois()``: per-ROI statistics with the mean's prediction
-       interval, RMSEP over ROIs with a value
+       interval, RMSEP (per ROI) over ROIs with a value
 
 References need not be separate files. ``dark_frames=(first, last)`` and
 ``white_frames=(first, last)`` average frames of the same file (a white tile
@@ -58,12 +58,12 @@ reference set:
    tray1 = project.add_dataset("tray1.eiff", dark_frames=(0, 9), white_frames=(990, 999))
    tray2 = project.add_dataset("tray2.eiff", references_from="tray1.eiff")
 
-``project.set_value(roi, target, value)`` sets or replaces a reference value;
+``project.set_value(roi, target, value)`` sets or replaces a target value;
 ``value=None`` removes it.
 
 ROIs marked ``use="prediction"`` (or ``project.set_use(roi, "prediction")``)
 are samples to predict: they never enter a fit, even with a value. A model
-predicts them from the project file alone, each ROI with its own calibration:
+predicts them from the project file alone, each ROI with its own reference correction:
 
 .. code-block:: python
 
@@ -79,7 +79,7 @@ predicts them from the project file alone, each ROI with its own calibration:
 ``model.roi_prediction()`` returns the pixel predictions, and
 :func:`~enginir.prediction.roi_prediction_statistics` recalculates the
 statistics for another exclusion without predicting again. ``model.predict(path)``
-of a registered data file uses the file's own calibration.
+of a registered dataset uses the file's own reference correction.
 
 A tray of samples becomes one ROI per cell with :func:`~enginir._workflow.roi_grid`
 and ``dataset.add_rois``, all stored or none:
@@ -103,11 +103,11 @@ otherwise nothing changes:
 
    project.dataset("tray1.eiff").locate("archive/2026-11/tray1.eiff")
 
-Calibrations, sample sets, signal domains and provenance are created for you,
+Reference corrections, calibration sets, input contracts and provenance are created for you,
 reused when identical, and validated before anything is written. Cross-
 validation keeps the pixels of one ROI together; metrics are per ROI.
 Prediction is refused before it starts when a scan cannot produce the model's
-signal (instrument format, number of bands, calibration, signal unit).
+signal (instrument format, number of bands, reference correction, signal unit).
 
 The script below runs the whole workflow on a synthetic scan of eight
 tablets:
@@ -122,8 +122,8 @@ which follows the true contents 1 to 9::
    [1.7 2.7 3.7 4.4 5.4 6.3 7.4 8.4]
 
 ``project.fit`` validates with 7 round-robin folds over the ROIs (``cv=5``
-for five, ``cv="logo"`` to leave one ROI out), centres the spectra and
-scales the reference values to unit variance. ``fit_spec`` controls the
+for five, ``cv="logo"`` to leave one ROI out), center the spectra and
+scales the target values to unit variance. ``fit_spec`` controls the
 rest, and is stored with the model so that ``model.refit()`` repeats it:
 holding out the ROIs of one sample together, drawing the same number of
 pixels from every ROI, and leaving out outlying pixels by DModX. See
@@ -151,29 +151,29 @@ Prediction intervals
 
 A prediction ŷ comes with an interval ŷ ± q · s · √(1 + h) that says how
 precise it is: the leverage formula of ASTM E1655 and ISO 12099, for PLS and
-PCR models with one target. *s* is the model's fit error (RMSEE), *q* the
-Student t quantile with R − A − 1 degrees of freedom (R training ROIs, A
+PCR models with one target. *s* is the model's fit error (RMSEE (per ROI)), *q* the
+Student t quantile with R − A − 1 degrees of freedom (R calibration ROIs, A
 components) and *h* the leverage, which grows with the distance of the
-spectrum from the centre of the training data. Nothing is stored; the
+spectrum from the center of the calibration data. Nothing is stored; the
 interval is computed on demand.
 
-- **Pixels** (``prediction.uncertainty_map(level)``): s is the pixel RMSEE
+- **Pixels** (``prediction.interval_map(level)``): s is the RMSEE (per pixel)
   and h = 1/R + T²PS / (R − 1). The leverage counts the ROIs, not the
-  pixels, as the samples: the reference values, and with them what the model
+  pixels, as the samples: the target values, and with them what the model
   has learnt, come from the R ROIs. Counting the pixels would make the
   leverage vanish (with 400 000 pixels every pixel gets the same interval).
   This departs from the letter of the standards, which assume independent
   samples.
 - **ROI means** (``model.predict_rois()``, ``row.interval``): s is the
-  ROI-level RMSEE and the leverage compares the ROI's mean scores with the
-  training ROIs' (``roi_scores``). It follows the pixel removal, like the
+  ROI-level RMSEE (per ROI) and the leverage compares the ROI's mean scores with the
+  calibration ROIs' (``roi_scores``). It follows the pixel removal, like the
   mean.
 - **Outside the model there is no interval** (NaN): a pixel above DCrit or
   T²Crit (0.99), or an ROI mean beyond the ROI-level T² limit. The formula
-  assumes the spectrum resembles the training spectra; beyond the limits a
+  assumes the spectrum resembles the calibration spectra; beyond the limits a
   number would mislead.
 
-RMSEE is a fit error, so the fit checks the interval on its own
+RMSEE (per ROI) is a fit error, so the fit checks the interval on its own
 cross-validation: ``model.metrics["interval_coverage_roi"]`` and
 ``["interval_coverage_pixel"]`` are the shares of held-out predictions that
 fall inside their 0.95 intervals. Well below 0.95 means the interval is too
@@ -198,9 +198,9 @@ same result later use the objects or their ids:
    same = project.model(model_run_id=model.ref.model_run_id)
 
 A stored model can be fitted again on exactly its own data: ``model.refit()``
-uses its sample set (the ROI ids), preprocessing, signal, model settings and
+uses its calibration set (the ROI ids), preprocessing, signal, model settings and
 validation, not the ROIs that have values today, and stores the result as a
-new model. Unchanged data give the same metrics; changed reference values and
+new model. Unchanged data give the same metrics; changed target values and
 differing metrics are reported in the log:
 
 .. code-block:: python
@@ -220,7 +220,7 @@ Function mode
 The readers in :mod:`enginir.io` return arrays; the transformers in
 :mod:`enginir.preprocessing` and the models in :mod:`enginir.models` follow
 the scikit-learn API; :mod:`enginir.validation` has cross-validation, figures
-of merit and outlier statistics, and :mod:`enginir.visualization` the plots.
+of merit and distance statistics, and :mod:`enginir.visualization` the plots.
 
 .. code-block:: python
 
@@ -246,6 +246,6 @@ of merit and outlier statistics, and :mod:`enginir.visualization` the plots.
    plot_prediction(y, cv["y_pred"], units="% w/w")
 
 Fitted steps such as MSC and EMSC belong inside the pipeline, so that
-cross-validation fits them on the training folds only. Group the
+cross-validation fits them on the calibration folds only. Group the
 cross-validation by sample, as above: pixels of one sample are not
 independent, and splitting them across folds overstates the model.

@@ -1,4 +1,4 @@
-Band Importance and Band Selection
+Band importance and band selection
 ==================================
 
 Which bands does a model rely on, and should some bands be left out? engiNIR
@@ -35,13 +35,13 @@ Every model fitted with engiNIR 1.4 or later stores, on the model's bands:
 
 The viewer shows them on the Model workspace's **Spectral** page: VIP over
 wavelength with lines at 1.0 and 0.8, VIP sorted from the largest value (the
-top bands labelled), and the selectivity ratio.
+top bands labeled), and the selectivity ratio.
 
 What changes them:
 
 - **The number of components.** More components spread importance over more
   bands; read VIP for the model you use.
-- **Preprocessing.** A derivative moves importance from the centre of an
+- **Preprocessing.** A derivative moves importance from the center of an
   absorption band to its flanks, where the derivative is largest; SNV and
   MSC change which variation is left to explain.
 - **X scaling.** Unit-variance scaling gives noisy, low-variance bands the
@@ -75,7 +75,7 @@ sees the selected bands:
                                 bands_exclude=[(1200, 1210)])
 
 - Ranges are inclusive, in nm on the axis after Savitzky-Golay (band numbers
-  of the data file when it has no wavelengths). A band is kept when it lies
+  of the dataset when it has no wavelengths). A band is kept when it lies
   in a keep range (or none is given) and in no exclude range.
 - Ranges are normalized: each pair ordered, sorted, overlapping or touching
   ranges merged, so the same selection always gives the same recipe id.
@@ -87,20 +87,20 @@ sees the selected bands:
 Common reasons to leave bands out: noisy detector ends, saturated or very
 strong water bands (around 1450 and 1940 nm in the NIR; offered in the
 viewer as suggestions, never applied automatically), or regions that carry
-an interference which differs between calibration and use.
+an interference which differs between reference correction and use.
 
 In the viewer, the fit dialog's **Bands** row has **Keep** and **Exclude**
 fields (``1100-1350, 1500-2300``), a **Water bands** menu, **Select on
 plot...** (drag green keep and red exclude regions on the mean spectrum of
 the target's ROIs, with the selected model's VIP or coefficients below as a
-guide) and **Propose...** (below). **Fit again** keeps a model's ranges, and
+guide) and **Propose...** (below). **Fit Again** keeps a model's ranges, and
 the Explore preview shows unselected bands as missing.
 
 Proposing bands, and why the proposal needs nested validation
 -------------------------------------------------------------
 
 Choosing bands by their cross-validated error is itself fitting: try enough
-subsets and one will look good by chance. The RMSECV of the chosen bands is
+subsets and one will look good by chance. The RMSECV (per ROI) of the chosen bands is
 then optimistic. engiNIR therefore reports the error of the whole procedure
 next to the error of its result.
 
@@ -121,18 +121,18 @@ How the search works (forward interval PLS):
 
 - The axis after Savitzky-Golay is split into ``n_intervals`` contiguous
   intervals of (nearly) equal band counts.
-- Step 0 predicts the mean of the reference values. Each step adds the
-  interval whose addition gives the lowest RMSECV, with the number of
+- Step 0 predicts the mean of the target values. Each step adds the
+  interval whose addition gives the lowest RMSECV (per ROI), with the number of
   components chosen by the component rule (``one_se`` by default). The
-  search stops when the best addition does not beat the current RMSECV by
+  search stops when the best addition does not beat the current RMSECV (per ROI) by
   more than its standard error, the same idea as the one-SE rule for
   components.
-- Every RMSECV uses the folds and fold groups of the fit specification, on
+- Every RMSECV (per ROI) uses the folds and fold groups of the fit specification, on
   ROI means, with MSC/EMSC fitted inside the folds; preprocessing always
   runs on the whole spectrum.
 - **Nested validation.** For every outer fold the whole search runs again on
-  the training ROIs only; the bands it chooses are fitted on them and
-  predict the held-out ROIs. ``nested_rmsecv`` is the RMSECV of those
+  the calibration ROIs only; the bands it chooses are fitted on them and
+  predict the held-out ROIs. ``nested_rmsecv`` is the RMSECV (per ROI) of those
   predictions.
 
 Reading the result: if ``nested_rmsecv`` is clearly below

@@ -52,6 +52,7 @@ __all__ = [
     "PredictionJobContext",
     "ProjectState",
     "ViewerState",
+    "signal_label",
 ]
 
 # Default acquisition modality for viewer-imported datasets when the loader
@@ -62,6 +63,11 @@ _EPS = 1e-10
 _WORKING_DTYPE = np.float32
 #: Predictions kept in memory in one viewer session (newest last); older ones are dropped.
 SESSION_PREDICTIONS = 3
+
+
+def signal_label(unit: str) -> str:
+    """The shown name of a signal unit: ``"DN"`` is "Raw counts (DN)" (terminology contract)."""
+    return "Raw counts (DN)" if unit == "DN" else unit
 
 
 def _quoted_id_list(ids: list[str]) -> str:
@@ -177,9 +183,9 @@ class ProjectState(QObject):
         if not missing_roi_ids:
             return None
         return (
-            f"SampleSet '{sample_set_id}' references deleted ROI(s) "
-            f"{_quoted_id_list(missing_roi_ids)}. Existing saved model runs remain usable "
-            "for prediction, but affected sample sets and model runs cannot be altered "
+            f"Calibration set '{sample_set_id}' references deleted ROI(s) "
+            f"{_quoted_id_list(missing_roi_ids)}. Existing saved models remain usable "
+            "for prediction, but affected calibration sets and models cannot be altered "
             "or refit until recreated."
         )
 
@@ -238,8 +244,8 @@ class ProjectState(QObject):
         self.datasets_changed.emit()
         self.calibrations_changed.emit()
         name = os.path.basename(str(path))
-        self.saved.emit(f"Data file '{name}' added to project" if dataset_id not in known
-                        else f"Calibration of '{name}' saved to project")
+        self.saved.emit(f"Dataset '{name}' added to project" if dataset_id not in known
+                        else f"Reference correction of '{name}' saved to project")
         return dataset_id
 
     def locate_data_file(self, dataset_id: str, path: str) -> None:
@@ -255,7 +261,7 @@ class ProjectState(QObject):
         Dataset(project, ref).locate(path)
         self._written()
         self.datasets_changed.emit()
-        self.saved.emit(f"Data file '{os.path.basename(path)}' located")
+        self.saved.emit(f"Dataset file '{os.path.basename(path)}' located")
 
     def data_file_label(self, dataset_id: str) -> str:
         """How a data file is shown: its file name, with the folder when file names repeat."""
@@ -345,7 +351,7 @@ class ProjectState(QObject):
             self.saved.emit(f"{len(changes)} sample labels saved to project")
 
     def set_roi_uses(self, changes: list[tuple[str, str]]) -> None:
-        """Mark ROIs for ``"training"`` or ``"prediction"`` (``use``, roi-target contract)."""
+        """Mark ROIs for ``"calibration"`` or ``"prediction"`` (``use``, roi-target contract)."""
         project = self._require_project("set_roi_uses")
         for roi_id, use in changes:
             project.save_roi_use(roi_id, use)
@@ -454,7 +460,7 @@ class ProjectState(QObject):
         project = self._require_project("fit_model_run")
         if sample_set_id not in self.sample_sets:
             log_and_raise("Unknown sample_set_id '{}'", sample_set_id)
-        project.require_current_sample_set(sample_set_id, action="fit model run")
+        project.require_current_sample_set(sample_set_id, action="fit model")
         sample_set = self.sample_sets[sample_set_id]
         target = self.targets.get(sample_set.target_id)
         signal_domains = dict(self.signal_domains)
@@ -517,7 +523,7 @@ class ProjectState(QObject):
         sample_set = self.sample_sets[model_run.sample_set_id]
         stale_message = self.stale_sample_set_message(sample_set.sample_set_id)
         if stale_message is not None:
-            logger.warning("{} Prediction with saved model run '{}' is still allowed.",
+            logger.warning("{} Prediction with saved model '{}' is still allowed.",
                            stale_message, model_run_id)
         recipe_id = sample_set.preprocessing_recipe_id
         if recipe_id not in self.recipes:

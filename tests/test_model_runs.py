@@ -319,7 +319,7 @@ def test_fit_model_run_logs_training_reflectance_clipping(tmp_path, qapp):
     finally:
         logger.remove(sink_id)
 
-    clip_messages = [m for m in messages if "Training signal-domain conversion" in m]
+    clip_messages = [m for m in messages if "Conversion of calibration set" in m]
     assert clip_messages, "training-side reflectance clipping totals must be logged"
     assert "sample_set_clipping" in clip_messages[0]
     assert "clip_low=14" in clip_messages[0]

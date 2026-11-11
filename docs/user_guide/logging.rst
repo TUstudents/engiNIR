@@ -22,7 +22,7 @@ Log levels
    * - **ERROR**
      - Unrecoverable failures: file not found, corrupt data that halts loading
    * - **WARNING**
-     - Recoverable fallbacks: skipped corrupt chunk, missing metadata, fallback calibration
+     - Recoverable fallbacks: skipped corrupt chunk, missing metadata, fallback reference correction
    * - **INFO**
      - High-level operations: file loaded (format, shape, path), model fitted, project saved
    * - **DEBUG**
@@ -84,7 +84,7 @@ identical handler that skips engiNIR records, so engiNIR messages are not
 printed twice and other Loguru messages are unaffected.
 
 Using the logger in your own code
-----------------------------------
+---------------------------------
 
 Modules inside the engiNIR package obtain their logger with
 ``get_logger(__name__)``:
@@ -123,7 +123,7 @@ messages at DEBUG level and above in real time (read-only, 1000-line ring
 buffer). It can be hidden via the **View** menu.
 
 What gets logged where
------------------------
+----------------------
 
 .. list-table::
    :header-rows: 1

@@ -151,6 +151,6 @@ def test_the_viewer_proposes_through_the_project_and_fills_the_fit_dialog(tmp_pa
         "API", n_intervals=6, progress=progress, cancel=cancel))
     cancelled._cancel_or_close()
     _wait(qapp, lambda: not cancelled._running)
-    assert cancelled.proposal is None and "Cancelled" in cancelled._status.text()
+    assert cancelled.proposal is None and "Canceled" in cancelled._status.text()
     cancelled.close()
     view.close()

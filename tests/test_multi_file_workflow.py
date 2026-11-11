@@ -165,8 +165,8 @@ def test_open_data_adds_the_file_with_frame_references_in_the_same_window(
         assert "White: mean 3500 counts, 0.00 % saturated" in dialogs[0].check_text()
         combo = window._data_file_combo
         assert [combo.itemText(i) for i in range(combo.count()) if combo.itemData(i)] == [
-            "tray_a.h5", "tray_b.h5", "tray_c.h5", "Add data file..."]
-        assert window._saved_label.text() == "✓ Data file 'tray_c.h5' added to project"
+            "tray_a.h5", "tray_b.h5", "tray_c.h5", "Add Dataset..."]
+        assert window._saved_label.text() == "✓ Dataset 'tray_c.h5' added to project"
     finally:
         window.close()
 
@@ -195,7 +195,7 @@ def test_explore_signals_follow_the_shown_file_and_keep_the_choice(qapp, tmp_pat
         window.show_data_file(window._registered_dataset_id(str(raw)))
         window.wait_for_data_file()
         assert window.state.y_unit == "DN" and buttons["DN"].isChecked()
-        assert not buttons["Reflectance"].isEnabled() and "without references" in \
+        assert not buttons["Reflectance"].isEnabled() and "no references" in \
             buttons["Reflectance"].toolTip()
 
         window.show_data_file(calibrated.ref.dataset_id)  # back: the choice returns
@@ -283,7 +283,7 @@ def test_new_references_on_a_file_with_rois_ask_first(qapp, two_file_project, mo
         window.state.set_dark_ref(np.full((8, 12), 90.0))
         window.state.set_white_ref(np.full((8, 12), 3600.0))
         window._eda_view.on_training_roi_selected(10, 13, 4, 7)
-        assert asked and "2 ROI(s) drawn before keep their own calibration" in asked[0]
+        assert asked and "2 ROI(s) drawn before keep their own reference correction" in asked[0]
         assert "A3" not in {roi.name for roi in window.project_state.rois.values()}
     finally:
         window.close()
@@ -335,7 +335,7 @@ def test_a_missing_data_file_is_reported_and_nothing_changes(qapp, two_file_proj
         assert "tray_b.h5 (not found)" in [combo.itemText(i) for i in range(combo.count())]
         dataset_id = window._registered_dataset_id(str(paths["tray_b"]))
         window.show_data_file(str(dataset_id))
-        assert warnings and warnings[0].startswith("Data file not found")
+        assert warnings and warnings[0].startswith("Dataset file not found")
         assert window._cube_path is None
     finally:
         window.close()

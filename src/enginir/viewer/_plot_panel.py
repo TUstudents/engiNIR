@@ -1,6 +1,6 @@
 """Plot panels: one plot with a header for maximize and export.
 
-Implements the Plot Panel Policy of ``viewer-workspace-ui-contract_v3.md``.
+Implements the Plot panel policy of ``viewer-workspace-ui-contract_v3.md``.
 A plot is defined by a :class:`PlotSpec`: a function that draws a payload
 into a matplotlib figure and a function that returns the plotted values as a
 :class:`PlotTable`. A :class:`PlotPanel` shows one spec with a header (title,
@@ -50,7 +50,7 @@ from ._ui_helpers import style_axes
 
 logger = get_logger(__name__)
 
-#: Exports with more values than this ask for confirmation (Plot Panel Policy).
+#: Exports with more values than this ask for confirmation (Plot panel policy).
 LARGE_EXPORT_VALUES = 1_000_000
 _IMAGE_DPI = 300
 _IMAGE_SUFFIXES = (".png", ".svg")

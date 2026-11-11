@@ -1,4 +1,4 @@
-"""Plot panels and plot grids: export, maximize and lazy drawing (Plot Panel Policy)."""
+"""Plot panels and plot grids: export, maximize and lazy drawing (Plot panel policy)."""
 
 from __future__ import annotations
 

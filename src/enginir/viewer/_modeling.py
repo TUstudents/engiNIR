@@ -163,8 +163,8 @@ class NewROIDialog(QDialog):
 
     @property
     def use(self) -> str:
-        """``"prediction"`` when Prediction only is ticked, else ``"training"``."""
-        return "prediction" if self.prediction_check.isChecked() else "training"
+        """``"prediction"`` when Prediction only is ticked, else ``"calibration"``."""
+        return "prediction" if self.prediction_check.isChecked() else "calibration"
 
     @property
     def target_value(self) -> float | None:
@@ -190,7 +190,7 @@ class TargetSelectionDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Select Target")
+        self.setWindowTitle("Select target")
         self._targets_by_id = {target.target_id: target for target in targets}
         name_counts: dict[str, int] = {}
         for target in targets:
@@ -325,8 +325,10 @@ class FitModelRunDialog(QDialog):
         layout.addRow("Target:", self._target_combo)
 
         self._signal_unit_combo = QComboBox()
-        self._signal_unit_combo.addItems(["DN", "Reflectance", "Absorbance"])
-        current_signal_index = self._signal_unit_combo.findText(default_signal_unit)
+        for label, unit in (("Raw counts (DN)", "DN"), ("Reflectance", "Reflectance"),
+                            ("Absorbance", "Absorbance")):
+            self._signal_unit_combo.addItem(label, unit)
+        current_signal_index = self._signal_unit_combo.findData(default_signal_unit)
         if current_signal_index >= 0:
             self._signal_unit_combo.setCurrentIndex(current_signal_index)
         layout.addRow("Signal unit:", self._signal_unit_combo)
@@ -388,14 +390,17 @@ class FitModelRunDialog(QDialog):
         self._components_spin.setValue(6)
         self._auto_check = QCheckBox("Auto")
         self._auto_check.setToolTip(
-            "Choose the number from the component curve (RMSECV and Q² against the number "
+            "Choose the number from the component curve (RMSECV (per ROI) and Q² against the "
+             "number "
             "of components) by the rule; the curve is shown on the Components page.")
         self._rule_combo = QComboBox()
         for label, value, tip in (
                 ("one SE (recommended)", "one_se",
-                 "The fewest components whose RMSECV is within one standard error of the "
+                 "The fewest components whose RMSECV (per ROI) is within one standard "
+                 "error of the "
                  "lowest."),
-                ("lowest RMSECV", "min_rmsecv", "The number with the lowest RMSECV; tends to "
+                ("lowest RMSECV (per ROI)", "min_rmsecv", "The number with the lowest RMSECV "
+                 "(per ROI); tends to "
                  "choose too many."),
                 ("Q² limit", "q2_limit", "SIMCA's rule R1: add components while each one's Q² "
                  "exceeds 0.05; stops at a scatter component that predicts nothing alone."),
@@ -446,7 +451,7 @@ class FitModelRunDialog(QDialog):
 
         self._readiness_label = QLabel("")
         self._readiness_label.setWordWrap(True)
-        layout.addRow("Sample set:", self._readiness_label)
+        layout.addRow("Calibration set:", self._readiness_label)
 
         self._buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -478,7 +483,7 @@ class FitModelRunDialog(QDialog):
                     lambda _checked=False, r=(low, high): self._add_exclude(r))
         water.setMenu(menu)
         water.setToolTip("Common NIR water bands; added to Exclude only when chosen.")
-        self._select_bands = QPushButton("Select on plot...")
+        self._select_bands = QPushButton("Select on Plot...")
         self._select_bands.clicked.connect(self._select_bands_on_plot)
         self._select_bands.setEnabled(self._band_source is not None)
         self._propose_bands = QPushButton("Propose...")
@@ -603,7 +608,7 @@ class FitModelRunDialog(QDialog):
         self._x_scaling_combo = QComboBox()
         self._y_scaling_combo = QComboBox()
         for combo in (self._x_scaling_combo, self._y_scaling_combo):
-            for label, value in (("Centre", "center"), ("Unit variance", "uv"),
+            for label, value in (("Center", "center"), ("Unit variance", "uv"),
                                  ("Pareto", "pareto")):
                 combo.addItem(label, value)
         self._y_scaling_combo.setCurrentIndex(self._y_scaling_combo.findData("uv"))
@@ -616,7 +621,7 @@ class FitModelRunDialog(QDialog):
         self._exclude_check = QCheckBox("Exclude outlying pixels by DModX")
         self._exclude_check.setToolTip(
             "Leave out pixels above the critical distance to the model, inside every "
-            "validation fold from its training pixels only; held-out pixels are never "
+            "validation fold from its calibration pixels only; held-out pixels are never "
             "excluded and ROIs are never left out.")
         self._level_spin = QDoubleSpinBox()
         self._level_spin.setRange(0.9, 0.999)
@@ -631,7 +636,7 @@ class FitModelRunDialog(QDialog):
         self._share_spin.setSuffix(" %")
         self._formula_combo = QComboBox()
         self._formula_combo.addItem("Unweighted", "dmodx-1")
-        self._formula_combo.addItem("Weighted by modelling power (SIMCA)", "dmodx-2")
+        self._formula_combo.addItem("Weighted by modeling power (SIMCA)", "dmodx-2")
         form.addRow("", self._exclude_check)
         exclusion_row = QHBoxLayout()
         for widget in (QLabel("level"), self._level_spin, QLabel("rounds"), self._rounds_spin,
@@ -755,7 +760,7 @@ class FitModelRunDialog(QDialog):
     @property
     def signal_unit(self) -> str:
         """Return the signal unit requested for fitting."""
-        return self._signal_unit_combo.currentText()
+        return str(self._signal_unit_combo.currentData())
 
     @property
     def cv(self) -> int | str:
@@ -999,7 +1004,7 @@ class ModelingView(QWidget):
         configure_status(self.target_status_label)
         action_grid.addWidget(self.target_status_label, 0, 0)
 
-        self._sample_set_status = QLabel("Sample set: none")
+        self._sample_set_status = QLabel("Calibration set: none")
         configure_status(self._sample_set_status)
         action_grid.addWidget(self._sample_set_status, 0, 1)
 
@@ -1018,20 +1023,20 @@ class ModelingView(QWidget):
         action_grid.addWidget(self._btn_target, 1, 0)
 
         self._btn_assign_target = QToolButton()
-        self._btn_assign_target.setText("Target values...")
-        self._btn_assign_target.setToolTip("Type the reference values of all ROIs in the ROI table")
+        self._btn_assign_target.setText("Target Values...")
+        self._btn_assign_target.setToolTip("Type the target values of all ROIs in the ROI table")
         configure_action(self._btn_assign_target)
         self._btn_assign_target.clicked.connect(self.target_values_btn_clicked)
         action_grid.addWidget(self._btn_assign_target, 1, 1)
 
         self._btn_fit_model = QToolButton()
-        self._btn_fit_model.setText("Fit model")
+        self._btn_fit_model.setText("Fit Model")
         configure_action(self._btn_fit_model)
         self._btn_fit_model.clicked.connect(lambda: self.fit_model_btn_clicked())
         action_grid.addWidget(self._btn_fit_model, 3, 1)
 
         self._btn_fit_again = QToolButton()
-        self._btn_fit_again.setText("Fit again...")
+        self._btn_fit_again.setText("Fit Again...")
         self._btn_fit_again.setToolTip("Open the fit dialog with the selected model's settings, "
                                        "e.g. to fit with another number of components")
         configure_action(self._btn_fit_again)
@@ -1326,7 +1331,7 @@ class ModelingView(QWidget):
             lines.append(f"Cannot fit: {exc}")
             return "\n".join(lines), False
         lines.append(f"The model uses {len(sample_set.roi_ids)} ROIs from "
-                     f"{len(sample_set.dataset_ids)} data file(s).")
+                     f"{len(sample_set.dataset_ids)} dataset(s).")
         return "\n".join(lines), True
 
     def _data_file_name(self, dataset_id: str) -> str:
@@ -1342,7 +1347,7 @@ class ModelingView(QWidget):
                 target_id=target_id, recipe_id=recipe_id_for(recipe),
                 sample_sets=state.sample_sets)
         except ValueError as exc:
-            logger.error("No sample set for the fit: {}", exc)
+            logger.error("No calibration set for the fit: {}", exc)
             QMessageBox.warning(self, "Fit model failed", str(exc))
             return None
         return sample_set, is_new, recipe
@@ -1424,10 +1429,11 @@ class ModelingView(QWidget):
         if (required_signal_unit == "DN") == (calibration.mode == "raw_dn"):
             return None
         if required_signal_unit == "DN":
-            return ("models in DN need data files added as raw counts; these ROIs have "
-                    "references or detector levels, so choose Reflectance or Absorbance")
+            return ("models on raw counts (DN) need datasets without reference correction; "
+                    "these ROIs have references or detector levels, so choose Reflectance "
+                    "or Absorbance")
         return (f"these ROIs hold raw counts without references or detector levels, so a "
-                f"model in {required_signal_unit} is not possible; choose DN")
+                f"model in {required_signal_unit} is not possible; choose Raw counts (DN)")
 
     def fold_warnings_for(self, sample_set: SampleSet, *, fit_spec: Any) -> list[str]:
         """The fold warnings (in words) a fit of ``sample_set`` with ``fit_spec`` would record."""
@@ -1520,7 +1526,7 @@ class ModelingView(QWidget):
         roi_metrics, pixel_metrics, warnings = self._level_metrics(model_run)
 
         return {
-            "title": "Model Diagnostics",
+            "title": "Model diagnostics",
             "target": target_text,
             "sample_set": "none" if sample_set is None else self._sample_set_label(sample_set),
             "model": model_text,
@@ -1561,12 +1567,12 @@ class ModelingView(QWidget):
                 and 1 <= int(n) <= np.size(curve["r2y_cum_roi"]):
             r2y = f"{float(np.asarray(curve['r2y_cum_roi'])[int(n) - 1]):.4g}"
         roi = [(label, text) for label, text in (
-            ("R²Y (fit)", r2y), ("Q² (CV R²)", value("r2")), ("RMSEE", value("rmsee")),
-            ("RMSECV", value("rmsecv")), ("Bias", value("bias")), ("RPD", value("rpd")))
+            ("R²Y (fit)", r2y), ("Q² (CV R²)", value("r2")), ("RMSEE (per ROI)", value("rmsee")),
+            ("RMSECV (per ROI)", value("rmsecv")), ("Bias", value("bias")), ("RPD", value("rpd")))
             if text is not None]
         pixel = [(label, text) for label, text in (
-            ("R² (CV)", value("pixel_r2")), ("RMSEE", value("pixel_rmsee")),
-            ("RMSECV", value("pixel_rmsecv")), ("RPD", value("pixel_rpd")),
+            ("R² (CV)", value("pixel_r2")), ("RMSEE (per pixel)", value("pixel_rmsee")),
+            ("RMSECV (per pixel)", value("pixel_rmsecv")), ("RPD", value("pixel_rpd")),
             ("Pixels", None if metrics.get("n_pixels") is None
              else str(int(metrics["n_pixels"]))))
             if text is not None]
@@ -1575,7 +1581,7 @@ class ModelingView(QWidget):
         return roi, pixel, warnings
 
     def workspace_diagnostics_provenance(self) -> dict[str, str]:
-        """Provenance lines for exported diagnostics (Plot Panel Policy)."""
+        """Provenance lines for exported diagnostics (Plot panel policy)."""
         provenance = {"project_id": str(self.project_state.project_meta.get("project_id", ""))}
         model_run = self._resolved_workspace_model_run()
         if model_run is None:
@@ -1768,7 +1774,7 @@ class ModelingView(QWidget):
         model_run = self._resolved_workspace_model_run()
         sample_set = self._resolved_workspace_sample_set(model_run=model_run)
         if sample_set is None:
-            self._sample_set_status.setText("Sample set: none")
+            self._sample_set_status.setText("Calibration set: none")
         else:
             suffix = (
                 " (stale: deleted ROI)"
@@ -1776,13 +1782,13 @@ class ModelingView(QWidget):
                 else ""
             )
             self._sample_set_status.setText(
-                f"Sample set: {self._sample_set_label(sample_set)}{suffix}")
+                f"Calibration set: {self._sample_set_label(sample_set)}{suffix}")
 
         if model_run is None:
             self._model_status.setText("Model: none")
         else:
             metric = model_run.metrics.get("rmsecv")
-            suffix = "" if metric is None else f" | RMSECV={float(metric):.4g}"
+            suffix = "" if metric is None else f" | RMSECV (per ROI)={float(metric):.4g}"
             self._model_status.setText(f"Model: {model_label(model_run)}{suffix}")
         self._update_readiness_status()
         self.view_state_changed.emit()
@@ -1881,7 +1887,7 @@ class ModelingView(QWidget):
                         )
                     details += [f"Warning: {text}" for text in self.fold_warnings_for(
                         sample_set, fit_spec=None) if "fewer than 7" not in text]
-            message = "Ready: fit a model from the selected sample set."
+            message = "Ready: fit a model from the selected calibration set."
             if details:
                 message += " " + " ".join(
                     detail if detail.endswith(".") else f"{detail}." for detail in details
@@ -1913,7 +1919,7 @@ class ModelingView(QWidget):
         recipe: PreprocessingRecipe | None = None,
     ) -> None:
         """Store the fitted run with its new sample set and recipe (``None``: already stored)."""
-        if self._job_result_is_stale(project_path, what="model run"):
+        if self._job_result_is_stale(project_path, what="model"):
             return
         state = self.project_state
         try:
@@ -1927,7 +1933,7 @@ class ModelingView(QWidget):
                 signal_domain=signal_domain,
             )
         except Exception as exc:
-            logger.exception("Persisting the fitted model run failed")
+            logger.exception("Persisting the fitted model failed")
             self._on_job_error("Fit model failed", str(exc))
             return
         self._last_sample_set_id = model_run_result.model_run.sample_set_id
@@ -2028,7 +2034,7 @@ class ModelingView(QWidget):
         # Round-robin folds over fewer ROIs than requested folds hold out one
         # ROI each (sample-set-model-run contract §4); only 2 ROIs are needed.
         if n_roi_groups < 2:
-            return ("Cross-validation requires at least 2 ROIs in the selected sample set, "
+            return ("Cross-validation requires at least 2 ROIs in the selected calibration set, "
                     f"it has {n_roi_groups}.")
         return None
 

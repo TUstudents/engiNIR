@@ -38,6 +38,7 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QLabel,
     QMessageBox,
+    QStyledItemDelegate,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -49,14 +50,17 @@ from ._theme import secondary_text_style
 
 logger = get_logger(__name__)
 
-_FIXED = ("Data file", "ROI", "Pixels", "Predict", "Sample")
+_FIXED = ("Dataset", "ROI", "Pixels", "Set", "Sample")
 _SAMPLE_COLUMN = _FIXED.index("Sample")
-#: A checkbox: the ROI is a prediction ROI (roi-target contract, ``use``).
-_USE_COLUMN = _FIXED.index("Predict")
+#: The ROI's set, Calibration or Prediction, chosen from a drop-down (roi-target contract,
+#: ``use``; terminology contract, Calibration and Prediction).
+_USE_COLUMN = _FIXED.index("Set")
+#: Stored ``use`` -> the label of the Set column, in the drop-down's order.
+SET_LABELS = {"calibration": "Calibration", "prediction": "Prediction"}
 _ALL_FILES = "__all__"
 #: Per-ROI prediction result columns per model: (key, header, decimals as format).
 _RESULT_COLUMNS = (("mean", "mean", ".3g"), ("sd", "SD", ".2g"),
-                   ("removed", "% removed", ".0f"), ("dcrit", "% above DCrit", ".0f"),
+                   ("removed", "% excluded", ".0f"), ("dcrit", "% above DCrit", ".0f"),
                    ("residual", "residual", ".3g"))
 ModelIndex = QModelIndex | QPersistentModelIndex
 
@@ -173,7 +177,7 @@ class RoiTableModel(QAbstractTableModel):
         """A cell's sort key: a float for numbers, a natural key for text, None if empty."""
         roi = self.project_state.rois[roi_id]
         if column == _USE_COLUMN:
-            return float(roi.use == "prediction")
+            return SET_LABELS[roi.use]
         if column == 2:
             return float(roi.n_pixels)
         number = self._number(roi_id, column)
@@ -253,12 +257,12 @@ class RoiTableModel(QAbstractTableModel):
         roi = state.rois[self._roi_ids[index.row()]]
         column = index.column()
         if column == _USE_COLUMN:
-            if role == Qt.ItemDataRole.CheckStateRole:
-                return (Qt.CheckState.Checked if roi.use == "prediction"
-                        else Qt.CheckState.Unchecked)
+            if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
+                return SET_LABELS[roi.use]
             if role == Qt.ItemDataRole.ToolTipRole:
-                return ("Prediction ROI: predicted in Predict > Predict ROIs, never used to fit"
-                        if roi.use == "prediction" else "Training ROI (tick to predict it)")
+                return ("Prediction ROI: predicted in Predict > Predict ROIs, never used to fit "
+                        "a model (double-click to change)" if roi.use == "prediction"
+                        else "Calibration ROI: used to fit models (double-click to change)")
             return None
         result = self.result_column(column)
         if result is not None:
@@ -266,7 +270,7 @@ class RoiTableModel(QAbstractTableModel):
                 return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
             if role == Qt.ItemDataRole.ToolTipRole:
                 return (f"Predicted by '{result[1]}' in this session (not stored); "
-                        "follows the pixel removal of Predict")
+                        "follows the pixel exclusion of Predict")
             if role != Qt.ItemDataRole.DisplayRole:
                 return None
             number = self._number(roi.roi_id, column)
@@ -296,19 +300,20 @@ class RoiTableModel(QAbstractTableModel):
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlag:
         base = super().flags(index)
-        if index.column() == _USE_COLUMN:
-            return base | Qt.ItemFlag.ItemIsUserCheckable
         editable = (self.target_id(index.column()) is not None
-                    or index.column() == _SAMPLE_COLUMN)
+                    or index.column() in (_SAMPLE_COLUMN, _USE_COLUMN))
         return base | Qt.ItemFlag.ItemIsEditable if editable else base
 
     def setData(self, index: ModelIndex, value: Any,  # noqa: N802 (Qt API)
                 role: int = Qt.ItemDataRole.EditRole) -> bool:
-        if role == Qt.ItemDataRole.CheckStateRole and index.column() == _USE_COLUMN:
+        if role == Qt.ItemDataRole.EditRole and index.column() == _USE_COLUMN:
             roi_id = self._roi_ids[index.row()]
-            checked = Qt.CheckState(value) == Qt.CheckState.Checked if not isinstance(
-                value, Qt.CheckState) else value == Qt.CheckState.Checked
-            use = "prediction" if checked else "training"
+            by_label = {label.lower(): use for use, label in SET_LABELS.items()}
+            use = by_label.get(str(value).strip().lower(), str(value))
+            if use not in SET_LABELS:
+                self.edit_failed.emit(f"{value!r} is not a set: choose Calibration or "
+                                      "Prediction.")
+                return False
             if use != self.project_state.rois[roi_id].use:
                 try:
                     self.project_state.set_roi_uses([(roi_id, use)])
@@ -356,6 +361,26 @@ class RoiTableModel(QAbstractTableModel):
         except (OSError, ValueError, KeyError) as exc:
             logger.error("Sample labels not stored: {}", exc)
             self.edit_failed.emit(str(exc))
+
+
+class _SetDelegate(QStyledItemDelegate):
+    """The Set column's editor: a drop-down with Calibration and Prediction."""
+
+    def createEditor(self, parent: QWidget | None, option: Any,  # noqa: N802 (Qt API)
+                     index: QModelIndex) -> QWidget:
+        combo = QComboBox(parent)
+        for use, label in SET_LABELS.items():
+            combo.addItem(label, use)
+        return combo
+
+    def setEditorData(self, editor: QWidget | None, index: QModelIndex) -> None:  # noqa: N802
+        if isinstance(editor, QComboBox):
+            editor.setCurrentIndex(max(0, editor.findText(str(index.data()))))
+
+    def setModelData(self, editor: QWidget | None, model: Any,  # noqa: N802 (Qt API)
+                     index: QModelIndex) -> None:
+        if isinstance(editor, QComboBox) and model is not None:
+            model.setData(index, editor.currentData(), Qt.ItemDataRole.EditRole)
 
 
 class _RoiTableView(QTableView):
@@ -421,6 +446,7 @@ class RoiTableWidget(QWidget):
         self._count.setStyleSheet(secondary_text_style())
         self.view = _RoiTableView()
         self.view.setModel(self.model)
+        self.view.setItemDelegateForColumn(_USE_COLUMN, _SetDelegate(self.view))
         self.view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
         self.view.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked
                                   | QAbstractItemView.EditTrigger.EditKeyPressed
@@ -439,7 +465,7 @@ class RoiTableWidget(QWidget):
             selection.currentRowChanged.connect(self._on_current_row_changed)
 
         filters = QHBoxLayout()
-        filters.addWidget(QLabel("Data file:"))
+        filters.addWidget(QLabel("Dataset:"))
         filters.addWidget(self._file_filter, 1)
         filters.addWidget(self._missing)
         filters.addWidget(self._missing_target)
@@ -474,7 +500,7 @@ class RoiTableWidget(QWidget):
         for combo in (self._file_filter, self._missing_target):
             combo.blockSignals(True)
             combo.clear()
-        self._file_filter.addItem("All data files", _ALL_FILES)
+        self._file_filter.addItem("All datasets", _ALL_FILES)
         for dataset_id, dataset in sorted(state.datasets.items(),
                                           key=lambda item: item[1].source_path.lower()):
             self._file_filter.addItem(state.data_file_label(dataset_id), dataset_id)

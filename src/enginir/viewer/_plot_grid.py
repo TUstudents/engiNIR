@@ -1,4 +1,4 @@
-"""Paged grids of plot panels with in-place maximize (Plot Panel Policy).
+"""Paged grids of plot panels with in-place maximize (Plot panel policy).
 
 A :class:`PlotGrid` shows the pages of one workspace as sub-tabs. Each page
 places its panels in fixed slots. A page builds its panels the first time it

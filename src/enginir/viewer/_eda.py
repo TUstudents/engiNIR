@@ -144,7 +144,7 @@ class EDAView(QWidget):
         layout = QVBoxLayout(box)
         layout.setSpacing(2)
 
-        self._rb_dn = QRadioButton("Raw DN")
+        self._rb_dn = QRadioButton("Raw counts (DN)")
         self._rb_ref = QRadioButton("Reflectance")
         self._rb_abs = QRadioButton("Absorbance")
         self._rb_dn.setChecked(True)
@@ -165,7 +165,7 @@ class EDAView(QWidget):
         return box
 
     def _filtering_group(self) -> QGroupBox:
-        box = QGroupBox("Filtering")
+        box = QGroupBox("Smoothing and derivatives")
         layout = QGridLayout(box)
         layout.setSpacing(2)
 
@@ -208,7 +208,7 @@ class EDAView(QWidget):
         return box
 
     def _normalisation_group(self) -> QGroupBox:
-        box = QGroupBox("Normalisation")
+        box = QGroupBox("Scatter correction")
         layout = QGridLayout(box)
         layout.setSpacing(2)
 
@@ -287,7 +287,7 @@ class EDAView(QWidget):
         layout.addWidget(self._btn_roi_training)
 
         self._btn_roi_grid = QToolButton()
-        self._btn_roi_grid.setText("Add ROI grid")
+        self._btn_roi_grid.setText("Add ROI Grid")
         self._btn_roi_grid.setToolTip("Lay out a tray of equal ROIs by number, size, origin "
                                       "and spacing (defaults in Options > ROI Grid Defaults)")
         self._btn_roi_grid.clicked.connect(self.open_roi_grid_dialog)
@@ -299,13 +299,13 @@ class EDAView(QWidget):
         layout.addWidget(self._btn_roi_delete)
 
         btn_table = QToolButton()
-        btn_table.setText("ROI table")
+        btn_table.setText("ROI Table")
         btn_table.setToolTip("Target values of all ROIs of the project")
         btn_table.clicked.connect(self.roi_table_requested.emit)
         layout.addWidget(btn_table)
 
         btn_export = QToolButton()
-        btn_export.setText("Export csv")
+        btn_export.setText("Export CSV")
         btn_export.clicked.connect(self.export_csv_btn_clicked)
         layout.addWidget(btn_export)
 
@@ -339,11 +339,11 @@ class EDAView(QWidget):
 
     def set_signal_choices(self, units: tuple[str, ...]) -> None:
         """Enable only the signals the shown data file can give (see ``viewable_signal_units``)."""
-        reasons = {"DN": "Already calibrated data hold no raw counts.",
-                   "Reflectance": "This data file is calibrated as raw counts, without "
-                                  "references or detector levels.",
-                   "Absorbance": "This data file is calibrated as raw counts, without "
-                                 "references or detector levels."}
+        reasons = {"DN": "Already corrected data hold no raw counts (DN).",
+                   "Reflectance": "This dataset has no reference correction (raw counts, "
+                                  "no references or detector levels).",
+                   "Absorbance": "This dataset has no reference correction (raw counts, "
+                                 "no references or detector levels)."}
         for unit, button in self._signal_buttons().items():
             button.setEnabled(unit in units)
             button.setToolTip("" if unit in units else reasons[unit])
@@ -382,17 +382,17 @@ class EDAView(QWidget):
             self.export_csv(path)
         except ValueError as exc:
             message = str(exc)
-            if message == "No training ROIs defined yet.":
-                QMessageBox.information(self, "Export csv", message)
+            if message == "No ROIs defined yet.":
+                QMessageBox.information(self, "Export CSV", message)
                 return
-            QMessageBox.warning(self, "Export csv failed", message)
+            QMessageBox.warning(self, "Export CSV failed", message)
 
     def export_csv(self, path: str) -> None:
         if self.project_state.project_path is None:
             log_and_raise("Open a project before exporting CSV.")
         rois = list(self.project_state.rois.values())
         if not rois:
-            log_and_raise("No training ROIs defined yet.")
+            log_and_raise("No ROIs defined yet.")
         wavelengths = np.asarray(rois[0].wavelengths, dtype=np.float32)
         for roi in rois:
             roi_wavelengths = np.asarray(roi.wavelengths, dtype=np.float32)
@@ -435,7 +435,7 @@ class EDAView(QWidget):
         self._set_project_active()
 
     def open_project_btn_clicked(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Open Project", "", PROJECT_OPEN_FILTER)
+        path, _ = QFileDialog.getOpenFileName(self, "Open project", "", PROJECT_OPEN_FILTER)
         if not path:
             return
         self.open_project_btn_clicked_with_path(path)
@@ -570,8 +570,8 @@ class EDAView(QWidget):
         changes apply to this grid only (ROI/target contract).
         """
         if self.project_state.project_path is None or not self._dataset_attached_provider():
-            QMessageBox.warning(self, "No project or data file",
-                                "Open a project and show one of its data files to add ROIs.")
+            QMessageBox.warning(self, "No project or dataset",
+                                "Open a project and show one of its datasets to add ROIs.")
             return
         cube_path = self._cube_path_provider() or ""
         n_frames, height = (int(n) for n in self.state.cube.shape[:2])
@@ -631,10 +631,10 @@ class EDAView(QWidget):
             )
             model_text = ", ".join(affected_model_run_ids) if affected_model_run_ids else "none"
             message += (
-                "\n\nThis ROI is used by sample set(s) "
-                f"{', '.join(affected_sample_set_ids)}. Existing saved model run(s) "
-                f"{model_text} remain usable for prediction, but affected sample sets "
-                "and model runs cannot be altered or refit until recreated."
+                "\n\nThis ROI is used by calibration set(s) "
+                f"{', '.join(affected_sample_set_ids)}. Existing saved model(s) "
+                f"{model_text} remain usable for prediction, but affected calibration sets "
+                "and models cannot be altered or refit until recreated."
             )
         result = QMessageBox.question(
             self,
@@ -737,13 +737,13 @@ class EDAView(QWidget):
         if active is not None and calibration.calibration_id != active.calibration_id:
             n_rois = sum(roi.dataset_id == dataset.dataset_id for roi in project_state.rois.values())
             if n_rois and QMessageBox.question(
-                    self, "New calibration",
-                    f"The image uses other references or levels than the calibration of "
+                    self, "New reference correction",
+                    f"The image uses other references or levels than the reference correction of "
                     f"{self.project_state.data_file_label(dataset.dataset_id)}. New ROIs will "
                     "use them; the "
-                    f"{n_rois} ROI(s) drawn before keep their own calibration. Continue?",
+                    f"{n_rois} ROI(s) drawn before keep their own reference correction. Continue?",
             ) != QMessageBox.StandardButton.Yes:
-                logger.info("ROI not created: new calibration of {} declined",
+                logger.info("ROI not created: new reference correction of {} declined",
                             dataset.source_path)
                 return None
         if is_new:

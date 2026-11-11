@@ -159,7 +159,7 @@ def _check_sample_set(
         if not allow_stale_rois:
             _fail("SampleSet '{}' references missing roi_id(s) {}", owner, deleted)
         logger.warning(
-            "SampleSet '{}' references {} deleted ROI(s) {}; its model runs remain usable for "
+            "Calibration set '{}' references {} deleted ROI(s) {}; its models remain usable for "
             "prediction, but it cannot be changed or refitted until it is recreated",
             owner, len(deleted), deleted,
         )

@@ -65,7 +65,7 @@ class GridGeometryForm(QWidget):
         self._pattern = QComboBox()
         self._pattern.setEditable(True)
         self._pattern.addItems(list(NAME_PATTERNS))
-        self._pattern.setToolTip("{file}: data file name, {row}: A, B, ..., {column}: 1, 2, "
+        self._pattern.setToolTip("{file}: dataset file name, {row}: A, B, ..., {column}: 1, 2, "
                                  "..., {n}: running number. Pick one or type your own.")
         self._pattern.currentTextChanged.connect(self.changed)
         self._order = QComboBox()
@@ -157,8 +157,9 @@ def prediction_only_check(checked: bool) -> QCheckBox:
     check = QCheckBox("Prediction only (a sample to predict; never used to fit a model)")
     check.setChecked(checked)
     check.setToolTip("Prediction ROIs mark tablets to predict in Predict > Predict ROIs. They "
-                     "never enter a model fit, even with a value; a value then only gives the "
-                     "prediction's residual. The choice is remembered for this data file.")
+                     "never enter a model fit, even with a target value; a target value then "
+                     "only gives the prediction's residual. The choice is remembered for this "
+                     "dataset.")
     return check
 
 
@@ -184,11 +185,11 @@ class RoiGridDialog(QDialog):
 
         self.form = GridGeometryForm(defaults)
         self.form.changed.connect(self._update)
-        select_all = QPushButton("Select all")
+        select_all = QPushButton("Select All")
         select_all.clicked.connect(lambda: self._select_all(True))
-        select_none = QPushButton("Select none")
+        select_none = QPushButton("Select None")
         select_none.clicked.connect(lambda: self._select_all(False))
-        self._make_defaults = QPushButton("Make defaults")
+        self._make_defaults = QPushButton("Make Defaults")
         self._make_defaults.setToolTip("Use this geometry and these names for every new ROI grid "
                                        "(Options > ROI Grid Defaults)")
         self._make_defaults.clicked.connect(self.make_defaults)
@@ -228,8 +229,8 @@ class RoiGridDialog(QDialog):
 
     @property
     def use(self) -> str:
-        """``"prediction"`` when Prediction only is ticked, else ``"training"``."""
-        return "prediction" if self.prediction_check.isChecked() else "training"
+        """``"prediction"`` when Prediction only is ticked, else ``"calibration"``."""
+        return "prediction" if self.prediction_check.isChecked() else "calibration"
 
     # -- settings (also used by tests and scripts) ----------------------
 
@@ -330,7 +331,7 @@ class RoiGridDialog(QDialog):
         if repeated:
             message += (f". {len(repeated)} name(s) repeat ROIs of the project, e.g. "
                         f"'{repeated[0]}'; that is allowed (ROIs are told apart by id and "
-                        "data file).")
+                        "dataset).")
         self._show(planned, skipped, [], message, ok)
 
     def _show(self, cells: list[GridCell], skipped: list[GridCell], outside: list[GridCell],

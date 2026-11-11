@@ -36,22 +36,59 @@ def tray(tmp_path):
         first = 2 + i * FRAMES_PER_ROI
         scan.add_roi(f"t{i + 1:02d}", frames=(first, first + FRAMES_PER_ROI - 1),
                      rows=(0, HEIGHT - 1), values={"API": float(value)},
-                     use="prediction" if i >= 7 else "training")
+                     use="prediction" if i >= 7 else "calibration")
     return project, scan, path
 
 
 def test_the_use_is_stored_read_back_and_switched_in_place(tray):
+    """Calibration and prediction are stored explicitly and switched in place; an unknown
+    stored value makes the project fail to open."""
     project, _scan, _path = tray
     reopened = Project.open(project.path)
-    assert reopened.roi("t09").use == "prediction" and reopened.roi("t01").use == "training"
+    assert reopened.roi("t09").use == "prediction" and reopened.roi("t01").use == "calibration"
     with h5py.File(project.path, "r") as f:
-        assert "use" not in f[f"rois/{project.roi('t01').roi_id}"].attrs, "training is absent"
-    reopened.set_use("t09", "training")
-    assert Project.open(project.path).roi("t09").use == "training"
+        assert f[f"rois/{project.roi('t01').roi_id}"].attrs["use"] == "calibration"
+    reopened.set_use("t09", "calibration")
+    assert Project.open(project.path).roi("t09").use == "calibration"
     with h5py.File(project.path, "r+") as f:
         f[f"rois/{project.roi('t02').roi_id}"].attrs["use"] = "validation"
     with pytest.raises(ValueError, match="use must be one of"):
         Project.open(project.path)
+
+
+@pytest.mark.parametrize("stored", [None, "training"])
+def test_older_stored_forms_read_as_calibration_and_resave_unchanged(tray, stored):
+    """A missing use (before 1.4) and 'training' (1.4) read as calibration, and re-saving such
+    an ROI is not refused as a change of content (terminology contract)."""
+    from enginir.io import project_store as store
+
+    project, _scan, _path = tray
+    roi = project.roi("t01")
+    with h5py.File(project.path, "r+") as f:
+        attrs = f[f"rois/{roi.roi_id}"].attrs
+        del attrs["use"]
+        if stored is not None:
+            attrs["use"] = stored
+    reopened = Project.open(project.path)
+    assert reopened.roi("t01").use == "calibration"
+    key = f"/rois/{roi.roi_id}/spectra"
+    spectra = store.load_roi_spectra_batch(project.path, [key])[key]
+    refs = next(iter(store.iter_roi_calibration_refs(project.path, [roi.roi_id])))[1]
+    dark, white = refs if refs is not None else (None, None)
+    store.save_training_roi(project.path, roi.roi_id, reopened.roi("t01").to_dict(), spectra,
+                            dark_ref_spectra=dark, white_ref_spectra=white)
+    with h5py.File(project.path, "r") as f:
+        assert f[f"rois/{roi.roi_id}"].attrs.get("use") == stored, "re-saving changes nothing"
+    assert reopened.fit("API", n_components=2, cv=3).ref is not None, "still a calibration ROI"
+
+
+def test_the_api_refuses_the_old_name_training(tray):
+    project, scan, _path = tray
+    with pytest.raises(ValueError, match="renamed to 'calibration'"):
+        project.set_use("t01", "training")
+    with pytest.raises(ValueError, match="renamed to 'calibration'"):
+        scan.add_roi("t11", frames=(0, 1), rows=(0, 1), use="training")
+    assert project.roi("t01").use == "calibration"
 
 
 def test_prediction_rois_never_enter_a_fit(tray):
@@ -69,7 +106,7 @@ def test_prediction_rois_never_enter_a_fit(tray):
 
     for name in [f"t{i:02d}" for i in range(1, 8)]:
         project.set_use(name, "prediction")
-    with pytest.raises(ValueError, match=r"No training ROI has a value .*10 prediction ROI"):
+    with pytest.raises(ValueError, match=r"No calibration ROI has a value .*10 prediction ROI"):
         project.fit("API", n_components=2, cv=3)
 
 

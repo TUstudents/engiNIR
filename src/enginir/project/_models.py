@@ -325,29 +325,29 @@ class CalibrationSpec(SerializableModel):
                               ("dark_ref_data", "white_ref_data"),
                               ("black_level", "white_level")):
             if (getattr(self, first) is None) != (getattr(self, second) is None):
-                log_and_raise("Calibration '{}': {} and {} must be set together",
+                log_and_raise("Reference correction '{}': {} and {} must be set together",
                               self.calibration_id, first, second)
         if self.mode != "dark_white_reference":
             expected_units = ("DN",) if self.mode == "raw_dn" else ("Reflectance", "Absorbance")
             if self.output_signal_unit not in expected_units:
-                log_and_raise("Calibration '{}': mode {!r} requires output_signal_unit in {}",
+                log_and_raise("Reference correction '{}': mode {!r} requires output_signal_unit in {}",
                               self.calibration_id, self.mode, list(expected_units))
             if has_paths or has_arrays or has_levels:
-                log_and_raise("Calibration '{}': mode {!r} must not store reference context",
+                log_and_raise("Reference correction '{}': mode {!r} must not store reference context",
                               self.calibration_id, self.mode)
             return
         if self.output_signal_unit == "DN":
-            log_and_raise("Calibration '{}': mode 'dark_white_reference' produces Reflectance "
-                          "or Absorbance, not DN", self.calibration_id)
+            log_and_raise("Reference correction '{}': mode 'dark_white_reference' produces "
+                          "Reflectance or Absorbance, not raw counts (DN)", self.calibration_id)
         if has_arrays == has_levels:
-            log_and_raise("Calibration '{}' needs either reference arrays or scalar levels "
+            log_and_raise("Reference correction '{}' needs either reference arrays or scalar levels "
                           "(exactly one of them)", self.calibration_id)
         if has_paths and not has_arrays:
-            log_and_raise("Calibration '{}': reference source paths are provenance only and "
+            log_and_raise("Reference correction '{}': reference source paths are provenance only and "
                           "need the reference arrays", self.calibration_id)
         if (self.dark_ref_data is not None and self.white_ref_data is not None
                 and self.dark_ref_data.shape != self.white_ref_data.shape):
-            log_and_raise("Calibration '{}': dark and white reference arrays differ in shape",
+            log_and_raise("Reference correction '{}': dark and white reference arrays differ in shape",
                           self.calibration_id)
 
 
@@ -356,20 +356,49 @@ class CalibrationSpec(SerializableModel):
 # ---------------------------------------------------------------------------
 
 
-#: What an ROI is for (roi-target contract, ``use``).
-ROI_USES = ("training", "prediction")
+#: What an ROI is for (roi-target contract, ``use``; terminology contract, Calibration and
+#: Prediction).
+ROI_USES = ("calibration", "prediction")
+
+#: Stored forms that mean a calibration ROI: no ``use`` (before 1.4) and ``training``.
+_CALIBRATION_FORMS = (None, "training", "calibration")
 
 
 def roi_use(value: Any) -> str:
-    """An ROI's ``use``: ``"training"`` or ``"prediction"``; absent (``None``) is training."""
-    if value is None:
-        return "training"
+    """An ROI's ``use`` as read from a project: ``"calibration"`` or ``"prediction"``.
+
+    A missing ``use`` (``None``) and ``"training"`` (the name before 1.5) read
+    as ``"calibration"``; any other value is refused.
+    """
     if isinstance(value, bytes):
         value = value.decode()
+    if value in _CALIBRATION_FORMS:
+        return "calibration"
     if value not in ROI_USES:
         log_and_raise("An ROI's use must be one of {}, got {!r}", list(ROI_USES), value,
                       depth=2)
     return str(value)
+
+
+def check_roi_use(value: Any) -> str:
+    """An ROI's ``use`` given by a caller: ``"calibration"`` or ``"prediction"``.
+
+    ``"training"`` is refused with the rename (engiNIR 1.5); stored projects
+    still read it (:func:`roi_use`).
+    """
+    if value == "training":
+        log_and_raise("use='training' was renamed to 'calibration' in engiNIR 1.5", depth=2)
+    if value not in ROI_USES:
+        log_and_raise("An ROI's use must be one of {}, got {!r}", list(ROI_USES), value,
+                      depth=2)
+    return str(value)
+
+
+def same_roi_use(value: Any) -> str | None:
+    """The stored ``use`` reduced for the identity rule: the calibration forms are one value."""
+    if isinstance(value, bytes):
+        value = value.decode()
+    return "calibration" if value in _CALIBRATION_FORMS else value
 
 
 def sample_label(value: Any) -> str | None:
@@ -419,9 +448,10 @@ class TrainingROI(SerializableModel):
         ROIs with equal labels are held out together when folds are grouped
         by sample. ``None`` (default): the ROI is its own sample.
     use : str
-        ``"training"`` (default) or ``"prediction"`` (may be changed): a
-        prediction ROI marks a sample to predict and never enters a sample
-        set (roi-target contract, ``use``).
+        ``"calibration"`` (default) or ``"prediction"`` (may be changed): a
+        prediction ROI marks a sample to predict and never enters a
+        calibration set (roi-target contract, ``use``). A stored ``training``
+        or a missing ``use`` reads as ``"calibration"``.
     """
 
     roi_id: str
@@ -435,7 +465,7 @@ class TrainingROI(SerializableModel):
     created_at: str
     provenance: dict[str, Any]
     sample: str | None = None
-    use: str = "training"
+    use: str = "calibration"
 
     def __post_init__(self) -> None:
         self.roi_id = _text(self.roi_id, "roi_id")
@@ -454,13 +484,6 @@ class TrainingROI(SerializableModel):
         self.source_file = os.path.abspath(_text(self.source_file, "source_file"))
         self.created_at = _timestamp(self.created_at, "created_at")
         self.provenance = self._checked_provenance(_mapping(self.provenance, "provenance"))
-
-    def to_dict(self) -> dict[str, Any]:
-        """The stored fields; ``use="training"`` is stored as no ``use`` (as before 1.4)."""
-        payload = SerializableModel.to_dict(self)  # slotted dataclass: no zero-argument super
-        if payload.get("use") == "training":
-            payload["use"] = None
-        return payload
 
     def _checked_provenance(self, provenance: dict[str, Any]) -> dict[str, Any]:
         required = ("dataset_id", "calibration_id", "signal_unit", "preview_recipe_summary",
@@ -623,12 +646,12 @@ class SignalDomainContract(SerializableModel):
                                               "calibrated_input_allowed")
         produces_dn = self.required_calibration_mode == "raw_dn"
         if produces_dn != (self.required_signal_unit == "DN"):
-            log_and_raise("Signal domain '{}': calibration mode {!r} cannot produce {!r} spectra",
+            log_and_raise("Input contract '{}': reference correction mode {!r} cannot produce {!r} spectra",
                           self.signal_domain_id, self.required_calibration_mode,
                           self.required_signal_unit)
         if ((self.requires_dark_ref or self.requires_white_ref)
                 and self.required_calibration_mode != "dark_white_reference"):
-            log_and_raise("Signal domain '{}': reference requirements need calibration mode "
+            log_and_raise("Input contract '{}': reference requirements need reference correction mode "
                           "'dark_white_reference', got {!r}", self.signal_domain_id,
                           self.required_calibration_mode)
         self.n_bands = check_integer(self.n_bands, "n_bands", minimum=1)
@@ -665,7 +688,7 @@ class SignalDomainContract(SerializableModel):
         from ._ids import new_id, now_iso
 
         if calibration.dataset_id != dataset.dataset_id:
-            log_and_raise("Calibration '{}' belongs to dataset '{}', not '{}'",
+            log_and_raise("Reference correction '{}' belongs to dataset '{}', not '{}'",
                           calibration.calibration_id, calibration.dataset_id, dataset.dataset_id)
         has_dark = any(value is not None for value in (
             calibration.dark_ref_source, calibration.dark_ref_data, calibration.black_level))
@@ -744,13 +767,13 @@ class SampleSet(SerializableModel):
                                              "preprocessing_recipe_id")
         self.roi_ids = _text_list(self.roi_ids, "roi_ids")
         if not self.roi_ids:
-            log_and_raise("Sample set '{}' has no roi_ids", self.sample_set_id)
+            log_and_raise("Calibration set '{}' has no roi_ids", self.sample_set_id)
         if len(set(self.roi_ids)) != len(self.roi_ids):
-            log_and_raise("Sample set '{}' lists an ROI more than once: {}", self.sample_set_id,
+            log_and_raise("Calibration set '{}' lists an ROI more than once: {}", self.sample_set_id,
                           self.roi_ids)
         self.dataset_ids = _text_list(self.dataset_ids, "dataset_ids")
         if not self.dataset_ids:
-            log_and_raise("Sample set '{}' has no dataset_ids", self.sample_set_id)
+            log_and_raise("Calibration set '{}' has no dataset_ids", self.sample_set_id)
         for name, allowed in SAMPLE_SET_SEMANTICS.items():
             setattr(self, name, _choice(getattr(self, name), name, (allowed,)))
         self.created_at = _timestamp(self.created_at, "created_at")

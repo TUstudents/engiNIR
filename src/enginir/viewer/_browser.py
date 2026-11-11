@@ -8,23 +8,26 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QFrame, QSizePolicy, QTreeWidget, QTreeWidgetItem, QWidget
 
-from ._state import ProjectState
+from ._state import ProjectState, signal_label
 
 __all__ = ["ProjectBrowser"]
 
 
 class ProjectBrowser(QTreeWidget):
-    """Persistent read-only browser for the active project workspace."""
+    """Persistent read-only browser for the active project workspace.
+
+    Each model shows its calibration set and its input contract beneath it
+    (terminology contract); calibration sets and input contracts that no
+    model uses follow the models, marked "(no model)".
+    """
 
     _SECTION_ORDER = [
         ("datasets", "Datasets"),
-        ("calibrations", "Calibrations"),
+        ("calibrations", "Reference corrections"),
         ("rois", "ROIs"),
         ("targets", "Targets"),
-        ("target_assignments", "Target Assignments"),
-        ("sample_sets", "Sample Sets"),
-        ("signal_domains", "Signal Domains"),
-        ("model_runs", "Model Runs"),
+        ("target_assignments", "Target values"),
+        ("model_runs", "Models"),
         ("predictions", "Predictions"),
     ]
     _KIND_TO_SECTION = {
@@ -33,8 +36,8 @@ class ProjectBrowser(QTreeWidget):
         "roi": "rois",
         "target": "targets",
         "target_assignment": "target_assignments",
-        "sample_set": "sample_sets",
-        "signal_domain": "signal_domains",
+        "sample_set": "model_runs",
+        "signal_domain": "model_runs",
         "model_run": "model_runs",
         "prediction": "predictions",
     }
@@ -98,8 +101,6 @@ class ProjectBrowser(QTreeWidget):
         self._populate_rois()
         self._populate_targets()
         self._populate_target_assignments()
-        self._populate_sample_sets()
-        self._populate_signal_domains()
         self._populate_model_runs()
         self._populate_predictions()
 
@@ -143,14 +144,16 @@ class ProjectBrowser(QTreeWidget):
         section_key = self._KIND_TO_SECTION.get(kind)
         if section_key is None:
             return None
-        section = self._sections[section_key]
-        for index in range(section.childCount()):
-            child = section.child(index)
-            if child is None:
-                continue
-            child_payload = child.data(0, Qt.ItemDataRole.UserRole)
-            if self._payload_matches(payload, child_payload):
-                return child
+        pending = [self._sections[section_key]]
+        while pending:  # depth first: a model's calibration set and input contract are nested
+            parent = pending.pop(0)
+            for index in range(parent.childCount()):
+                child = parent.child(index)
+                if child is None:
+                    continue
+                if self._payload_matches(payload, child.data(0, Qt.ItemDataRole.UserRole)):
+                    return child
+                pending.append(child)
         return None
 
     @staticmethod
@@ -229,34 +232,47 @@ class ProjectBrowser(QTreeWidget):
             )
             section.addChild(item)
 
-    def _populate_sample_sets(self) -> None:
-        section = self._sections["sample_sets"]
-        for sample_set_id, sample_set in self.project_state.sample_sets.items():
-            label = f"{sample_set_id} | target={sample_set.target_id}"
-            item = QTreeWidgetItem([label])
-            item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "sample_set", "id": sample_set_id})
-            section.addChild(item)
+    def _sample_set_item(self, sample_set_id: str, suffix: str = "") -> QTreeWidgetItem:
+        sample_set = self.project_state.sample_sets[sample_set_id]
+        target = self.project_state.targets.get(sample_set.target_id)
+        target_label = target.name if target is not None else sample_set.target_id
+        item = QTreeWidgetItem([f"Calibration set: {len(sample_set.roi_ids)} ROIs, "
+                                f"{target_label}{suffix}"])
+        item.setToolTip(0, sample_set_id)
+        item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "sample_set", "id": sample_set_id})
+        return item
 
-    def _populate_signal_domains(self) -> None:
-        section = self._sections["signal_domains"]
-        for signal_domain_id, signal_domain in self.project_state.signal_domains.items():
-            label = (
-                f"{signal_domain_id} | "
-                f"{signal_domain.required_signal_unit}/{signal_domain.required_calibration_mode}"
-            )
-            item = QTreeWidgetItem([label])
-            item.setData(
-                0, Qt.ItemDataRole.UserRole, {"kind": "signal_domain", "id": signal_domain_id}
-            )
-            section.addChild(item)
+    def _signal_domain_item(self, signal_domain_id: str, suffix: str = "") -> QTreeWidgetItem:
+        domain = self.project_state.signal_domains[signal_domain_id]
+        item = QTreeWidgetItem([f"Input contract: {domain.input_format}, "
+                                f"{signal_label(domain.required_signal_unit)}{suffix}"])
+        item.setToolTip(0, signal_domain_id)
+        item.setData(0, Qt.ItemDataRole.UserRole,
+                     {"kind": "signal_domain", "id": signal_domain_id})
+        return item
 
     def _populate_model_runs(self) -> None:
         section = self._sections["model_runs"]
-        for model_run_id, model_run in self.project_state.model_runs.items():
-            label = f"{model_run_id} | {model_run.model_type}"
-            item = QTreeWidgetItem([label])
+        state = self.project_state
+        used_sets: set[str] = set()
+        used_domains: set[str] = set()
+        for model_run_id, model_run in state.model_runs.items():
+            name = model_run.name or model_run.model_type
+            item = QTreeWidgetItem([f"{name} [{model_run_id}]"])
             item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "model_run", "id": model_run_id})
+            if model_run.sample_set_id in state.sample_sets:
+                item.addChild(self._sample_set_item(model_run.sample_set_id))
+                used_sets.add(model_run.sample_set_id)
+            if model_run.signal_domain_id in state.signal_domains:
+                item.addChild(self._signal_domain_item(model_run.signal_domain_id))
+                used_domains.add(model_run.signal_domain_id)
             section.addChild(item)
+        for sample_set_id in state.sample_sets:
+            if sample_set_id not in used_sets:
+                section.addChild(self._sample_set_item(sample_set_id, " (no model)"))
+        for signal_domain_id in state.signal_domains:
+            if signal_domain_id not in used_domains:
+                section.addChild(self._signal_domain_item(signal_domain_id, " (no model)"))
 
     def _populate_predictions(self) -> None:
         section = self._sections["predictions"]

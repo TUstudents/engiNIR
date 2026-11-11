@@ -1,4 +1,4 @@
-# HDF5 Format Reference
+# HDF5 format reference
 
 enginir uses HDF5 for two distinct storage shapes:
 
@@ -100,7 +100,7 @@ namespaces. The groups may be empty in a newly created project.
 Canonical v3 project files must not use root `/calibration` or root `/models`
 as their scientific source of truth. Root `/calibration` remains a rejected
 pre-v3 shape. An extra legacy root `/models` group is ignored with a warning;
-model runs are read exclusively from `/model_runs`.
+models are read exclusively from `/model_runs`.
 
 ### 2.2. Generic encoding rules
 
@@ -203,7 +203,7 @@ but readers should not require them for the current contract.
 └── @updated_at
 ```
 
-### 3.2. Dataset references and dataset-owned calibration
+### 3.2. Dataset references and dataset-owned reference correction
 
 ```text
 /datasets/{dataset_id}/
@@ -228,14 +228,14 @@ but readers should not require them for the current contract.
     └── white_ref_data       optional embedded reference array
 ```
 
-Calibration is dataset-owned in v3. A project-global `/calibration` group is an
+Reference correction is dataset-owned in v3. A project-global `/calibration` group is an
 invalid pre-v3 shape.
 
 Object ids are taken from the HDF5 path (`{dataset_id}`, `{calibration_id}`,
 ...). Writers do not need to store them as attributes; a stored id attribute
-(for example `@dataset_id` on a calibration written from `to_dict()`) is
+(for example `@dataset_id` on a reference correction written from `to_dict()`) is
 accepted when it equals the path id and rejected when it contradicts it. An
-`@active_calibration_id` must name a calibration of the same dataset.
+`@active_calibration_id` must name a reference correction of the same dataset.
 
 ### 3.3. ROIs
 
@@ -246,9 +246,10 @@ accepted when it equals the path id and rejected when it contradicts it. An
 ├── @name                   mutable display label
 ├── @sample                 optional sample label (mutable); ROIs with equal
 │                           labels are one physical sample for fold groups
-├── @use                    optional: training | prediction (mutable, 1.4+);
-│                           absent = training; prediction ROIs never enter
-│                           a sample set
+├── @use                    calibration | prediction (mutable; stored since
+│                           1.5); absent (before 1.4) and training (1.4)
+│                           read calibration; prediction ROIs never enter a
+│                           sample set
 ├── @source_file
 ├── @n_pixels
 ├── @created_at
@@ -262,10 +263,10 @@ accepted when it equals the path id and rejected when it contradicts it. An
 ```
 
 `spectra` is the persisted raw ROI matrix and remains the scientific truth for
-ROI extraction in v3. It keeps the source dtype: uint16 for raw DN sources,
-float32 for precalibrated floating sources (float values are never truncated
-to integers). Precalibrated ROIs store no `calibration_refs/`, because their
-calibration mode carries no dark/white reference context. Target values do
+ROI extraction in v3. It keeps the source dtype: uint16 for Raw counts (DN) sources,
+float32 for already corrected floating sources (float values are never truncated
+to integers). Already corrected ROIs store no `calibration_refs/`, because their
+reference correction mode carries no dark/white reference context. Target values do
 not live on ROIs.
 
 ### 3.4. Targets and target assignments
@@ -315,7 +316,7 @@ are written only when they change the recipe: no `@sg_edges` means the
 Savitzky-Golay edges are extrapolated (`interp`), no `@asls` means no AsLS
 baseline correction, so recipes stored before keep their ids
 (`project-schema-contract_v3.md` §4). With `@sg_edges = "drop"` the
-preprocessed spectra have 2⌊`sg_window`/2⌋ fewer bands: the model run's
+preprocessed spectra have 2⌊`sg_window`/2⌋ fewer bands: the model's
 arrays over bands (`prediction_model`: `wavelengths`, `coef_`, `x_mean`,
 `x_std`, `rotations`, `loadings`; `diagnostics`: `wavelengths`, loadings,
 coefficients, VIP) use that shorter axis (the "model bands" below); MSC/EMSC
@@ -328,17 +329,17 @@ stored wavelengths use the selected bands. Unknown fields are logged and discard
 rather than treated as executable parameters.
 Recipe content is immutable under one `{recipe_id}`: re-saving identical
 content is allowed, while changed executable content requires a new id.
-Stateful preprocessing that requires fitted training state must persist that
+Stateful preprocessing that requires fitted calibration state must persist that
 state before reopened-project prediction can use it.
 
-For model runs using MSC or EMSC, the prediction-critical model artifact stores
+For models using MSC or EMSC, the prediction-critical model artifact stores
 that state under
 `/model_runs/{model_run_id}/artifact_refs/prediction_model/preprocessing_state/`.
 MSC stores its fitted reference spectrum. EMSC stores its fitted reference,
 weights, optional interference basis, method, and polynomial order. Prediction
 restores these values without fitting on prediction data.
 
-### 3.6. Signal-domain contracts
+### 3.6. Input contracts
 
 ```text
 /signal_domains/{signal_domain_id}/
@@ -361,7 +362,7 @@ In v3, `exact` and `reject` do not imply interpolation or automatic band
 remapping. They mean the imported data is already aligned for the saved model
 workflow.
 
-### 3.7. Sample sets
+### 3.7. Calibration sets
 
 ```text
 /sample_sets/{sample_set_id}/
@@ -379,10 +380,10 @@ workflow.
 └── @created_at
 ```
 
-The modeling semantics above are frozen for v3. Pixel-level observations are
+The modeling semantics above are frozen for v3. Pixels as the data points of the fit are
 grouped and validated by ROI, then reported at ROI level using mean aggregation.
 
-### 3.8. Model runs
+### 3.8. Models
 
 ```text
 /model_runs/{model_run_id}/
@@ -402,9 +403,8 @@ grouped and validated by ROI, then reported at ROI level using mean aggregation.
 └── @created_at
 ```
 
-Model runs are not merely fitted numeric arrays. They persist enough references
-and semantics to interpret the artifacts through the sample set, signal-domain
-contract, recipe, target, and datasets.
+Models are not merely fitted numeric arrays. They persist enough references
+and semantics to interpret the artifacts through the calibration set, input contract, recipe, target, and datasets.
 
 #### `hyperparameters/`
 
@@ -422,7 +422,7 @@ Scaling of X and Y (engiNIR 1.2 and later):
 
 Runs before engiNIR 1.2 store `@scale` (boolean, absent means `true`)
 instead: `true` scales X and Y (PLS) or X (PCR) to unit variance, `false`
-only centres (`sample-set-model-run-contract_v3.md` §7.3).
+only center (`sample-set-model-run-contract_v3.md` §7.3).
 
 #### `cv_spec/`
 
@@ -531,7 +531,7 @@ score_variances          (A,), training score variances (N - 1); NaN for a compo
 @t2_crit_099, @dcrit_099 limits for the applicability diagnostics (each absent when undefined)
 ```
 
-`x_mean` is the centre in the model's input space: for PCR the PCA mean is
+`x_mean` is the center in the model's input space: for PCR the PCA mean is
 folded in (`x_mean_ + pca_.mean_ * x_std_`), and `rotations` = `loadings` =
 the PCA components.
 
@@ -541,12 +541,12 @@ predict without diagnostics.
 
 Both model types are replayed as the affine map
 `y = X_preprocessed @ coef_ + intercept_`, where `X_preprocessed` is the
-dataset after signal-domain conversion and the sample set's preprocessing
+dataset after signal conversion and the calibration set's preprocessing
 recipe.
 
 #### `artifact_refs/diagnostics`
 
-Diagnostics are loaded only by diagnostics workflows. The training scores
+Diagnostics are loaded only by diagnostics workflows. The calibration scores
 (`x_scores_`, `scores_`) have one row per pixel; X weights and Y loadings let
 VIP be computed without a refit.
 
@@ -676,7 +676,7 @@ flagged_roi_ids          string array, ROIs with more pixels above DCrit than ma
 not a completed v3 project state and is rejected on project open, as is any
 status value other than `writing` or `complete`. An absent attribute means
 `complete`: writers that persist an already-complete run in one operation may
-omit it. Failed or cancelled staged runs are discarded (the prediction group
+omit it. Failed or canceled staged runs are discarded (the prediction group
 is deleted); no `failed` or `cancelled` status value is ever persisted.
 Staging refuses an id that already exists, and discarding refuses a completed
 run, so a failed attempt can never remove finished results.
@@ -723,7 +723,7 @@ the previously published object intact.
 
 Chunked prediction keeps one raw-source HDF5 handle and one project artifact
 writer session open for the duration of the chunk loop. The default image
-chunk is 512 frames; raw chunks retain their stored dtype until calibration.
+chunk is 512 frames; raw chunks retain their stored dtype until reference correction.
 
 ---
 
@@ -859,4 +859,4 @@ enginir dependency.
 - Project files do not embed full source datasets; they store dataset
   references plus persisted ROI spectra and project artifacts.
 - Project runtime model artifacts currently support reopened-project prediction
-  for PLS and PCR model runs.
+  for PLS and PCR models.

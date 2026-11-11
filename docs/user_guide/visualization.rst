@@ -3,7 +3,7 @@ Visualization
 
 All plot functions in :mod:`enginir.visualization` return a
 ``matplotlib.axes.Axes`` object so they can be embedded in larger figure
-layouts or further customised with standard matplotlib calls.
+layouts or further customized with standard matplotlib calls.
 
 Every function accepts an optional ``ax`` keyword argument.  Pass an existing
 axes to draw into a subplot or an externally-created figure.
@@ -28,8 +28,8 @@ Spectra
    # annotate individual spectra by name (shown for <= 20 samples)
    plot_spectra(X, wl, labels=sample_names)
 
-Reference vs Predicted
------------------------
+Reference vs predicted
+----------------------
 
 .. code-block:: python
 
@@ -66,7 +66,7 @@ Scores
    # label individual samples (shown for <= 30 samples)
    plot_scores(T, labels=sample_names, pc_x=0, pc_y=1)
 
-VIP Scores
+VIP scores
 ----------
 
 .. code-block:: python
@@ -78,7 +78,7 @@ VIP Scores
 
 Bars above the threshold (default 1.0) are colored distinctly.
 
-Leverage / Outlier Map
+Leverage / outlier map
 ----------------------
 
 .. code-block:: python
@@ -101,7 +101,7 @@ Leverage / Outlier Map
 Samples outside either critical boundary are highlighted in red and
 annotated with their label.
 
-Hyperspectral Image Map
+Hyperspectral image map
 -----------------------
 
 .. code-block:: python

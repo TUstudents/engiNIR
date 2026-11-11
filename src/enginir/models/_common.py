@@ -95,7 +95,7 @@ def scaling_statistics(values: np.ndarray, scaling: str) -> tuple[np.ndarray, np
     std = matrix.std(axis=0, ddof=1, dtype=np.float64)
     constant = std < _EPS
     if np.any(constant):
-        logger.warning("{} constant column(s) are only centred, not scaled ({})",
+        logger.warning("{} constant column(s) are only centered, not scaled ({})",
                        int(constant.sum()), scaling)
         std = np.where(constant, 1.0, std)
     return mean, (std if scaling == "uv" else np.sqrt(std))

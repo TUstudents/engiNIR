@@ -175,14 +175,14 @@ def _render_pred_vs_ref(fig: Figure, payload: Any, colors: Mapping[str, str]
     value_unit = f" {unit}" if unit not in ("", "1") else ""  # "1": dimensionless
     statistics = payload.get("fit_statistics") or {}
     extra = "".join(f"\n{label} = {statistics[key]:.4g}{suffix}" for key, label, suffix in
-                    (("rmsee", "RMSEE", value_unit), ("r2_adj", "$R^2_{adj}$", ""))
+                    (("rmsee", "RMSEE (per ROI)", value_unit), ("r2_adj", "$R^2_{adj}$", ""))
                     if key in statistics)
     ax.text(0.03, 0.97,
             f"per ROI\n$Q^2$ (CV $R^2$) = {r2_score(y_true, y_pred):.4f}"
-            f"\nRMSECV = {rmsecv(y_true, y_pred):.4g}"
+            f"\nRMSECV (per ROI) = {rmsecv(y_true, y_pred):.4g}"
             f"{value_unit}\nBias = {bias(y_true, y_pred):.4g}{value_unit}{extra}",
             transform=ax.transAxes, ha="left", va="top", fontsize=8, color=colors["fg"])
-    _label(ax, f"Reference{_suffix(unit)}", f"Predicted (CV){_suffix(unit)}", colors)
+    _label(ax, f"Target value{_suffix(unit)}", f"Predicted (CV){_suffix(unit)}", colors)
     ids = _roi_ids(payload, y_true.size)
     return None if ids is None else [RoiPoints(ax, y_true, y_pred, ids)]
 
@@ -214,7 +214,7 @@ def _render_residuals(fig: Figure, payload: Any, colors: Mapping[str, str]
     ax.scatter(y_true, residuals, s=30, alpha=0.75, edgecolors="none", color=colors["accent"])
     ax.axhline(0.0, color=GUIDE_COLOR, linewidth=0.8, linestyle="--")
     unit = _unit(payload)
-    _label(ax, f"Reference{_suffix(unit)}", f"Residual{_suffix(unit)}", colors)
+    _label(ax, f"Target value{_suffix(unit)}", f"Residual{_suffix(unit)}", colors)
     ids = _roi_ids(payload, y_true.size)
     return None if ids is None else [RoiPoints(ax, y_true, residuals, ids)]
 
@@ -252,7 +252,7 @@ def _render_target_distribution(fig: Figure, payload: Any, colors: Mapping[str, 
         counts, edges = _target_histogram(pairs[0])
         ax.stairs(counts, edges, fill=True, color=colors["accent"], alpha=0.85)
     ax.yaxis.get_major_locator().set_params(integer=True)
-    _label(ax, f"Reference{_suffix(_unit(payload))}", "ROI count", colors)
+    _label(ax, f"Target value{_suffix(_unit(payload))}", "ROI count", colors)
     return None
 
 
@@ -328,7 +328,7 @@ def _render_scores(fig: Figure, payload: Any, colors: Mapping[str, str]
                     linestyle=style, label=f"T² {level:.0%} ROIs".replace("%", " %"))
     if ax.get_legend_handles_labels()[0]:
         _legend(ax, colors, loc="upper right", ncols=2, handlelength=2.2)
-    _label(ax, "LV1 training score", "LV2 training score", colors)
+    _label(ax, "LV1 calibration score", "LV2 calibration score", colors)
     ids = _roi_ids(payload, pairs[0].size)
     return None if ids is None else [RoiPoints(ax, scores[:, 0], scores[:, 1], ids)]
 
@@ -342,7 +342,7 @@ def _table_scores(payload: Any) -> PlotTable:
                               PlotColumn("lv1_training_score", scores[:, 0]),
                               PlotColumn("lv2_training_score", scores[:, 1]),
                               PlotColumn("reference", pairs[0], _unit(payload))),
-                     metadata={"scores": "ROI mean of the training pixel scores"})
+                     metadata={"scores": "ROI mean of the calibration pixel scores"})
 
 
 # ----------------------------------------------------------------------
@@ -380,7 +380,7 @@ def _curve(payload: Mapping[str, Any]) -> dict[str, np.ndarray] | None:
             for key, value in curve.items()}
 
 
-_RULE_LABELS = (("suggested_one_se", "one SE"), ("suggested_min_rmsecv", "lowest RMSECV"),
+_RULE_LABELS = (("suggested_one_se", "one SE"), ("suggested_min_rmsecv", "lowest RMSECV (per ROI)"),
                 ("suggested_q2_limit", "Q² limit"), ("suggested_f_test", "F-test"),
                 ("suggested_q2_lookahead", "Q² look-ahead"))
 _RULE_KEYS = {"one_se": "suggested_one_se", "min_rmsecv": "suggested_min_rmsecv",
@@ -409,7 +409,7 @@ def _rule_reasons(curve: Mapping[str, Any], n_groups: int) -> list[str]:
         chosen = int(curve[key])
         reason = ""
         if key == "suggested_one_se" and se is not None:
-            reason = f"RMSECV ≤ {rmsecv[best] + se[best]:.3g}"
+            reason = f"RMSECV (per ROI) ≤ {rmsecv[best] + se[best]:.3g}"
         elif key == "suggested_min_rmsecv":
             reason = f"{rmsecv[best]:.3g}"
         elif key == "suggested_q2_limit" and q2 is not None:
@@ -437,10 +437,10 @@ def _render_components(fig: Figure, payload: Any, colors: Mapping[str, str]) -> 
         return
     a = np.arange(1, curve["rmsecv"].size + 1)
     ax.errorbar(a, curve["rmsecv"], yerr=curve.get("rmsecv_se"), color=colors["accent"],
-                marker="o", markersize=4, linewidth=1.2, capsize=3, label="RMSECV (± SE)")
+                marker="o", markersize=4, linewidth=1.2, capsize=3, label="RMSECV (per ROI) ± SE")
     if "rmsee_roi" in curve:
         ax.plot(a, curve["rmsee_roi"], color=GUIDE_COLOR, marker=".", linewidth=1.0,
-                linestyle="--", label="RMSEE (fit)")
+                linestyle="--", label="RMSEE (per ROI), fit")
     chosen = payload.get("n_components")
     if isinstance(chosen, (int, np.integer)) and 1 <= int(chosen) <= a.size:
         ax.axvline(int(chosen), color=colors["fg"], linewidth=1.0, alpha=0.6)
@@ -460,7 +460,7 @@ def _render_components(fig: Figure, payload: Any, colors: Mapping[str, str]) -> 
     _label(ax, "Number of components", f"Error per ROI{_suffix(_unit(payload))}", colors)
 
 
-_RULE_LABEL_OF = {"one_se": "one SE", "min_rmsecv": "lowest RMSECV", "q2_limit": "Q² limit",
+_RULE_LABEL_OF = {"one_se": "one SE", "min_rmsecv": "lowest RMSECV (per ROI)", "q2_limit": "Q² limit",
                   "f_test": "F-test", "q2_lookahead": "Q² look-ahead"}
 
 
@@ -564,7 +564,7 @@ def _render_per_component(fig: Figure, payload: Any, colors: Mapping[str, str]) 
     else:
         _legend(ax, colors, loc="upper right")
     ax.set_xticks(a)
-    _label(ax, "Component (grey: noise)", "Q²ₐ and ΔR²X", colors)
+    _label(ax, "Component (gray: noise)", "Q²ₐ and ΔR²X", colors)
 
 
 def _table_per_component(payload: Any) -> PlotTable:
@@ -787,7 +787,7 @@ def _distance_spec(key: str, limit_key: str, plot_id: str, title: str, xlabel: s
         ax = _axes(fig, colors)
         values = payload.get(f"{key}_pixels")
         if values is None:
-            draw_placeholder(ax, "No training distances (refit a model from before 1.3).",
+            draw_placeholder(ax, "No calibration distances (refit a model from before 1.3).",
                              colors)
             return
         counts, edges, overflow, largest = _histogram(values)
@@ -807,7 +807,7 @@ def _distance_spec(key: str, limit_key: str, plot_id: str, title: str, xlabel: s
         if lines:
             ax.text(0.97, 0.97, "\n".join(lines), transform=ax.transAxes, ha="right",
                     va="top", fontsize=8, color=colors["fg"])
-        _label(ax, xlabel, "Training pixels", colors)
+        _label(ax, xlabel, "Calibration pixels", colors)
 
     def table(payload: Any) -> PlotTable:
         values = payload.get(f"{key}_pixels")
@@ -888,7 +888,7 @@ def _render_roi_distance(fig: Figure, payload: Any, colors: Mapping[str, str]
     ax.set_xticklabels(_roi_labels(payload, ids), rotation=60, ha="right", fontsize=7)
     ax.set_xlim(0.3, dmodx.size + 0.7)
     _legend(ax, colors, loc="upper right")
-    _label(ax, "ROI, from the largest DModX share (bar colour: reference value)",
+    _label(ax, "ROI, from the largest DModX share (bar color: target value)",
            "Pixels above the 0.99 limit (%)", colors)
     return [RoiPoints(ax, x, dmodx * 100.0, ids)]
 
@@ -904,9 +904,9 @@ def _table_roi_distance(payload: Any) -> PlotTable:
     if t2 is not None:
         columns.append(PlotColumn("t2_share_above_percent", t2 * 100.0))
     return PlotTable(columns=tuple(columns),
-                     metadata={"limits": "0.99 limits of the training pixels",
+                     metadata={"limits": "0.99 limits of the calibration pixels",
                                "expected_percent": "1",
-                               "bar_colour": "reference value of the ROI"})
+                               "bar_colour": "target value of the ROI"})
 
 
 # ----------------------------------------------------------------------
@@ -914,39 +914,39 @@ def _table_roi_distance(payload: Any) -> PlotTable:
 # ----------------------------------------------------------------------
 
 _SPECS = (
-    PlotSpec("model.pred_vs_ref", "Predicted vs Reference, per ROI", _render_pred_vs_ref,
+    PlotSpec("model.pred_vs_ref", "Predicted vs target value, per ROI", _render_pred_vs_ref,
              _table_pred_vs_ref, empty_text=_EMPTY),
     PlotSpec("model.residuals", "Residuals, per ROI", _render_residuals, _table_residuals,
              empty_text=_EMPTY),
-    PlotSpec("model.target_distribution", "Target Distribution, per ROI",
+    PlotSpec("model.target_distribution", "Target value distribution, per ROI",
              _render_target_distribution,
              _table_target_distribution, empty_text=_EMPTY),
-    PlotSpec("model.scores", "Training Scores (LV1 vs LV2), per ROI", _render_scores,
+    PlotSpec("model.scores", "Calibration scores (LV1 vs LV2), per ROI", _render_scores,
              _table_scores,
              empty_text=_EMPTY),
-    _spectral_spec("coefficients", "model.coefficients", "Regression Coefficients",
+    _spectral_spec("coefficients", "model.coefficients", "Regression coefficients",
                    "Coefficient", "No regression coefficients yet."),
-    PlotSpec("model.loadings", "Latent Loadings (LV1-LV3)", _render_loadings, _table_loadings,
+    PlotSpec("model.loadings", "Latent loadings (LV1-LV3)", _render_loadings, _table_loadings,
              empty_text=_EMPTY),
-    _spectral_spec("coef_cs", "model.coef_cs", "Scaled Coefficients (CoeffCS)", "CoeffCS",
+    _spectral_spec("coef_cs", "model.coef_cs", "Scaled coefficients (CoeffCS)", "CoeffCS",
                    "No scaled coefficients (refit a model from before 1.3)."),
     PlotSpec("model.vip", "VIP", _render_vip, _table_vip, empty_text=_EMPTY),
     PlotSpec("model.vip_sorted", "VIP, sorted", _render_vip_sorted, _table_vip_sorted,
              empty_text=_EMPTY),
-    PlotSpec("model.selectivity_ratio", "Selectivity Ratio", _render_selectivity,
+    PlotSpec("model.selectivity_ratio", "Selectivity ratio", _render_selectivity,
              _table_selectivity, empty_text=_EMPTY),
-    PlotSpec("model.components", "RMSECV and RMSEE vs Components, per ROI", _render_components,
+    PlotSpec("model.components", "RMSECV (per ROI) and RMSEE (per ROI) vs components", _render_components,
              _table_components, empty_text=_EMPTY),
-    PlotSpec("model.r2_q2", "R²Y and Q² vs Components, per ROI", _render_r2_q2, _table_r2_q2,
+    PlotSpec("model.r2_q2", "R²Y and Q² vs components, per ROI", _render_r2_q2, _table_r2_q2,
              empty_text=_EMPTY),
-    PlotSpec("model.per_component", "Each Component: Q²ₐ, ΔR²X, Roughness",
+    PlotSpec("model.per_component", "Each component: Q²ₐ, ΔR²X, roughness",
              _render_per_component, _table_per_component, empty_text=_EMPTY),
-    PlotSpec("model.r2_pixels", "R²X and R²Y vs Components, per pixel", _render_r2_pixels,
+    PlotSpec("model.r2_pixels", "R²X and R²Y vs components, per pixel", _render_r2_pixels,
              _table_r2_pixels, empty_text=_EMPTY),
-    _distance_spec("dmodx", "dcrit_099", "model.dmodx", "Distance to Model (DModX), per pixel",
-                   "Normalised DModX"),
-    _distance_spec("t2", "t2_crit_099", "model.t2", "Hotelling T², per pixel", "T²"),
-    PlotSpec("model.roi_distance", "Pixels Above the Limits, per ROI", _render_roi_distance,
+    _distance_spec("dmodx", "dcrit_099", "model.dmodx", "Distance to the model (DModX), per pixel",
+                   "Normalized DModX"),
+    _distance_spec("t2", "t2_crit_099", "model.t2", "Hotelling's T², per pixel", "T²"),
+    PlotSpec("model.roi_distance", "Pixels above the limits, per ROI", _render_roi_distance,
              _table_roi_distance, empty_text=_EMPTY),
 )
 

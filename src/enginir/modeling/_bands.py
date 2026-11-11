@@ -375,8 +375,8 @@ def propose_bands(
         all_bands_rmsecv=float(all_rmsecv),
         n_components=steps[-1].n_components,
     )
-    logger.info("Band proposal for sample set '{}': ranges {}, RMSECV {:.4g} after {} step(s), "
-                "nested RMSECV {:.4g}, all bands {:.4g}", sample_set.sample_set_id,
+    logger.info("Band proposal for calibration set '{}': ranges {}, RMSECV (per ROI) {:.4g} after {} step(s), "
+                "nested RMSECV (per ROI) {:.4g}, all bands {:.4g}", sample_set.sample_set_id,
                 list(proposal.ranges), steps[-1].rmsecv, len(steps) - 1,
                 proposal.nested_rmsecv, proposal.all_bands_rmsecv)
     return proposal

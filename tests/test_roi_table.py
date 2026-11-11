@@ -66,11 +66,11 @@ def test_rows_columns_and_natural_order(table):
     model = table.model
     headers = [model.headerData(c, __import__("PyQt6.QtCore").QtCore.Qt.Orientation.Horizontal)
                for c in range(model.columnCount())]
-    assert headers == ["Data file", "ROI", "Pixels", "Predict", "Sample", "API (%)", "fat (%)"]
-    assert _cells(table) == [["tray_a.h5", "A1", "4", "", "", "2", ""],
-                             ["tray_a.h5", "A2", "4", "", "", "", ""],
-                             ["tray_a.h5", "A10", "4", "", "", "", ""],
-                             ["tray_b.h5", "B1", "4", "", "", "", ""]]
+    assert headers == ["Dataset", "ROI", "Pixels", "Set", "Sample", "API (%)", "fat (%)"]
+    assert _cells(table) == [["tray_a.h5", "A1", "4", "Calibration", "", "2", ""],
+                             ["tray_a.h5", "A2", "4", "Calibration", "", "", ""],
+                             ["tray_a.h5", "A10", "4", "Calibration", "", "", ""],
+                             ["tray_b.h5", "B1", "4", "Calibration", "", "", ""]]
 
 
 def test_typing_stores_values_and_clearing_removes_them(table, project):
@@ -233,21 +233,33 @@ def test_sample_labels_are_typed_pasted_and_removed(table, project):
     assert _stored(path, "A1", "API") == 2.0, "labels never touch target values"
 
 
-def test_the_predict_checkbox_switches_an_rois_use(qapp, project):
+def test_the_set_column_switches_an_roi_between_calibration_and_prediction(qapp, project):
     from PyQt6.QtCore import Qt
 
-    from enginir.viewer._roi_table import RoiTableModel
+    from enginir.viewer._roi_table import RoiTableModel, _SetDelegate
     from enginir.viewer._state import ProjectState
 
     project, _paths = project
     state = ProjectState()
     state.open_project(str(project.path))
     model = RoiTableModel(state)
+    assert model.headerData(3, Qt.Orientation.Horizontal) == "Set"
     index = model.index(0, 3)
-    assert model.flags(index) & Qt.ItemFlag.ItemIsUserCheckable
-    assert model.data(index, Qt.ItemDataRole.CheckStateRole) == Qt.CheckState.Unchecked
-    assert model.setData(index, Qt.CheckState.Checked.value, Qt.ItemDataRole.CheckStateRole)
+    assert model.flags(index) & Qt.ItemFlag.ItemIsEditable
+    assert model.data(index) == "Calibration"
+    # The drop-down editor of the Set column (terminology contract, Calibration and Prediction).
+    delegate = _SetDelegate()
+    editor = delegate.createEditor(None, None, index)
+    assert [editor.itemText(i) for i in range(editor.count())] == ["Calibration", "Prediction"]
+    delegate.setEditorData(editor, index)
+    assert editor.currentText() == "Calibration"
+    editor.setCurrentIndex(1)
+    delegate.setModelData(editor, model, index)
     roi_id = model.roi_id(0)
     assert state.rois[roi_id].use == "prediction"
     assert Project.open(project.path).workspace.rois[roi_id].use == "prediction", "stored"
-    assert model.data(model.index(0, 3), Qt.ItemDataRole.CheckStateRole) == Qt.CheckState.Checked
+    assert model.data(model.index(0, 3)) == "Prediction"
+    failed: list[str] = []
+    model.edit_failed.connect(failed.append)
+    assert not model.setData(model.index(0, 3), "Test", Qt.ItemDataRole.EditRole)
+    assert failed and state.rois[roi_id].use == "prediction", "an unknown set is refused"

@@ -1,6 +1,6 @@
 """Plot layout state kept in the user settings, not in the project file.
 
-Stores the maximized plot of each workspace (Plot Panel Policy,
+Stores the maximized plot of each workspace (Plot panel policy,
 ``viewer-workspace-ui-contract_v3.md``) in ``plot_layout.json`` next to the
 recent-files list. Floating docks and the active page are not stored: a dock
 maximize is transient, and a new model run always opens the `Fit` page.

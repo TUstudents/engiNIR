@@ -77,7 +77,7 @@ def chunk_diagnostics(X: np.ndarray, projection: Projection) -> tuple[np.ndarray
     dof = max(n_bands - a, 1)
     s0 = projection.s0
     if s0 is not None and s0 < _EPS:
-        logger.warning("Training residual SD s0 = {} is below {}; DModXPS is not computed", s0, _EPS)
+        logger.warning("Calibration residual SD s0 = {} is below {}; DModXPS is not computed", s0, _EPS)
         s0 = None
     for start in range(0, n_rows, _BLOCK_ROWS):
         z = (np.asarray(X[start:start + _BLOCK_ROWS], dtype=np.float64)
@@ -178,8 +178,8 @@ def file_records(path: str, *, checksum: bool = False) -> list[dict[str, Any]]:
 
 
 def log_prediction(provenance: dict[str, Any], summary: dict[str, Any] | None) -> None:
-    """The one log entry of a prediction (prediction-runtime contract, Result Handling)."""
-    logger.info("Prediction with model run '{}' ({}) of {}: {}", provenance.get("model_run_id"),
+    """The one log entry of a prediction (prediction-runtime contract, Result handling)."""
+    logger.info("Prediction with model '{}' ({}) of {}: {}", provenance.get("model_run_id"),
                 provenance.get("model_name"), provenance.get("files"),
                 summary if summary is not None else "no applicability diagnostics")
 

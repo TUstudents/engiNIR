@@ -38,7 +38,7 @@ Number of components
 
 .. autofunction:: enginir.validation.structure_ceiling
 
-Outlier Detection
+Outlier detection
 -----------------
 
 .. autofunction:: enginir.validation.outliers.leverage_outliers

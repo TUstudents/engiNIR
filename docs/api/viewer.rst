@@ -218,8 +218,8 @@ HSIViewer
              add_data_file, show_data_file, wait_for_data_file, apply_shown_calibration,
              locate_data_file, show_roi_table, show_project_rois, open_roi
 
-Data files
-----------
+Datasets
+--------
 
 .. automodule:: enginir.viewer._data_files
    :no-members:

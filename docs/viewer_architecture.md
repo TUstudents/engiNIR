@@ -1,4 +1,4 @@
-# Viewer Architecture
+# Viewer architecture
 
 Developer reference for the `src/enginir/viewer/` module.
 
@@ -10,7 +10,7 @@ Developer reference for the `src/enginir/viewer/` module.
 |------|----------------|
 | `__init__.py` | Public API: `open_viewer()`, `open_project()` |
 | `__main__.py` | CLI entry point `enginir-viewer` |
-| `_app.py` | QApplication singleton, platform choice (Wayland on WSLg, X11 on other mixed sessions), application icon, the application-wide event filter (dialog centring; on WSLg Wayland, combo popups release their native window after hiding, because WSLg keeps an unmapped popup on screen, microsoft/wslg#1522) |
+| `_app.py` | QApplication singleton, platform choice (Wayland on WSLg, X11 on other mixed sessions), application icon, the application-wide event filter (dialog centering; on WSLg Wayland, combo popups release their native window after hiding, because WSLg keeps an unmapped popup on screen, microsoft/wslg#1522) |
 | `_theme.py` | Shared Qt stylesheet (Fusion + light palette) |
 | `_state.py` | `ViewerState` (UI) + `ProjectState` (Qt adapter over `enginir.Project`) |
 | `_canvas.py` | `FalseColourCanvas` (pyqtgraph image surface, crosshair, ROI draw/selection) |
@@ -20,27 +20,27 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_recent.py` | MRU file list (`~/.config/enginir/recent.json`) |
 | `_eda.py` | `EDAView` — signal, preprocessing, project, and ROI controls |
 | `_attachment.py` | Project/dataset binding validation |
-| `_modeling.py` | `ModelingView` — target, target values (ROI table), the fit dialog (components or Auto with a rule; Fitting group: pixel sample, scaling, DModX exclusion → `FitSpec` and hyperparameters) and Fit again (dialog preset from a stored run; the preset recipe's AsLS fields and `sg_edges` are kept, as the dialog has no controls for them); `_component_payload` adds curve, loadings, CoeffCS, VIP (computed from the stored weights for runs before 1.4), selectivity ratio, mean spectrum and training distances to the diagnostics payload; the fit dialog's Bands row (keep/exclude text, water-band menu, Select on plot, Propose) feeds the recipe and, after OK, the Explore preview (`ViewerState.bands_keep/bands_exclude`); `_roi_score_payload` passes the ROI scores the fit stored (`diagnostics/roi_scores`) and never rebuilds them from pixel counts |
+| `_modeling.py` | `ModelingView` — target, target values (ROI table), the fit dialog (components or Auto with a rule; Fitting group: pixel sample, scaling, DModX exclusion → `FitSpec` and hyperparameters) and Fit again (dialog preset from a stored run; the preset recipe's AsLS fields and `sg_edges` are kept, as the dialog has no controls for them); `_component_payload` adds curve, loadings, CoeffCS, VIP (computed from the stored weights for runs before 1.4), selectivity ratio, mean spectrum and calibration distances to the diagnostics payload; the fit dialog's Bands row (keep/exclude text, water-band menu, Select on plot, Propose) feeds the recipe and, after OK, the Explore preview (`ViewerState.bands_keep/bands_exclude`); `_roi_score_payload` passes the ROI scores the fit stored (`diagnostics/roi_scores`) and never rebuilds them from pixel counts |
 | `_model_diagnostics.py` | Model workspace diagnostics surface (Spectral page: coefficients, CoeffCS, loadings, VIP, VIP sorted, selectivity ratio; lines over wavelength break at band-selection gaps) |
 | `_band_ranges.py` | `BandRangeDialog` (drag keep/exclude ranges on the mean spectrum of the target's ROIs, loaded in a job, with the selected model's VIP or coefficients as a guide) and `ProposeBandsDialog` (runs `Project.propose_bands` in a job, progress through a polled counter, cancel flag) |
-| `_prediction.py` | `PredictionView` (Predict ROIs and Predict map jobs, the ROI predictions of the session and their statistics for the current DModX exclusion, recalculated without predicting again) and `PredictionMapWidget` (colour scale from the training range or user limits, ROI outlines, removed pixels greyed, the Uncertainty layer of the 95 % pixel prediction intervals) |
+| `_prediction.py` | `PredictionView` (Predict ROIs and Predict map jobs, the ROI predictions of the session and their statistics for the current DModX exclusion, recalculated without predicting again) and `PredictionMapWidget` (color scale from the calibration range or user limits, ROI outlines, excluded pixels grayed, the Prediction interval layer of the 95 % pixel prediction intervals) |
 | `_predict_dialogs.py` | `PredictRoisDialog`, `PredictMapDialog` (models by name, the chain read-only, refusal with the reason), the `predict.roi_results` plot spec |
 | `_browser.py` | Read-only workspace object tree |
-| `_inspector.py` | Selection-driven metadata display; `fit_summary` describes how a model run was fitted (reads the stored exclusion arrays on demand) |
+| `_inspector.py` | Selection-driven metadata display; `fit_summary` describes how a model was fitted (reads the stored exclusion arrays on demand) |
 | `_jobs.py` | `BackgroundWorker`, `_CallbackRelay`, `start_background_job`, `BusyStatusWidget` |
 | `_loading.py` | Shared wait-cursor/status/progress helpers for startup and open flows |
 | `_data_helpers.py` | Dataset-shape and spectral array helpers shared by viewer workflows |
-| `_project_rois.py` | `ProjectRoisView` (Explore's Project ROIs tab), `RoiMosaic` (stored ROI pixels as tiles, a `PlotSource`; `mosaic_layout` places them in a compact grid from `grid_cells` or at their scan positions, with room for text drawn in mosaic units; outlines in the value colour; stretch shared or per data file), specs `explore.roi_means`/`explore.roi_pixels` fed by `enginir.modeling.roi_spectrum_summaries`. Tiles arrive in background batches of 40 and are drawn incrementally with the stretch of the first batch, then re-stretched once together; target and value changes update the labels in place (coalesced), without a new layout |
-| `_roi_table.py` | `RoiTableModel`/`RoiTableWidget`: sample labels and target values of all ROIs (a Sample column, one column per target), Enter-to-next-row editing, column paste, data file and missing-value filters; labels are written through `ProjectState.set_roi_samples` → `Project.save_roi_sample` |
+| `_project_rois.py` | `ProjectRoisView` (Explore's Project ROIs tab), `RoiMosaic` (stored ROI pixels as tiles, a `PlotSource`; `mosaic_layout` places them in a compact grid from `grid_cells` or at their scan positions, with room for text drawn in mosaic units; outlines in the value color; stretch shared or per dataset), specs `explore.roi_means`/`explore.roi_pixels` fed by `enginir.modeling.roi_spectrum_summaries`. Tiles arrive in background batches of 40 and are drawn incrementally with the stretch of the first batch, then re-stretched once together; target and value changes update the labels in place (coalesced), without a new layout |
+| `_roi_table.py` | `RoiTableModel`/`RoiTableWidget`: sample labels and target values of all ROIs (a Sample column, one column per target), Enter-to-next-row editing, column paste, dataset and missing-value filters; labels are written through `ProjectState.set_roi_samples` → `Project.save_roi_sample` |
 | `_roi_grid.py` | `RoiGridDialog`: a grid of equal ROIs by number, size, origin and spacing (`roi_grid`), empty-position buttons, a live preview on the canvas (outside cells red); `GridDefaultsDialog` (Options > ROI Grid Defaults) and the shared `GridGeometryForm` |
 | `_grid_settings.py` | `GridDefaults` every new grid starts with, in the user settings (`roi_grid.json`) |
-| `_data_files.py` | `AddDataFileDialog` and `DataFileRequest`: the calibration of a data file added to a project (reference files, frame ranges, shared references, levels, raw) |
+| `_data_files.py` | `AddDataFileDialog` and `DataFileRequest`: the reference correction of a dataset added to a project (reference files, frame ranges, shared references, levels, raw) |
 | `_ui_helpers.py` | Shared plot styling and figure-layout helpers |
 | `_plot_panel.py` | `PlotSpec`, `PlotTable`, `PlotPanel`: one plot with a header (title, maximize, PNG/SVG/CSV export) |
 | `_plot_grid.py` | `PlotGrid`, `PlotPage`, `PlotSlot`: paged plot grids with lazy pages and in-place maximize |
 | `_plot_registry.py` | Registry of all plots and of the plot pages of each workspace |
 | `_layout_settings.py` | Maximized plot per workspace in the user settings (`plot_layout.json`) |
-| `_project_settings.py` | Last shown data file per `project_id` in the user settings (`project_ui.json`) |
+| `_project_settings.py` | Last shown dataset per `project_id` in the user settings (`project_ui.json`) |
 
 ---
 
@@ -80,7 +80,7 @@ Owns the loaded hyperspectral cube and all interactive settings:
 - Current position: `frame`, `row`, `band` (with setters that emit signals)
 - Signal unit: `y_unit` ("DN" / "Reflectance" / "Absorbance")
 - Preprocessing: `preprocess_filter`, `sg_window`, `sg_polyorder`, `preprocess_snv/msc/emsc/detrend`
-- Dark/white references, calibration levels
+- Dark/white references, reference correction levels
 - Image cache: `_image_cache` (invalidated by any setter that affects the image)
 
 **Signals:** `frame_changed(int)`, `row_changed(int)`, `band_changed(int)`, `units_changed()`
@@ -98,7 +98,7 @@ Wraps the `enginir.Project` of the open file: every write goes through
 `Project.save_*`, which validates and stores the object; `ProjectState`
 mirrors the project's collections for the widgets and emits a Qt signal per
 change. It holds no workflow rule: Explore and Predict build datasets,
-calibrations and ROIs with the shared functions of `enginir._workflow`
+reference corrections and ROIs with the shared functions of `enginir._workflow`
 (`resolve_dataset`, `make_calibration`, `resolve_calibration`,
 `resolve_prediction_calibration`, `make_roi`).
 
@@ -132,8 +132,7 @@ and every write carry ids. It reaches the library's `Project` only through
 `reload`); the name-based functions and name-keyed views (`Project.roi`,
 `.target`, `.model`, `set_value`, `fit`, `project.rois`, …) are for scripts,
 and `tests/test_headless_api.py::test_the_viewer_never_addresses_objects_by_name`
-fails if the viewer calls them. Names are display text and may repeat; data
-files are shown by `ProjectState.data_file_label(dataset_id)`.
+fails if the viewer calls them. Names are display text and may repeat; datasets are shown by `ProjectState.data_file_label(dataset_id)`.
 
 ## Signal wiring
 
@@ -200,7 +199,7 @@ Both Modeling and Prediction expose `BusyStatusWidget` state in two places:
 Sample-set build and model fit currently use indeterminate progress. Prediction
 uses structured service events and switches to determinate chunk progress when
 the total is known; the visible phase distinguishes preflight, loading,
-calibration, preprocessing, inference, writing, finalization, and rendering.
+reference correction, preprocessing, inference, writing, finalization, and rendering.
 
 Startup and file-open feedback uses `_loading.py`:
 
@@ -292,13 +291,13 @@ frame, signal unit, or preprocessing parameters.
 
 ### Process exit
 
-- At interpreter exit PyQt deletes the remaining top-level Qt objects while walking sip's wrapper table. Python code that runs during those deletions can reallocate the table and crash the process (a sip bug, unfixed in PyQt6-sip 13.13). `_app._remove_dialog_centering` therefore removes the application-wide event filter (dialog centring and the WSLg combo-popup release) in an `atexit` hook that runs before PyQt's cleanup. Do not add another Python event filter on the `QApplication` without removing it the same way; `tests/test_viewer_exit.py` checks that a closed project viewer exits cleanly.
+- At interpreter exit PyQt deletes the remaining top-level Qt objects while walking sip's wrapper table. Python code that runs during those deletions can reallocate the table and crash the process (a sip bug, unfixed in PyQt6-sip 13.13). `_app._remove_dialog_centering` therefore removes the application-wide event filter (dialog centering and the WSLg combo-popup release) in an `atexit` hook that runs before PyQt's cleanup. Do not add another Python event filter on the `QApplication` without removing it the same way; `tests/test_viewer_exit.py` checks that a closed project viewer exits cleanly.
 
 ---
 
 ## Plot panels
 
-Workspace plots follow the Plot Panel Policy of
+Workspace plots follow the Plot panel policy of
 `contracts/viewer-workspace-ui-contract_v3.md`. The Model diagnostics are the
 first workspace built this way:
 
@@ -325,7 +324,7 @@ implement `PlotSource` (`plot_table()`, `print_figure()`) and are shown in a
   Uncertainty is `PredictionResult.half_width(INTERVAL_LEVEL)` (computed in
   `_map_previews`, with `interval_summary` for the median and the pixels
   without an interval), on its own scale, with the pixels outside the model
-  in the marking colour; it is disabled for a model without interval inputs.
+  in the marking color; it is disabled for a model without interval inputs.
   It emits `displayed_map_changed` (values, quantity, limit) and
   `hovered(text)` (`describe_pixel`: true frame and row, prediction with its
   ± half-width, DModX against DCrit and the removal limit, T², ROI), which the window shows in its status line;
@@ -341,14 +340,14 @@ implement `PlotSource` (`plot_table()`, `print_figure()`) and are shown in a
 - The dock frames give their header to the dock as its title bar.
   `HSIViewer` handles maximize for the Explore page and for the docks.
 - The data-file docks (Histogram, RAW, Sensor Frame, Spatial Profile) are
-  shown only on Explore's Data file tab. `_sync_data_file_docks()` runs on
+  shown only on Explore's Dataset tab. `_sync_data_file_docks()` runs on
   every workspace and Explore tab change; the user's choice per dock lives in
   `_explore_plot_visibility` and is recorded from `isHidden()` (a dock behind
   another dock's tab is not visible but still shown). The ROI table follows
   the Explore tab the same way (`_sync_roi_table()`, choice per tab in
-  `_roi_table_visibility`: shown on Project ROIs, hidden on Data file);
+  `_roi_table_visibility`: shown on Project ROIs, hidden on Dataset);
   Model and Predict leave it as it is. `_place_roi_table()` tabs a docked
-  table with the Sensor Frame on the Data file tab. The table's data file
+  table with the Sensor Frame on the Dataset tab. The table's dataset
   filter follows the page (`_roi_table_data_file()`).
 
 `ModelDiagnosticsWidget` wraps the grid of the `"Model"` workspace, with the

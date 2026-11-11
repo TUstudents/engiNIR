@@ -115,8 +115,8 @@ def hydrate_project_store(
         for calibration_id, calibration_payload in stored_calibrations.items():
             if calibration_id in calibrations:
                 log_and_raise(
-                    "Calibration id '{}' of dataset '{}' is already used by dataset '{}'; "
-                    "calibration ids must be unique in a project",
+                    "Reference correction id '{}' of dataset '{}' is already used by dataset '{}'; "
+                    "reference correction ids must be unique in a project",
                     calibration_id, dataset_id, calibrations[calibration_id].dataset_id,
                 )
             calibrations[calibration_id] = _build(
@@ -171,7 +171,7 @@ def hydrate_project_store(
         predictions=predictions,
         allow_stale_sample_set_rois=allow_stale_sample_set_rois,
     )
-    logger.info("Hydrated project: {} datasets, {} ROIs, {} model runs, {} predictions",
+    logger.info("Hydrated project: {} datasets, {} ROIs, {} models, {} predictions",
                 len(datasets), len(rois), len(model_runs), len(predictions))
     return ProjectWorkspace(
         project_meta=project_meta,

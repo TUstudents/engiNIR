@@ -1,4 +1,4 @@
-# HSI Viewer Reference
+# HSI viewer reference
 
 ## 1. Overview
 
@@ -61,7 +61,7 @@ values:
 - histogram bins
 - the RAW band and the sensor frame as matrices
 - the profile and the spectrum as columns
-- the false-colour image as one row per pixel
+- the false-color image as one row per pixel
 
 ### Panel layout
 
@@ -160,14 +160,14 @@ with matplotlib. Displays a raw cross-section of the cube at the selected band:
 `cube[:, :, band].T` — spatial rows on the Y-axis, scan frames on the
 X-axis.  Yellow crosshairs mark the active `(frame, row)`.
 
-Note: RAW always shows raw DN (no preprocessing) to provide a stable
+Note: RAW always shows Raw counts (DN) (no preprocessing) to provide a stable
 spatial navigation reference.
 
 - Updates on: `frame_changed` and `row_changed` (crosshair only),
   `band_changed` (new band image)
 - **Click** → emits `frame_pick(int)`, `row_pick(int)`
 
-### Sensor Frame panel (internal class `SensorPanel`, right dock, top)
+### Sensor frame panel (internal class `SensorPanel`, right dock, top)
 
 Displays the processed current frame: `current_frame_image()` — height ×
 n_bands.  Yellow crosshairs mark the active `(row, band)`; drawn with pyqtgraph.
@@ -214,15 +214,15 @@ All panels share a single `(frame, row, band)` cursor stored in
 
 The controls area is a tabbed workspace shell:
 
-- `Explore` for dataset inspection, calibration context, and ROI persistence
+- `Explore` for dataset inspection, reference correction context, and ROI persistence
 - `Model` for target editing, sample-set build, and model fitting
 - `Predict` for saved-model prediction runs
 
 The shell also keeps two persistent navigation panes:
 
 - `Project Browser` on the left for project objects
-- browser sections include datasets, calibrations, ROIs, targets, target
-  assignments, sample sets, signal domains, model runs, and predictions
+- browser sections include datasets, reference corrections, ROIs, targets, target
+  assignments, calibration sets, input contracts, models, and predictions
 - `Inspector` below the browser in the left dock stack for selection-driven details
 
 By default, `Histogram`, `RAW`, and `Log` stay collapsed until opened
@@ -251,7 +251,7 @@ empty states and ROI creation stays disabled until a real dataset is attached.
 The status label below the buttons shows the project filename and ROI count.
 The project group also shows an autosave hint because project-backed changes
 are persisted eagerly as they are made.
-All persisted training ROIs in the open project are drawn as magenta rectangles
+All persisted calibration ROIs in the open project are drawn as magenta rectangles
 on the false-color canvas.
 
 ### ROI group
@@ -260,9 +260,9 @@ on the false-color canvas.
 |---|---|
 | **Add ROI** | Enter one-shot ROI draw mode on `Spatial Image` |
 | **Delete ROI** | Remove the currently selected ROI |
-| **Export CSV** | Export all persisted training ROI spectra to one CSV file |
+| **Export CSV** | Export all persisted calibration ROI spectra to one CSV file |
 
-The ROI creation flow is centred on `Spatial Image`:
+The ROI creation flow is centered on `Spatial Image`:
 
 1. click **Add ROI**
 2. drag a rectangle on `Spatial Image`
@@ -274,16 +274,16 @@ Target values are typed afterwards in the ROI table (`_roi_table.RoiTableWidget`
 or in the ROI dialog for the selected target.
 
 This means ROI labels are display-only and do not need to be unique: the
-viewer refers to ROIs, targets, models and data files by id only
-(`viewer-workspace-ui-contract_v3.md`, Identity in the viewer). Data files are
+viewer refers to ROIs, targets, models and datasets by id only
+(`viewer-workspace-ui-contract_v3.md`, Identity in the viewer). Datasets are
 shown with `enginir._workflow.data_file_labels`: the file name, plus the
 folder that tells repeated file names apart.
 Viewer-generated `target_id`, `sample_set_id`, and `model_run_id` values also
 use canonical UUID strings unless a caller provides explicit ids.
 
-Persisted training ROIs also capture the current dataset and calibration
+Persisted calibration ROIs also capture the current dataset and reference correction
 context so later sample-set build and model-fit steps can construct the saved
-signal-domain contract from project state instead of relying on mutable UI-only
+input contract from project state instead of relying on mutable UI-only
 context.
 
 ### Model workspace
@@ -293,8 +293,8 @@ readiness summary that tells the user the next expected action.
 
 Its primary center content is a diagnostics-first model page showing:
 
-- fit summary cards for active target, selected/default sample set, active
-  model run, components, CV, ROI count, pixel count, `R²`, `RMSECV`, and bias
+- fit summary cards for active target, selected/default calibration set, active
+  model, components, CV, ROI count, pixel count, `R²`, `RMSECV`, and bias
 - the `Fit` page: `Predicted vs Reference` (with `R²`, `RMSECV` and bias),
   `Residuals`, `Target Distribution` and `Training Scores (LV1 vs LV2)`
 - the `Spectral` page: `Regression Coefficients` and `Latent Loadings (LV1)`
@@ -312,12 +312,12 @@ obvious.
 | Control | Action |
 |---|---|
 | **Target...** | Select one existing target or define a new target |
-| **Target values...** | Open the ROI table on the selected target: type, clear or paste the values of all ROIs |
-| **Fit model** | One dialog: target, signal unit, preprocessing (prefilled from the Explore preview), model, components, validation, and the labelled ROIs per data file; stores the grouped v3 `ModelRun` |
+| **Target Values...** | Open the ROI table on the selected target: type, clear or paste the values of all ROIs |
+| **Fit Model** | One dialog: target, signal unit, preprocessing (prefilled from the Explore preview), model, components, validation, and the labeled ROIs per dataset; stores the grouped v3 `ModelRun` |
 
 The Modeling section operates from project state. The fit dialog finds the
-sample set of all ROIs with a value for the target (`resolve_sample_set`,
-the rule `Project.fit` uses): an equal stored sample set, recipe and
+calibration set of all ROIs with a value for the target (`resolve_sample_set`,
+the rule `Project.fit` uses): an equal stored calibration set, recipe and
 `SignalDomainContract` are reused, new ones are stored only together with
 the fitted model. A refused or failed fit writes nothing. Model fitting uses
 ROI-grouped CV with ROI-level primary reporting.
@@ -333,8 +333,8 @@ Its primary center content is a dedicated prediction summary page showing:
 - current prediction result headline
 - readiness state
 - current service state
-- result cards for prediction id, model run, dataset, calibration, and target
-- a compact compatibility summary derived from the saved signal-domain contract
+- result cards for prediction id, model, dataset, reference correction, and target
+- a compact compatibility summary derived from the saved input contract
 - the persisted prediction map, in a plot frame whose header holds the
   output selector, `Pan`, `Zoom` and `Reset View`
 - `Prediction Distribution`, the histogram of the shown map values, which
@@ -349,9 +349,9 @@ CSV use the true frame and row indices.
 
 | Control | Action |
 |---|---|
-| **Predict...** | Load a new dataset and run prediction against one saved model run |
+| **Predict...** | Load a new dataset and run prediction against one saved model |
 
-Prediction reuses the scan's registration and active calibration when it is
+Prediction reuses the scan's registration and active reference correction when it is
 already in the project, is refused before it runs when the scan cannot produce
 the model's signal (saved `SignalDomainContract`), and stores a
 `PredictionRun`.
@@ -366,7 +366,7 @@ Selects the physical quantity displayed in all panels.
 
 | Radio button | Formula | Notes |
 |---|---|---|
-| **Raw DN** | raw uint16 value | Always available |
+| **Raw counts (DN)** | raw uint16 value | Always available |
 | **Reflectance** | `clip((raw − dark) / (white − dark), 1e-6, 1)` | Uses default levels when no refs loaded |
 | **Absorbance** | `−log10(Reflectance)` | Uses default levels when no refs loaded |
 
@@ -454,7 +454,7 @@ viewer.state.set_pixel_size_mm(0.25)
 |---|---|
 | **Add ROI** | Enter one-shot ROI draw mode on `Spatial Image` |
 | **Delete ROI** | Remove the currently selected ROI |
-| **Export CSV** | Save all persisted training ROI spectra to CSV (calls `export_csv`) |
+| **Export CSV** | Save all persisted calibration ROI spectra to CSV (calls `export_csv`) |
 
 ---
 
@@ -479,12 +479,12 @@ changes (nm↔band, pixel↔mm) do not invalidate the cache.
 
 ## 8. ROI workflow
 
-### Collecting training ROIs (HDF5 project)
+### Collecting calibration ROIs (HDF5 project)
 
-Training ROIs are stored in the v3 HDF5 project workspace. The project does
+Calibration ROIs are stored in the v3 HDF5 project workspace. The project does
 not embed the source cube itself, but it does persist the extracted raw ROI
-spectra plus dataset/calibration provenance, explicit targets, target
-assignments, preprocessing recipes, sample sets, model runs, and prediction
+spectra plus dataset/reference correction provenance, explicit targets, target
+assignments, preprocessing recipes, calibration sets, models, and prediction
 runs.
 
 1. Click **Project → New** to create a project file.
@@ -498,11 +498,11 @@ runs.
    the canvas, project browser, and inspector.
 7. Repeat for each ROI.
 8. Each ROI is written immediately with a stable `roi_id`, the current
-   dataset/calibration references, and raw spectra. If a target value is
+   dataset/reference correction references, and raw spectra. If a target value is
    provided, it is persisted separately as a `TargetAssignment`. The status
    bar confirms every write (`ProjectState.saved`).
 
-Explore's central area has two tabs: **Data file** (the image and its plots)
+Explore's central area has two tabs: **Dataset** (the image and its plots)
 and **Project ROIs** (`_project_rois.ProjectRoisView`). The second tab reads
 stored ROI pixels with `project_store.load_roi_band_images`, and ROI spectra
 with `modeling.roi_spectrum_summaries`. The latter converts each ROI with
@@ -518,21 +518,21 @@ lays out equal ROIs by number, size, origin and spacing with
 It previews them on the canvas (`FalseColourCanvas.set_grid_preview`) and
 stores them through `ProjectState.add_rois` → `Project.save_rois`, all or none.
 
-A project may hold ROIs from several data files. The canvas draws only the
+A project may hold ROIs from several datasets. The canvas draws only the
 ROIs whose `dataset_id` is the project dataset of the shown file
 (`EDAView.refresh_roi_overlays`, `EDAView.shown_dataset_id`). Attach
-validation is per data file: an unregistered file is a new data file, and only
+validation is per dataset: an unregistered file is a new dataset, and only
 a registered file that no longer matches its `DatasetRef` raises the warning
 gate (`_attachment.confirm_project_dataset_binding`).
 
-A data file whose `source_path` no longer exists is listed as "(not found)".
+A dataset whose `source_path` no longer exists is listed as "(not found)".
 Showing it offers **Locate file...** (`HSIViewer.locate_data_file` →
 `ProjectState.locate_data_file` → `Dataset.locate`). The chosen file must pass
 `enginir._workflow.check_data_file_location`: same format, shape, modality and
 wavelengths, and for every ROI the file's pixels at its `spatial_bounds`
 equal the stored raw pixels. Only then `project_store.relocate_dataset_ref`
-updates `source_path`. The last shown data file is kept per `project_id` in
-the user settings (`_project_settings.py`) and loaded when the Data file tab
+updates `source_path`. The last shown dataset is kept per `project_id` in
+the user settings (`_project_settings.py`) and loaded when the Dataset tab
 shows nothing. A write in one window makes the other windows of the process
 on the same project re-read it (`ProjectState.reload`).
 
@@ -555,7 +555,7 @@ Click **Project → Open**.  If any ROI was drawn from a different cube than
 the one currently loaded, a warning dialog asks whether to proceed.  You can
 open projects regardless of whether the source cube is loaded.
 
-### Using ROI data for modelling
+### Using ROI data for modeling
 
 ```python
 from enginir import PreprocessingRecipe, Project
@@ -568,14 +568,14 @@ print(model.metrics['rmsecv'])
 
 v3 modeling semantics are fixed:
 
-- pixel observations
+- pixels as the data points of the fit
 - ROI-grouped validation
 - ROI-level primary reporting
 - mean aggregation of held-out pixel predictions back to ROI level
 
 ### CSV export
 
-The viewer exports the persisted project-backed training ROI spectra:
+The viewer exports the persisted project-backed calibration ROI spectra:
 
 ```python
 viewer.export_csv('data/roi_train.csv')
@@ -585,12 +585,12 @@ viewer.export_csv('data/roi_train.csv')
 
 ## 9. Dark / white reference loading
 
-In a project, references belong to each data file. **Add Data File...**
+In a project, references belong to each dataset. **Add Dataset...**
 (`HSIViewer.add_data_file`, dialog `_data_files.AddDataFileDialog`) takes
-them from reference files, from a frame range of the data file, or from
-another data file of the project, and writes the file and its calibration
-through `Project.add_dataset`. Showing a data file (`HSIViewer.show_data_file`,
-loaded in the background) restores its calibration into `ViewerState`
+them from reference files, from a frame range of the dataset, or from
+another dataset of the project, and writes the file and its reference correction
+through `Project.add_dataset`. Showing a dataset (`HSIViewer.show_data_file`,
+loaded in the background) restores its reference correction into `ViewerState`
 (`set_calibration`, then the signal unit). The startup options below remain
 for a quick look without a project.
 
@@ -635,7 +635,7 @@ in real time, displayed in a scrollable monospace text area with a
 The log panel shows:
 
 - **INFO**: file loaded, model fitted, project saved
-- **WARNING**: skipped corrupt chunk, fallback calibration
+- **WARNING**: skipped corrupt chunk, fallback reference correction
 - **DEBUG**: preprocessing steps applied, cache invalidation, crosshair moves
 
 The panel can be hidden via the viewer's **View** menu. To enable debug logging

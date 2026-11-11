@@ -25,7 +25,7 @@ hide warnings.
 
 ## Sources of truth
 
-- `contracts/*_v3.md` freeze persistence, runtime and workflow behaviour. When
+- `contracts/*_v3.md` freeze persistence, runtime and workflow behavior. When
   code, docs or this file disagree with a contract, the contract wins; change
   a contract only deliberately and in the same change as the code.
 - `docs/contract_coverage.md` maps every contract rule to its implementation
@@ -44,11 +44,11 @@ bands)`).
 |---|---|
 | `enginir.Project` (`_workflow.py`) | the workflow facade: datasets, targets, ROIs, `fit`, `predict`, addressed by name; plus the shared rules `resolve_dataset`, `make_calibration`, `resolve_calibration`, `resolve_prediction_calibration`, `make_roi`, `resolve_sample_set`, `resolve_signal_domain`, `recipe_id_for` |
 | `io/` | file readers (`load_spectra` dispatches by extension; every loader returns `SpectralData`), project store (`project_store.py`, groups in `_hdf5_groups.py`) |
-| `project/` | typed project objects, hydration, relationship validation, signal-domain conversion |
+| `project/` | typed project objects, hydration, relationship validation, signal conversion |
 | `preprocessing/` | SNV, MSC, EMSC, Savitzky-Golay, Detrend, Smoother; `PreprocessingRecipe` |
 | `models/` | PLS, PCR, SIMCA, LDA, SVR, random forest, MLP (scikit-learn API) |
 | `validation/` | cross-validation, Kennard-Stone, figures of merit, outliers |
-| `modeling/`, `prediction/` | sample sets and model fitting; chunked prediction |
+| `modeling/`, `prediction/` | calibration sets and model fitting; chunked prediction |
 | `visualization/` | matplotlib plots |
 | `viewer/` | PyQt6 + pyqtgraph viewer; see `docs/viewer_architecture.md` |
 | `_checks.py`, `_logging.py` | validators with `log_and_raise`; Loguru setup |
@@ -68,17 +68,17 @@ Boundaries:
 
 These are contract decisions; do not change them without a contract change.
 
-- Pixels are observations; targets, grouping, cross-validation and reported
+- Pixels are the data points of the fit; targets, grouping, cross-validation and reported
   metrics are per ROI (ROI mean). Never split one ROI's pixels across folds.
 - Stateful preprocessing (MSC, EMSC) is fitted inside every cross-validation
   fold.
-- Training and prediction convert spectra with the same function
+- Calibration and prediction convert spectra with the same function
   (`transform_spectra_to_signal_domain`).
-- Calibrations belong to their dataset; stable ids, not names, define
+- Reference corrections belong to their dataset; stable ids, not names, define
   identity; stored objects are never overwritten with different content
   (names are mutable labels).
 - Raw ROI spectra are stored as recorded (uint16 counts, or float32 for
-  precalibrated data); working arrays are float32. Do not upcast to float64
+  already corrected data); working arrays are float32. Do not upcast to float64
   or add copies without a measured reason.
 - Wavelength values are metadata, not a prediction gate; a differing axis only
   warns (G18, decided 2026-11-08).
@@ -108,7 +108,7 @@ These are contract decisions; do not change them without a contract change.
 
 ## Tests
 
-- Test behaviour that matters, not bookkeeping: no tests that only restate an
+- Test behavior that matters, not bookkeeping: no tests that only restate an
   implementation or check trivial attributes.
 - When a test is meant to catch a fault, check that it fails when the fault
   is injected.

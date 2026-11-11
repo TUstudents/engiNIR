@@ -1,16 +1,16 @@
-# ROI Target Contract v3
+# ROI target contract v3
 
 ## Status
 
 - Version: `v3`
 - Status: active contract for engiNIR 1.0; v3 is the default and only supported project schema
-- Scope: persisted training ROIs, target definitions, target assignments, ROI provenance, modeling selection semantics
+- Scope: persisted calibration ROIs, target definitions, target assignments, ROI provenance, modeling selection semantics
 
 ## Goal
 
 Define the concrete contract for:
 
-- what a persisted training ROI is
+- what a persisted calibration ROI is
 - what target definitions are
 - how target values attach to ROIs
 - how ROI data and target data are used for modeling
@@ -19,23 +19,23 @@ Define the concrete contract for:
 This contract exists to prevent the domain model from collapsing into a single
 anonymous `y_value` field tied too closely to one viewer dialog.
 
-## Core Decisions
+## Core decisions
 
-- training ROIs are project-owned once created
+- calibration ROIs are project-owned once created
 - raw ROI spectra are persisted as the scientific truth
 - ROI provenance records extraction context, but does not replace raw spectra
 - target definitions are explicit project objects
 - each ROI may carry one or more target assignments
 - v3 modeling may fit one selected target at a time, but the domain contract is multi-target
 
-## Problem This Contract Solves
+## Problem this contract solves
 
 The workflow requires:
 
-1. draw ROIs from calibrated raw datasets
+1. draw ROIs from corrected raw datasets
 2. persist ROIs into the project
 3. assign one or more `y` values to each ROI
-4. choose one target for a model run
+4. choose one target for a model
 5. fit and validate a model reproducibly
 
 Without an ROI/target contract, the system cannot answer reliably:
@@ -46,7 +46,7 @@ Without an ROI/target contract, the system cannot answer reliably:
 - whether a model was fit to moisture, protein, or some other response
 - whether missing or partial target assignments are allowed
 
-## Contract Summary
+## Contract summary
 
 There are three separate but linked concepts:
 
@@ -57,17 +57,17 @@ There are three separate but linked concepts:
 3. `TargetAssignment`
    The value of one target for one ROI.
 
-The model run never points to a raw anonymous `y_value`.
+The model never points to a raw anonymous `y_value`.
 It points to:
 
 - a selected `TargetDefinition`
 - a `SampleSet` built from ROIs
 
-## Domain Objects
+## Domain objects
 
 ## 1. TrainingROI
 
-Represents one persisted training ROI in the project.
+Represents one persisted calibration ROI in the project.
 
 Required fields:
 
@@ -87,23 +87,27 @@ Optional fields:
 - `sample`: label of the physical sample the ROI was taken from (e.g. the
   blend or tablet), a non-empty string; absent when the ROI is its own
   sample
-- `use`: `training` or `prediction` (engiNIR 1.4 and later); absent reads
-  `training`. A `prediction` ROI marks a sample to be predicted (e.g. a
-  tablet of a production tray): it never enters a sample set, whatever
-  target values it has; a value it has serves only the residual and RMSEP of
+- `use`: `calibration` or `prediction` (`terminology_v3.md`, Calibration
+  and Prediction), stored explicitly since engiNIR 1.5. A missing `use`
+  (ROIs stored before 1.4) and `training` (the name in 1.4) read as
+  `calibration`. A `prediction` ROI marks a sample to be predicted (e.g. a
+  tablet of a production tray): it never enters a calibration set, whatever
+  target values it has; a value it has serves only the residual and RMSEP (per ROI) of
   a prediction (`prediction-runtime-contract_v3.md`, Prediction ROIs). Any
-  other stored value is rejected on read with a logged error. engiNIR 1.3
-  and earlier ignore the attribute (an unknown extra) and would use such
-  ROIs for training; projects with prediction ROIs need engiNIR 1.4
+  other stored value is rejected on read with a logged error. Callers pass
+  `calibration` or `prediction`; `training` is refused with the rename.
+  engiNIR 1.4 refuses `calibration` (an unknown value), so a project with
+  ROIs stored by 1.5 needs engiNIR 1.5; engiNIR 1.3 and earlier ignore the
+  attribute (an unknown extra) and would use prediction ROIs for fitting
 
 Required invariants:
 
 - every ROI belongs to exactly one source dataset
 - every ROI belongs to exactly one project
-- every ROI references exactly one applied calibration context
+- every ROI references exactly one applied reference correction context
 - `n_pixels` must match the stored spectra shape
 - `len(wavelengths)` must match the spectra band dimension
-- if the calibration context uses full-sensor dark/white reference arrays, the ROI must persist ROI-local dark/white reference snapshots with the same `(n_pixels, n_bands)` shape and flattened pixel order as the raw ROI spectra
+- if the reference correction context uses full-sensor dark/white reference arrays, the ROI must persist ROI-local dark/white reference snapshots with the same `(n_pixels, n_bands)` shape and flattened pixel order as the raw ROI spectra
 - ROI identity is stable inside the project and must not depend only on its display name
 
 v3 rule:
@@ -116,9 +120,9 @@ v3 rule:
   (`sample-set-model-run-contract_v3.md` §4.1). Every writer removes
   surrounding spaces and stores an empty result as no label; labels are
   then compared as exact Unicode strings (case and inner spaces matter, no
-  further normalisation). Because labels that differ only in case would
+  further normalization). Because labels that differ only in case would
   split one physical sample into two groups, a fit warns when two labels of
-  its sample set are equal after case folding. A stored model run keeps the
+  its calibration set are equal after case folding. A stored model keeps the
   fold groups it used, so later label edits do not change how it refits.
   Only `save_roi_sample` sets, changes or removes the label; re-saving an
   ROI never changes it
@@ -126,18 +130,18 @@ v3 rule:
   `Project.add_roi`); afterwards it is mutable like `sample`: only
   `save_roi_use` changes it, in place;
   it never changes the ROI's identity, spectra or other fields. Switching an
-  ROI to `prediction` leaves stored sample sets and model runs that contain
-  it unchanged (they refit as they were fitted); new sample sets leave it
+  ROI to `prediction` leaves stored calibration sets and models that contain
+  it unchanged (they refit as they were fitted); new calibration sets leave it
   out
-- raw ROI spectra remain the scientific truth; ROI-local reference snapshots preserve the sensor-row calibration context needed to transform those raw spectra reproducibly
-- ROI spectra persist in their source dtype: uint16 for raw DN sources,
-  float32 for precalibrated floating sources; float spectra must never be
-  truncated to integers, and precalibrated ROIs carry no dark/white reference
-  snapshots because their calibration mode stores no reference context
+- raw ROI spectra remain the scientific truth; ROI-local reference snapshots preserve the sensor-row reference correction context needed to transform those raw spectra reproducibly
+- ROI spectra persist in their source dtype: uint16 for Raw counts (DN) sources,
+  float32 for already corrected floating sources; float spectra must never be
+  truncated to integers, and already corrected ROIs carry no dark/white reference
+  snapshots because their reference correction mode stores no reference context
 - the spectra storage location is canonical and derived as
   `/rois/{roi_id}/spectra`; it is not separately persisted or user-editable
 
-## 2. ROI Provenance
+## 2. ROI provenance
 
 ROI provenance records extraction-time scientific context.
 
@@ -241,9 +245,9 @@ Required invariants:
 v3 interpretation:
 
 - an ROI may have zero, one, or many target assignments
-- a model run chooses one target definition at a time
+- a model chooses one target definition at a time
 
-## Separation Of Responsibilities
+## Separation of responsibilities
 
 ### TrainingROI owns
 
@@ -262,17 +266,17 @@ v3 interpretation:
 
 - the actual value for one ROI/target pair
 
-### Model run owns
+### Model owns
 
 - which target definition is being modeled
 - which ROIs are included
-- which observation/grouping semantics are used
+- which fitting/grouping semantics are used
 
-## Workflow Semantics
+## Workflow semantics
 
 ## 1. Persist ROI
 
-When a training ROI is saved into the project:
+When a calibration ROI is saved into the project:
 
 - the current window must have a real attached dataset context
 - a `TrainingROI` object is created
@@ -283,18 +287,18 @@ When a training ROI is saved into the project:
 v3 rule:
 
 - unlabeled ROIs are allowed in the project
-- unlabeled ROIs are excluded from a model run for any target they do not have
+- unlabeled ROIs are excluded from a model for any target they do not have
 - project-only mode may inspect existing ROIs, but must not create new ones
 - newly created ROIs must not be derived from placeholder viewer state
 
 ### ROI grid
 
-Many samples in one data file (a tray) may be created as a grid:
+Many samples in one dataset (a tray) may be created as a grid:
 
 - the grid is explicit geometry in image pixels: the number of rows and
   columns, the ROI size (width along frames, height along rows), the origin
   (frame and row of the first ROI's top-left pixel) and the spacing between
-  neighbouring ROIs; all ROIs of a grid have the same size and never overlap
+  neighboring ROIs; all ROIs of a grid have the same size and never overlap
 - the user also chooses the empty positions and a name pattern (selectable
   presets or a custom pattern) and the order
 - every created ROI lies inside the image; positions marked empty may lie
@@ -310,9 +314,9 @@ Many samples in one data file (a tray) may be created as a grid:
   snapshot and provenance, exactly as a single ROI
 - the grid is validated completely before anything is written, and written
   completely or not at all; a failure leaves no ROI of the grid behind
-- names are labels and may repeat ROIs of other data files, for example when
-  several data files share a file name; the default pattern starts with the
-  data file name. Only names repeated within one grid are refused, because
+- names are labels and may repeat ROIs of other datasets, for example when
+  several datasets share a file name; the default pattern starts with the
+  dataset name. Only names repeated within one grid are refused, because
   such a pattern cannot tell its own cells apart
 
 ## 2. Define target
@@ -342,19 +346,19 @@ Examples:
 
 ## 4. Build modeling inputs
 
-When a model run is created:
+When a model is created:
 
 1. choose one `TargetDefinition`
 2. choose included ROIs
 3. filter to ROIs that have an assignment for that target and whose `use`
-   is `training`
+   is `calibration`
 4. build `X` from pixel-level raw ROI spectra
 5. build `Y` by repeating the selected ROI-level target assignment across those ROI pixels
 6. build grouping metadata from `roi_id`
 
 v3 rule:
 
-- one model run uses one selected target definition
+- one model uses one selected target definition
 - multi-target projects are allowed
 - multi-target model fitting is out of scope for v3
 - pixel-level spectral diversity is preserved in `X`
@@ -364,8 +368,9 @@ v3 rule:
 
 The viewer edits target values in an ROI table:
 
-- one row per ROI, showing its data file, name and pixel count
-- a "Use" column, training or prediction, switched in place (`save_roi_use`)
+- one row per ROI, showing its dataset, name and pixel count
+- a "Set" column, Calibration or Prediction chosen from a drop-down, switched in
+  place (`save_roi_use`)
 - a "Sample" column with the ROI's sample label; typing a label sets it
   when the cell is left, clearing the cell removes it, and pasting a column
   fills consecutive rows (labels are text, so any text is accepted;
@@ -377,7 +382,7 @@ The viewer edits target values in an ROI table:
   clearing a cell removes it
 - pasting a column of values fills consecutive rows; values that are not
   finite numbers are refused and nothing of that paste is written
-- the table works in project-only mode, without any data file
+- the table works in project-only mode, without any dataset
 
 The contract requirement is:
 
@@ -387,7 +392,7 @@ The UI must not imply:
 
 - that the project has only one universal anonymous `y` column
 
-## Compatibility Rules
+## Compatibility rules
 
 Modeling for a selected target must block or warn when:
 
@@ -395,10 +400,10 @@ Modeling for a selected target must block or warn when:
 - included ROIs do not have assignments for the selected target
 - target values are not valid for the target definition
 - wavelength compatibility across included ROIs is broken
-- ROI provenance shows incompatible source/calibration context for the intended sample-building rules
+- ROI provenance shows incompatible source/reference correction context for the intended sample-building rules
 - grouping metadata cannot preserve ROI-level validation semantics
 
-## v3 Scope Rules
+## v3 scope rules
 
 v3 supports:
 
@@ -406,19 +411,19 @@ v3 supports:
 - explicit target definitions
 - one or more target assignments per ROI
 - numeric scalar regression targets
-- one selected target per model run
-- pixel-level spectra as modeling observations
+- one selected target per model
+- pixel-level spectra as the data points of the fit
 - ROI-level target semantics
 - ROI-grouped validation semantics
 
 v3 rejects:
 
 - implicit anonymous `y_value` as the core project contract
-- modeling multiple targets simultaneously in one model run
+- modeling multiple targets simultaneously in one model
 - category labels as first-class target values
-- mixed incompatible wavelength axes inside one model run
+- mixed incompatible wavelength axes inside one model
 
-## Persistence Requirements
+## Persistence requirements
 
 `TrainingROI`, `TargetDefinition`, and `TargetAssignment` must be persisted inside
 the project file.
@@ -444,12 +449,12 @@ v3 persistence decision:
 - provenance
 - `sample`, when set
 - raw spectra storage
-- ROI-local dark/white reference storage when the active calibration has embedded full-sensor references
+- ROI-local dark/white reference storage when the active reference correction has embedded full-sensor references
 
 Required creation-time invariants for newly created ROIs:
 
 - `dataset_id` must reference a real attached dataset context
-- `calibration_id` must reference the active calibration for that dataset
+- `calibration_id` must reference the active reference correction for that dataset
 - `source_file` must be non-empty
 - ROI identity must not depend on the display name
 
@@ -469,7 +474,7 @@ Required creation-time invariants for newly created ROIs:
 - `value`
 - `assigned_at`
 
-## v3 HDF5 Shape Basis
+## v3 HDF5 shape basis
 
 v3 requires project-internal groups shaped like:
 
@@ -485,7 +490,7 @@ v3 requires project-internal groups shaped like:
 Minimum expectation:
 
 - ROI metadata and spectra are persisted inside `/rois/`
-- ROI-local calibration reference snapshots, when present, are persisted inside `/rois/{roi_id}/calibration_refs/`
+- ROI-local reference correction reference snapshots, when present, are persisted inside `/rois/{roi_id}/calibration_refs/`
 - target definitions are persisted independently from ROIs
 - target assignments are persisted independently from both ROI identity and target identity
 
@@ -494,7 +499,7 @@ v3 note:
 - a single `@y_value` stored on an ROI is not a target representation; the
   project reader rejects ROI groups that carry one
 
-## Required UI Behavior
+## Required UI behavior
 
 The UI must make these distinctions legible:
 
@@ -509,18 +514,18 @@ The UI must not imply:
 - that one built-in `y_value` field is the whole target model
 - that provenance and modeling target are the same concept
 
-## Out Of Scope For v3
+## Out of scope for v3
 
 These are intentionally deferred:
 
 - classification labels as a target type
-- multi-output model runs
+- multi-output models
 - target inheritance or grouping
 - assay-version tracking
 - multiple active assignments for the same `(roi_id, target_id)` pair
 - full target history/audit beyond latest assignment timestamp
 
-## Open Questions After This Decision
+## Open questions after this decision
 
 These remain open after v3 contract definition.
 
@@ -553,8 +558,8 @@ Out of scope for v3:
 Decision:
 
 - the domain may support multiple sample-unit styles later
-- v3 modeling uses pixel-level spectral observations with ROI-level target semantics
-- v3 validation groups observations by `roi_id`; folds may join the ROIs
+- v3 modeling uses pixel-level spectra with ROI-level target semantics
+- v3 validation groups pixels by `roi_id`; folds may join the ROIs
   of one physical sample (ROI `sample` label) or of one target value
   (`sample-set-model-run-contract_v3.md` §4.1), never split an ROI
 
@@ -564,21 +569,21 @@ Out of scope for v3:
 - `roi_feature` modeling
 - exposing a user-facing sample-unit selector in the first modeling UI
 
-## Acceptance Criteria
+## Acceptance criteria
 
 This contract is implemented correctly when:
 
-- persisting a training ROI creates a stable ROI identity inside the project
-- ROI provenance records source dataset and calibration context
+- persisting a calibration ROI creates a stable ROI identity inside the project
+- ROI provenance records source dataset and reference correction context
 - the project can define more than one named target variable
 - one ROI can carry assignments for more than one target
-- a model run chooses one target definition explicitly
+- a model chooses one target definition explicitly
 - modeling inputs preserve pixel-level spectral diversity while keeping target semantics ROI-level
 - unlabeled ROIs remain valid project objects but are excluded from modeling for targets they do not have
 - targets are represented by explicit definitions and assignments, never by a
   single anonymous `y_value`
 - target values of all targets can be edited, removed and pasted in the ROI
-  table, also without any data file
+  table, also without any dataset
 - the sample label can be set, changed and removed in the ROI table and by
   script without changing the ROI's identity, spectra or other fields
 - an ROI grid is written completely or not at all

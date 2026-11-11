@@ -45,7 +45,7 @@ from .project import (
     validate_project_relationships,
 )
 from .project._ids import new_id, now_iso
-from .project._models import roi_use, sample_label
+from .project._models import check_roi_use, sample_label
 from .prediction._rois import (
     RoiPrediction,
     RoiPredictionSummary,
@@ -280,10 +280,11 @@ class Project:
         self.save_roi_sample(self._roi_of(roi).roi_id, label)
 
     def set_use(self, roi: str | TrainingROI, use: str) -> None:
-        """Mark ``roi`` (name or object) for ``"training"`` or ``"prediction"``.
+        """Mark ``roi`` (name or object) as ``"calibration"`` or ``"prediction"``.
 
         A prediction ROI is a sample to predict (``model.predict_rois()``); it
-        never enters a sample set, whatever values it has.
+        never enters a calibration set, whatever target values it has.
+        ``"training"`` (the name before 1.5) is refused.
         """
         self.save_roi_use(self._roi_of(roi).roi_id, use)
 
@@ -520,9 +521,10 @@ class Project:
         self.workspace.rois[roi.roi_id] = roi
 
     def save_roi_use(self, roi_id: str, use: str) -> None:
-        """Set a stored ROI's use: ``"training"`` or ``"prediction"`` (never in a sample set)."""
+        """Set a stored ROI's use: ``"calibration"`` or ``"prediction"`` (never in a calibration
+        set)."""
         roi = _with_id(self.workspace.rois, roi_id, "ROI")
-        use = roi_use(use)
+        use = check_roi_use(use)
         store.save_roi_use(self.path, roi_id, use)
         self.workspace.rois[roi_id] = replace(roi, use=use)
 
@@ -621,8 +623,8 @@ class Project:
         for key in [key for key in ws.target_assignments if key[0] == roi_id]:
             del ws.target_assignments[key]
         if affected:
-            logger.warning("Deleted ROI '{}' is still listed by sample set(s) {}; their model "
-                           "runs remain usable for prediction, but they cannot be refitted",
+            logger.warning("Deleted ROI '{}' is still listed by calibration set(s) {}; their "
+                           "models remain usable for prediction, but they cannot be refitted",
                            roi_id, affected)
         return affected
 
@@ -636,7 +638,7 @@ class Project:
         """Refuse ``action`` on a sample set that lists deleted ROIs."""
         missing = self.missing_rois(sample_set_id)
         if missing:
-            log_and_raise("Cannot {}: sample set '{}' lists deleted ROI(s) {}; its model runs "
+            log_and_raise("Cannot {}: calibration set '{}' lists deleted ROI(s) {}; its models "
                           "remain usable for prediction, but it cannot be altered or refit "
                           "until recreated", action, sample_set_id, missing, depth=2)
 
@@ -693,7 +695,7 @@ class Project:
         sensor = dataset.cube_shape[1:]
         if references_from is not None:
             if any(value is not None for value in (dark, white, dark_frames, white_frames)):
-                log_and_raise("references_from takes both references from another data file; "
+                log_and_raise("references_from takes both references from another dataset; "
                               "do not combine it with dark, white or reference frames")
             references = self._references_of(references_from, sensor)
         else:
@@ -760,8 +762,8 @@ class Project:
                 required_signal_unit=calibration.output_signal_unit)
             if domains and not _same_signal_domain(domains[0], domain):
                 log_and_raise("ROI '{}' was recorded with a different signal (format, unit, "
-                              "calibration or wavelengths) than ROI '{}'; one model needs one "
-                              "signal domain", roi.name, ws.rois[sample_set.roi_ids[0]].name)
+                              "reference correction or wavelengths) than ROI '{}'; one model needs one "
+                              "input contract", roi.name, ws.rois[sample_set.roi_ids[0]].name)
             domains.append(domain)
         return domains[0]
 
@@ -822,7 +824,7 @@ class Dataset:
 
     def add_roi(self, name: str, *, frames: tuple[int, int], rows: tuple[int, int],
                 values: Mapping[str, float] | None = None,
-                use: str = "training") -> TrainingROI:
+                use: str = "calibration") -> TrainingROI:
         """Store the pixels ``frames`` x ``rows`` as an ROI with its reference values.
 
         Parameters
@@ -836,8 +838,8 @@ class Dataset:
         values:
             Reference values ``{target name: value}``.
         use:
-            ``"training"`` (default) or ``"prediction"``: a sample to predict
-            (``model.predict_rois()``), never in a sample set.
+            ``"calibration"`` (default) or ``"prediction"``: a sample to
+            predict (``model.predict_rois()``), never in a calibration set.
 
         Returns
         -------
@@ -883,7 +885,7 @@ class Dataset:
         abs_path = _native_path(path)
         other = project._dataset_ref(abs_path)
         if other is not None and other.dataset_id != self.ref.dataset_id:
-            log_and_raise("{} is already registered as another data file of the project",
+            log_and_raise("{} is already registered as another dataset of the project",
                           abs_path)
         rois = [roi for roi in ws.rois.values() if roi.dataset_id == self.ref.dataset_id]
         check_data_file_location(project.path, self.ref, rois, abs_path)
@@ -1029,7 +1031,7 @@ class Model:
                                       key=project._model_name)
         changed = self._changed_values(sample_set)
         if changed:
-            logger.warning("Refitting model '{}': {} reference value(s) changed since it was "
+            logger.warning("Refitting model '{}': {} target value(s) changed since it was "
                            "fitted (ROI ids {}); the metrics will differ", self.name,
                            len(changed), changed[:5])
         spec = self.ref.fit_specification
@@ -1145,7 +1147,7 @@ class Model:
             prediction, target_assignments=self.project.workspace.target_assignments,
             exclude_dmodx=level)
         logger.info("Predicted {} ROI(s) of {} with model '{}' ({}); exclusion {}; {} refused; "
-                    "RMSEP {} over {} ROI(s) with a value", len(prediction.pixels),
+                    "RMSEP (per ROI) {} over {} ROI(s) with a value", len(prediction.pixels),
                     self.project.path, self.name, self.ref.model_run_id,
                     "none" if summary.exclusion is None else f"DModX {summary.exclusion}",
                     len(prediction.refused), summary.rmsep, summary.n_reference)
@@ -1211,7 +1213,7 @@ class Prediction:
 
     ``map``/``y_pred`` are the predictions, ``dmodx_map``/``t2_map`` the
     applicability diagnostics (``None`` for a model fitted before engiNIR 1.3:
-    refit it), :meth:`uncertainty_map` the prediction intervals,
+    refit it), :meth:`interval_map` the prediction intervals,
     ``diagnostics`` the 0.99 limits and the summary, and ``provenance`` the
     record also written to the log.
     """
@@ -1243,7 +1245,7 @@ class Prediction:
         """T²PS per pixel as an image, or ``None`` without projection data."""
         return self.result.diagnostic_map(self.result.t2)
 
-    def uncertainty_map(self, level: float = 0.95) -> np.ndarray | None:
+    def interval_map(self, level: float = 0.95) -> np.ndarray | None:
         """Half-width of each pixel's prediction interval at ``level``, as an image.
 
         The interval is ŷ ± q · s · √(1 + h) with s the model's pixel RMSEE
@@ -1404,15 +1406,15 @@ def check_data_file_location(
         checks.append(("modality", header.meta["source_modality"], dataset.source_modality))
     for label, now, then in checks:
         if now != then:
-            log_and_raise("{} is not this data file: it has {} {!r}, the data file has {!r}",
+            log_and_raise("{} is not this dataset: it has {} {!r}, the dataset has {!r}",
                           abs_path, label, now, then)
     wavelengths = np.asarray(header.wavelengths, dtype=np.float32)
     if wavelengths.shape != np.shape(dataset.wavelengths) or not np.allclose(
             wavelengths, np.asarray(dataset.wavelengths, dtype=np.float32), atol=1e-6, rtol=0.0):
-        log_and_raise("{} is not this data file: its wavelengths differ", abs_path)
+        log_and_raise("{} is not this dataset: its wavelengths differ", abs_path)
     rois = list(rois)
     if not rois:
-        logger.warning("Data file {} has no ROIs; only its format, shape and wavelengths "
+        logger.warning("Dataset {} has no ROIs; only its format, shape and wavelengths "
                        "were compared", abs_path)
         return
     first = min(roi.spatial_bounds[0] for roi in rois)
@@ -1425,9 +1427,9 @@ def check_data_file_location(
             pixels[f0 - first:f1 - first + 1, r0:r1 + 1].reshape(-1, n_bands))
         stored = store.load_roi_spectra(project_path, f"/rois/{roi.roi_id}/spectra")
         if found.shape != stored.shape or not np.array_equal(found, stored):
-            log_and_raise("{} is not this data file: the pixels of ROI '{}' differ from the "
+            log_and_raise("{} is not this dataset: the pixels of ROI '{}' differ from the "
                           "stored ones", abs_path, roi.name)
-    logger.info("{} matches data file '{}' ({} ROIs compared)", abs_path, dataset.dataset_id,
+    logger.info("{} matches dataset '{}' ({} ROIs compared)", abs_path, dataset.dataset_id,
                 len(rois))
 
 
@@ -1714,7 +1716,7 @@ def resolve_prediction_calibration(
     active_id = active_calibration_ids.get(dataset.dataset_id)
     if active_id and active_id in calibrations:
         return calibrations[active_id], False
-    log_and_raise("Prediction dataset '{}' has no calibration yet; explicit calibration required",
+    log_and_raise("Prediction dataset '{}' has no reference correction yet; explicit reference correction required",
                   dataset.dataset_id)
 
 
@@ -1729,7 +1731,7 @@ def make_roi(
     preview_recipe: PreprocessingRecipe | None = None,
     created_at: str | None = None,
     grid_cell: GridCell | None = None,
-    use: str = "training",
+    use: str = "calibration",
 ) -> tuple[TrainingROI, np.ndarray, tuple[np.ndarray, np.ndarray] | None]:
     """Build an ROI of ``dataset`` from its frames ``pixels`` ``(frames, height, n_bands)``.
 
@@ -1757,7 +1759,7 @@ def make_roi(
     created_at = created_at or now_iso()
     recipe = preview_recipe or PreprocessingRecipe()
     roi = TrainingROI(
-        roi_id=new_id(), use=roi_use(use), dataset_id=dataset.dataset_id,
+        roi_id=new_id(), use=check_roi_use(use), dataset_id=dataset.dataset_id,
         calibration_id=calibration.calibration_id, name=name,
         wavelengths=dataset.wavelengths, n_pixels=int(spectra.shape[0]),
         spatial_bounds=(f0, f1, r0, r1), source_file=dataset.source_path, created_at=created_at,

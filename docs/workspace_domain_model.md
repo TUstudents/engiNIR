@@ -1,4 +1,4 @@
-# Workspace Domain Model
+# Workspace domain model
 
 Specification of the objects of a project, held by `enginir.Project` (as an
 `enginir.project.ProjectWorkspace`) and persisted to HDF5 v3 project files.
@@ -10,15 +10,15 @@ The viewer's `ProjectState` mirrors them for its widgets.
 
 | Entity | Key | Defined in | Description |
 |--------|-----|-----------|-------------|
-| `DatasetRef` | `dataset_id` | `project/_models.py` | Pointer to one HSI data file: source path, format, modality, cube shape, wavelengths |
-| `CalibrationSpec` | `calibration_id` | `project/_models.py` | How to convert raw DN to a signal unit: mode (dark_white_reference / precalibrated_import / raw_dn), optional dark/white ref arrays or scalar levels, output signal unit |
-| `TrainingROI` | `roi_id` | `project/_models.py` | Spatial bounding box on one dataset: name, spatial_bounds (f0, f1, r0, r1), n_pixels, wavelengths, references one dataset + one calibration, provenance dict |
+| `DatasetRef` | `dataset_id` | `project/_models.py` | Pointer to one HSI dataset: source path, format, modality, cube shape, wavelengths |
+| `CalibrationSpec` | `calibration_id` | `project/_models.py` | How to convert Raw counts (DN) to a signal unit: mode (dark_white_reference / precalibrated_import / raw_dn), optional dark/white ref arrays or scalar levels, output signal unit |
+| `TrainingROI` | `roi_id` | `project/_models.py` | Spatial bounding box on one dataset: name, spatial_bounds (f0, f1, r0, r1), n_pixels, wavelengths, references one dataset + one reference correction, provenance dict |
 | `TargetDefinition` | `target_id` | `project/_models.py` | What we are predicting: name, unit (e.g. "wt%"), value_type ("float"), missing_value_policy |
 | `TargetAssignment` | `(roi_id, target_id)` | `project/_models.py` | One numeric value linking one ROI to one target |
-| `SampleSet` | `sample_set_id` | `project/_models.py` | A labeled collection of ROIs for one target: roi_ids, preprocessing_recipe_id, observation/target/grouping/validation/weighting/reporting policies |
-| `SignalDomainContract` | `signal_domain_id` | `project/_models.py` | Compatibility contract: required signal unit, calibration mode, band count, wavelengths, tolerance, band mapping policy |
-| `ModelRun` | `model_run_id` | `project/_models.py` | One fitted model: references one sample set + one signal domain, model type, hyperparameters, cv_spec, metrics, artifact_refs, optional display name |
-| `PredictionRun` | `prediction_run_id` | `project/_models.py` | One prediction: references one model run + one dataset + one calibration, artifact_refs (spatial_map, y_pred) |
+| `SampleSet` | `sample_set_id` | `project/_models.py` | A labeled collection of ROIs for one target: roi_ids, preprocessing_recipe_id, fitting/target/grouping/validation/weighting/reporting policies |
+| `SignalDomainContract` | `signal_domain_id` | `project/_models.py` | Compatibility contract: required signal unit, reference correction mode, band count, wavelengths, tolerance, band mapping policy |
+| `ModelRun` | `model_run_id` | `project/_models.py` | One fitted model: references one calibration set + one input contract, model type, hyperparameters, cv_spec, metrics, artifact_refs, optional display name |
+| `PredictionRun` | `prediction_run_id` | `project/_models.py` | One prediction: references one model + one dataset + one reference correction, artifact_refs (spatial_map, y_pred) |
 
 ---
 

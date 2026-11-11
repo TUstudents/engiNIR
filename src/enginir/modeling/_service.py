@@ -184,26 +184,26 @@ def plan_sample_set(
         if roi.use == "prediction" and (roi_id, target_id) in target_assignments)
     if not selected:
         if left_out:
-            log_and_raise("No training ROI has a value for target '{}' ({} prediction ROI(s) "
+            log_and_raise("No calibration ROI has a value for target '{}' ({} prediction ROI(s) "
                           "with a value left out)", target_id, left_out)
         if not explicit and rois:
-            log_and_raise("Every ROI is a prediction ROI; a model needs training ROIs")
-        log_and_raise("No ROIs selected for the sample set")
+            log_and_raise("Every ROI is a prediction ROI; a model needs calibration ROIs")
+        log_and_raise("No ROIs selected for the calibration set")
     repeated = sorted(roi_id for roi_id, count in Counter(selected).items() if count > 1)
     if repeated:
-        log_and_raise("ROI(s) selected more than once for the sample set: {}", repeated)
+        log_and_raise("ROI(s) selected more than once for the calibration set: {}", repeated)
     labelled: list[TrainingROI] = []
     unlabelled: list[str] = []
     for roi_id in selected:
         if roi_id not in rois:
-            log_and_raise("Unknown ROI '{}' selected for the sample set", roi_id)
+            log_and_raise("Unknown ROI '{}' selected for the calibration set", roi_id)
         if (roi_id, target_id) in target_assignments:
             labelled.append(rois[roi_id])
         else:
             unlabelled.append(roi_id)
     if not labelled:
         if left_out:
-            log_and_raise("No training ROI has a value for target '{}' ({} prediction ROI(s) "
+            log_and_raise("No calibration ROI has a value for target '{}' ({} prediction ROI(s) "
                           "with a value left out)", target_id, left_out)
         log_and_raise("No selected ROI has a value for target '{}'", target_id)
     switched = [roi.name for roi in labelled if roi.use == "prediction"]
@@ -291,7 +291,7 @@ def build_sample_set(
         groups[roi_rows] = roi.roi_id
         roi_slices[roi.roi_id] = roi_rows
 
-    logger.info("Built sample set '{}' for target '{}': {} ROIs, {} pixels",
+    logger.info("Built calibration set '{}' for target '{}': {} ROIs, {} pixels",
                 sample_set.sample_set_id, target_id, len(labelled), X.shape[0])
     return SampleSetData(sample_set, X, y, groups, wavelengths, roi_slices)
 
@@ -333,17 +333,17 @@ def _training_data(
     """
     spec, requested = resolve_fit_spec(cv, fit_spec)
     if sample_set.preprocessing_recipe_id not in recipes:
-        log_and_raise("Sample set '{}' references the unknown recipe '{}'",
+        log_and_raise("Calibration set '{}' references the unknown recipe '{}'",
                       sample_set.sample_set_id, sample_set.preprocessing_recipe_id)
     if signal_domain_id not in signal_domains:
-        log_and_raise("Unknown signal domain '{}'", signal_domain_id)
+        log_and_raise("Unknown input contract '{}'", signal_domain_id)
     signal_domain = signal_domains[signal_domain_id]
     _check_fit_spec_feasible(spec, sample_set, rois)
     groups = _resolved_groups(spec, sample_set, rois, target_assignments)
     n_fold_groups = int(np.unique(groups).size)
     if n_fold_groups < 2:
         log_and_raise("Cross-validation needs at least 2 fold groups; grouping the {} ROIs of "
-                      "sample set '{}' by {} gives {}", len(sample_set.roi_ids),
+                      "calibration set '{}' by {} gives {}", len(sample_set.roi_ids),
                       sample_set.sample_set_id, spec.group_by, n_fold_groups)
     spec = spec.with_groups(groups)
 
@@ -359,13 +359,13 @@ def _training_data(
     )
     unlabelled = [roi_id for roi_id in sample_set.roi_ids if roi_id not in data.roi_slices]
     if unlabelled:
-        log_and_raise("Sample set '{}' includes ROI(s) without a value for target '{}': {}; "
-                      "build a new sample set", sample_set.sample_set_id, sample_set.target_id,
+        log_and_raise("Calibration set '{}' includes ROI(s) without a value for target '{}': {}; "
+                      "build a new calibration set", sample_set.sample_set_id, sample_set.target_id,
                       unlabelled)
     if signal_domain.wavelengths.shape != data.wavelengths.shape or not np.allclose(
         signal_domain.wavelengths, data.wavelengths, atol=1e-6, rtol=0.0
     ):
-        log_and_raise("Signal domain '{}' has a different wavelength axis than sample set '{}'",
+        log_and_raise("Input contract '{}' has a different wavelength axis than calibration set '{}'",
                       signal_domain_id, sample_set.sample_set_id)
     data, checksum = _pixel_sample(data, spec, project_path, rois)
     spec = spec.with_checksum(checksum)
@@ -509,7 +509,7 @@ def fit_model_run(
                   for r in np.asarray(roi_ids_present)},
         n_groups=n_fold_groups)
     if cv_warnings:
-        logger.warning("Cross-validation of sample set '{}' is likely optimistic: {}",
+        logger.warning("Cross-validation of calibration set '{}' is likely optimistic: {}",
                        sample_set.sample_set_id, "; ".join(fold_warning_text(cv_warnings)))
     n_chosen = int(hyperparameters["n_components"])
 
@@ -622,7 +622,7 @@ def fit_model_run(
         created_at=created_at or now_iso(),
         fit_spec=spec.to_dict(),
     )
-    logger.info("Fitted model run '{}' ({}) on sample set '{}': {} ROIs, {} pixels, RMSECV {:.4g}",
+    logger.info("Fitted model '{}' ({}) on calibration set '{}': {} ROIs, {} pixels, RMSECV (per ROI) {:.4g}",
                 model_run.model_run_id, model_type, sample_set.sample_set_id, roi_ids.size,
                 data.X.shape[0], model_run.metrics["rmsecv"])
     return ModelRunResult(
@@ -663,7 +663,7 @@ def _check_fit_spec_feasible(spec: FitSpec, sample_set: SampleSet,
                              rois: dict[str, TrainingROI]) -> None:
     """Block a fit whose specification cannot be met, before any spectra are read."""
     if len(sample_set.roi_ids) < 2:
-        log_and_raise("A model needs at least 2 ROIs for cross-validation, sample set '{}' has {}",
+        log_and_raise("A model needs at least 2 ROIs for cross-validation, calibration set '{}' has {}",
                       sample_set.sample_set_id, len(sample_set.roi_ids))
     if spec.pixels_per_roi is not None:
         known = [rois[roi_id] for roi_id in sample_set.roi_ids if roi_id in rois]
@@ -728,7 +728,7 @@ def _components_request(spec: FitSpec, hyperparameters: dict[str, Any], model_ty
                           "n_components='auto'", given, rule)
     a_max = max(spec.components_max or default_max(given, n_groups, limit), given)
     if a_max > limit:
-        log_and_raise("Cannot fit {} components: the smallest training set of a fold and the "
+        log_and_raise("Cannot fit {} components: the smallest calibration part of a fold and the "
                       "{} bands of the recipe's output allow at most {}", a_max, n_variables,
                       limit)
     params = {**hyperparameters, "n_components": given if given else a_max}
@@ -948,14 +948,14 @@ def _resolved_groups(spec: FitSpec, sample_set: SampleSet, rois: dict[str, Train
     if spec.groups:
         problem = fold_groups_problem(spec.groups, spec.group_by, n_rois)
         if problem is not None:
-            log_and_raise("folds/groups of the fit specification cannot be used for sample set "
+            log_and_raise("folds/groups of the fit specification cannot be used for calibration set "
                           "'{}': {}", sample_set.sample_set_id, problem)
         return np.asarray(spec.groups, dtype=np.int64)
     if spec.group_by == "sample":
         labels = [rois[roi_id].sample for roi_id in sample_set.roi_ids if roi_id in rois]
         present = sorted({label for label in labels if label is not None})
         if not present:
-            logger.warning("Folds grouped by sample, but no ROI of sample set '{}' has a sample "
+            logger.warning("Folds grouped by sample, but no ROI of calibration set '{}' has a sample "
                            "label: every ROI is its own group", sample_set.sample_set_id)
         folded: dict[str, list[str]] = {}
         for label in present:
@@ -1067,7 +1067,7 @@ def roi_to_signal_domain(
                                       signal_domain=signal_domain)
     if calibration.dark_ref_data is not None:
         if snapshot is None:
-            log_and_raise("ROI '{}' has no reference snapshot for calibration '{}'", roi.roi_id,
+            log_and_raise("ROI '{}' has no reference snapshot for reference correction '{}'", roi.roi_id,
                           calibration.calibration_id)
         dark, white = snapshot
         if dark.shape != raw_spectra.shape or white.shape != raw_spectra.shape:
@@ -1192,7 +1192,7 @@ def _signal_domain_matrix(
     for roi_id, snapshot in iter_roi_calibration_refs(project_path, data.sample_set.roi_ids):
         roi = rois[roi_id]
         if roi.dataset_id not in datasets or roi.calibration_id not in calibrations:
-            log_and_raise("ROI '{}' references an unknown dataset or calibration", roi_id)
+            log_and_raise("ROI '{}' references an unknown dataset or reference correction", roi_id)
         rows = data.roi_slices[roi_id]
         if snapshot is not None and data.pixel_indices is not None:
             picked = data.pixel_indices[roi_id]  # one reference spectrum per drawn pixel
@@ -1202,7 +1202,7 @@ def _signal_domain_matrix(
             calibration=calibrations[roi.calibration_id], snapshot=snapshot,
             signal_domain=signal_domain, stats=stats)
     if stats.clip_low_count or stats.clip_high_count or stats.near_zero_denominator_count:
-        logger.warning("Training signal-domain conversion of sample set '{}' clipped reflectance "
+        logger.warning("Conversion of calibration set '{}' clipped reflectance "
                        "values (clip_low={}, clip_high={}, near_zero_denominators={})",
                        data.sample_set.sample_set_id, stats.clip_low_count,
                        stats.clip_high_count, stats.near_zero_denominator_count)

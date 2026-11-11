@@ -1,5 +1,58 @@
 # Changelog
 
+## 1.5.0 (2026-11-11)
+
+One vocabulary for the process analytical technology expert: everything a
+person reads follows the new terminology contract
+(`contracts/terminology_v3.md`), decided term by term and reviewed
+independently. US English throughout.
+
+### Breaking
+
+- `Prediction.uncertainty_map(level)` is renamed `Prediction.interval_map(level)`;
+  the old name is removed.
+- Calibration ROIs are stored as `use = calibration` (the default in the
+  API). A missing `use` and the 1.4 name `training` still read as
+  calibration, and re-saving such an ROI is not a change. Passing
+  `use="training"` to the API is refused with the rename. A project with ROIs
+  stored by 1.5 does not open in engiNIR 1.4.
+- Viewer labels, plot titles and the per-ROI CSV columns use the new terms
+  (CSV columns `dataset`, `excluded`, `target_value`); scripts that read
+  exported CSVs by column title must be updated.
+- Library log and error messages use the new terms; scripts that match
+  message texts must be updated.
+
+### Added
+
+- `contracts/terminology_v3.md`: the terms, their definitions, synonyms in
+  SIMCA, The Unscrambler, PLS_Toolbox, ENVI and the standards, the internal
+  names and the words not used.
+- Documentation: a Glossary page.
+- Viewer: the ROI table's **Set** column (Calibration or Prediction, chosen
+  from a drop-down) replaces the Predict checkbox; the Project Browser shows
+  each model's calibration set and input contract beneath it.
+- A test that scans every viewer string for words not used, British
+  spellings and capitalization (title case for buttons and menu items,
+  sentence case for titles).
+
+### Changed
+
+- Terms in the viewer, messages and documentation:
+  - Reference correction (was calibration, for dark/white references and
+    detector levels), Dataset (was data file);
+  - calibration ROIs, Calibration set, calibration range (was training,
+    sample set);
+  - Model (was model run), Input contract (was signal domain);
+  - Target value (was reference value), Raw counts (DN) (was DN);
+  - Scatter correction and Smoothing and derivatives (were Normalisation and
+    Filtering);
+  - Prediction interval (was Uncertainty), excluded pixels (was removed),
+    "above DCrit" or "outside the model" (no "outlier").
+- Metrics name their level: "RMSECV (per ROI)", "RMSECV (per pixel)".
+- Contracts and documentation: US spelling and sentence-case headings.
+- The stored names of the reference correction (`calibrations/`,
+  `calibration_id`, `CalibrationSpec`) keep their names until 2.0.
+
 ## 1.4.0 (2026-11-10)
 
 ### Added

@@ -19,13 +19,13 @@ Transformers expect finite two-dimensional spectral matrices with shape
    from sklearn.pipeline import Pipeline
    from enginir.preprocessing import SNV, SavitzkyGolay, MSC, EMSC, Detrend, Smoother
 
-Scatter Correction
+Scatter correction
 ------------------
 
-Standard Normal Variate (SNV)
+Standard normal variate (SNV)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-SNV centres and scales each spectrum independently:
+SNV center and scales each spectrum independently:
 
 .. math::
 
@@ -37,8 +37,8 @@ No fitting required.
 
    X_snv = SNV().fit_transform(X)
 
-Multiplicative Scatter Correction (MSC)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Multiplicative scatter correction (MSC)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 MSC corrects each spectrum relative to a reference (mean) spectrum
 by fitting :math:`x = a + b \cdot r` and returning
@@ -54,8 +54,8 @@ Pass a custom reference spectrum::
 
    msc = MSC(reference=my_reference)
 
-Extended Multiplicative Scatter Correction (EMSC)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Extended multiplicative scatter correction (EMSC)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 EMSC extends MSC by including polynomial baseline terms, optional known
 interference spectra, and optional wavelength weights in the correction model:
@@ -72,7 +72,7 @@ matrix must have full rank: a reference that is itself a polynomial of degree
 ``<= order``, or interferences collinear with the other terms, are rejected.
 
 The implementation follows the scikit-learn transformer contract: ``fit``
-learns the reference spectrum and design matrix from training spectra, and
+learns the reference spectrum and design matrix from calibration spectra, and
 ``transform`` reuses that fitted state for later spectra. Inputs are validated
 before fitting so malformed correction settings fail early:
 
@@ -97,10 +97,10 @@ before fitting so malformed correction settings fail early:
    emsc = EMSC(reference=reference_spectrum, weights=wavelength_weights)
    X_weighted = emsc.fit_transform(X)
 
-For model validation and prediction, fit EMSC only on the training fold or
+For model validation and prediction, fit EMSC only on the calibration fold or
 calibration set. The easiest safe pattern is to put it inside a
 ``sklearn.pipeline.Pipeline`` so every fold receives its own fitted EMSC state.
-Saved model runs persist the fitted MSC/EMSC training state required for
+Saved models persist the fitted MSC/EMSC calibration state required for
 reopened prediction. Prediction restores that state and never estimates a new
 reference from prediction spectra.
 
@@ -141,7 +141,7 @@ same spectra then has the same bands (SIMCA sets them to missing and leaves
 them out, e.g. 86 of 100 bands for a 15-point window). The interior is the
 same with both settings.
 
-Baseline Correction
+Baseline correction
 -------------------
 
 AsLS
@@ -209,7 +209,7 @@ Two smoothing methods are available:
    X_sm = sm.fit_transform(X)
 
 **Whittaker smoother**: penalised least squares, produces smooth spectra
-without edge artefacts.  Larger ``lam`` gives stronger smoothing::
+without edge artifact.  Larger ``lam`` gives stronger smoothing::
 
    sm = Smoother(method="whittaker", lam=1e4, order=2)
    X_sm = sm.fit_transform(X)
@@ -219,7 +219,7 @@ PreprocessingRecipe
 
 :class:`~enginir.preprocessing.PreprocessingRecipe` captures the full
 preprocessing configuration as a serializable value object. In a project it
-is persisted under ``/recipes/{recipe_id}`` and referenced by sample sets and
+is persisted under ``/recipes/{recipe_id}`` and referenced by calibration sets and
 prediction runs, so model fitting and prediction replay exactly the same
 steps; ROI provenance only keeps a human-readable summary
 (:meth:`~enginir.preprocessing.PreprocessingRecipe.describe`). It can also be

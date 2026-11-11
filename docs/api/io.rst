@@ -91,7 +91,7 @@ save_hdf5
 
 .. autofunction:: enginir.io.save_hdf5
 
-Project Files
+Project files
 -------------
 
 .. automodule:: enginir.io.project_store

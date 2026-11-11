@@ -1,4 +1,4 @@
-# EIFF Binary Format Reference
+# EIFF binary format reference
 
 EIFF (EVK Interchangeable File Format) is a chunk-based container format for
 storing spectral image sequences from HELIOS hyperspectral NIR cameras. It
@@ -7,7 +7,7 @@ to 10 bytes and size fields to 64 bits.
 
 ---
 
-## 1. Fundamental Concepts
+## 1. Fundamental concepts
 
 ### Chunks
 
@@ -24,7 +24,7 @@ There are two kinds of chunks:
 | **Data chunk** | Leaf node. Carries actual data values. |
 | **Group chunk** | Container node. Payload starts with a 10-byte content-type name, followed by child chunks. |
 
-### No Padding
+### No padding
 
 Unlike IFF, EIFF stores data as a **continuous byte stream with no alignment
 padding**. The byte immediately after a chunk's payload is the start of the
@@ -32,7 +32,7 @@ next chunk.
 
 ---
 
-## 2. Identifiers (Chunk Names)
+## 2. Identifiers (chunk names)
 
 All identifiers are **exactly 10 bytes of ASCII**, right-padded with spaces
 (`0x20`), no null terminator:
@@ -45,7 +45,7 @@ All identifiers are **exactly 10 bytes of ASCII**, right-padded with spaces
 - Version field: two spaces (`"  "`) means version 00. Subsequent versions are
   `"01"` through `"99"` (decimal ASCII).
 
-### Reserved Identifiers
+### Reserved identifiers
 
 ```
 FORM          single image container
@@ -58,7 +58,7 @@ PROPINFO      metadata sub-chunk inside PROP groups
 
 ---
 
-## 3. Byte Order
+## 3. Byte order
 
 **Chunk headers** (name + size) use **big-endian** byte order for the 64-bit
 size field.
@@ -72,9 +72,9 @@ size field.
 
 ---
 
-## 4. Binary Layout
+## 4. Binary layout
 
-### 4.1 Data Chunk (leaf)
+### 4.1 Data chunk (leaf)
 
 ```
 Offset  Size   Field       Description
@@ -85,7 +85,7 @@ Offset  Size   Field       Description
 
 **Total chunk size on disk** = 18 + `size` bytes.
 
-### 4.2 Group Chunk (container)
+### 4.2 Group chunk (container)
 
 ```
 Offset  Size   Field         Description
@@ -99,9 +99,9 @@ The `total_size` includes the 10-byte `content_name` and all child bytes.
 
 ---
 
-## 5. File Structure
+## 5. File structure
 
-### 5.1 Multi-Image Stack (typical HELIOS output)
+### 5.1 Multi-image stack (typical HELIOS output)
 
 ```
 LIST                         <- group keyword (10 B)
@@ -140,7 +140,7 @@ SPEHLIOS                     <- content_name (10 B)
   ...                        <- frames 2 through N-1
 ```
 
-### 5.2 PROP Chunk Patterns
+### 5.2 PROP chunk patterns
 
 There are two patterns:
 
@@ -154,7 +154,7 @@ There are two patterns:
 
 ---
 
-## 6. EVK Standard Header (`EVKSTNRD`)
+## 6. EVK standard header (`EVKSTNRD`)
 
 **Payload size:** exactly **54 bytes**
 
@@ -188,9 +188,9 @@ Offset  Size  Type     Field          Description
 
 ---
 
-## 7. Additional PROP Chunks
+## 7. Additional PROP chunks
 
-### 7.1 EVKDVINF (Device Information)
+### 7.1 EVKDVINF (device information)
 
 After decompression, contains a 54-byte binary header followed by
 fixed-length UTF-16LE null-terminated string fields:
@@ -204,7 +204,7 @@ fixed-length UTF-16LE null-terminated string fields:
 | 460 | Manufacturer | Manufacturer name (e.g. "EVK DI Kerschhaggl GmbH") |
 | 526 | Interface | Interface identifier (e.g. "hsi0") |
 
-### 7.2 EVKWAVTB (Wavelength Table)
+### 7.2 EVKWAVTB (wavelength table)
 
 After decompression, contains wavelength calibration data:
 
@@ -221,7 +221,7 @@ To convert to nanometers: `wavelength_nm = value * 0.025`
 
 Typical range for HELIOS SWIR cameras: 991-1677 nm (220 spectral bands).
 
-### 7.3 Other PROP Chunks
+### 7.3 Other PROP chunks
 
 | Chunk | Description |
 |-------|-------------|
@@ -235,7 +235,7 @@ These are present in files but not required for basic spectral data loading.
 
 ## 8. Compression
 
-### 8.1 Compression Envelope
+### 8.1 Compression envelope
 
 All compressed payloads (BODY chunks and PROP data chunks except EVKSTNRD)
 use the same envelope format:
@@ -261,7 +261,7 @@ elif comp_type == 0:
     payload = data[9:]
 ```
 
-### 8.2 Compression Types
+### 8.2 Compression types
 
 | Value | Description | Status |
 |-------|-------------|--------|
@@ -275,7 +275,7 @@ elif comp_type == 0:
 
 ---
 
-## 9. Pixel Data (BODY Chunk)
+## 9. Pixel data (BODY chunk)
 
 ### Layout
 
@@ -305,7 +305,7 @@ frame = np.frombuffer(decompressed_body, dtype='<u2').reshape(height, width)
 
 ---
 
-## 10. Python Loader Output Convention
+## 10. Python loader output convention
 
 The `load_eiff()` function returns a `SpectralData` named tuple:
 
@@ -353,7 +353,7 @@ prediction_map = y_pred.reshape(n_frames, height)  # back to image layout
 
 ---
 
-## 11. Identifier Byte Values (Reference)
+## 11. Identifier byte values (reference)
 
 All 10-byte identifiers, space-padded:
 

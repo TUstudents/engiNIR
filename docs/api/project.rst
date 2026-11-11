@@ -2,8 +2,7 @@ enginir.project
 ===============
 
 The typed objects of a project and their validators: datasets, their
-calibrations, ROIs, targets and values, signal domains, sample sets, model
-runs and prediction runs. :class:`enginir.Project` creates and stores them;
+reference corrections, ROIs, targets and values, input contracts, calibration sets, models and prediction runs. :class:`enginir.Project` creates and stores them;
 use this package directly for advanced work on project files.
 
 .. automodule:: enginir.project
@@ -49,7 +48,7 @@ CalibrationSpec
    :members:
 
 ``CalibrationSpec`` checks on construction that it describes one executable
-calibration. For ``dark_white_reference`` this means exactly one of:
+reference correction. For ``dark_white_reference`` this means exactly one of:
 embedded dark/white arrays or scalar black/white levels.
 
 TrainingROI
@@ -125,8 +124,8 @@ validate_project_relationships
 The validator checks id-based references between first-class project objects
 and logs failures before raising ``ProjectRelationshipError``.
 
-Signal domain
--------------
+Input contract
+--------------
 
 .. automodule:: enginir.project._signal_domain
    :no-members:

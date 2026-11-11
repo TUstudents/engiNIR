@@ -40,7 +40,7 @@ from __future__ import annotations
 import datetime as dt
 import os
 import uuid
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
@@ -247,7 +247,7 @@ def save_calibration_spec(
         with replacement_group(calibrations, calibration_id) as group:
             write_mapping(group, calibration_dict, compression)
         dataset_group.attrs["active_calibration_id"] = calibration_id
-    logger.info("Saved calibration '{}' of dataset '{}' to {}", calibration_id, dataset_id, path)
+    logger.info("Saved reference correction '{}' of dataset '{}' to {}", calibration_id, dataset_id, path)
 
 
 def save_target_definition(
@@ -359,16 +359,17 @@ def save_training_roi(
                       np.shape(declared_wavelengths), n_bands)
     payload = {**roi_dict, "spectra": spectra}
     if (dark_ref_spectra is None) != (white_ref_spectra is None):
-        log_and_raise("ROI calibration references need both dark_ref_spectra and white_ref_spectra")
+        log_and_raise("ROI references need both dark_ref_spectra and white_ref_spectra")
     if dark_ref_spectra is not None and white_ref_spectra is not None:
         dark = np.asarray(dark_ref_spectra, dtype=np.float32)
         white = np.asarray(white_ref_spectra, dtype=np.float32)
         if dark.shape != spectra.shape or white.shape != spectra.shape:
-            log_and_raise("ROI calibration references must have shape {}, got dark={} white={}",
+            log_and_raise("ROI references must have shape {}, got dark={} white={}",
                           spectra.shape, dark.shape, white.shape)
         payload["calibration_refs"] = {"dark": dark, "white": white}
     _save_object(path, "rois", roi_id, payload, "TrainingROI", compression,
-                 mutable_fields=frozenset({"name"}))  # sample, use: only their writers
+                 mutable_fields=frozenset({"name"}),  # sample, use: only their writers
+                 same_content=_same_roi_content)
 
 
 def save_roi_sample(path: PathLike, roi_id: str, sample: str | None) -> None:
@@ -394,22 +395,19 @@ def save_roi_sample(path: PathLike, roi_id: str, sample: str | None) -> None:
 
 
 def save_roi_use(path: PathLike, roi_id: str, use: str) -> None:
-    """Set an ROI's ``use`` (``"training"`` or ``"prediction"``) in place.
+    """Set an ROI's ``use`` (``"calibration"`` or ``"prediction"``) in place.
 
-    The only field written (roi-target contract, ``use``); ``training`` is
-    stored as the absence of the attribute, as ROIs stored before 1.4 read.
+    The only field written (roi-target contract, ``use``); the value is
+    stored explicitly.
     """
-    if use not in ("training", "prediction"):
-        log_and_raise("An ROI's use must be 'training' or 'prediction', got {!r}", use)
+    from enginir.project._models import check_roi_use  # enginir.project imports this module
+
+    use = check_roi_use(use)
     with _open_project(path, writable=True) as f:
         group = f["rois"].get(roi_id)
         if not isinstance(group, h5py.Group):
             log_and_raise("No ROI '{}' in {}", roi_id, path, error=KeyError)
-        if use == "training":
-            if "use" in group.attrs:
-                del group.attrs["use"]
-        else:
-            group.attrs["use"] = use
+        group.attrs["use"] = use
     logger.info("Set the use of ROI '{}' to {!r} in {}", roi_id, use, path)
 
 
@@ -974,6 +972,7 @@ def _save_object(
     *,
     mutable_fields: frozenset[str] = frozenset(),
     child_members: frozenset[str] = frozenset(),
+    same_content: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> None:
     """Validate ``payload`` and write it to ``/{collection}/{object_id}``.
 
@@ -983,7 +982,8 @@ def _save_object(
     Re-saving identical content is a no-op; only ``mutable_fields`` (scalar
     labels) may change, and are updated in place. ``child_members`` are
     written by other functions (e.g. a dataset's calibrations) and are
-    neither compared nor touched.
+    neither compared nor touched. ``same_content`` reduces both sides before
+    the comparison, for values that have several stored forms.
     """
     if label != "PreprocessingRecipe":  # validated by its writer
         _validate_payload(label, f"/{collection}/{object_id}", payload,
@@ -1002,8 +1002,9 @@ def _save_object(
                       if key not in child_members}
             fixed = set(stored) | set(payload)
             fixed -= mutable_fields
-            if not values_equal({k: stored.get(k) for k in fixed},
-                                {k: payload.get(k) for k in fixed}):
+            reduce = same_content or (lambda values: values)
+            if not values_equal(reduce({k: stored.get(k) for k in fixed}),
+                                reduce({k: payload.get(k) for k in fixed})):
                 log_and_raise(
                     "Refusing to overwrite {} '{}' with different content; stable ids are "
                     "immutable, use a new id",
@@ -1013,6 +1014,14 @@ def _save_object(
             for key in mutable_fields & set(payload):
                 existing.attrs[key] = payload[key]
     logger.info("Saved {} '{}' to {}", label, object_id, path)
+
+
+def _same_roi_content(values: dict[str, Any]) -> dict[str, Any]:
+    """An ROI's fields for the identity rule: a missing ``use``, ``training`` and
+    ``calibration`` are the same content (terminology contract)."""
+    from enginir.project._models import same_roi_use  # enginir.project imports this module
+
+    return {**values, "use": same_roi_use(values.get("use"))}
 
 
 def _check_roi_arrays(group: h5py.Group) -> None:

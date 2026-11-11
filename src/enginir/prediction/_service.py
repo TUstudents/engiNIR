@@ -289,7 +289,7 @@ def preflight_prediction(
         If the saved model artifact is missing.
     """
     if signal_domain.signal_domain_id != model_run.signal_domain_id:
-        log_and_raise("Signal domain '{}' is not the one of model run '{}' ('{}')",
+        log_and_raise("Input contract '{}' is not the one of model '{}' ('{}')",
                       signal_domain.signal_domain_id, model_run.model_run_id,
                       model_run.signal_domain_id)
     check_signal_domain_compatibility(dataset=dataset, calibration=calibration,
@@ -322,7 +322,7 @@ def preflight_prediction(
             predictor = None
     if predictor is not None:
         if not hasattr(predictor, "predict"):
-            log_and_raise("In-memory predictor of model run '{}' has no predict()",
+            log_and_raise("In-memory predictor of model '{}' has no predict()",
                           model_run.model_run_id)
         _check_recipe_aware(predictor, steps, model_run.model_run_id)
     else:
@@ -339,7 +339,7 @@ def preflight_prediction(
                     continue
                 n_features = getattr(transformer, "n_features_in_", state_bands)
                 if n_features != state_bands:
-                    log_and_raise("Saved {} state of model run '{}' has {} bands, the recipe "
+                    log_and_raise("Saved {} state of model '{}' has {} bands, the recipe "
                                   "needs {}", name.upper(), model_run.model_run_id, n_features,
                                   state_bands)
     logger.info("Prediction preflight: {} chunks of {} frames, cube shape {}", n_chunks,
@@ -365,12 +365,12 @@ def _check_recipe_aware(predictor: Any, steps: list[tuple[str, Any]], model_run_
         return
     named_steps = getattr(predictor, "named_steps", None)
     if named_steps is None:
-        log_and_raise("In-memory predictor of model run '{}' is not recipe-aware; use a "
+        log_and_raise("In-memory predictor of model '{}' is not recipe-aware; use a "
                       "Pipeline or an adapter that applies the recipe's preprocessing",
                       model_run_id, depth=2)
     missing = [name for name, _ in steps if name not in named_steps]
     if missing:
-        log_and_raise("In-memory pipeline of model run '{}' lacks the recipe step(s) {}",
+        log_and_raise("In-memory pipeline of model '{}' lacks the recipe step(s) {}",
                       model_run_id, missing, depth=2)
 
 
@@ -406,15 +406,15 @@ def _check_model_blob(blob: dict[str, Any], n_bands: int, model_run_id: str) -> 
     """Check that a saved prediction model has coefficients for ``n_bands`` bands."""
     missing = [key for key in ("coef_", "intercept_") if key not in blob]
     if missing:
-        log_and_raise("Saved prediction model of model run '{}' lacks {}", model_run_id,
+        log_and_raise("Saved prediction model of model '{}' lacks {}", model_run_id,
                       missing, depth=2)
     coef_shape = np.shape(blob["coef_"])
     if len(coef_shape) not in (1, 2) or coef_shape[0] != n_bands:
-        log_and_raise("Saved prediction model of model run '{}' has coefficients of shape {} "
+        log_and_raise("Saved prediction model of model '{}' has coefficients of shape {} "
                       "for {} bands", model_run_id, coef_shape, n_bands, depth=2)
     for key in ("x_mean", "x_std"):  # projection data (applicability diagnostics)
         if key in blob and np.size(blob[key]) != n_bands:
-            log_and_raise("Saved prediction model of model run '{}' has {} of {} bands for {} "
+            log_and_raise("Saved prediction model of model '{}' has {} of {} bands for {} "
                           "bands", model_run_id, key, np.size(blob[key]), n_bands, depth=2)
 
 
@@ -906,7 +906,7 @@ class _Progress:
                 indeterminate=self.total <= 0,
             ))
         if check_cancel and self._cancel_callback is not None and self._cancel_callback():
-            logger.info("Prediction cancelled during {}", phase)
+            logger.info("Prediction canceled during {}", phase)
             raise PredictionCancelledError(f"Prediction cancelled during {phase}")
 
 

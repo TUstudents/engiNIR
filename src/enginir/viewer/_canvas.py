@@ -68,7 +68,7 @@ class FalseColourCanvas(QWidget):
         self._gw = pg.PlotWidget()
         plot = self._gw.getPlotItem()
         if not isinstance(plot, PlotItem):
-            log_and_raise("PyQtGraph plot item unavailable for false-colour canvas",
+            log_and_raise("PyQtGraph plot item unavailable for false-color canvas",
                           error=RuntimeError)
         self._plot = plot
         self._plot.setMenuEnabled(False)
@@ -116,7 +116,7 @@ class FalseColourCanvas(QWidget):
         # Connect scene click (after layout so scene exists).
         scene = self._gw.scene()
         if not isinstance(scene, GraphicsScene):
-            log_and_raise("PyQtGraph scene unavailable for false-colour canvas", error=RuntimeError)
+            log_and_raise("PyQtGraph scene unavailable for false-color canvas", error=RuntimeError)
         self._scene = scene
         self._scene.sigMouseClicked.connect(self._on_click)
         self._scene.installEventFilter(self)

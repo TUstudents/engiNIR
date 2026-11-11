@@ -1,4 +1,4 @@
-# Viewer Workspace UI Contract v3
+# Viewer workspace UI contract v3
 
 ## Status
 
@@ -19,7 +19,7 @@ Define the concrete UI contract for the v3 viewer workspace so that:
 This contract exists because the viewer is now a scientific workspace UI, not
 just a generic image shell with extra buttons.
 
-## Core Decisions
+## Core decisions
 
 - the viewer has three first-class workflow workspaces:
   - `Explore`
@@ -34,7 +34,7 @@ just a generic image shell with extra buttons.
 - long-running service actions must never block the UI thread
 - heavy workspace redraws must be scoped to visible surfaces only
 
-## Problem This Contract Solves
+## Problem this contract solves
 
 Without an explicit workspace UI contract, the system cannot answer reliably:
 
@@ -51,7 +51,7 @@ The result is recurring UI ambiguity:
 - missing progress feedback during fitting and prediction
 - project-only vs dataset-attached state being unclear
 
-## Domain Summary
+## Domain summary
 
 The UI is built around five distinct concepts:
 
@@ -62,7 +62,7 @@ The UI is built around five distinct concepts:
 3. `Explore Workspace`
    Dataset inspection, signal selection, preprocessing preview, ROI creation/export.
 4. `Model Workspace`
-   Target selection, sample-set build, signal-domain choice, model fit.
+   Target selection, sample-set build, input-contract choice, model fit.
 5. `Predict Workspace`
    Saved model selection, dataset choice, compatibility-aware prediction.
 
@@ -82,7 +82,7 @@ This contract depends on:
 If those contracts and this document conflict, workflow validity wins over
 legacy UI convenience.
 
-## Top-Level Workspace Model
+## Top-level workspace model
 
 v3 requires exactly three explicit user-visible workspaces:
 
@@ -117,7 +117,7 @@ Rationale:
 - free-form dock arrangements are too weak as the primary contract because they
   do not define task hierarchy
 
-## Global Viewer Context
+## Global viewer context
 
 The following must remain visible in all workspaces:
 
@@ -136,7 +136,7 @@ v3 accepted presentation:
 If the viewer is in project-only mode, that strip must make the missing dataset
 state obvious.
 
-## Global Frame Layout
+## Global frame layout
 
 v3 requires one stable high-level frame shared by all tabs:
 
@@ -151,18 +151,18 @@ This is a behavioral contract, not a pixel-perfect styling rule.
 The user must not need to rediscover the basic window anatomy when switching
 workspaces.
 
-## Project Browser
+## Project browser
 
 v3 requires a persistent project browser in the left column or left sidebar.
 
 Minimum required object groups:
 
 - datasets
-- calibrations
+- reference corrections
 - ROIs
 - targets
-- sample sets
-- model runs
+- calibration sets
+- models
 - prediction runs
 
 Minimum required behavior:
@@ -176,7 +176,7 @@ Forbidden behavior:
 - hiding the project object graph behind modal dialogs only
 - requiring users to remember ids without a persistent object list
 
-## Window Modes
+## Window modes
 
 The UI must reflect the workflow states defined by
 `project-dataset-attachment-contract_v3.md`:
@@ -196,7 +196,7 @@ Forbidden:
 
 Allowed:
 
-- inspect project-owned ROIs, targets, sample sets, model runs, predictions
+- inspect project-owned ROIs, targets, calibration sets, models, predictions
 - navigate across `Explore`, `Model`, and `Predict` workspaces if those views
   are inspection-safe
 
@@ -224,7 +224,7 @@ Required UI behavior:
 
 - all workspace controls may be enabled subject to their own local preconditions
 
-## Identity In The Viewer
+## Identity in the viewer
 
 Stable ids are the only identity of project objects
 (`project-schema-contract_v3.md` §2–3); names are labels. In the viewer, the
@@ -239,22 +239,21 @@ Stable ids are the only identity of project objects
   (`headless-workflow-contract_v3.md`, Names and ids)
 - names are display text and may repeat; the viewer creates and stores ROIs
   whose names repeat other ROIs' names without asking
-- a data file is shown by its file name; when several data files of the
+- a dataset is shown by its file name; when several datasets of the
   project share a file name, each is shown as `file name (folder)`, with the
-  full path as tooltip. This label is used wherever a data file is shown: the
-  data file list, the ROI table, the Project ROIs tab, the fit dialog, the
+  full path as tooltip. This label is used wherever a dataset is shown: the
+  dataset list, the ROI table, the Project ROIs tab, the fit dialog, the
   browser and messages
 - where ROI names may repeat, each ROI is told apart by more than its name:
-  the ROI table shows its data file label, the mosaic groups ROIs by data
-  file, the browser shows the id (data file label as tooltip), the inspector
-  shows id and data file, and Model plots select ROIs by id
+  the ROI table shows its dataset label, the mosaic groups ROIs by dataset, the browser shows the id (dataset label as tooltip), the inspector
+  shows id and dataset, and Model plots select ROIs by id
 - every export of ROI data carries the ROI id next to its name, including
   Explore's ROI spectra export
 
 A test scans `enginir.viewer` and fails on calls of the name-based facade
 functions.
 
-## Workspace Contracts
+## Workspace contracts
 
 Each workspace has:
 
@@ -265,11 +264,11 @@ Each workspace has:
 The goal is not to expose every control everywhere. The goal is to expose the
 right controls and views at the right phase.
 
-## 1. Explore Workspace
+## 1. Explore workspace
 
 Purpose:
 
-- inspect the data files of the project
+- inspect the datasets of the project
 - choose signal/preprocessing/axis settings
 - create and review ROIs, including all ROIs stored in the project
 
@@ -279,10 +278,10 @@ Primary task:
 
 Primary content region, as two tabs:
 
-1. `Data file`: the spatial image of the shown data file, with the ROI
-   rectangles of that data file only
+1. `Data file`: the spatial image of the shown dataset, with the ROI
+   rectangles of that dataset only
 2. `Project ROIs`: all ROIs stored in the project, redrawn from the project
-   file without any data file (the ROI mosaic)
+   file without any dataset (the ROI mosaic)
 
 Secondary content region:
 
@@ -300,30 +299,29 @@ Required visual elements:
 - sensor-frame view
 - spatial profile
 - spectral profile
-- ROI mosaic: one tile per stored ROI, grouped by data file, with name and
+- ROI mosaic: one tile per stored ROI, grouped by dataset, with name and
   current target value; tiles in a compact grid (ROI grid positions, else
   scan order) or at their scan positions; text in mosaic units in reserved
-  room, so it never covers a tile; outlines in the value colour of the ROI
-  mean spectra; contrast stretched over all tiles or per data file
-- ROI mean spectra coloured by the current target value
+  room, so it never covers a tile; outlines in the value color of the ROI
+  mean spectra; contrast stretched over all tiles or per dataset
+- ROI mean spectra colored by the current target value
 - pixel spectra of the selected ROI
 
 Required controls:
 
 - project open/new
-- add data file (with its calibration) and choose the shown data file
+- add dataset (with its reference correction) and choose the shown dataset
 - signal unit selection
 - filtering/preprocessing preview controls
 - axis controls
 - ROI creation, single and as a grid (the grid dialog opens with the Options
   defaults and shows the cells on the image, outside cells in red); both dialogs have a **Prediction only**
-  checkbox that sets the ROIs' `use` and remembers the last choice per data
-  file (user settings); prediction ROIs are marked in the ROI table (a Use
+  checkbox that sets the ROIs' `use` and remembers the last choice per dataset (user settings); prediction ROIs are marked in the ROI table (a Use
   column), the browser, the mosaic (dashed outline) and the ROI spectra
-  (dashed lines, still coloured by value); counts of ROIs with a value name
-  training and prediction ROIs separately
+  (dashed lines, still colored by value); counts of ROIs with a value name
+  calibration and prediction ROIs separately
 - ROI table (sample labels and target values; while the session has per-ROI
-  prediction results, read-only columns per model: mean, SD, % removed,
+  prediction results, read-only columns per model: mean, SD, % excluded,
   % above DCrit, residual, never stored; a header click sorts the rows,
   numbers by value, empty cells last, and an edit never moves its row)
 - ROI export
@@ -331,35 +329,34 @@ Required controls:
 Required behavior:
 
 - a project with ROIs opens on `Project ROIs`; that tab works in project-only
-  mode and with every data file missing
-- the docks that show the data file at the cursor (histogram, DC3/band
+  mode and with every dataset missing
+- the docks that show the dataset at the cursor (histogram, DC3/band
   slice, sensor frame, spatial profile) are shown only in `Data file`; in
   `Project ROIs`, Model and Predict they are hidden, and returning to
   `Data file` restores the ones the user had shown
 - the ROI table is shown with `Project ROIs` (the right dock column alone)
   and not in `Data file`; opened there, it takes the sensor frame's place as
   a tab. The user's choice per tab is kept; Model and Predict leave it as it
-  is. It shows the ROIs of the page (the shown data file in `Data file`, the
-  tab's data file filter in `Project ROIs`, all data files in Model and
+  is. It shows the ROIs of the page (the shown dataset in `Data file`, the
+  tab's dataset filter in `Project ROIs`, all datasets in Model and
   Predict)
 - selecting an ROI in the mosaic, the ROI table, the browser or a Model plot
-  selects it everywhere; opening an ROI from the mosaic shows its data file in
+  selects it everywhere; opening an ROI from the mosaic shows its dataset in
   `Data file` with the ROI highlighted
 - mosaic tiles and ROI spectra load off the UI thread; the first tiles appear
   before all ROIs are read
-- the mosaic and the ROI spectra are plot panels (Plot Panel Policy)
+- the mosaic and the ROI spectra are plot panels (Plot panel policy)
 - the signal selection (DN, Reflectance, Absorbance) shows the signal in use
-  and enables only the signals the shown data file's calibration can give
-  (`dataset-calibration-contract_v3.md`, Signal units of a calibration); a
-  disabled signal says why. A signal the user chose is kept when another data
-  file is shown, as long as that file can give it; otherwise the file's
+  and enables only the signals the shown dataset's reference correction can give
+  (`dataset-calibration-contract_v3.md`, Signal units of a reference correction); a
+  disabled signal says why. A signal the user chose is kept when another dataset is shown, as long as that file can give it; otherwise the file's
   working signal is shown
 
 Required browser emphasis:
 
 - ROIs
 - datasets
-- calibrations
+- reference corrections
 
 Forbidden controls in Explore:
 
@@ -370,17 +367,17 @@ v3 note:
 
 - ROI creation belongs here, not in Modeling
 
-## 2. Model Workspace
+## 2. Model workspace
 
 Purpose:
 
 - define targets
 - assign target values
-- fit models (the fit builds or reuses the sample set)
+- fit models (the fit builds or reuses the calibration set)
 
 Primary task:
 
-- move from labeled ROIs to one validated model run
+- move from labeled ROIs to one validated model
 
 Primary content region:
 
@@ -395,7 +392,7 @@ Secondary content region:
 Required visible information:
 
 - selected target
-- current sample set or `none`
+- current calibration set or `none`
 - current active model or `none`
 - service status for sample-set build / fit
 
@@ -407,34 +404,34 @@ Required controls:
   components (a number, or **Auto** with a rule, the noise guard (on by
   default) and a maximum: `sample-set-model-run-contract_v3.md` §7.4; the
   dialog and the Model readiness line warn, before fitting, when the chosen
-  grouping gives fewer than 7 fold groups or a data file's ROIs share one
-  reference value while they are held out in different folds (the fold
+  grouping gives fewer than 7 fold groups or a dataset's ROIs share one
+  target value while they are held out in different folds (the fold
   warnings of §7.4), cross-validation and which
   ROIs are held out together (each
   ROI, same sample label, same target value;
   `sample-set-model-run-contract_v3.md` §4.1), and a Fitting group: pixels
-  per ROI with seed (at most the smallest training ROI with a value), X and Y scaling
+  per ROI with seed (at most the smallest calibration ROI with a value), X and Y scaling
   (Y for PLS only), and DModX pixel exclusion with level, rounds, the
-  largest share per ROI and unweighted or modelling-power weighted
-  residuals (§7); it builds or reuses the sample set of all training ROIs
-  with a value for the target, from all data files; the counts, fold
-  warnings and readiness consider training ROIs only
+  largest share per ROI and unweighted or modeling-power weighted
+  residuals (§7); it builds or reuses the calibration set of all calibration ROIs
+  with a value for the target, from all datasets; the counts, fold
+  warnings and readiness consider calibration ROIs only
 - **Fit again...** opens the fit dialog with every choice of the selected
   model (target, preprocessing, model, components, scaling, folds, pixel
   sample, exclusion), e.g. to fit with another number of components; the
   stored recipe's AsLS fields and `sg_edges` are kept (the dialog has no
-  controls for them and cannot add AsLS; a recipe with AsLS is labelled
+  controls for them and cannot add AsLS; a recipe with AsLS is labeled
   "AsLS")
 - Savitzky-Golay in the fit dialog and in Explore drops the edge bands
   (`sg_edges = drop`, the default of new recipes); in the Explore preview
   of preprocessed spectra (spectrum, sensor frame, histogram) the dropped
-  bands are missing (blank), so band indices stay those of the data file;
+  bands are missing (blank), so band indices stay those of the dataset;
   the Project ROIs spectra are drawn on the recipe's output axis
 - band selection (engiNIR 1.4): the fit dialog has **Keep**
   and **Exclude** band ranges (`project-schema-contract_v3.md` §4) as
   editable text (`1100-1350, 1500-2300`, in nm, or band numbers without
   wavelengths) and a **Select on plot...** dialog: the mean spectrum of the
-  sample set's ROIs on the recipe's axis after Savitzky-Golay, with the
+  calibration set's ROIs on the recipe's axis after Savitzky-Golay, with the
   selected model's VIP (PLS) or coefficients as a guide when one is
   selected, where dragged regions become keep or exclude ranges. The
   common NIR water bands (1400-1500 and 1900-2000 nm) are offered as
@@ -444,18 +441,18 @@ Required controls:
 - **Propose bands...** (PLS and PCR, engiNIR 1.4) runs the forward iPLS proposal with nested validation
   (`headless-workflow-contract_v3.md`, Band proposal) on the chosen
   target and recipe, with its cost estimate, progress and cancel; it shows
-  the proposed ranges, the RMSECV over the steps, the nested RMSECV and the
-  RMSECV with all bands, and can put the ranges into the fit dialog as keep
+  the proposed ranges, the RMSECV (per ROI) over the steps, the nested RMSECV (per ROI) and the
+  RMSECV (per ROI) with all bands, and can put the ranges into the fit dialog as keep
   ranges. The proposal is not stored
-- the inspector shows how a model run was fitted: folds and fold groups,
+- the inspector shows how a model was fitted: folds and fold groups,
   pixel sample, scaling, exclusion settings, excluded pixels per ROI,
   flagged ROIs and DCrit
 
 Required browser emphasis:
 
 - targets
-- sample sets
-- model runs
+- calibration sets
+- models
 
 Required preconditions surfaced in UI before running:
 
@@ -463,8 +460,8 @@ Required preconditions surfaced in UI before running:
 - at least one ROI
 - selected target
 - enough labeled ROIs for the chosen validation strategy, with the count of
-  labeled ROIs per data file
-- compatible signal-domain/calibration context
+  labeled ROIs per dataset
+- compatible input-contract/reference correction context
 
 Forbidden controls in Model:
 
@@ -477,17 +474,17 @@ v3 note:
 - Explore plots may remain accessible as secondary context, but must not remain
   the dominant visual focus of this workspace
 
-## 3. Predict Workspace
+## 3. Predict workspace
 
 Purpose:
 
-- choose saved model runs, by name
-- choose prediction ROIs (Predict ROIs) or a project data file (Predict map)
+- choose saved models, by name
+- choose prediction ROIs (Predict ROIs) or a project dataset (Predict map)
 - run prediction and read the per-ROI results
 
 Primary task:
 
-- predict the tablets (prediction ROIs) of one or all data files with one or
+- predict the tablets (prediction ROIs) of one or all datasets with one or
   more models, and inspect the per-ROI results and the map
 
 Primary content region:
@@ -496,12 +493,12 @@ Primary content region:
 
 Secondary content region:
 
-- model/dataset/calibration compatibility summary
+- model/dataset/reference correction compatibility summary
 - prediction metadata and run summary
 
 Required visible information:
 
-- active or selected model run
+- active or selected model
 - the latest results of this session or `none`: the per-ROI table of the
   last Predict ROIs and the map of the last Predict map (predictions are
   not stored; earlier stored predictions in a project are not shown)
@@ -510,26 +507,26 @@ Required visible information:
 Required controls:
 
 - **Predict ROIs**: one or more models (by name) on the prediction ROIs of
-  one data file or of all data files (`prediction-runtime-contract_v3.md`,
+  one dataset or of all datasets (`prediction-runtime-contract_v3.md`,
   Prediction ROIs); needs only the project file
-- **Predict map**: one model on one project data file, every pixel, with
+- **Predict map**: one model on one project dataset, every pixel, with
   the per-ROI results of that file's prediction ROIs; a map of a file
   without prediction ROIs drops earlier per-ROI results and says so (map
-  and per-ROI results always describe the same data file). The file list
+  and per-ROI results always describe the same dataset). The file list
   names each file with its whole folder and its number of prediction ROIs
-- the data file is a project data file; **Add data file...** opens the Add
-  data file dialog (calibration chosen there, never reused from training
+- the dataset is a project dataset; **Add dataset...** opens the Add
+  dataset dialog (reference correction chosen there, never reused from calibration
   silently; the dialog shows what the model was trained with). There is no
-  free path, dataset id or calibration field in the prediction dialog
-- the dialog shows the chain read-only, from the model: the data file's
-  calibration, the model's signal unit, its recipe and the model; an
+  free path, dataset id or reference correction field in the prediction dialog
+- the dialog shows the chain read-only, from the model: the dataset's
+  reference correction, the model's signal unit, its recipe and the model; an
   incompatible file is refused before running, with the reason
-- **Remove pixels above the DModX limit** with its level, defaulting to the
+- **Exclude pixels above the DModX limit** with its level, defaulting to the
   model's fit specification, and the resulting DCrit per model; the per-ROI
   results follow without predicting again
-- display settings of the session (not stored): the colour scale (training
+- display settings of the session (not stored): the color scale (calibration
   range, or own low and high limits; the map's ⋯ menu sets the same), ROI
-  outlines and greyed removed pixels on the map, and the histogram's pixels
+  outlines and grayed excluded pixels on the map, and the histogram's pixels
   (the ROI pixels or the whole map)
 - the Controls dock holds the controls and the progress, not the summary's
   status texts
@@ -539,33 +536,33 @@ Required prediction-map interaction:
 - map axes must match the main spatial image orientation: `Frame` on x and
   `Row` on y
 - a color scale/legend must be visible for numeric prediction values; the
-  scale is the target's range in the model's training values, values outside
-  in their own colours, or limits the user sets (Controls dock or ⋯ menu);
-  the colour bar and the CSV record the scale
-- the prediction ROIs of the shown data file are drawn on the map with their
-  mean; with the exclusion on, removed pixels are greyed
+  scale is the target's range in the model's calibration values, values outside
+  in their own colors, or limits the user sets (Controls dock or ⋯ menu);
+  the color bar and the CSV record the scale
+- the prediction ROIs of the shown dataset are drawn on the map with their
+  mean; with the exclusion on, excluded pixels are grayed
 - a per-ROI plot (a plot panel): each ROI's mean with its 5–95 % range,
-  the value at each mean and the reference value when present, ROIs in name
+  the value at each mean and the target value when present, ROIs in name
   order; a ring marks a tablet with a larger share of pixels above DCrit
-  (0.99) than 90 % of the model's training ROIs (like for like; the shares
-  and the removed counts are in the ROI table and the CSV); a bar selects
+  (0.99) than 90 % of the model's calibration ROIs (like for like; the shares
+  and the excluded counts are in the ROI table and the CSV); a bar selects
   its ROI; with several models, one bar per ROI and
-  model, grouped by ROI and coloured by model. Its CSV is the per-ROI table
-  in long format, one row per ROI and model (ROI name and id, data file,
-  model name and id, pixels, removed, mean, median, SD, 5 %, 95 %, mean
-  DModXPS and T²PS, shares above the limits, reference, residual), with the
-  exclusion and its level, and RMSEP, bias and *n* per model, as metadata
+  model, grouped by ROI and colored by model. Its CSV is the per-ROI table
+  in long format, one row per ROI and model (ROI name and id, dataset,
+  model name and id, pixels, excluded, mean, median, SD, 5 %, 95 %, mean
+  DModXPS and T²PS, shares above the limits, target value, residual), with the
+  exclusion and its level, and RMSEP (per ROI), bias and *n* per model, as metadata
 - the pixel histogram shows the kept pixels of the prediction ROIs (all
-  pixels of the map when the data file has no prediction ROI, or when the
+  pixels of the map when the dataset has no prediction ROI, or when the
   user chooses the whole map)
-- the summary has one headline naming what is shown (the data file and the
-  model, never ids) and the groups Prediction ROIs (RMSEP and bias per
+- the summary has one headline naming what is shown (the dataset and the
+  model, never ids) and the groups Prediction ROIs (RMSEP (per ROI) and bias per
   model, refused ROIs), chain, scan and applicability; no group repeats the
   headline, and the per-ROI values are in the ROI table
-- the global status line on Predict names the shown map's data file, the
+- the global status line on Predict names the shown map's dataset, the
   signal and recipe, the model and the target; hovering a map pixel shows
   its true frame and row, the prediction (and whether it is outside the
-  colour scale), DModXPS against DCrit and the removal limit, T²PS and the
+  color scale), DModXPS against DCrit and the removal limit, T²PS and the
   prediction ROI under it; hovering a tablet in the per-ROI plot shows its
   values
 - multi-output prediction artifacts must expose an explicit target/output
@@ -573,10 +570,10 @@ Required prediction-map interaction:
 - a layer selector shows the prediction, the distance to the model (DModXPS)
   or Hotelling T² (T²PS); on these two the pixels above the 0.99 limit are
   marked and the share above is shown (`prediction-runtime-contract_v3.md`,
-  Applicability Diagnostics)
+  Applicability diagnostics)
 - an Uncertainty layer shows the ± half-width of each pixel's 0.95
   prediction interval (`prediction-runtime-contract_v3.md`, Prediction
-  Intervals) with its own colour scale over the shown half-widths; pixels without an interval
+  Intervals) with its own color scale over the shown half-widths; pixels without an interval
   are drawn as outside the model, and the summary gives the median
   half-width and the share without an interval. The layer is offered only
   when the model has the interval inputs (otherwise the reason is shown).
@@ -585,9 +582,9 @@ Required prediction-map interaction:
   shown (library only)
 - the Predict workspace writes nothing to the project: predictions and
   per-ROI results are not stored; the plot panels export them. A scan to
-  predict is a project data file the user added beforehand
+  predict is a project dataset the user added beforehand
 - pan and zoom must be available for the prediction map
-- the map is a plot panel (see Plot Panel Policy). Its CSV export is the
+- the map is a plot panel (see Plot panel policy). Its CSV export is the
   displayed output as a matrix, with one CSV row per map row and one column
   per frame.
 - a subsampled preview labels its axes, hover readout and CSV with the true
@@ -605,18 +602,18 @@ Recommended prediction-map interaction:
 
 Required browser emphasis:
 
-- model runs
+- models
 - prediction runs
 - datasets
 
 Required preconditions surfaced in UI before running:
 
 - project open
-- at least one model run
-- compatible dataset/calibration/signal-domain contract
+- at least one model
+- compatible dataset/reference correction/input contract
 - supported prediction output dtype
 - recipe-aware predictor or saved artifact path capable of replaying the recipe
-- persisted training-side preprocessing state when the recipe contains `MSC`,
+- persisted calibration-side preprocessing state when the recipe contains `MSC`,
   `EMSC`, or future stateful transforms
 - explicit output selection when a model emits multiple prediction targets
 
@@ -626,7 +623,7 @@ Forbidden controls in Predict:
 - target assignment editing
 - model fit controls
 
-## Plot And Diagram Policy
+## Plot and diagram policy
 
 v3 requires that the visible scientific panels match the active workspace.
 
@@ -662,7 +659,7 @@ Minimum acceptable v3 state:
 Must prioritize:
 
 - prediction status
-- model/dataset/calibration context
+- model/dataset/reference correction context
 - prediction result visualization
 
 Minimum acceptable v3 state:
@@ -671,7 +668,7 @@ Minimum acceptable v3 state:
   give visual priority to prediction-related summaries and statuses over
   Explore plots
 
-## Plot Panel Policy
+## Plot panel policy
 
 This section applies to every scientific plot in the viewer. That includes the
 Explore plots and the spatial image, the Model diagnostics, the prediction map,
@@ -738,7 +735,7 @@ Required behavior:
 ### Layout
 
 - In `Model` and `Predict`, the primary content region is a fixed grid of plot
-  panels. The grid may be organised in named pages, shown as sub-tabs inside
+  panels. The grid may be organized in named pages, shown as sub-tabs inside
   the workspace.
 - Panels snap into the slots their page defines. Free-floating plot windows
   are not the layout model, and the top-level tabs remain the primary
@@ -749,7 +746,7 @@ Required behavior:
   the user settings, never in the project file, and `Reset layout` restores
   the defaults.
 - A maximized dock and the active page are not stored: a dock maximize is
-  transient, and a new model run opens the `Fit` page.
+  transient, and a new model opens the `Fit` page.
 
 ### Redraw
 
@@ -769,11 +766,11 @@ A new plot is added as a plot-panel definition. It must provide:
 
 A test that iterates over all registered plots verifies this.
 
-## Long-Running Service Contract
+## Long-running service contract
 
 The following actions are long-running service actions in v3:
 
-- fit model (including building its sample set)
+- fit model (including building its calibration set)
 - run prediction
 
 Required behavior:
@@ -828,7 +825,7 @@ v3 performance rules for long-running actions:
 - repeated status refreshes should be coalesced rather than redrawing the same
   workspace page immediately for every signal
 
-## Action Availability Contract
+## Action availability contract
 
 Each workspace must expose only actions that are valid in the current window mode.
 
@@ -843,7 +840,7 @@ Forbidden invariant:
 - a clearly invalid action remaining fully enabled and failing only after a long
   backend path
 
-## Preflight Visibility Contract
+## Preflight visibility contract
 
 Before launching a long-running action, the UI must surface the relevant
 readiness state in the active workspace.
@@ -852,11 +849,11 @@ Examples:
 
 - number of labeled ROIs for the selected target
 - whether the selected validation strategy is possible
-- whether the chosen calibration can satisfy the requested signal unit
-- whether a model run exists and is compatible for prediction
+- whether the chosen reference correction can satisfy the requested signal unit
+- whether a model exists and is compatible for prediction
 - whether prediction can replay the preprocessing recipe before a worker is
   launched
-- whether the selected calibration will clip reflectance values, after the run
+- whether the selected reference correction will clip reflectance values, after the run
   has enough data to report counts
 
 v3 rule:
@@ -865,9 +862,9 @@ v3 rule:
 - it must not be hidden only in backend exceptions or logs
 - preflight-detectable prediction failures must be shown before job submission,
   including bare-estimator predictors, unsupported dtypes, missing stateful
-  preprocessing state, and executable dataset/calibration/model incompatibilities
+  preprocessing state, and executable dataset/reference correction/model incompatibilities
 
-## Redraw And Visibility Contract
+## Redraw and visibility contract
 
 v3 requires explicit redraw discipline for heavy UI surfaces.
 
@@ -895,7 +892,7 @@ Forbidden behavior:
 - recomputing hidden Explore plots on every frame/row/band/unit change
 - forcing full-figure redraws for identical payloads
 
-## Navigation Contract
+## Navigation contract
 
 Switching workspaces must preserve:
 
@@ -907,10 +904,10 @@ Switching workspaces must preserve:
 
 Switching workspaces must not:
 
-- implicitly create datasets, calibrations, ROIs, sample sets, models, or predictions
+- implicitly create datasets, reference corrections, ROIs, calibration sets, models, or predictions
 - silently reset the current scientific context
 
-## Simplicity Principle
+## Simplicity principle
 
 v3 favors progressive disclosure over maximal simultaneous visibility.
 
@@ -925,7 +922,7 @@ Therefore:
 - secondary panels are allowed
 - “everything visible at once” is not a valid success criterion
 
-## v3 Minimum Acceptance Criteria
+## v3 minimum acceptance criteria
 
 The UI satisfies this contract only if all of the following are true:
 
@@ -936,11 +933,11 @@ The UI satisfies this contract only if all of the following are true:
 - project-only vs dataset-attached state is visible
 - dataset-derived actions are disabled or blocked before invalid execution
 - fitting and prediction show non-blocking in-progress feedback
-- prediction preflight blocks recipe/predictor/dtype/source/calibration
+- prediction preflight blocks recipe/predictor/dtype/source/reference correction
   incompatibilities before launching a long-running job
 - multi-output prediction maps require an explicit output selection and never
   silently show only the first output
-- prediction run summaries surface calibration clipping telemetry when clipping
+- prediction run summaries surface reference correction clipping telemetry when clipping
   occurred
 - the global status strip remains visible across all workspaces
 - Explore, Model, and Predict controls are not collapsed into one
@@ -949,7 +946,7 @@ The UI satisfies this contract only if all of the following are true:
 - every scientific plot is a plot panel that can be maximized and restored and
   exported as PNG, SVG and CSV, with the CSV provenance header
 
-## Out Of Scope For v3
+## Out of scope for v3
 
 - final visual styling/theme decisions
 - exact typography and iconography

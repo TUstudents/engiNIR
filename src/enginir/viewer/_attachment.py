@@ -61,15 +61,15 @@ def confirm_project_dataset_binding(
     )
     result = QMessageBox.warning(
         parent,
-        "Data file changed",
-        f"'{os.path.basename(dataset_path)}' no longer matches the data file registered in "
+        "Dataset file changed",
+        f"'{os.path.basename(dataset_path)}' no longer matches the dataset registered in "
         "this project, so its ROIs may not line up with the image.\n"
         "Open anyway?\n\n" + "\n".join(f"- {detail}" for detail in mismatches),
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
     )
     logger.info(
         "Project dataset binding {} for {}",
-        "overridden by user" if result == QMessageBox.StandardButton.Yes else "cancelled by user",
+        "overridden by user" if result == QMessageBox.StandardButton.Yes else "canceled by user",
         dataset_path,
     )
     return result == QMessageBox.StandardButton.Yes

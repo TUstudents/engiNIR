@@ -7,7 +7,7 @@ built for pharmaceutical process analytics. This is the documentation of
 engiNIR |release|.
 
 It reads EVK EIFF, ENVI, HDF5, CSV/Excel, SPC, SPA and JCAMP-DX data;
-calibrates raw counts with dark and white references or detector levels;
+corrects raw counts with dark and white references or detector levels;
 preprocesses with Savitzky-Golay, SNV, MSC, EMSC, detrending, AsLS baseline
 correction and band selection; fits PLS and PCR models cross-validated by
 region of interest, with the number of components chosen by a rule if you
@@ -43,7 +43,7 @@ reproduced and traced to its data (:doc:`user_guide/workflows`):
    model = project.fit("API content", recipe=PreprocessingRecipe(snv=True),
                        n_components="auto")
    prediction = model.predict("new_scan.eiff")
-   prediction.map, prediction.uncertainty_map()   # values and 95 % intervals per pixel
+   prediction.map, prediction.interval_map()   # values and 95 % intervals per pixel
 
 **Function mode** uses the building blocks directly on arrays, as
 scikit-learn estimators:
@@ -58,7 +58,7 @@ scikit-learn estimators:
    from enginir.validation import cross_validate, metrics_report
 
    X, wavelengths, meta = load_spectra("spectra.csv")
-   y = ...  # measured reference values, one per spectrum
+   y = ...  # measured target values, one per spectrum
 
    model = make_pipeline(SavitzkyGolay(window_length=11, polyorder=2, deriv=1),
                          SNV(), PLSRegression(n_components=6))
@@ -72,6 +72,7 @@ scikit-learn estimators:
 
    user_guide/installation
    user_guide/workflows
+   glossary
 
 .. toctree::
    :maxdepth: 1
