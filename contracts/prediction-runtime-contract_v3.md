@@ -30,7 +30,7 @@ This contract complements:
   - input-contract compatibility
   - prediction dataset reuse and override rules
 - `sample-set-model-run-contract_v3.md`
-  - model-run input-contract and preprocessing semantics
+  - model input-contract and preprocessing semantics
 - `project-schema-contract_v3.md`
   - persisted prediction-run layout and disk-backed artifact rules
 - `viewer-workspace-ui-contract_v3.md`
@@ -143,8 +143,8 @@ warning with the largest difference and records it in the result
 summary). It never refuses or changes the prediction
 - `output_signal_unit`, `required_signal_unit`, and related enum strings must be
   compared after canonical normalization
-- if flat spectra are supplied without an explicit `spatial_shape`, reference correction
-  reference alignment must infer shape from `DatasetRef.cube_shape` when that
+- if flat spectra are supplied without an explicit `spatial_shape`, the alignment of
+  the dark/white references must infer shape from `DatasetRef.cube_shape` when that
   metadata is available
 
 v3 dtype rule:
@@ -227,8 +227,8 @@ Required behavior:
   - one chunk of model outputs
   - small model/reference correction/preprocessing metadata
 - the result maps are 2-D `float32` arrays held in memory (one value per
-  pixel and layer: prediction, DModXPS, T²PS; each the size of one band of
-  the scan)
+  pixel and layer: prediction, DModXPS, T²PS; each frames × rows, the size
+  of one band image of the scan)
 - the applicability diagnostics are computed from the preprocessed chunk in
   row blocks of at most 4096 spectra, in `float64` (scaled spectra,
   residuals and scores of one block); no further chunk-sized copy is held
@@ -315,7 +315,8 @@ Allowed `phase` values:
 
 - `preflight`
 - `loading`
-- `calibrating`
+- `calibrating` (applying the reference correction; shown as "Reference
+  correction")
 - `preprocessing`
 - `predicting`
 - `writing`
@@ -408,7 +409,7 @@ kind, and says so):
 - s for pixels: the metric `pixel_rmsee`, √(RSS / (N − A − 1)) over the
   fitted pixels; s for means: the metric `rmsee`, √(RSS / (R − A − 1)) over
   the ROI means of the fitted values (`sample-set-model-run-contract_v3.md`
-  §5, §7.5). RMSEE (per ROI) is a fit error, as in ASTM E1655; the coverage metrics
+  §5, §7.5). RMSEE (per ROI and per pixel) is a fit error, as in ASTM E1655; the coverage metrics
   (§5 of that contract) say how well it holds on held-out data. A run whose
   ROI means are not all fitted (R′ < R, e.g. every pixel of a ROI excluded
   by DModX) can have a NaN `rmsee` and then has no mean interval
@@ -509,7 +510,7 @@ Per ROI and model, over its pixels:
   (mean residual), with their number *n*
 
 **Pixel exclusion by DModX** (optional): pixels whose DModXPS is strictly
-above the limit at a chosen level are removed. The limit is
+above the limit at a chosen level are excluded. The limit is
 `dmodx_limit(n_train, K, A, level, centred=True)` with the run's stored
 `n_train`, *K* the band count on the model's axis (after a band selection)
 and *A* its components; at 0.99 it is the stored DCrit. DModXPS is
@@ -675,7 +676,7 @@ Required behavior:
   display
 - a layer selector shows the prediction, DModXPS or T²PS; on the diagnostics
   layers the pixels above the 0.99 limit are marked and their share is shown
-- with the interval inputs, an Uncertainty layer shows the pixel
+- with the interval inputs, a Prediction interval layer shows the pixel
   half-width at 0.95 (Prediction intervals); pixels without an interval are
   marked as outside the model, and the median half-width and the share
   without an interval are shown
@@ -720,7 +721,7 @@ Runtime tests must cover:
 - a registered scan reuses its stored active reference correction read-only; a new
   scan gets an in-memory reference correction
 - signal-unit comparisons are case-normalized
-- reference correction reference alignment can infer spatial shape from
+- the alignment of the dark/white references can infer spatial shape from
   `DatasetRef.cube_shape` for flattened inputs
 - saved-artifact prediction is not blocked by model artifact wavelength metadata
   when band count/source/reference correction/recipe checks pass

@@ -5,7 +5,7 @@
 - Version: `v3`
 - Status: active contract for engiNIR 1.0; v3 is the default and only supported project schema
 - Scope: the Qt-free public API surface for project-backed scientific
-  workflows — creation, persistence, hydration, sample building, model
+  workflows — creation, persistence, hydration, calibration-set building, model
   fitting, and prediction from scripts and Jupyter notebooks
 
 ## Goal
@@ -208,7 +208,7 @@ and writes nothing they would reject.
 - the RMSECV (per ROI) of every candidate uses the run's fold scheme (`fit_spec`
   folds and fold groups, ROI-grouped; `sample-set-model-run-contract_v3.md`
   §4.1) on ROI means, with stateful preprocessing fitted inside the folds,
-  like a fit; the pixel sample of `fit_spec` is applied once before the
+  like a fit; the pixel subsample of `fit_spec` is applied once before the
   search; no DModX exclusion is used in the search, the outer refits or
   `all_bands_rmsecv`, so `all_bands_rmsecv` can differ from a run's RMSECV (per ROI).
   `propose_bands` refuses fewer than 3 fold groups
@@ -254,7 +254,8 @@ and writes nothing they would reject.
   persisted form (`project-schema-contract_v3.md` §4), where an absent
   `sg_edges` means `interp`, an absent `asls` means no AsLS and absent
   `bands_keep`/`bands_exclude` select every band
-- `fit` names a model `"{model} {n} LV, {recipe summary}"` (e.g.
+- `fit` names a model `"{model} {n} LV, {recipe summary}"` for PLS and
+  `"{model} {n} PC, {recipe summary}"` for PCR (e.g.
   `"PLS 2 LV, SNV"`; the summary names AsLS, marks a Savitzky-Golay
   filter that keeps its edges and ends with `bands` when a band selection
   is set) unless `name` is given, adding ` (2)`, ` (3)`, … when the

@@ -92,7 +92,7 @@ class SampleSetData:
     roi_slices : dict
         ``{roi_id: slice}`` with the rows of every ROI.
     pixel_indices : dict or None
-        For a pixel sample, ``{roi_id: indices}`` of the drawn pixels in each
+        For a pixel subsample, ``{roi_id: indices}`` of the drawn pixels in each
         ROI's stored spectra (and reference snapshot); ``None`` for all pixels.
     """
 
@@ -437,9 +437,9 @@ def fit_model_run(
         Refused together with a ``fit_spec`` that sets the folds.
     fit_spec:
         The fit specification (:class:`~enginir.project.FitSpec` or its
-        mapping): fold rule, pixel sample and exclusion
+        mapping): fold rule, pixel subsample and exclusion
         (``sample-set-model-run-contract_v3.md`` §7). The stored run gets the
-        complete specification with the checksum of its pixel sample.
+        complete specification with the checksum of its pixel subsample.
         Folds follow the order of the ROIs in the sample set and the pixel
         sample depends only on the seed and the ROI spectra, so repeating
         the analysis gives the same folds and metrics.

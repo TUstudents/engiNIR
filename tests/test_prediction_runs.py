@@ -998,7 +998,7 @@ def test_predict_with_model_run_cancels_between_chunks_and_discards_artifacts(tm
     def cancel_after_first_chunk() -> bool:
         return any(event.phase == "predicting" and event.completed >= 1 for event in events)
 
-    with pytest.raises(PredictionCancelledError, match="cancelled"):
+    with pytest.raises(PredictionCancelledError, match="canceled"):
         predict_with_model_run(
             project_path=context.project_path,
             model_run=context.model_run,
@@ -1637,6 +1637,27 @@ def test_every_chunk_reports_the_phases_in_order(tmp_path, qapp):
     assert [event.phase for event in events] == [
         "preflight", *per_chunk, *per_chunk, "finalizing", "finalizing"
     ]
+
+
+def test_progress_text_calls_the_reference_correction_by_its_name(tmp_path, qapp):
+    # Terminology contract: "calibration" means building a model, never the
+    # reference correction; the phase id `calibrating` is internal.
+    from enginir.viewer._prediction import _phase_label
+
+    X = np.ones((2, 2, 3), dtype=np.float32) * 10.0
+    context, spectral_data, dataset, calibration = _second_review_setup(tmp_path, "words", X)
+    events: list[PredictionProgressEvent] = []
+    predict_with_model_run(
+        project_path=context.project_path, model_run=context.model_run,
+        signal_domain=context.signal_domain, recipe=context.recipe, dataset=dataset,
+        calibration=calibration, model_registry={context.model_run.model_run_id: _SumPredictor()},
+        spectral_data=spectral_data, preprocessing_recipe_id=context.preprocessing_recipe_id,
+        chunk_size=1, progress_callback=events.append,
+    )
+
+    shown = [f"{_phase_label(event.phase)} {event.message}" for event in events]
+    assert not [text for text in shown if "calibrat" in text.lower()]
+    assert any(text.startswith("Reference correction") for text in shown)
 
 
 def test_flat_spectra_with_per_sensor_references_chunk_like_one_shot(tmp_path, qapp):

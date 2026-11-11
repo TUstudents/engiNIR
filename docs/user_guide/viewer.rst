@@ -221,7 +221,7 @@ Model shows the selected model and its diagnostics:
   there are at most 12 distinct values, as for levels 1, 4, 7, 10), and the
   calibration scores of the first two latent variables with Hotelling T²
   ellipses at 0.95 (dotted) and 0.99 (dashed); one point per ROI, the mean of
-  the pixels the model was fitted on (the drawn pixels with a pixel sample,
+  the pixels the model was fitted on (the drawn pixels with a pixel subsample,
   without the excluded ones). There are two pairs of ellipses, named in the
   legend. The gray **pixel** ellipses are the limits for single calibration
   pixels; an ROI mean averages thousands of pixels and sits well inside
@@ -357,10 +357,10 @@ unusual spectra: a tablet with a larger share of pixels above the DModX limit
 columns per model while there are results: mean, SD, % excluded, % above
 DCrit and residual (read-only, not stored); click a header to sort the
 tablets, for example by predicted value. Its CSV is the per-ROI table: ROI, dataset, model, pixels, excluded pixels, mean, median,
-SD, 5 % and 95 %, mean DModX and T², shares above the limits, reference and
+SD, 5 % and 95 %, mean DModXPS and T²PS, shares above the limits, target value and
 residual, with RMSEP (per ROI) and bias per model.
 
-**Exclude pixels above the DModX limit** (with its level) leaves glare,
+**Exclude pixels above the DModXPS limit** (with its level) leaves glare,
 exposed substrate and direct reflections out of every ROI statistic; the
 statistics are recalculated at once, without predicting again. It starts as
 the model was fitted: on at its level for a model fitted with DModX
@@ -390,9 +390,9 @@ their mean; with the pixel exclusion on, excluded pixels are grayed. **Map** in
 the Controls dock turns the outlines and the graying off. Hovering the map
 shows the pixel in the status line at the bottom of the window: its frame and
 row, the prediction (and whether it is outside the color scale) with its
-95 % interval, DModX against DCrit (and whether the pixel is excluded), T²
+95 % interval, DModXPS against DCrit (and whether the pixel is excluded), T²PS
 and the prediction ROI under it. Hovering a tablet in the per-ROI plot shows its values there. The map header has the **Layer** selector (the
-prediction, **DModX** and **T²**, with the pixels above the 0.99 limits
+prediction, **DModXPS** and **T²PS**, with the pixels above the 0.99 limits
 marked, and **Prediction interval**, the ± half-width of each pixel's 95 %
 prediction interval with the pixels outside the model, which have none,
 marked; see :ref:`prediction-intervals`), the output selector (models with several targets), **Pan**,

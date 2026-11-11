@@ -159,7 +159,7 @@ def test_more_folds_than_rois_hold_out_one_roi_each(tmp_path):
     assert (model.ref.cv_spec["type"], model.ref.cv_spec["n_splits"]) == ("RoundRobinGroups", 4)
 
 
-# -- pixel sample ----------------------------------------------------------------------
+# -- pixel subsample ----------------------------------------------------------------------
 
 
 def test_the_fit_draws_the_pixels_of_the_simca_reference_table(tmp_path):
@@ -244,7 +244,7 @@ def test_a_refit_reports_a_different_pixel_sample(tmp_path):
         f[f"/model_runs/{model.ref.model_run_id}/fit_spec/pixels"].attrs["checksum"] = "0" * 64
     changed = Project.open(project.path).model(model_run_id=model.ref.model_run_id)
     _refitted, warnings = _warnings_during(changed.refit)
-    assert any("different pixel sample" in w for w in warnings)
+    assert any("different pixel subsample" in w for w in warnings)
 
 
 # -- scaling of X and Y ------------------------------------------------------------------

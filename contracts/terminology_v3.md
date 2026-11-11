@@ -211,6 +211,13 @@ same quantity), and the words it replaces.
 : The unit cross-validation holds out together: by ROI (default), by sample
   label, or by target value ("Fold groups: by sample").
 
+**Pixel subsample**
+: The pixels a fit draws from every ROI: the same number from each, chosen
+  by a seed, so that every ROI weighs the same
+  (`sample-set-model-run-contract_v3.md` §7.1). Without one, a fit uses
+  every pixel.
+: Replaces: "pixel sample" ("sample" is the physical sample only).
+
 **Model**
 : One fitted model with its id, never overwritten; its name describes it
   ("PLS 7 LV, SNV").
@@ -239,9 +246,12 @@ same quantity), and the words it replaces.
 
 **DModX**, **DCrit**
 : The normalized distance of a spectrum to the model (its residual, scaled
-  by the calibration residual s0) and its critical limit; DModXPS for
-  predicted spectra where the distinction matters. Tooltips and the first
-  mention on a page say "distance to the model".
+  by the calibration residual s0) and its critical limit. *DModX* is the
+  distance of a calibration spectrum (the fit and the Model workspace);
+  *DModXPS* the distance of a predicted spectrum, always (the Predict
+  workspace, prediction results and their exports), so the two are never
+  taken for each other. Tooltips and the first mention on a page say
+  "distance to the model".
 : Elsewhere: SIMCA *DModX*, *DModXPS*, *DCrit* (the formulas follow SIMCA);
   *related*: PLS_Toolbox *Q residuals*, The Unscrambler *F-residuals*
   (different scaling and limits).
@@ -249,9 +259,10 @@ same quantity), and the words it replaces.
 **Hotelling's T²**, **T²**, **T²Crit**
 : The distance of a spectrum within the model plane and its critical limit.
   "Hotelling's T²" in titles and first mentions, "T²" in compact labels;
-  tooltips say "distance within the model".
+  tooltips say "distance within the model". *T²PS* is the T² of a predicted
+  spectrum, always, as DModXPS.
 : Elsewhere: the same name in SIMCA, The Unscrambler and PLS_Toolbox.
-  *Related*: leverage, h = 1/N + T²/(N − 1).
+  *Related*: leverage (see Prediction interval).
 
 **Above DCrit**, **above T²Crit**, **outside the model**
 : A pixel or ROI whose DModX or T² exceeds the 0.99 limit is "above DCrit"
@@ -268,10 +279,15 @@ same quantity), and the words it replaces.
 : Replaces: "removed".
 
 **Prediction interval**
-: ŷ ± q · s · √(1 + h), the leverage formula as in ASTM E1655
-  (`prediction-runtime-contract_v3.md`, Prediction intervals); shown as "±"
-  with its level ("Prediction interval (±, 95 %)"). API
-  `prediction.interval_map(level)`.
+: ŷ ± q · s · √(1 + h), the leverage formula of ASTM E1655 with the R
+  calibration ROIs as the independent samples
+  (`prediction-runtime-contract_v3.md`, Prediction intervals): for a pixel
+  h = 1/R + T²PS/(R − 1); for the mean of a prediction ROI
+  h̄ = 1/R′ + d²/(R′ − 1), with d² the Mahalanobis distance of its mean
+  scores from the calibration ROIs' mean scores. The standard's leverage
+  over N calibration spectra, h = 1/N + T²/(N − 1), would vanish for the
+  pixels of an image. Shown as "±" with its level ("Prediction interval
+  (±, 95 %)"). API `prediction.interval_map(level)`.
 : Elsewhere: SIMCA *YPredPS confidence interval* (jack-knifed, a different
   number); The Unscrambler *Y-deviation* (a different estimate).
 : Replaces: "uncertainty".
@@ -328,6 +344,7 @@ Renamed in 1.5.0:
 | reference value (for a target value) | Target value |
 | outlier | above DCrit, above T²Crit, outside the model |
 | removed (pixels) | excluded |
+| pixel sample | pixel subsample |
 | a metric without its level ("RMSECV" alone) | "RMSECV (per ROI)", "RMSECV (per pixel)" |
 | British spellings (colour, normalise, analyse, centre, behaviour) | US spellings |
 

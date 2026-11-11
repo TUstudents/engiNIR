@@ -330,7 +330,7 @@ class Project:
         Parameters
         ----------
         target, recipe, model, fit_spec, **hyperparameters:
-            As for :meth:`fit`; the folds, fold groups, pixel sample and
+            As for :meth:`fit`; the folds, fold groups, pixel subsample and
             component rule of ``fit_spec`` are used (no DModX exclusion).
             Without a number of components the rule chooses it.
         n_intervals:
@@ -770,18 +770,17 @@ class Project:
     def _model_name(self, run: ModelRun) -> str:
         if run.name:
             return run.name
-        n = run.hyperparameters.get("n_components")
-        return f"{run.model_type} {n} LV" if n is not None else run.model_type
+        return _model_size_label(run.model_type, run.hyperparameters.get("n_components"))
 
     def default_model_name(self, model_run: ModelRun,
                            recipe: PreprocessingRecipe | None = None) -> str:
-        """A free name like ``"PLS 2 LV, SNV"`` for a model run of a stored sample set."""
+        """A free name like ``"PLS 2 LV, SNV"`` (``"PCR 5 PC, SNV"``) for a model of a stored calibration set."""
         if recipe is None:
             ws = self.workspace
             recipe = PreprocessingRecipe.from_dict(
                 ws.recipes[ws.sample_sets[model_run.sample_set_id].preprocessing_recipe_id])
-        n = model_run.hyperparameters.get("n_components")
-        base = f"{model_run.model_type}{f' {n} LV' if n is not None else ''}, {_recipe_label(recipe)}"
+        size = _model_size_label(model_run.model_type, model_run.hyperparameters.get("n_components"))
+        base = f"{size}, {_recipe_label(recipe)}"
         taken = {self._model_name(run) for run in self.workspace.model_runs.values()}
         name, index = base, 2
         while name in taken:
@@ -1008,9 +1007,9 @@ class Model:
         signal domain, model type, hyperparameters and fit specification
         (for a model stored without one, its legacy specification), not the
         ROIs that have values now. Folds depend only on the sample set and
-        the pixel sample only on the seed and the ROI spectra, so unchanged
+        the pixel subsample only on the seed and the ROI spectra, so unchanged
         data give the same metrics; reference values changed since the fit
-        and a different pixel sample are reported. Refused when an ROI of the
+        and a different pixel subsample are reported. Refused when an ROI of the
         sample set was deleted.
 
         Parameters
@@ -1051,7 +1050,7 @@ class Model:
             self._warn_on_exclusion_drift(result.model_run)
         drawn = result.model_run.fit_specification.checksum
         if spec.checksum and drawn != spec.checksum:
-            logger.warning("Refit of '{}' drew a different pixel sample than the model was "
+            logger.warning("Refit of '{}' drew a different pixel subsample than the model was "
                            "fitted on (checksum {} instead of {}): the stored spectra of an ROI "
                            "changed", self.name, drawn[:12], spec.checksum[:12])
         run = replace(result.model_run,
@@ -1827,6 +1826,14 @@ def _recipe_id(recipe: PreprocessingRecipe) -> str:
     """An id derived from the recipe's content, so identical recipes are stored once."""
     text = json.dumps(recipe.to_dict(), sort_keys=True)
     return "recipe_" + hashlib.sha256(text.encode()).hexdigest()[:12]
+
+
+def _model_size_label(model_type: str, n_components: object) -> str:
+    """``"PLS 7 LV"`` or ``"PCR 5 PC"`` (terminology contract, LV, PC); the type alone without a size."""
+    if n_components is None:
+        return model_type
+    unit = "PC" if model_type == "PCR" else "LV"
+    return f"{model_type} {n_components} {unit}"
 
 
 def _recipe_label(recipe: PreprocessingRecipe) -> str:

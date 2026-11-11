@@ -194,7 +194,7 @@ def _table_pred_vs_ref(payload: Any) -> PlotTable:
     y_true, y_pred = pairs
     unit = _unit(payload)
     return PlotTable(columns=(*_roi_columns(payload, y_true.size),
-                              PlotColumn("reference", y_true, unit),
+                              PlotColumn("target_value", y_true, unit),
                               PlotColumn("predicted_cv", y_pred, unit)),
                      metadata={"level": "per ROI (ROI means)",
                                "r2": f"{r2_score(y_true, y_pred):.6g}",
@@ -226,9 +226,9 @@ def _table_residuals(payload: Any) -> PlotTable:
     y_true, y_pred = pairs
     unit = _unit(payload)
     return PlotTable(columns=(*_roi_columns(payload, y_true.size),
-                              PlotColumn("reference", y_true, unit),
+                              PlotColumn("target_value", y_true, unit),
                               PlotColumn("residual", y_pred - y_true, unit)),
-                     metadata={"residual": "predicted_cv - reference"})
+                     metadata={"residual": "predicted_cv - target_value"})
 
 
 def _render_target_distribution(fig: Figure, payload: Any, colors: Mapping[str, str]
@@ -339,9 +339,9 @@ def _table_scores(payload: Any) -> PlotTable:
     if pairs is None or scores is None:
         return PlotTable()
     return PlotTable(columns=(*_roi_columns(payload, scores.shape[0]),
-                              PlotColumn("lv1_training_score", scores[:, 0]),
-                              PlotColumn("lv2_training_score", scores[:, 1]),
-                              PlotColumn("reference", pairs[0], _unit(payload))),
+                              PlotColumn("lv1_calibration_score", scores[:, 0]),
+                              PlotColumn("lv2_calibration_score", scores[:, 1]),
+                              PlotColumn("target_value", pairs[0], _unit(payload))),
                      metadata={"scores": "ROI mean of the calibration pixel scores"})
 
 
@@ -593,7 +593,7 @@ def _render_r2_pixels(fig: Figure, payload: Any, colors: Mapping[str, str]) -> N
         if key in curve:
             ax.plot(a, curve[key], linestyle=style, marker="o", markersize=3, color=color,
                     label=label)
-    ax.text(0.97, 0.05, "single pixels are noisy:\nR²Y per pixel stays below per ROI",
+    ax.text(0.97, 0.05, "single pixels are noisy:\nR²Y per pixel stays below the ROI value",
             transform=ax.transAxes, ha="right", va="bottom", fontsize=7, color=colors["fg"])
     ax.set_xticks(a)
     _legend(ax, colors, loc="center right")

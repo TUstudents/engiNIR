@@ -368,7 +368,7 @@ def test_the_inspector_summarises_how_a_run_was_fitted(tmp_path):
     lines = fit_summary(model.ref, names, exclusion)
     assert lines[0] == "Folds: round-robin, 7 folds; held out together: each ROI"
     assert lines[1] == "Pixels: 10 per ROI (seed 3)"
-    assert lines[2] == "Scaling: X centre, Y unit variance"
+    assert lines[2] == "Scaling: X center, Y unit variance"
     assert lines[3].startswith("Pixel exclusion: DModX (weighted), level 0.51, 1 round(s), "
                                "at most 10% per ROI;")
     excluded = model.excluded_pixels

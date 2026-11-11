@@ -220,7 +220,7 @@ only when set:
   data without wavelengths, the band numbers of the dataset, i.e. the
   input index 0 … K − 1, so dropping edges does not renumber). A band is
   selected when it lies in a keep range (or no keep list is given) and in
-  no exclude range. λ is the axis value as stored (float32 for a input contract) converted to float64; a band lies in a range when
+  no exclude range. λ is the axis value as stored (float32 for an input contract) converted to float64; a band lies in a range when
   low − τ ≤ λ ≤ high + τ, with τ = 10⁻³ times the smallest band spacing of
   the axis (10⁻⁶ for a single band), so a typed bound equal to a stored
   float32 wavelength matches it. Normalized before the id is computed,
@@ -327,7 +327,7 @@ Explicit exceptions, each already governed by its own contract rule:
   staged prediction group as part of the lifecycle status contract; the
   one-shot prediction writer is immutable like other objects
 - `DatasetRef.source_path`: the path is a location, not identity. It may be
-  updated after `Locate file...` has verified the file against the dataset
+  updated after `Locate File...` has verified the file against the dataset
   and against the stored raw pixels of its ROIs
   (`project-dataset-attachment-contract_v3.md`, Missing and moved files)
 - `TargetAssignment` removal: deleting the assignment of a `(roi_id,
@@ -368,7 +368,7 @@ v3 identity rule:
 - `TargetAssignment.roi_id -> TrainingROI.roi_id`
 - `TargetAssignment.target_id -> TargetDefinition.target_id`
 
-### Sample-set relationships
+### Calibration-set relationships
 
 - `SampleSet.roi_ids -> TrainingROI.roi_id[]`
 - `SampleSet.target_id -> TargetDefinition.target_id`
@@ -381,7 +381,7 @@ v3 coverage invariant:
   resolves in the project; validation rejects a calibration set whose live ROI
   references a dataset missing from `dataset_ids`
 
-### Model-run relationships
+### Model relationships
 
 - `ModelRun.sample_set_id -> SampleSet.sample_set_id`
 - `ModelRun.signal_domain_id -> SignalDomainContract.signal_domain_id`
@@ -539,7 +539,7 @@ project.h5
 |   +-- bands_keep, bands_exclude (optional float64 (n, 2) datasets, §4)
 |
 +-- /signal_domains/{signal_domain_id}/
-|   +-- signal-domain fields / attrs
+|   +-- input-contract fields / attrs
 |
 +-- /sample_sets/{sample_set_id}/
 |   +-- @target_id
@@ -638,9 +638,9 @@ v3 requirement:
 
 - the schema must not depend on a single `@y_value` stored directly on each ROI as the core target model
 
-### 4. Explicit sample-set semantics
+### 4. Explicit calibration-set semantics
 
-Sample-set semantics must be stored directly.
+Calibration-set semantics must be stored directly.
 
 v3 requirement:
 
@@ -859,7 +859,7 @@ Resolved for v3:
   predictions or register predicted scans as datasets
   (`prediction-runtime-contract_v3.md`, Result handling)
 - `fit_spec` persists what was requested: fold rule and fold groups (with
-  the group index of every ROI as used), pixel sample (count, seed,
+  the group index of every ROI as used), pixel subsample (count, seed,
   checksum) and DModX exclusion
   (`sample-set-model-run-contract_v3.md` §7); a run without it is a legacy
   run with the defined legacy specification

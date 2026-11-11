@@ -60,7 +60,7 @@ class FitSpec:
     pixels_per_roi : int or None
         Pixels drawn from every ROI; ``None`` uses all pixels.
     seed : int
-        Seed of the pixel sample, ``0 <= seed < 2**63``.
+        Seed of the pixel subsample, ``0 <= seed < 2**63``.
     checksum : str
         SHA-256 (hex) of the drawn pixels, set by the fit; ``""`` before the
         fit and for all pixels.

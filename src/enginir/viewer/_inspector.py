@@ -25,7 +25,13 @@ _FOLD_RULES = {"round_robin": "round-robin, {n} folds", "leave_one_group_out": "
                "group_kfold": "GroupKFold, {n} folds (before 1.2)"}
 _GROUPS = {"roi": "each ROI", "sample": "ROIs with the same Sample label",
            "target": "ROIs with the same target value"}
-_SCALINGS = {"center": "centre", "uv": "unit variance", "pareto": "Pareto"}
+_SCALINGS = {"center": "center", "uv": "unit variance", "pareto": "Pareto"}
+#: What a calibration set was fitted on (terminology contract, Pixel: "Fitted on: ...").
+_FITTED_ON = {"pixel": "pixels", "roi_mean": "ROI means"}
+#: Reference correction modes as people say them (terminology contract, Reference correction).
+_CORRECTION_MODES = {"raw_dn": "none (raw counts)",
+                     "dark_white_reference": "dark/white references or detector levels",
+                     "precalibrated_import": "already corrected"}
 
 
 def fit_summary(model_run: ModelRun, roi_names: dict[str, str],
@@ -46,7 +52,7 @@ def fit_summary(model_run: ModelRun, roi_names: dict[str, str],
         if "y_scaling" in hyper:
             scaling += f", Y {_SCALINGS.get(str(hyper['y_scaling']), hyper['y_scaling'])}"
     else:
-        scaling = "unit variance (before 1.2)" if hyper.get("scale", True) else "centre"
+        scaling = "unit variance (before 1.2)" if hyper.get("scale", True) else "center"
     lines.append(f"Scaling: {scaling}")
     if spec.exclusion == "none":
         lines.append("Pixel exclusion: none")
@@ -208,7 +214,7 @@ class ProjectInspector(QWidget):
                 [
                     f"ID: {calibration.calibration_id}",
                     f"Dataset: {calibration.dataset_id}",
-                    f"Mode: {calibration.mode}",
+                    f"Mode: {_CORRECTION_MODES.get(calibration.mode, calibration.mode)}",
                     f"Output unit: {calibration.output_signal_unit}",
                     f"Has dark context: {calibration.dark_ref_source is not None or calibration.dark_ref_data is not None or calibration.black_level is not None}",
                     f"Has white context: {calibration.white_ref_source is not None or calibration.white_ref_data is not None or calibration.white_level is not None}",
@@ -288,7 +294,7 @@ class ProjectInspector(QWidget):
                     f"Preprocessing recipe: {sample_set.preprocessing_recipe_id}",
                     f"Datasets: {', '.join(sample_set.dataset_ids)}",
                     f"ROIs: {len(sample_set.roi_ids)}",
-                    f"Fitted on: {sample_set.observation_unit}",
+                    f"Fitted on: {_FITTED_ON.get(sample_set.observation_unit, sample_set.observation_unit)}",
                     f"Validation unit: {sample_set.validation_unit}",
                 ]
             )
@@ -306,7 +312,7 @@ class ProjectInspector(QWidget):
                     f"ID: {signal_domain.signal_domain_id}",
                     f"Input: {signal_domain.input_format} | {signal_domain.source_modality}",
                     f"Signal unit: {signal_domain.required_signal_unit}",
-                    f"Reference correction: {signal_domain.required_calibration_mode}",
+                    f"Reference correction: {_CORRECTION_MODES.get(signal_domain.required_calibration_mode, signal_domain.required_calibration_mode)}",
                     f"Requires refs: dark={signal_domain.requires_dark_ref}, white={signal_domain.requires_white_ref}",
                     f"Corrected input allowed: {signal_domain.calibrated_input_allowed}",
                     f"Bands: {signal_domain.n_bands}",
@@ -365,7 +371,8 @@ class ProjectInspector(QWidget):
         lines = [
             "Not stored: predictions live in this session only.",
             f"Dataset file: {result.dataset.source_path}",
-            f"Reference correction: {result.calibration.mode} -> {result.calibration.output_signal_unit}",
+            f"Reference correction: {_CORRECTION_MODES.get(result.calibration.mode, result.calibration.mode)}"
+            f" -> {result.calibration.output_signal_unit}",
             f"Model: {model_run.name if model_run is not None and model_run.name else run.model_run_id}",
             f"Spatial map: {map_shape}",
         ]

@@ -57,6 +57,16 @@ from ._ui_helpers import LayoutState, maybe_tight_layout, style_axes
 logger = get_logger(__name__)
 
 
+#: Shown names of prediction phases whose id is not a term (terminology contract:
+#: the ``calibrating`` phase applies the reference correction).
+_PHASE_LABELS = {"calibrating": "Reference correction"}
+
+
+def _phase_label(phase: str) -> str:
+    """The user-visible name of a prediction progress phase."""
+    return _PHASE_LABELS.get(phase, phase.replace("_", " ").capitalize())
+
+
 def _array_payload_fingerprint(value: Any) -> tuple[Any, ...]:
     """Return a stable-enough cache token for array-like prediction payloads."""
     if value is None:
@@ -118,11 +128,11 @@ _MAP_PREVIEW_PIXELS = 512 * 512
 
 #: Map layers of the Predict workspace; the diagnostics come with the saved model's
 #: projection data (prediction-runtime contract, Applicability diagnostics).
-MAP_LAYERS = ("Prediction", "DModX", "T²", "Prediction interval")
-_LAYER_LIMITS = {"DModX": ("dcrit_099", "n_above_dcrit", "share_above_dcrit", "DCrit"),
-                 "T²": ("t2_crit_099", "n_above_t2crit", "share_above_t2crit", "T²Crit")}
+MAP_LAYERS = ("Prediction", "DModXPS", "T²PS", "Prediction interval")
+_LAYER_LIMITS = {"DModXPS": ("dcrit_099", "n_above_dcrit", "share_above_dcrit", "DCrit"),
+                 "T²PS": ("t2_crit_099", "n_above_t2crit", "share_above_t2crit", "T²Crit")}
 _NO_DIAGNOSTICS = ("No {} map: this model has no projection data (fitted before engiNIR 1.3). "
-                   "Refit it to get the DModX and T² maps.")
+                   "Refit it to get the DModXPS and T²PS maps.")
 _NO_INTERVAL = ("No prediction interval map: this model has no prediction-interval inputs "
                 "(a PLS or PCR model with one target, its RMSEE (per pixel) and at least "
                 "A + 2 calibration ROIs).")
@@ -172,7 +182,7 @@ def _map_previews(result: PredictionResult) -> dict[str, Any]:
         return {}
     full = tuple(int(n) for n in spatial_map.shape[:2])
     step = _preview_step(full, _MAP_PREVIEW_PIXELS)
-    layers = {"DModX": result.diagnostic_map(result.dmodx), "T²": result.diagnostic_map(result.t2),
+    layers = {"DModXPS": result.diagnostic_map(result.dmodx), "T²PS": result.diagnostic_map(result.t2),
               "Prediction interval": result.diagnostic_map(result.half_width(INTERVAL_LEVEL))}
     return {"spatial_map": np.ascontiguousarray(spatial_map[::step, ::step, ...]),
             "layers": {name: np.ascontiguousarray(values[::step, ::step])
@@ -187,9 +197,9 @@ class PredictionMapWidget(QWidget):
     A :class:`~enginir.viewer._plot_panel.PlotSource`: the viewer shows it in a
     plot frame and puts :meth:`header_widgets` (layer and output selectors,
     pan, zoom, reset view) into the frame header. The layer is the prediction
-    or one of the applicability diagnostics (DModX, T²), whose pixels above
+    or one of the applicability diagnostics (DModXPS, T²PS), whose pixels above
     the 0.99 limit are overlaid, or the half-width of the 95 % prediction
-    interval (Uncertainty; pixels outside the model marked). Large maps are shown as a subsampled
+    interval (Prediction interval; pixels outside the model marked). Large maps are shown as a subsampled
     preview; the axes, the hover readout and the CSV use the true frame and
     row of each shown pixel (``map_step`` in the payload).
     """
@@ -227,7 +237,7 @@ class PredictionMapWidget(QWidget):
         self._layer_combo = QComboBox()
         self._layer_combo.addItems(list(MAP_LAYERS))
         self._layer_combo.setToolTip("Map layer: the prediction; the distance to the model "
-                                     "(DModX) or within it (T²) with the pixels above the "
+                                     "(DModXPS) or within it (T²PS) with the pixels above the "
                                      "0.99 limit marked; or the ± half-width of the 95 % "
                                      "prediction interval, none outside the model")
         self._layer_combo.currentIndexChanged.connect(self._on_output_changed)
@@ -376,7 +386,7 @@ class PredictionMapWidget(QWidget):
             extent=extent, vmin=None if limits is None else float(limits[0]),
             vmax=None if limits is None else float(limits[1]))
         removed_limit = payload.get("removed_limit")
-        dmodx = (payload.get("layers") or {}).get("DModX")
+        dmodx = (payload.get("layers") or {}).get("DModXPS")
         if layer == "Prediction" and removed_limit is not None and dmodx is not None \
                 and payload.get("grey_removed", True):
             removed = self._display_spatial_map(dmodx)
@@ -626,20 +636,20 @@ class PredictionMapWidget(QWidget):
                                                output_index=output_index)
         if prediction is not None and prediction.shape == shape:
             layers["Prediction"] = prediction
-        for name in ("DModX", "T²", "Prediction interval"):
+        for name in ("DModXPS", "T²PS", "Prediction interval"):
             values = (payload.get("layers") or {}).get(name)
             shown = None if values is None else self._display_spatial_map(values)
             if shown is not None and shown.shape == shape:
                 layers[name] = shown
         limits = self.user_limits or payload.get("colour_range")
         return {"layers": layers, "limits": limits,
-                "dcrit": self._layer_limit(payload, "DModX"),
+                "dcrit": self._layer_limit(payload, "DModXPS"),
                 "removed": payload.get("removed_limit"),
                 "rois": [(entry[0], entry[2] if len(entry) > 2 else str(entry[1]).split()[0])
                          for entry in payload.get("roi_overlays") or ()]}
 
     def describe_pixel(self, frame: int, row: int) -> str:
-        """``Frame f | Row r | Prediction 6.12 | DModX 1.8 (DCrit 1.4: removed) | T² 3.2 |
+        """``Frame f | Row r | Prediction 6.12 | DModXPS 1.8 (DCrit 1.4: excluded) | T²PS 3.2 |
         ROI 03`` for the shown pixel at a true frame and row (``""`` outside the map)."""
         layers = self._hover.get("layers") or {}
         shown_row, shown_column = row // self._step, frame // self._step
@@ -667,9 +677,9 @@ class PredictionMapWidget(QWidget):
                 parts[-1] += f" {text}" if np.isfinite(half) else f", {text}"
             else:
                 parts.append(text)
-        if "DModX" in layers:
-            value = float(layers["DModX"][shown_row, shown_column])
-            text = f"DModX {value:.3g}"
+        if "DModXPS" in layers:
+            value = float(layers["DModXPS"][shown_row, shown_column])
+            text = f"DModXPS {value:.3g}"
             dcrit, removed = self._hover.get("dcrit"), self._hover.get("removed")
             notes = []
             if dcrit is not None:
@@ -678,8 +688,8 @@ class PredictionMapWidget(QWidget):
                 notes.append(f"exclusion limit {removed:.3g}"
                              + (": excluded" if value > removed else ""))
             parts.append(text + (f" ({', '.join(notes)})" if notes else ""))
-        if "T²" in layers:
-            parts.append(f"T² {float(layers['T²'][shown_row, shown_column]):.3g}")
+        if "T²PS" in layers:
+            parts.append(f"T²PS {float(layers['T²PS'][shown_row, shown_column]):.3g}")
         for (f0, f1, r0, r1), name in self._hover.get("rois") or ():
             if f0 <= frame <= f1 and r0 <= row <= r1:
                 parts.append(f"ROI {name}")
@@ -889,7 +899,7 @@ class PredictionView(QWidget):
         layout.addLayout(button_row)
 
         exclusion_row = QHBoxLayout()
-        self._exclusion_check = QCheckBox("Exclude pixels above the DModX limit")
+        self._exclusion_check = QCheckBox("Exclude pixels above the DModXPS limit")
         self._exclusion_check.setToolTip(
             "Leave pixels outside the model (glare, exposed substrate, direct reflections) "
             "out of every ROI statistic; recalculated without predicting again")
@@ -905,7 +915,7 @@ class PredictionView(QWidget):
         exclusion_row.addWidget(self._exclusion_level)
         self._dcrit_label = QLabel("")
         self._dcrit_label.setStyleSheet(secondary_text_style())
-        self._dcrit_label.setToolTip("The DModX limit at this level, per model: pixels above "
+        self._dcrit_label.setToolTip("The DModXPS limit at this level, per model: pixels above "
                                      "it are excluded")
         exclusion_row.addWidget(self._dcrit_label)
         exclusion_row.addStretch(1)
@@ -942,7 +952,7 @@ class PredictionView(QWidget):
         self._show_outlines = QCheckBox("ROI outlines")
         self._show_outlines.setToolTip("Outline the prediction ROIs on the map, with their mean")
         self._grey_removed = QCheckBox("Gray excluded pixels")
-        self._grey_removed.setToolTip("Gray the pixels above the DModX limit when pixels are "
+        self._grey_removed.setToolTip("Gray the pixels above the DModXPS limit when pixels are "
                                       "excluded")
         for check in (self._show_outlines, self._grey_removed):
             check.setChecked(True)
@@ -1012,7 +1022,7 @@ class PredictionView(QWidget):
         self.display_changed.emit()
 
     def _update_dcrit_label(self) -> None:
-        """The DModX limit at the chosen level, per model (empty without results)."""
+        """The DModXPS limit at the chosen level, per model (empty without results)."""
         level = self._exclusion_level.value()
         limits = [(p.model_name, p.dmodx_limit_at(level)) for p in self._roi_predictions]
         limits = [(name, limit) for name, limit in limits if limit is not None]
@@ -1148,7 +1158,7 @@ class PredictionView(QWidget):
         self._exclusion_check.setToolTip(
             self._exclusion_check.toolTip() if has_projection
             else "This model has no projection data (fitted before 1.3): refit it to exclude "
-                 "pixels by DModX")
+                 "pixels by DModXPS")
         for widget in (self._exclusion_check, self._exclusion_level):
             widget.blockSignals(False)
         self._recompute_roi_results()
@@ -1287,7 +1297,7 @@ class PredictionView(QWidget):
     def histogram_payload(self, shown: dict[str, Any] | None) -> dict[str, Any] | None:
         """The histogram's payload: per model the kept pixels of the prediction ROIs (the
         pixels behind the per-ROI statistics), or ``shown`` (the shown map) without ROI
-        results. Follows the DModX exclusion; the same object while nothing changed."""
+        results. Follows the DModXPS exclusion; the same object while nothing changed."""
         token = (self._results_revision, self._display_revision, id(shown))
         if self._histogram_cache is not None and self._histogram_cache[0] == token:
             return self._histogram_cache[1]
@@ -1425,7 +1435,7 @@ class PredictionView(QWidget):
                 self._set_roi_predictions([], scope="")
                 self._roi_note = (
                     f"No prediction ROIs on {state.data_file_label(dataset_id)}: mark its "
-                    "tablets (Project ROIs, Predict column or Prediction only) and predict "
+                    "tablets (Set column of the ROI table, or Prediction only) and predict "
                     "again.")
                 self._recompute_roi_results()
 
@@ -1668,7 +1678,7 @@ class PredictionView(QWidget):
         """Shares above the 0.99 limits and the mean prediction within and outside them."""
         summary = result.diagnostics
         if not summary:
-            return "none (refit the model to get DModX and T² maps)"
+            return "none (refit the model to get DModXPS and T²PS maps)"
         parts = []
         for key, share, name in (("dcrit_099", "share_above_dcrit", "DCrit"),
                                  ("t2_crit_099", "share_above_t2crit", "T²Crit")):
@@ -1720,7 +1730,7 @@ class PredictionView(QWidget):
         if not isinstance(event, PredictionProgressEvent):
             return
         self._last_prediction_phase = event.phase
-        phase = event.phase.replace("_", " ").title()
+        phase = _phase_label(event.phase)
         if event.total > 0 and not event.indeterminate:
             text = f"Service: {phase} {event.completed}/{event.total} {event.unit}".rstrip()
         elif event.total > 0:
@@ -1738,12 +1748,12 @@ class PredictionView(QWidget):
             self._last_prediction_phase or "unknown",
             message,
         )
-        if "cancelled" in message.lower():
+        if "canceled" in message.lower():
             self._service_status.set_idle("Service: prediction canceled")
             self._update_status()
             return
         if self._last_prediction_phase:
-            phase = self._last_prediction_phase.replace("_", " ").title()
+            phase = _phase_label(self._last_prediction_phase)
             self._service_status.set_idle(f"Service: failed during {phase}")
         else:
             self._service_status.set_idle("Service: idle")

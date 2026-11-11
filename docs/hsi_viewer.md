@@ -295,7 +295,7 @@ Its primary center content is a diagnostics-first model page showing:
 
 - fit summary cards for active target, selected/default calibration set, active
   model, components, CV, ROI count, pixel count, `R²`, `RMSECV`, and bias
-- the `Fit` page: `Predicted vs Reference` (with `R²`, `RMSECV` and bias),
+- the `Fit` page: `Predicted vs target value` (with `R²`, `RMSECV` and bias, per ROI),
   `Residuals`, `Target Distribution` and `Training Scores (LV1 vs LV2)`
 - the `Spectral` page: `Regression Coefficients` and `Latent Loadings (LV1)`
 

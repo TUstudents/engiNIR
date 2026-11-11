@@ -62,7 +62,7 @@ The UI is built around five distinct concepts:
 3. `Explore Workspace`
    Dataset inspection, signal selection, preprocessing preview, ROI creation/export.
 4. `Model Workspace`
-   Target selection, sample-set build, input-contract choice, model fit.
+   Target selection, calibration-set build, input-contract choice, model fit.
 5. `Predict Workspace`
    Saved model selection, dataset choice, compatibility-aware prediction.
 
@@ -278,14 +278,14 @@ Primary task:
 
 Primary content region, as two tabs:
 
-1. `Data file`: the spatial image of the shown dataset, with the ROI
+1. `Dataset`: the spatial image of the shown dataset, with the ROI
    rectangles of that dataset only
 2. `Project ROIs`: all ROIs stored in the project, redrawn from the project
    file without any dataset (the ROI mosaic)
 
 Secondary content region:
 
-- in `Data file`: sensor frame, spectral profile, spatial profile, histogram,
+- in `Dataset`: sensor frame, spectral profile, spatial profile, histogram,
   DC3 / band slice
 - in `Project ROIs`: the mean spectra of the shown ROIs and the pixel spectra
   of the selected ROI, both in the current signal unit and preprocessing
@@ -312,11 +312,11 @@ Required controls:
 - project open/new
 - add dataset (with its reference correction) and choose the shown dataset
 - signal unit selection
-- filtering/preprocessing preview controls
+- preprocessing preview controls
 - axis controls
 - ROI creation, single and as a grid (the grid dialog opens with the Options
   defaults and shows the cells on the image, outside cells in red); both dialogs have a **Prediction only**
-  checkbox that sets the ROIs' `use` and remembers the last choice per dataset (user settings); prediction ROIs are marked in the ROI table (a Use
+  checkbox that sets the ROIs' `use` and remembers the last choice per dataset (user settings); prediction ROIs are marked in the ROI table (the Set
   column), the browser, the mosaic (dashed outline) and the ROI spectra
   (dashed lines, still colored by value); counts of ROIs with a value name
   calibration and prediction ROIs separately
@@ -331,22 +331,22 @@ Required behavior:
 - a project with ROIs opens on `Project ROIs`; that tab works in project-only
   mode and with every dataset missing
 - the docks that show the dataset at the cursor (histogram, DC3/band
-  slice, sensor frame, spatial profile) are shown only in `Data file`; in
+  slice, sensor frame, spatial profile) are shown only in `Dataset`; in
   `Project ROIs`, Model and Predict they are hidden, and returning to
-  `Data file` restores the ones the user had shown
+  `Dataset` restores the ones the user had shown
 - the ROI table is shown with `Project ROIs` (the right dock column alone)
-  and not in `Data file`; opened there, it takes the sensor frame's place as
+  and not in `Dataset`; opened there, it takes the sensor frame's place as
   a tab. The user's choice per tab is kept; Model and Predict leave it as it
-  is. It shows the ROIs of the page (the shown dataset in `Data file`, the
+  is. It shows the ROIs of the page (the shown dataset in `Dataset`, the
   tab's dataset filter in `Project ROIs`, all datasets in Model and
   Predict)
 - selecting an ROI in the mosaic, the ROI table, the browser or a Model plot
   selects it everywhere; opening an ROI from the mosaic shows its dataset in
-  `Data file` with the ROI highlighted
+  `Dataset` with the ROI highlighted
 - mosaic tiles and ROI spectra load off the UI thread; the first tiles appear
   before all ROIs are read
 - the mosaic and the ROI spectra are plot panels (Plot panel policy)
-- the signal selection (DN, Reflectance, Absorbance) shows the signal in use
+- the signal selection (Raw counts (DN), Reflectance, Absorbance) shows the signal in use
   and enables only the signals the shown dataset's reference correction can give
   (`dataset-calibration-contract_v3.md`, Signal units of a reference correction); a
   disabled signal says why. A signal the user chose is kept when another dataset is shown, as long as that file can give it; otherwise the file's
@@ -386,7 +386,7 @@ Primary content region:
 Secondary content region:
 
 - target coverage
-- sample-set summary
+- calibration-set summary
 - retained ROI context
 
 Required visible information:
@@ -394,7 +394,7 @@ Required visible information:
 - selected target
 - current calibration set or `none`
 - current active model or `none`
-- service status for sample-set build / fit
+- service status for the fit (with its calibration-set build)
 
 Required controls:
 
@@ -430,7 +430,7 @@ Required controls:
 - band selection (engiNIR 1.4): the fit dialog has **Keep**
   and **Exclude** band ranges (`project-schema-contract_v3.md` §4) as
   editable text (`1100-1350, 1500-2300`, in nm, or band numbers without
-  wavelengths) and a **Select on plot...** dialog: the mean spectrum of the
+  wavelengths) and a **Select on Plot...** dialog: the mean spectrum of the
   calibration set's ROIs on the recipe's axis after Savitzky-Golay, with the
   selected model's VIP (PLS) or coefficients as a guide when one is
   selected, where dragged regions become keep or exclude ranges. The
@@ -445,7 +445,7 @@ Required controls:
   RMSECV (per ROI) with all bands, and can put the ranges into the fit dialog as keep
   ranges. The proposal is not stored
 - the inspector shows how a model was fitted: folds and fold groups,
-  pixel sample, scaling, exclusion settings, excluded pixels per ROI,
+  pixel subsample, scaling, exclusion settings, excluded pixels per ROI,
   flagged ROIs and DCrit
 
 Required browser emphasis:
@@ -514,14 +514,15 @@ Required controls:
   without prediction ROIs drops earlier per-ROI results and says so (map
   and per-ROI results always describe the same dataset). The file list
   names each file with its whole folder and its number of prediction ROIs
-- the dataset is a project dataset; **Add dataset...** opens the Add
-  dataset dialog (reference correction chosen there, never reused from calibration
-  silently; the dialog shows what the model was trained with). There is no
+- the dataset is a project dataset; **Add Dataset...** opens the Add
+  dataset dialog (reference correction chosen there, never copied silently
+  from the calibration datasets; the dialog shows the reference correction
+  the model was fitted with). There is no
   free path, dataset id or reference correction field in the prediction dialog
 - the dialog shows the chain read-only, from the model: the dataset's
   reference correction, the model's signal unit, its recipe and the model; an
   incompatible file is refused before running, with the reason
-- **Exclude pixels above the DModX limit** with its level, defaulting to the
+- **Exclude pixels above the DModXPS limit** with its level, defaulting to the
   model's fit specification, and the resulting DCrit per model; the per-ROI
   results follow without predicting again
 - display settings of the session (not stored): the color scale (calibration
@@ -562,7 +563,7 @@ Required prediction-map interaction:
 - the global status line on Predict names the shown map's dataset, the
   signal and recipe, the model and the target; hovering a map pixel shows
   its true frame and row, the prediction (and whether it is outside the
-  color scale), DModXPS against DCrit and the removal limit, T²PS and the
+  color scale), DModXPS against DCrit and the exclusion limit, T²PS and the
   prediction ROI under it; hovering a tablet in the per-ROI plot shows its
   values
 - multi-output prediction artifacts must expose an explicit target/output
@@ -571,7 +572,7 @@ Required prediction-map interaction:
   or Hotelling T² (T²PS); on these two the pixels above the 0.99 limit are
   marked and the share above is shown (`prediction-runtime-contract_v3.md`,
   Applicability diagnostics)
-- an Uncertainty layer shows the ± half-width of each pixel's 0.95
+- a Prediction interval layer shows the ± half-width of each pixel's 0.95
   prediction interval (`prediction-runtime-contract_v3.md`, Prediction
   Intervals) with its own color scale over the shown half-widths; pixels without an interval
   are drawn as outside the model, and the summary gives the median
@@ -646,7 +647,7 @@ Must prioritize:
 Must prioritize:
 
 - model diagnostics
-- target/sample-set/model summaries
+- target/calibration-set/model summaries
 - fit readiness / validation context
 
 Minimum acceptable v3 state:
@@ -713,8 +714,8 @@ Every plot panel offers these exports:
   - The file starts with `# key: value` provenance lines:
     - always: the plot id, the enginir version, the export time (ISO 8601) and
       the project id
-    - when they apply: the dataset id, the signal unit, and the sample-set,
-      recipe, model-run and prediction-run ids
+    - when they apply: the dataset id, the signal unit, and the calibration-set,
+      recipe, model and prediction-run ids
     - for model plots also: the component count and the CV scheme
 
 `File > Export Plots...` writes PNG and CSV of every plot of the active
@@ -722,13 +723,13 @@ workspace that shows data into one folder:
 
 - Files are named by plot id, and plots without data are listed as skipped.
 - Pages that were not opened yet are included.
-- Replacing files, or writing more than 1,000,000 values in total, needs
+- Replacing files, or writing more than 1 000 000 values in total, needs
   confirmation first.
 
 Required behavior:
 
 - export of an empty plot is disabled, with the reason visible
-- an export of more than 1,000,000 values asks for confirmation before writing
+- an export of more than 1 000 000 values asks for confirmation before writing
 - export failures are user-visible errors and are logged
 - export never writes into the project file and never changes project objects
 
@@ -743,7 +744,7 @@ Required behavior:
 - Users can maximize and export panels. They cannot change which plot occupies
   which slot (see the model diagnostics contract, non-goals).
 - The maximized panel of each workspace page is UI state. It is stored in
-  the user settings, never in the project file, and `Reset layout` restores
+  the user settings, never in the project file, and `Reset Layout` restores
   the defaults.
 - A maximized dock and the active page are not stored: a dock maximize is
   transient, and a new model opens the `Fit` page.
@@ -791,7 +792,6 @@ Recommended v3 pattern:
 
 - phase-local indeterminate progress bar
 - short status text such as:
-  - `Building sample set...`
   - `Fitting model...`
   - `Running prediction...`
 
@@ -801,7 +801,7 @@ Additional prediction requirement:
 - prediction status must expose at least these phases:
   - `Preflight`
   - `Loading`
-  - `Calibrating`
+  - `Reference correction` (phase `calibrating`)
   - `Preprocessing`
   - `Predicting`
   - `Writing`

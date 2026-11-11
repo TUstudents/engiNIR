@@ -165,8 +165,8 @@ interval is computed on demand.
   This departs from the letter of the standards, which assume independent
   samples.
 - **ROI means** (``model.predict_rois()``, ``row.interval``): s is the
-  ROI-level RMSEE (per ROI) and the leverage compares the ROI's mean scores with the
-  calibration ROIs' (``roi_scores``). It follows the pixel removal, like the
+  RMSEE (per ROI) and the leverage compares the ROI's mean scores with the
+  calibration ROIs' (``roi_scores``). It follows the pixel exclusion, like the
   mean.
 - **Outside the model there is no interval** (NaN): a pixel above DCrit or
   T²Crit (0.99), or an ROI mean beyond the ROI-level T² limit. The formula

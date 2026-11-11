@@ -4,7 +4,7 @@
 
 - Version: `v3`
 - Status: active contract for engiNIR 1.0; v3 is the default and only supported project schema
-- Scope: sample-building, fitting semantics, grouped validation, model-run identity, v3 PLS/PCR fitting behavior
+- Scope: sample-building, fitting semantics, grouped validation, model identity, v3 PLS/PCR fitting behavior
 
 ## Goal
 
@@ -29,7 +29,7 @@ This contract exists to prevent two common errors:
 - one model uses one preprocessing recipe
 - working spectral arrays should default to `float32` unless a concrete backend
   contract requires higher precision
-- v3 may support PLS and PCR, but both obey the same sample-set contract
+- v3 may support PLS and PCR, but both obey the same calibration-set contract
 
 ## Problem this contract solves
 
@@ -131,7 +131,7 @@ Required invariants:
   exists in the project; service-built calibration sets record exactly the ordered
   unique dataset ids of the included ROIs at build time
 - a persisted `dataset_ids` entry without a matching live ROI may remain when
-  included ROIs were later deleted (the stale sample-set policy)
+  included ROIs were later deleted (the stale calibration-set policy)
 
 ## 2. ModelRun
 
@@ -194,7 +194,7 @@ MSC/EMSC state uses the axis after Savitzky-Golay, before the selection.
 
 Memory-aware v3 rules:
 
-- multi-ROI sample-set construction should use one batched/single-file-open
+- multi-ROI calibration-set construction should use one batched/single-file-open
   path rather than reopening the project once per ROI
 - raw ROI spectra remain the scientific truth and should stay in their stored
   raw dtype until the transformation boundary
@@ -299,11 +299,11 @@ Round-robin rule:
   *j* mod *k*
 - with *G* ≤ *F* every fold holds out exactly one group (leave one group
   out)
-- with `group_by = roi` the groups are the ROIs in sample-set order: this is
+- with `group_by = roi` the groups are the ROIs in calibration-set order: this is
   SIMCA's "assign every Nth observation to the same group" applied to ROIs
   (SIMCA 18 help, Cross validation group examples, No. 1); SIMCA numbers its
   groups differently, but the partition into folds is the same when SIMCA's
-  the data points are ROI means in calibration-set order, or pixels reordered so
+  observations are ROI means in calibration-set order, or pixels reordered so
   that every Nth observation comes from the same ROIs (as in the SIMCA
   reference export; verified against SIMCA 18.1). On pixels in ROI order
   SIMCA's every-Nth rule puts pixels of every ROI into every group
@@ -353,7 +353,7 @@ Fit statistics of the final model (engiNIR 1.3 and later), stored in
 (drawn pixels minus excluded ones) and *R* ROIs:
 
 - `pixel_rmsee` = √(Σᵢ (ŷᵢ − yᵢ)² / (N − 1 − A)) over those pixels (ŷ the
-  final model's fitted values), as SIMCA computes RMSEE (per ROI); written only when
+  final model's fitted values), as SIMCA computes RMSEE (over its observations, here pixels); written only when
   N − 1 − A ≥ 1
 - `rmsee` = √(Σᵣ (ŷᵣ − yᵣ)² / (R − 1 − A)), ŷᵣ the mean fitted value of an
   ROI's pixels the model was fitted on; written only when R − 1 − A ≥ 1
@@ -363,11 +363,11 @@ Fit statistics of the final model (engiNIR 1.3 and later), stored in
 Interval coverage (engiNIR 1.4 and later, PLS and PCR): how often the
 run's own cross-validated predictions fall inside the 0.95 prediction
 intervals of `prediction-runtime-contract_v3.md` (Prediction intervals),
-which use the fit error RMSEE (per ROI). A coverage well below 0.95 says the interval
+which use the fit error RMSEE (per ROI for the mean interval, per pixel for the pixel interval). A coverage well below 0.95 says the interval
 is too narrow for new data. Each held-out prediction gets the interval
 around itself, with the leverage of its ROI or pixel in the final model, and
 counts as covered when |ŷ_cv − y| ≤ half-width. This is an approximation:
-the held-out fold's model is not used, and the in-sample leverage and RMSEE (per ROI)
+the held-out fold's model is not used, and the in-sample leverage and RMSEE (of either level)
 are smaller than a held-out ROI's or pixel's would be, so the counted
 intervals are, if anything, too narrow and the coverage errs low.
 
@@ -396,7 +396,7 @@ A stored model can be fitted again on exactly what it was fitted on:
   recipe), input contract, model type, hyperparameters and fit
   specification (the legacy specification for a run without one), never the
   set of ROIs that have values now
-- the refit draws the pixel sample again from the stored seed and compares
+- the refit draws the pixel subsample again from the stored seed and compares
   its checksum with the stored one; a different checksum (the stored
   spectra of an ROI changed) is logged as a warning naming the run, the
   refit proceeds, and the new run stores its own checksum
@@ -510,7 +510,7 @@ for every earlier run); `requested` = the short
 Requests that cannot be met block the fit before any spectra are read (see
 Blocking Conditions).
 
-### 7.1 Pixel sample
+### 7.1 Pixel subsample
 
 - `per_roi = all` uses every stored pixel of every ROI
 - an integer *n* takes *n* pixels of every ROI, chosen by this algorithm,
@@ -524,7 +524,7 @@ Blocking Conditions).
      as 4-byte little-endian unsigned
   3. the *n* pixels with the smallest keys (compared as bytes) are taken;
      their indices are sorted ascending
-- the checksum is SHA-256 over, for each ROI in sample-set order, its digest
+- the checksum is SHA-256 over, for each ROI in calibration-set order, its digest
   *d* followed by its drawn indices as 4-byte little-endian unsigned
 - the choice for one ROI depends only on its own spectra and the seed:
   adding or removing an ROI, or new ids for the same spectra, never change
@@ -535,7 +535,7 @@ Blocking Conditions).
 
 ### 7.2 Pixel exclusion by DModX
 
-With `exclusion/method = dmodx`, outlying pixels are left out of a model.
+With `exclusion/method = dmodx`, pixels above DCrit are excluded from a model.
 For one model (a fold's model or the final model):
 
 1. fit the complete pipeline (stateful preprocessing, scaling, estimator)
@@ -634,7 +634,7 @@ and this is reported like any metric difference.
 Every new PLS or PCR run stores, for *a* = 1 … *A*max (`components/max`),
 how cross-validated prediction and fit change with the number of
 components (`artifact_refs/component_curve`). The curve uses the run's
-folds, fold groups, pixel sample, scaling and preprocessing; DModX pixel
+folds, fold groups, pixel subsample, scaling and preprocessing; DModX pixel
 exclusion is not applied to it (the exclusion depends on *A*; the chosen
 model is fitted with exclusion as specified). Without exclusion the curve's
 RMSECV (per ROI) at the run's *A* is the run's RMSECV (per ROI) (one cross-validation serves
@@ -767,7 +767,7 @@ it was fitted on):
 - ROI scores for the score plot (model-workspace-diagnostics contract §2):
   `roi_scores`, per ROI (in `cv_outputs/roi_ids` order) the mean calibration
   score of each component over that ROI's fitted pixels (the drawn pixels
-  with a pixel sample, the kept pixels with DModX exclusion), and
+  with a pixel subsample, the kept pixels with DModX exclusion), and
   `roi_score_pixels`, the number of those pixels. An ROI with no fitted
   pixel has NaN scores and 0. The fit computes them because only the fit
   knows which row belongs to which ROI
@@ -813,7 +813,7 @@ v3 weighting decision:
   drawn pixels (§7.1); DModX exclusion can lower an ROI's count by at most
   `max_fraction`
 - the calibration set records the weighting policy; the model records the
-  pixel sample (`fit_spec/pixels`) and the excluded pixels
+  pixel subsample (`fit_spec/pixels`) and the excluded pixels
 - fold groups do not change weights: a sample with more ROIs contributes
   more pixels and more held-out ROI means than a sample with fewer
   (equal pixels per ROI, not per sample)
@@ -855,7 +855,7 @@ Model fitting for a calibration set must block or warn when:
 
 `SampleSet` and `ModelRun` must be persisted inside the project file.
 
-## Required persisted sample-set information
+## Required persisted calibration-set information
 
 - `sample_set_id`
 - included `roi_ids`
@@ -871,7 +871,7 @@ Model fitting for a calibration set must block or warn when:
 - `dataset_ids`
 - `created_at`
 
-## Required persisted model-run information
+## Required persisted model information
 
 - `model_run_id`
 - `sample_set_id`
@@ -946,7 +946,7 @@ These are intentionally deferred:
 - `roi_mean` as the primary model-fitting contract
 - `roi_feature` calibration sets
 - multi-target models
-- user-selectable sample-unit switching in the first modeling UI
+- user-selectable fitting-unit switching in the first modeling UI
 - weights other than 1
 - mixed fitting-unit comparisons in one comparison table
 
@@ -958,7 +958,7 @@ Decision:
 
 - v3 uses `per_pixel_unweighted`
 
-- equal ROI influence comes from equal pixel samples (§7.1), not from
+- equal ROI influence comes from equal pixel subsamples (§7.1), not from
   weights
 
 Out of scope for v3:
@@ -991,8 +991,8 @@ This contract is implemented correctly when:
 - fold groups never split a group: no ROI of a held-out fold group is in
   the calibration data of that fold, under every `group_by` and fold rule
 - a refit uses the stored fold groups and warns when the current ones differ
-- a model stores its sample-set and CV semantics explicitly
+- a model stores its calibration-set and CV semantics explicitly
 - a model written by engiNIR 1.2 or later stores its complete fit
-  specification, and a refit reproduces its pixel sample, folds and metrics
+  specification, and a refit reproduces its pixel subsample, folds and metrics
 - DModX exclusion never sees held-out pixels
 - reported model performance cannot be mistaken for naive independent-pixel validation

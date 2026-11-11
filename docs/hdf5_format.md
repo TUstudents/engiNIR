@@ -456,7 +456,7 @@ folds/
                          for large sample sets)
 pixels/
   @per_roi               "all" or the number of pixels drawn per ROI
-  @seed                  integer seed of the pixel sample, 0 <= seed < 2**63
+  @seed                  integer seed of the pixel subsample, 0 <= seed < 2**63
   @checksum              SHA-256 (hex) of the drawn indices; "" for "all"
 exclusion/
   @method                none | dmodx
@@ -620,7 +620,7 @@ noise                    bool: ΔR²X < 0.01 and Q²ₐ ≤ L, a noise component
 
 ```text
 roi_ids                  string array, one per held-out ROI
-y_true_roi               float32, reference value per ROI
+y_true_roi               float32, target value per ROI
 y_pred_roi               float32, aggregated cross-validated prediction per ROI
 ```
 

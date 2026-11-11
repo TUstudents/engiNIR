@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased
+
+The terminology contract applied where 1.5.0 missed it, and the contracts
+read against the code.
+
+### Breaking
+
+- New PCR models are named in principal components (`"PCR 5 PC, SNV"`);
+  PLS keeps `LV`. Stored names are labels and do not change.
+- Exported CSV columns: the Model plots name the measured value
+  `target_value` (was `reference`), the score plot `lv1_calibration_score`
+  and `lv2_calibration_score` (was `..._training_score`), the per-ROI
+  prediction table `mean_dmodxps` and `mean_t2ps` (was `mean_dmodx`,
+  `mean_t2`).
+- The Predict workspace names the distances of predicted spectra DModXPS and
+  T²PS (map layers, hover readout, the exclusion checkbox); the Model
+  workspace keeps DModX and T² for calibration spectra.
+- Cancellation errors say "canceled" (US spelling); scripts that match the
+  message must be updated.
+
+### Fixed
+
+- Prediction progress said "Calibrating" for the reference correction step;
+  it now says "Reference correction".
+- The Inspector showed "centre", "Fitted on: pixel" and raw reference
+  correction modes (`dark_white_reference`); it now shows "center",
+  "Fitted on: pixels" and the modes in words.
+- Predict hints pointed to a "Predict column"; the ROI table's column is Set.
+- Contracts and documentation: leftovers of the 1.5.0 rename (garbled
+  sentences, wrong levels, words not used), labels matched to the viewer,
+  "pixel sample" is now "pixel subsample", and the prediction interval's
+  leverage is stated as used (h = 1/R + T²PS/(R − 1) over the calibration
+  ROIs).
+- The terminology test also checks one-word labels for British spelling.
+
 ## 1.5.0 (2026-11-11)
 
 One vocabulary for the process analytical technology expert: everything a

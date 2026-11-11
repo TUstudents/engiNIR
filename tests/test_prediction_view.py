@@ -299,7 +299,7 @@ def test_the_layer_selector_shows_the_diagnostics_and_marks_pixels_above_the_lim
     widget = PredictionMapWidget()
     prediction = np.arange(6, dtype=np.float32).reshape(3, 2)
     dmodx = np.array([[0.5, 0.7], [3.0, 0.2], [0.1, 0.9]], dtype=np.float32)
-    payload = {"spatial_map": prediction, "layers": {"DModX": dmodx, "T²": dmodx * 2},
+    payload = {"spatial_map": prediction, "layers": {"DModXPS": dmodx, "T²PS": dmodx * 2},
                "diagnostics": {"dcrit_099": 1.0, "n_above_dcrit": 1, "share_above_dcrit": 1 / 6,
                                "t2_crit_099": 4.0, "n_above_t2crit": 1,
                                "share_above_t2crit": 1 / 6}}
@@ -308,15 +308,15 @@ def test_the_layer_selector_shows_the_diagnostics_and_marks_pixels_above_the_lim
     widget.update_data(payload)
     assert len(widget._ax.images) == 1
 
-    widget.set_layer("DModX")
+    widget.set_layer("DModXPS")
     np.testing.assert_allclose(widget._ax.images[0].get_array(), dmodx.T)
     overlay = widget._ax.images[1].get_array()
     assert int((~np.ma.getmaskarray(overlay)).sum()) == 1, "one pixel above DCrit is marked"
     assert not np.ma.getmaskarray(overlay)[0, 1]  # frame 1, row 0 (shown transposed)
     assert "above DCrit 1: 1 pixels (17 %)" in widget._stats_label.text()
-    assert widget.plot_title == "DModX map"
-    assert shown[-1]["quantity"] == "DModX" and shown[-1]["limit"] == 1.0
-    assert widget.plot_table_metadata()["layer"] == "DModX"
+    assert widget.plot_title == "DModXPS map"
+    assert shown[-1]["quantity"] == "DModXPS" and shown[-1]["limit"] == 1.0
+    assert widget.plot_table_metadata()["layer"] == "DModXPS"
 
     widget.update_data({"spatial_map": prediction})  # a model without projection data
     model = widget._layer_combo.model()
@@ -526,17 +526,17 @@ def test_hovering_a_map_pixel_describes_it_in_the_status_line(qapp):
     widget.hovered.connect(shown.append)
     prediction = np.array([[2.0, 12.0], [5.0, 0.5], [4.0, 6.0]], dtype=np.float32)
     dmodx = np.array([[0.5, 3.0], [1.2, 0.1], [0.2, 0.9]], dtype=np.float32)
-    widget.update_data({"spatial_map": prediction, "layers": {"DModX": dmodx, "T²": dmodx * 2},
+    widget.update_data({"spatial_map": prediction, "layers": {"DModXPS": dmodx, "T²PS": dmodx * 2},
                         "diagnostics": {"dcrit_099": 1.0}, "colour_range": (1.0, 10.0),
                         "removed_limit": 2.0,
                         "roi_overlays": [((0, 0, 1, 1), "03  12", "03")]})
     # spatial_map is (frames, rows): the shown map is (rows, frames).
     text = widget.describe_pixel(1, 0)
-    assert text == ("Frame 1 | Row 0 | Prediction 5 | DModX 1.2 (DCrit 0.99 1: above, "
-                    "exclusion limit 2) | T² 2.4")
+    assert text == ("Frame 1 | Row 0 | Prediction 5 | DModXPS 1.2 (DCrit 0.99 1: above, "
+                    "exclusion limit 2) | T²PS 2.4")
     text = widget.describe_pixel(0, 1)
     assert "Prediction 12 (above the color range)" in text
-    assert "DModX 3 (DCrit 0.99 1: above, exclusion limit 2: excluded)" in text
+    assert "DModXPS 3 (DCrit 0.99 1: above, exclusion limit 2: excluded)" in text
     assert text.endswith("ROI 03")
     widget._on_motion(types.SimpleNamespace(inaxes=widget._ax, xdata=0.0, ydata=1.0))
     widget._on_motion(types.SimpleNamespace(inaxes=None, xdata=None, ydata=None))

@@ -1,7 +1,7 @@
 """Band proposal by forward interval PLS with nested validation (headless contract).
 
 :func:`propose_bands` prepares the training data like a fit (signal domain,
-pixel sample, fold groups) and searches for band ranges on the recipe's axis
+pixel subsample, fold groups) and searches for band ranges on the recipe's axis
 after Savitzky-Golay: forward selection of contiguous intervals, the number
 of components of every candidate chosen by the component rule, stopped by
 the one-SE idea. The whole search is repeated inside every outer fold to
@@ -273,7 +273,7 @@ def propose_bands(
     """Propose band ranges by forward interval PLS with nested validation.
 
     The search uses the sample set's recipe without its band selection, the
-    fit specification's folds, fold groups, pixel sample and component rule
+    fit specification's folds, fold groups, pixel subsample and component rule
     (``headless-workflow-contract_v3.md``, Band proposal). ``progress(done,
     total)`` counts candidate evaluations (``total`` is an upper bound);
     ``cancel()`` returning ``True`` raises :class:`BandProposalCancelledError`.
@@ -322,7 +322,7 @@ def propose_bands(
 
     def tick() -> None:
         if cancel is not None and cancel():
-            raise BandProposalCancelledError("Band proposal cancelled")
+            raise BandProposalCancelledError("Band proposal canceled")
         done[0] += 1
         if progress is not None:
             progress(done[0], total)

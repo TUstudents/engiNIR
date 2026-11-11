@@ -538,7 +538,7 @@ def predict_with_model_run(
             chunk = next(chunks, None)
             if chunk is None:
                 break
-            progress.report("calibrating", f"Calibrating {step}")
+            progress.report("calibrating", f"Applying the reference correction to {step}")
             signal = transform_spectra_to_signal_domain(
                 chunk.raw_matrix,
                 dataset=dataset,
@@ -907,7 +907,7 @@ class _Progress:
             ))
         if check_cancel and self._cancel_callback is not None and self._cancel_callback():
             logger.info("Prediction canceled during {}", phase)
-            raise PredictionCancelledError(f"Prediction cancelled during {phase}")
+            raise PredictionCancelledError(f"Prediction canceled during {phase}")
 
 
 __all__ = [

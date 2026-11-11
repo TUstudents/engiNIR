@@ -158,13 +158,13 @@ A few things to keep in mind:
   far below the reference method's own error means overfitting.
 
 engiNIR refits every fold with all components, so its Q² is stricter than
-SIMCA's (see the comparison below). Every model also stores RMSEE (per ROI) and the
+SIMCA's (see the comparison below). Every model also stores RMSEE and the
 adjusted R² (per pixel as SIMCA computes them, and per ROI), the scaled
 coefficients (CoeffCS), and the Hotelling T² and distance to the model of
 every calibration pixel with their 0.99 limits.
 
-Pixel sample
-------------
+Pixel subsample
+---------------
 
 Larger ROIs contribute more pixels and so weigh more. ``"pixels":
 {"per_roi": n, "seed": s}`` draws *n* pixels from every ROI (at most the

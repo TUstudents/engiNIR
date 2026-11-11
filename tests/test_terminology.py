@@ -1,9 +1,10 @@
 """The viewer speaks the terminology contract (``contracts/terminology_v3.md``, Enforcement).
 
 Every string literal of ``src/enginir/viewer`` (f-string parts included) is
-scanned, except docstrings and identifier-like keys (one token of lower
-case letters, digits, ``_ . : -``). A string may contain no word of "Words
-not used" and no British spelling; strings shown on buttons and menu items
+scanned, except docstrings. A string may contain no word of "Words not
+used" and no British spelling; identifier-like keys (one token of lower case
+letters, digits, ``_ . : -``) are checked for British spelling only, since
+one-word labels look the same; strings shown on buttons and menu items
 are in title case, titles in sentence case. Justified exceptions are listed
 in ``ALLOWED`` with their reason.
 """
@@ -33,6 +34,7 @@ BANNED: dict[str, str] = {
     r"(?<!latent )\bvariables?\b": "Band",
     r"\breference values?\b": "Target value",
     r"\boutliers?\b": "above DCrit, above T²Crit, outside the model",
+    r"\bpixel samples?\b": "pixel subsample",
     r"%\s*removed|\bremove(?:d)?\s+(?:the\s+)?pixels|\bpixels?\b[^.;]{0,40}\bremoved\b":
         "excluded, exclude (pixels)",
     r"\brmse(?:cv|e|p)\b(?! \(per (?:roi|pixel)\))": "RMSECV (per ROI), RMSECV (per pixel)",
@@ -68,8 +70,8 @@ TITLE_ARGUMENT = {"PlotSpec": 1, "_spectral_spec": 2, "_distance_spec": 3, "Plot
 _SMALL = {"a", "an", "the", "and", "or", "of", "to", "in", "on", "per", "vs", "for", "with",
           "at", "by", "from", "as", "into", "off"}
 #: Capitalized words allowed inside a sentence-case title (names and fixed terms).
-PROPER = {"ROI", "ROIs", "Savitzky-Golay", "Hotelling's", "SIMCA", "DModX", "DCrit", "PLS",
-          "PCR", "LV", "PC", "SNV", "MSC", "EMSC", "VIP", "T²", "Q²", "R²", "R²X", "R²Y",
+PROPER = {"ROI", "ROIs", "Savitzky-Golay", "Hotelling's", "SIMCA", "DModX", "DModXPS", "DCrit", "PLS",
+          "PCR", "LV", "PC", "SNV", "MSC", "EMSC", "VIP", "T²", "T²PS", "Q²", "R²", "R²X", "R²Y",
           "RMSEE", "RMSECV", "RMSEP", "RPD", "RPIQ", "CSV", "PNG", "SVG", "NIR", "HSI", "ENVI",
           "EIFF", "HDF5", "CV", "AsLS", "SG", "engiNIR", "I", "X", "Y", "Q", "T²Crit", "LV1",
           "LV2", "PC1", "PC2", "WSLg", "Wayland", "Explore", "Model", "Predict", "nm", "Q²ₐ",
@@ -88,6 +90,7 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("_state.py", "DN"): "signal-unit key (SIGNAL_UNITS), not shown",
     ("_data_files.py", "DN"): "signal-unit key (SIGNAL_UNITS), not shown",
     ("_viewer.py", "engiNIR - HSI Viewer"): "the product name",
+    ("_project_rois.py", "colour"): "CSV metadata key (machine-readable, kept until 2.0)",
 }
 
 _IDENTIFIER = re.compile(r"^[a-z0-9_.:\-/]*$")
@@ -157,12 +160,16 @@ def violations() -> list[str]:
     for path in sorted(VIEWER.glob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for line, text, call in _strings(tree):
-            if not text.strip() or _IDENTIFIER.match(text) or (path.name, text) in ALLOWED:
+            if not text.strip() or (path.name, text) in ALLOWED:
                 continue
-            problems = [f"{m.group(0)!r} -> {use}" for table in (BANNED, BRITISH)
+            # A one-word string may be a key or a label ("centre" shown in the
+            # Inspector): it is checked for spelling only.
+            identifier = bool(_IDENTIFIER.match(text))
+            problems = [f"{m.group(0)!r} -> {use}"
+                        for table in ((BRITISH,) if identifier else (BANNED, BRITISH))
                         for pattern, use in table.items()
                         for m in [re.search(pattern, text, re.IGNORECASE)] if m]
-            case = _case_problem(text, call)
+            case = None if identifier else _case_problem(text, call)
             if case:
                 problems.append(case)
             for problem in problems:

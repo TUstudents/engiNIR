@@ -127,7 +127,7 @@ v3 rule:
   Only `save_roi_sample` sets, changes or removes the label; re-saving an
   ROI never changes it
 - `use` is set when the ROI is created (the ROI and ROI grid dialogs,
-  `Project.add_roi`); afterwards it is mutable like `sample`: only
+  `Dataset.add_roi`); afterwards it is mutable like `sample`: only
   `save_roi_use` changes it, in place;
   it never changes the ROI's identity, spectra or other fields. Switching an
   ROI to `prediction` leaves stored calibration sets and models that contain
@@ -201,7 +201,7 @@ Allowed `missing_value_policy` values in v3:
 - target assignments must carry finite float values, so no persisted
   missing-value state exists for the policy to police
 - the field therefore records declared intent and has no executable effect in
-  v3; sample-set building excludes ROIs without an assignment for the selected
+  v3; calibration-set building excludes ROIs without an assignment for the selected
   target regardless of the policy value
 - viewer-created targets default to `allowed`
 - a future contract must define enforcement semantics before
@@ -400,7 +400,7 @@ Modeling for a selected target must block or warn when:
 - included ROIs do not have assignments for the selected target
 - target values are not valid for the target definition
 - wavelength compatibility across included ROIs is broken
-- ROI provenance shows incompatible source/reference correction context for the intended sample-building rules
+- ROI provenance shows incompatible source/reference correction context for the intended calibration-set building rules
 - grouping metadata cannot preserve ROI-level validation semantics
 
 ## v3 scope rules
@@ -553,11 +553,11 @@ Out of scope for v3:
 - importing target values from external files (CSV, spreadsheets)
 - undo of target edits
 
-### 3. Sample-unit interaction
+### 3. Fitting-unit interaction
 
 Decision:
 
-- the domain may support multiple sample-unit styles later
+- the domain may support multiple fitting-unit styles later
 - v3 modeling uses pixel-level spectra with ROI-level target semantics
 - v3 validation groups pixels by `roi_id`; folds may join the ROIs
   of one physical sample (ROI `sample` label) or of one target value
@@ -567,7 +567,7 @@ Out of scope for v3:
 
 - `roi_mean` as the primary fitting contract
 - `roi_feature` modeling
-- exposing a user-facing sample-unit selector in the first modeling UI
+- exposing a user-facing fitting-unit selector in the first modeling UI
 
 ## Acceptance criteria
 

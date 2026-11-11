@@ -585,7 +585,7 @@ class FitModelRunDialog(QDialog):
         self._update_fitting()
 
     def _fitting_group(self) -> QGroupBox:
-        """Pixel sample, scaling and DModX exclusion (sample-set-model-run contract §7)."""
+        """Pixel subsample, scaling and DModX exclusion (sample-set-model-run contract §7)."""
         group = QGroupBox("Fitting")
         form = QFormLayout(group)
 

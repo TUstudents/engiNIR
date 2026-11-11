@@ -76,6 +76,8 @@ def test_the_facade_refuses_names_it_creates_itself(tmp_path):
     assert (first.name, second.name) == ("PLS 1 LV, raw", "PLS 1 LV, raw (2)")
     with pytest.raises(ValueError, match="model called 'PLS 1 LV, raw' already exists"):
         project.fit("API", n_components=1, name="PLS 1 LV, raw")
+    # Terminology contract (LV, PC): PCR counts principal components.
+    assert project.fit("API", model="PCR", n_components=1).name == "PCR 1 PC, raw"
 
 
 def _with_repeated_names(tmp_path):
