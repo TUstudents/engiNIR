@@ -68,6 +68,7 @@ from ._state import (
     DEFAULT_WHITE_LEVEL,
     ProjectState,
     ViewerState,
+    signal_label,
 )
 from ._panels import (
     _PanelBase as _ExplorePanel,
@@ -306,11 +307,11 @@ class HSIViewer(QMainWindow):
         central_layout.setContentsMargins(0, 0, 0, 0)
         central_layout.setSpacing(0)
 
-        self._canvas_frame = PlotFrame("explore.image", "Spatial Image", self._canvas,
+        self._canvas_frame = PlotFrame("explore.image", "Spatial image", self._canvas,
                                        self._canvas, provenance=self._explore_provenance)
         self._data_file_job: Any = None
         self._data_file_combo = QComboBox()
-        self._data_file_combo.setToolTip("Data file of the project shown in the image")
+        self._data_file_combo.setToolTip("Dataset of the project shown in the image")
         self._data_file_combo.setMinimumWidth(180)
         self._data_file_combo.activated.connect(self._on_data_file_chosen)
         self._canvas_frame.add_header_widget(self._data_file_combo)
@@ -345,8 +346,8 @@ class HSIViewer(QMainWindow):
 
         self._model_diagnostics_widget = None
         self._predict_map_widget = None
-        self._model_content_page = self._build_deferred_workspace_page("Model Diagnostics")
-        self._predict_content_page = self._build_deferred_workspace_page("Prediction Results")
+        self._model_content_page = self._build_deferred_workspace_page("Model diagnostics")
+        self._predict_content_page = self._build_deferred_workspace_page("Prediction results")
 
         self._workspace_content_stack = QStackedWidget()
         self._workspace_content_stack.setObjectName("WorkspaceContentStack")
@@ -354,7 +355,7 @@ class HSIViewer(QMainWindow):
         self._explore_tabs = QTabWidget()
         self._explore_tabs.setDocumentMode(True)
         _require_qt_object(self._explore_tabs.tabBar(), "Explore tab bar").setDrawBase(False)
-        self._explore_tabs.addTab(self._data_file_page, "Data file")
+        self._explore_tabs.addTab(self._data_file_page, "Dataset")
         self._explore_content_page = self._explore_tabs
         self._project_rois: ProjectRoisView | None = None
         self._pending_roi_selection: str | None = None
@@ -434,7 +435,7 @@ class HSIViewer(QMainWindow):
         text_layout.setContentsMargins(0, 0, 0, 0)
         text_layout.setSpacing(8)
 
-        summary_box = QGroupBox("Fit Summary")
+        summary_box = QGroupBox("Fit summary")
         summary_layout = QFormLayout(summary_box)
         summary_layout.setContentsMargins(8, 8, 8, 8)
         summary_layout.setSpacing(4)
@@ -448,7 +449,7 @@ class HSIViewer(QMainWindow):
         self._model_card_pixel_count_value = QLabel("0")
 
         summary_layout.addRow("Target", self._model_card_target_value)
-        summary_layout.addRow("Sample set", self._model_card_sample_set_value)
+        summary_layout.addRow("Calibration set", self._model_card_sample_set_value)
         summary_layout.addRow("Model", self._model_card_model_value)
         summary_layout.addRow("Components", self._model_card_components_value)
         summary_layout.addRow("Validation", self._model_card_cv_value)
@@ -463,7 +464,7 @@ class HSIViewer(QMainWindow):
         self._model_metrics_layout.setContentsMargins(8, 8, 8, 8)
         self._model_metrics_layout.setSpacing(4)
         pixel_box = QGroupBox("Metrics per pixel")
-        pixel_box.setToolTip("Over single spectra (the observations of the fit). Single "
+        pixel_box.setToolTip("Over single pixels (what the model is fitted on). Single "
                              "pixels are noisy, so these are worse than per ROI.")
         self._model_pixel_metrics_layout = QFormLayout(pixel_box)
         self._model_pixel_metrics_layout.setContentsMargins(8, 8, 8, 8)
@@ -526,7 +527,7 @@ class HSIViewer(QMainWindow):
         self._predict_histogram = PlotPanel(PREDICTION_HISTOGRAM)
         self._predict_roi_results = PlotPanel(ROI_RESULTS)
         self._predict_roi_results.roi_selected.connect(self._on_canvas_roi_selected)
-        self._predict_map_frame.add_menu_action("Colour limits...", self._ask_colour_limits)
+        self._predict_map_frame.add_menu_action("Color Limits...", self._ask_colour_limits)
         self._predict_shown_map: dict[str, Any] | None = None
         # Hovering a map pixel or a tablet's dot fills the window's status line.
         self._predict_map_widget.hovered.connect(self._show_hover_status)
@@ -579,7 +580,7 @@ class HSIViewer(QMainWindow):
         self._predict_map_shape_value = wrapped()
         self._predict_map_range_value = wrapped()
         self._predict_clipping_value = wrapped()
-        compatibility_layout.addRow("Calibration", self._predict_card_calibration_value)
+        compatibility_layout.addRow("Reference correction", self._predict_card_calibration_value)
         compatibility_layout.addRow("Map shape", self._predict_map_shape_value)
         compatibility_layout.addRow("Map range", self._predict_map_range_value)
         compatibility_layout.addRow("Clipping", self._predict_clipping_value)
@@ -655,7 +656,7 @@ class HSIViewer(QMainWindow):
         self._project_browser = ProjectBrowser(self.project_state)
         self._inspector = ProjectInspector(self.project_state)
 
-        self._project_browser_dock = QDockWidget("Project Browser", self)
+        self._project_browser_dock = QDockWidget("Project browser", self)
         self._project_browser_dock.setObjectName("ProjectBrowserDock")
         self._project_browser_dock.setWidget(self._project_browser)
         self._configure_compact_left_dock(self._project_browser_dock)
@@ -686,11 +687,11 @@ class HSIViewer(QMainWindow):
         self._dc3_dock.hide()
 
         # Right docks - Sensor Frame above Spatial Profile
-        self._sensor_dock = self._plot_dock("Sensor Frame", "SensorDock", self._sensor,
+        self._sensor_dock = self._plot_dock("Sensor frame", "SensorDock", self._sensor,
                                             "explore.sensor")
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._sensor_dock)
 
-        self._spatial_dock = self._plot_dock("Spatial Profile", "SpatialProfileDock",
+        self._spatial_dock = self._plot_dock("Spatial profile", "SpatialProfileDock",
                                              self._spatial, "explore.spatial")
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._spatial_dock)
         self.splitDockWidget(self._sensor_dock, self._spatial_dock, Qt.Orientation.Vertical)
@@ -698,7 +699,7 @@ class HSIViewer(QMainWindow):
         # ROI table: target values of all ROIs; available in every workspace.
         self._roi_table = RoiTableWidget(self.project_state)
         self._roi_table.roi_selected.connect(self._on_canvas_roi_selected)
-        self._roi_table_dock = QDockWidget("ROI Table", self)
+        self._roi_table_dock = QDockWidget("ROI table", self)
         self._roi_table_dock.setObjectName("RoiTableDock")
         self._roi_table_dock.setWidget(self._roi_table)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._roi_table_dock)
@@ -957,7 +958,7 @@ class HSIViewer(QMainWindow):
         self._status_label.setText(
             f"Project: {project_label} | "
             f"Dataset: {dataset_label} | "
-            f"Signal: {self.state.y_unit_effective} | "
+            f"Signal: {signal_label(self.state.y_unit_effective)} | "
             f"Frame: {frame_label} | "
             f"Row: {row_label} | "
             f"Band: {band_label}"
@@ -1333,7 +1334,7 @@ class HSIViewer(QMainWindow):
         """Fill the *per ROI* and *per pixel* groups and the fold warnings."""
         roi_rows = list(model_summary.get("roi_metrics") or [])
         if not roi_rows:  # no run yet: the required three, empty
-            roi_rows = [("Q² (CV R²)", model_summary["r2"]), ("RMSECV", model_summary["rmsecv"]),
+            roi_rows = [("Q² (CV R²)", model_summary["r2"]), ("RMSECV (per ROI)", model_summary["rmsecv"]),
                         ("Bias", model_summary["bias"])]
         rows = [f"{label}: {text}" for label, text in roi_rows]
         pixel_rows = list(model_summary.get("pixel_metrics") or [])
@@ -1415,13 +1416,14 @@ class HSIViewer(QMainWindow):
                 self._model_content_title.text(),
                 [
                     f"Target: {self._model_card_target_value.text()}",
-                    f"Sample set: {self._model_card_sample_set_value.text()}",
+                    f"Calibration set: {self._model_card_sample_set_value.text()}",
                     f"Model: {self._model_card_model_value.text()}",
                     f"Components: {self._model_card_components_value.text()}",
                     f"Validation: {self._model_card_cv_value.text()}",
                     f"ROIs: {self._model_card_roi_count_value.text()}",
                     f"Pixels: {self._model_card_pixel_count_value.text()}",
-                    *(f"{row} (per ROI)" for row in self._model_metric_rows),
+                    *(row if "(per " in row else f"{row} (per ROI)"
+                      for row in self._model_metric_rows),
                     self._model_readiness_body.text(),
                 ],
             )
@@ -1432,14 +1434,14 @@ class HSIViewer(QMainWindow):
                 [
                     self._predict_headline.text(),
                     f"Prediction ROIs: {self._predict_rois_value.text()}",
-                    f"Calibration: {self._predict_card_calibration_value.text()}",
+                    f"Reference correction: {self._predict_card_calibration_value.text()}",
                     f"Target: {self._predict_card_target_value.text()}",
                     f"Input contract: {self._predict_contract_format_value.text()}",
-                    f"Signal contract: {self._predict_contract_signal_value.text()}",
+                    f"Signal: {self._predict_contract_signal_value.text()}",
                     f"Bands: {self._predict_contract_bands_value.text()}",
                     f"Map shape: {self._predict_map_shape_value.text()}",
                     f"Map range: {self._predict_map_range_value.text()}",
-                    f"Calibration clipping: {self._predict_clipping_value.text()}",
+                    f"Reflectance clipping: {self._predict_clipping_value.text()}",
                     f"Applicability: {self._predict_diagnostics_value.text()}",
                     f"Wavelengths: {self._predict_wavelengths_value.text()}",
                 ],
@@ -1521,8 +1523,8 @@ class HSIViewer(QMainWindow):
         act.setShortcut("Ctrl+O")
         act.triggered.connect(self._open_data)
 
-        act = _add_required_action(m, "Add Data File...")
-        act.setToolTip("Add a data file with its calibration to the open project")
+        act = _add_required_action(m, "Add Dataset...")
+        act.setToolTip("Add a dataset with its reference correction to the open project")
         act.triggered.connect(lambda: self.add_data_file())
 
         self._menu_open_recent = _add_required_menu(m, "Open Recent")
@@ -1559,7 +1561,7 @@ class HSIViewer(QMainWindow):
     def _open_data(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Open Data",
+            "Open data",
             "",
             "Hyperspectral files (*.eiff *.hdr *.h5 *.hdf5 *.csv *.spa);;All files (*.*)",
         )
@@ -1599,11 +1601,11 @@ class HSIViewer(QMainWindow):
         """
         if self.project_state.project_path is None:
             QMessageBox.warning(self, "No project open",
-                                "Create or open a project before adding data files.")
+                                "Create or open a project before adding datasets.")
             return None
         if path is None:
             path, _ = QFileDialog.getOpenFileName(
-                self, "Add data file", "",
+                self, "Add dataset", "",
                 "Hyperspectral files (*.eiff *.hdr *.h5 *.hdf5 *.csv *.spa);;All files (*.*)")
             if not path:
                 return None
@@ -1614,7 +1616,7 @@ class HSIViewer(QMainWindow):
         try:
             header = read_header(os.path.abspath(path))
         except (OSError, ValueError, KeyError) as exc:
-            logger.error("Cannot read data file {}: {}", path, exc)
+            logger.error("Cannot read dataset {}: {}", path, exc)
             QMessageBox.critical(self, "Cannot open file", str(exc))
             return None
         state = self.project_state
@@ -1629,8 +1631,8 @@ class HSIViewer(QMainWindow):
         try:
             dataset_id = state.add_data_file(request.path, **request.add_dataset_kwargs())
         except (OSError, ValueError, KeyError) as exc:
-            logger.error("Cannot add data file {}: {}", path, exc)
-            QMessageBox.critical(self, "Cannot add data file", str(exc))
+            logger.error("Cannot add dataset {}: {}", path, exc)
+            QMessageBox.critical(self, "Cannot add dataset", str(exc))
             return None
         self.show_data_file(dataset_id)
         return dataset_id
@@ -1642,12 +1644,12 @@ class HSIViewer(QMainWindow):
             log_and_raise("Unknown dataset '{}'", dataset_id, error=KeyError)
         path = dataset.source_path
         if not os.path.exists(path):
-            box = QMessageBox(QMessageBox.Icon.Warning, "Data file not found",
+            box = QMessageBox(QMessageBox.Icon.Warning, "Dataset file not found",
                               f"{path} does not exist. Its ROIs, values and models stay "
                               "usable; the image cannot be shown.\n\nIf the file was moved or "
                               "renamed, locate it: it is accepted if its pixels equal the "
                               "stored ROI pixels.", parent=self)
-            locate = box.addButton("Locate file...", QMessageBox.ButtonRole.AcceptRole)
+            locate = box.addButton("Locate File...", QMessageBox.ButtonRole.AcceptRole)
             box.addButton(QMessageBox.StandardButton.Cancel)
             box.exec()
             if box.clickedButton() is locate:
@@ -1655,7 +1657,7 @@ class HSIViewer(QMainWindow):
             return
         if self._data_file_job is not None:
             return
-        busy = self._viewer_busy_context(f"Loading data file: {os.path.basename(path)}")
+        busy = self._viewer_busy_context(f"Loading dataset: {os.path.basename(path)}")
         busy.begin()
 
         def finished() -> None:
@@ -1689,8 +1691,8 @@ class HSIViewer(QMainWindow):
         try:
             self.project_state.locate_data_file(dataset_id, path)
         except (OSError, ValueError, KeyError) as exc:
-            logger.error("Data file not located at {}: {}", path, exc)
-            QMessageBox.warning(self, "Not this data file", str(exc))
+            logger.error("Dataset file not located at {}: {}", path, exc)
+            QMessageBox.warning(self, "Not this dataset's file", str(exc))
             return False
         finally:
             QApplication.restoreOverrideCursor()
@@ -1698,7 +1700,7 @@ class HSIViewer(QMainWindow):
         return True
 
     def _data_file_failed(self, message: str) -> None:
-        logger.error("Cannot load data file: {}", message)
+        logger.error("Cannot load dataset: {}", message)
         QMessageBox.critical(self, "Cannot open file", message)
 
     def wait_for_data_file(self, timeout_s: float = 30.0) -> None:
@@ -1745,7 +1747,7 @@ class HSIViewer(QMainWindow):
         project_id = self.project_state.project_meta.get("project_id")
         if project_id:
             save_last_data_file(str(project_id), dataset_id)
-        logger.info("Showing data file {} ({})", dataset.source_path, self.state.y_unit)
+        logger.info("Showing dataset {} ({})", dataset.source_path, self.state.y_unit)
 
     def apply_shown_calibration(self) -> None:
         """Convert the shown data file with its stored calibration (references or levels).
@@ -1788,11 +1790,11 @@ class HSIViewer(QMainWindow):
             combo.setItemData(combo.count() - 1, dataset.source_path,
                               Qt.ItemDataRole.ToolTipRole)
         if shown is None:
-            label = ("Data file: none" if not self._cube_path
+            label = ("Dataset: none" if not self._cube_path
                      else f"{os.path.basename(self._cube_path)} (not in project)")
             combo.insertItem(0, label, None)
         combo.insertSeparator(combo.count())
-        combo.addItem("Add data file...", _ADD_DATA_FILE)
+        combo.addItem("Add Dataset...", _ADD_DATA_FILE)
         combo.setCurrentIndex(max(0, combo.findData(shown)) if shown is not None else 0)
         combo.setEnabled(self.project_state.project_path is not None)
         combo.blockSignals(False)
@@ -1820,7 +1822,7 @@ class HSIViewer(QMainWindow):
             self._canvas.set_image(self._false_colour_rgb())
         except Exception:
             # The rest of the viewer stays usable; the log keeps the reason the canvas is empty.
-            logger.opt(exception=True).warning("False-colour preview could not be drawn")
+            logger.opt(exception=True).warning("False-color preview could not be drawn")
             self._canvas.clear_image()
         self._canvas.set_crosshair(s.frame, s.row)
 
@@ -1902,7 +1904,7 @@ class HSIViewer(QMainWindow):
         """Show the log file path, with buttons to copy it and to open its location."""
         log_file = log_file_path()
         box = QMessageBox(self)
-        box.setWindowTitle("Log File")
+        box.setWindowTitle("Log file")
         if log_file is None:
             box.setText("No log file is active.")
             box.exec()
@@ -2014,7 +2016,7 @@ class HSIViewer(QMainWindow):
         current = "" if widget.user_limits is None else (
             f"{widget.user_limits[0]:g}, {widget.user_limits[1]:g}")
         text, ok = QInputDialog.getText(
-            self, "Colour limits", "Low, high (empty: the target's training range):",
+            self, "Color limits", "Low, high (empty: the calibration range):",
             text=current)
         if not ok:
             return
@@ -2022,10 +2024,10 @@ class HSIViewer(QMainWindow):
         try:
             limits = None if not parts else (float(parts[0]), float(parts[1]))
         except (ValueError, IndexError):
-            QMessageBox.warning(self, "Colour limits", f"{text!r} is not two numbers.")
+            QMessageBox.warning(self, "Color limits", f"{text!r} is not two numbers.")
             return
         if limits is not None and not limits[1] > limits[0]:
-            QMessageBox.warning(self, "Colour limits", "The high limit must be above the low.")
+            QMessageBox.warning(self, "Color limits", "The high limit must be above the low.")
             return
         self._prediction_view.set_colour_limits(limits)  # the Controls dock shows them too
 

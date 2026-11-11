@@ -128,7 +128,7 @@ def _load_project_startup(path: str | Path) -> _ProjectStartupPayload:
     logger.info("Loading project metadata: {}", project_path)
     store = load_project_store(project_path)
     logger.info(
-        "Loaded project metadata: {} ({} datasets, {} ROIs, {} model runs, {} predictions)",
+        "Loaded project metadata: {} ({} datasets, {} ROIs, {} models, {} predictions)",
         project_path,
         len(store.get("datasets", {})),
         len(store.get("rois", {})),
@@ -393,7 +393,7 @@ def _load_project_store_into_viewer(
         ),
         wavelengths=viewer.state.wavelengths,
     ):
-        log_and_raise("Project attachment cancelled due to source mismatch")
+        log_and_raise("Project attachment canceled due to source mismatch")
     viewer.project_state.open_project(project_path, store=store)
     if viewer.state.dark_ref is None and viewer.state.white_ref is None:
         # A registered data file is shown with its stored calibration; references

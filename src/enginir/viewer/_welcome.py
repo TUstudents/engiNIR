@@ -74,7 +74,7 @@ class WelcomeWindow(QMainWindow):
         subtitle.setStyleSheet(secondary_text_style())
         layout.addWidget(subtitle)
 
-        quick_start = QGroupBox("Quick Start")
+        quick_start = QGroupBox("Quick start")
         quick_layout = QVBoxLayout(quick_start)
         quick_layout.setSpacing(6)
 
@@ -99,7 +99,7 @@ class WelcomeWindow(QMainWindow):
         quick_layout.addWidget(launcher_hint)
         layout.addWidget(quick_start)
 
-        refs_box = QGroupBox("Optional References")
+        refs_box = QGroupBox("Optional references")
         refs_layout = QVBoxLayout(refs_box)
         refs_layout.setSpacing(6)
         dark_row = QHBoxLayout()
@@ -127,10 +127,10 @@ class WelcomeWindow(QMainWindow):
         refs_layout.addLayout(white_row)
         layout.addWidget(refs_box)
 
-        recent_box = QGroupBox("Recent Workspaces")
+        recent_box = QGroupBox("Recent workspaces")
         recent_layout = QVBoxLayout(recent_box)
         recent_layout.setSpacing(6)
-        recent_label = QLabel("Recent Files")
+        recent_label = QLabel("Recent files")
         recent_layout.addWidget(recent_label)
         self._recent_list = QListWidget()
         self._populate_recent()
@@ -170,7 +170,7 @@ class WelcomeWindow(QMainWindow):
 
     def _on_open_clicked(self) -> None:
         dialog_started = time.perf_counter()
-        path, _ = QFileDialog.getOpenFileName(self, "Open Dataset", "", _FILTER)
+        path, _ = QFileDialog.getOpenFileName(self, "Open dataset", "", _FILTER)
         logger.debug(
             "Startup timing: dataset file dialog returned in {:.3f}s (selected={})",
             time.perf_counter() - dialog_started,
@@ -184,7 +184,7 @@ class WelcomeWindow(QMainWindow):
 
     def _on_open_project_clicked(self) -> None:
         dialog_started = time.perf_counter()
-        path, _ = QFileDialog.getOpenFileName(self, "Open Project", "", PROJECT_OPEN_FILTER)
+        path, _ = QFileDialog.getOpenFileName(self, "Open project", "", PROJECT_OPEN_FILTER)
         logger.debug(
             "Startup timing: project file dialog returned in {:.3f}s (selected={})",
             time.perf_counter() - dialog_started,
@@ -206,7 +206,7 @@ class WelcomeWindow(QMainWindow):
 
     def _on_browse_dark(self) -> None:
         dialog_started = time.perf_counter()
-        path, _ = QFileDialog.getOpenFileName(self, "Dark Reference", "", _FILTER)
+        path, _ = QFileDialog.getOpenFileName(self, "Dark reference", "", _FILTER)
         logger.debug(
             "Startup timing: dark-reference dialog returned in {:.3f}s (selected={})",
             time.perf_counter() - dialog_started,
@@ -218,7 +218,7 @@ class WelcomeWindow(QMainWindow):
 
     def _on_browse_white(self) -> None:
         dialog_started = time.perf_counter()
-        path, _ = QFileDialog.getOpenFileName(self, "White Reference", "", _FILTER)
+        path, _ = QFileDialog.getOpenFileName(self, "White reference", "", _FILTER)
         logger.debug(
             "Startup timing: white-reference dialog returned in {:.3f}s (selected={})",
             time.perf_counter() - dialog_started,

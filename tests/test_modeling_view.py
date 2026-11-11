@@ -227,7 +227,7 @@ def test_fit_dialog_starts_from_the_preview_and_explains_readiness(qapp, state_a
     assert dialog.target_id == "target_1" and dialog.recipe == state.recipe
     assert dialog.readiness_text.splitlines() == [
         "cube.eiff: 2 of 3 ROIs have a value",
-        "The model uses 2 ROIs from 1 data file(s).",
+        "The model uses 2 ROIs from 1 dataset(s).",
     ]
     ok = dialog._buttons.button(QDialogButtonBox.StandardButton.Ok)
     assert ok.isEnabled()
@@ -428,7 +428,7 @@ def test_fit_model_group_validation_guard(qapp, state_and_project, monkeypatch):
     view.fit_model_btn_clicked()
 
     assert warnings == [
-        "Cross-validation requires at least 2 ROIs in the selected sample set, it has 1."
+        "Cross-validation requires at least 2 ROIs in the selected calibration set, it has 1."
     ]
     assert project.sample_sets == {}, "a refused fit writes nothing"
 
@@ -478,7 +478,7 @@ def test_reopened_model_run_renders_every_diagnostic_and_selects_rois(qapp, tmp_
     distribution = axes("model.target_distribution")
     assert distribution.patches or distribution.collections, "drawn as bins or as levels"
     assert axes("model.scores").collections[0].get_offsets().shape[0] == n_rois
-    assert "training" in axes("model.scores").get_xlabel()
+    assert "calibration" in axes("model.scores").get_xlabel()
     for plot_id, key in (("model.coefficients", "coefficients"), ("model.loadings", "loadings")):
         line = axes(plot_id).lines[0]
         np.testing.assert_allclose(line.get_xdata(), wavelengths)

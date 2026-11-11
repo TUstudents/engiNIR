@@ -102,7 +102,7 @@ def test_locate_file_from_the_not_found_question(qapp, trays, monkeypatch):
     shutil.move(paths["tray_a"], moved)
     monkeypatch.setattr(QMessageBox, "exec", lambda self: 0)
     monkeypatch.setattr(QMessageBox, "clickedButton", lambda self: next(
-        b for b in self.buttons() if b.text() == "Locate file..."))
+        b for b in self.buttons() if b.text() == "Locate File..."))
     monkeypatch.setattr(QFileDialog, "getOpenFileName",
                         staticmethod(lambda *a, **k: (str(moved), "")))
     window = open_project(project.path)

@@ -202,7 +202,7 @@ class ProjectInspector(QWidget):
         if calibration is None:
             self.show_default()
             return
-        self.title_label.setText("Calibration")
+        self.title_label.setText("Reference correction")
         self.body_label.setText(
             "\n".join(
                 [
@@ -240,9 +240,9 @@ class ProjectInspector(QWidget):
                 [
                     f"ID: {roi.roi_id}",
                     f"Name: {roi.name or 'unnamed'}",
-                    f"Data file: {self.project_state.data_file_label(roi.dataset_id)}",
-                    f"Dataset: {roi.dataset_id}",
-                    f"Calibration: {roi.calibration_id}",
+                    f"Dataset: {self.project_state.data_file_label(roi.dataset_id)}",
+                    f"Dataset ID: {roi.dataset_id}",
+                    f"Reference correction ID: {roi.calibration_id}",
                     f"Pixels: {roi.n_pixels}",
                     f"Bounds: {roi.spatial_bounds}",
                     f"Target assignments: {assignment_text}",
@@ -279,16 +279,16 @@ class ProjectInspector(QWidget):
         if sample_set is None:
             self.show_default()
             return
-        self.title_label.setText("Sample Set")
+        self.title_label.setText("Calibration set")
         self.body_label.setText(
             "\n".join(
                 [
                     f"ID: {sample_set.sample_set_id}",
                     f"Target: {sample_set.target_id}",
-                    f"Recipe: {sample_set.preprocessing_recipe_id}",
+                    f"Preprocessing recipe: {sample_set.preprocessing_recipe_id}",
                     f"Datasets: {', '.join(sample_set.dataset_ids)}",
                     f"ROIs: {len(sample_set.roi_ids)}",
-                    f"Observation unit: {sample_set.observation_unit}",
+                    f"Fitted on: {sample_set.observation_unit}",
                     f"Validation unit: {sample_set.validation_unit}",
                 ]
             )
@@ -299,16 +299,16 @@ class ProjectInspector(QWidget):
         if signal_domain is None:
             self.show_default()
             return
-        self.title_label.setText("Signal Domain")
+        self.title_label.setText("Input contract")
         self.body_label.setText(
             "\n".join(
                 [
                     f"ID: {signal_domain.signal_domain_id}",
                     f"Input: {signal_domain.input_format} | {signal_domain.source_modality}",
                     f"Signal unit: {signal_domain.required_signal_unit}",
-                    f"Calibration mode: {signal_domain.required_calibration_mode}",
+                    f"Reference correction: {signal_domain.required_calibration_mode}",
                     f"Requires refs: dark={signal_domain.requires_dark_ref}, white={signal_domain.requires_white_ref}",
-                    f"Calibrated input allowed: {signal_domain.calibrated_input_allowed}",
+                    f"Corrected input allowed: {signal_domain.calibrated_input_allowed}",
                     f"Bands: {signal_domain.n_bands}",
                     f"Band mapping: {signal_domain.band_mapping_policy}",
                 ]
@@ -320,14 +320,14 @@ class ProjectInspector(QWidget):
         if model_run is None:
             self.show_default()
             return
-        self.title_label.setText("Model Run")
+        self.title_label.setText("Model")
         self.body_label.setText(
             "\n".join(
                 [
                     f"ID: {model_run.model_run_id}",
                     f"Type: {model_run.model_type}",
-                    f"Sample set: {model_run.sample_set_id}",
-                    f"Signal domain: {model_run.signal_domain_id}",
+                    f"Calibration set: {model_run.sample_set_id}",
+                    f"Input contract: {model_run.signal_domain_id}",
                     f"CV: {model_run.cv_spec}",
                     *fit_summary(model_run, {r: roi.name for r, roi in
                                              self.project_state.rois.items()},
@@ -346,7 +346,7 @@ class ProjectInspector(QWidget):
             refs = load_model_run_artifact_refs(path, model_run.model_run_id,
                                                 keys=("exclusion",))
         except (OSError, KeyError, ValueError) as exc:
-            logger.warning("Excluded pixels of model run '{}' not read: {}",
+            logger.warning("Excluded pixels of model '{}' not read: {}",
                            model_run.model_run_id, exc)
             return None
         return refs.get("exclusion")
@@ -364,8 +364,8 @@ class ProjectInspector(QWidget):
         summary = result.diagnostics or {}
         lines = [
             "Not stored: predictions live in this session only.",
-            f"Data file: {result.dataset.source_path}",
-            f"Calibration: {result.calibration.mode} -> {result.calibration.output_signal_unit}",
+            f"Dataset file: {result.dataset.source_path}",
+            f"Reference correction: {result.calibration.mode} -> {result.calibration.output_signal_unit}",
             f"Model: {model_run.name if model_run is not None and model_run.name else run.model_run_id}",
             f"Spatial map: {map_shape}",
         ]
@@ -386,7 +386,7 @@ class ProjectInspector(QWidget):
             return
         roi = self.project_state.rois.get(roi_id)
         target = self.project_state.targets.get(target_id)
-        self.title_label.setText("Target Assignment")
+        self.title_label.setText("Target value")
         self.body_label.setText(
             "\n".join(
                 [

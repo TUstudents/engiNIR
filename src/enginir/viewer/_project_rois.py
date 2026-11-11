@@ -336,7 +336,7 @@ class RoiMosaic(QWidget):
         for options, setter in (
                 (((GRID, "Compact grid"), (SCAN, "Positions in the scan")), self.set_layout_mode),
                 (((SHARED, "Stretch: all ROIs together"),
-                  (PER_FILE, "Stretch: each data file")), self.set_stretch_mode)):
+                  (PER_FILE, "Stretch: each dataset")), self.set_stretch_mode)):
             group = QActionGroup(menu)
             for key, text in options:
                 action = QAction(text, menu)
@@ -732,9 +732,9 @@ def _table_pixels(payload: Any) -> PlotTable:
                                "signal": payload.get("signal_label", "")})
 
 
-ROI_MEANS = register_plot(PlotSpec("explore.roi_means", "ROI Mean Spectra", _render_means,
+ROI_MEANS = register_plot(PlotSpec("explore.roi_means", "ROI mean spectra", _render_means,
                                    _table_means, empty_text="No ROIs stored yet."))
-ROI_PIXELS = register_plot(PlotSpec("explore.roi_pixels", "Selected ROI Pixels", _render_pixels,
+ROI_PIXELS = register_plot(PlotSpec("explore.roi_pixels", "Selected ROI pixels", _render_pixels,
                                     _table_pixels, empty_text="No ROIs stored yet."))
 
 
@@ -762,7 +762,7 @@ class ProjectRoisView(QWidget):
         self.mosaic = RoiMosaic()
         self.mosaic.roi_selected.connect(self._on_tile_selected)
         self.mosaic.roi_opened.connect(self.roi_opened.emit)
-        self.mosaic_frame = PlotFrame("explore.roi_mosaic", "ROI Mosaic", self.mosaic,
+        self.mosaic_frame = PlotFrame("explore.roi_mosaic", "ROI mosaic", self.mosaic,
                                       self.mosaic, provenance=provenance)
         self.mosaic_frame.add_header_widget(self.mosaic.view_button())
         self.means = PlotPanel(ROI_MEANS)
@@ -775,7 +775,7 @@ class ProjectRoisView(QWidget):
             {"explore.roi_mosaic": self.mosaic_frame, "explore.roi_means": self.means,
              "explore.roi_pixels": self.pixels})
         top = QHBoxLayout()
-        top.addWidget(QLabel("Data file:"))
+        top.addWidget(QLabel("Dataset:"))
         top.addWidget(self._file_filter, 1)
         top.addWidget(self._status, 2)
         layout = QVBoxLayout(self)
@@ -861,7 +861,7 @@ class ProjectRoisView(QWidget):
         current = self._file_filter.currentData()
         self._file_filter.blockSignals(True)
         self._file_filter.clear()
-        self._file_filter.addItem("All data files", _ALL_FILES)
+        self._file_filter.addItem("All datasets", _ALL_FILES)
         for dataset_id, name in sorted(self._file_names().items(), key=lambda i: i[1].lower()):
             self._file_filter.addItem(name, dataset_id)
         self._file_filter.setCurrentIndex(max(0, self._file_filter.findData(current)))

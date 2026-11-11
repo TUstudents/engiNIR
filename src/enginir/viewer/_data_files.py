@@ -174,7 +174,7 @@ class AddDataFileDialog(QDialog):
         trained_with: str | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Add data file")
+        self.setWindowTitle("Add dataset")
         self._path = os.path.abspath(path)
         self._header = header
         n_frames, height, n_bands = (int(n) for n in header.cube_shape)
@@ -198,25 +198,26 @@ class AddDataFileDialog(QDialog):
             # Opened from Predict: say what the model used, never reuse it silently
             # (dataset-calibration contract).
             trained = QLabel(f"The model was trained with: {trained_with}. Choose this scan's "
-                             "own calibration (references of this session, or the levels).")
+                             "own reference correction (references of this session, or the "
+                             "levels).")
             trained.setWordWrap(True)
             trained.setStyleSheet(secondary_text_style())
             layout.addWidget(trained)
 
         self._unit = QComboBox()
         self._choice: dict[str, QRadioButton] = {}
-        calibration = QGroupBox("Calibration")
+        calibration = QGroupBox("Reference correction")
         calibration_layout = QVBoxLayout(calibration)
         if self._precalibrated:
             calibration_layout.addWidget(QLabel(
-                "The file holds floating-point values: they are taken as already calibrated."))
+                "The file holds floating-point values: they are taken as already corrected."))
             self._unit.addItems(["Reflectance", "Absorbance"])
         else:
             group = QButtonGroup(self)
             for key, text in ((REFERENCES, "Dark and white references"),
-                              (SHARED, "Same references as another data file"),
+                              (SHARED, "Same references as another dataset"),
                               (LEVELS, "Detector levels, no references"),
-                              (RAW, "Raw counts, no calibration")):
+                              (RAW, "Raw counts (DN), no reference correction")):
                 button = QRadioButton(text)
                 group.addButton(button)
                 self._choice[key] = button
@@ -284,9 +285,8 @@ class AddDataFileDialog(QDialog):
             unit_row.addRow("The file holds:", self._unit)
             layout.addLayout(unit_row)
         else:
-            note = QLabel("The project keeps the raw counts with these references or levels; "
-                          "DN, reflectance and absorbance are chosen in Explore and in Fit "
-                          "model.")
+            note = QLabel("The project keeps the raw counts (DN) with these references or "
+                          "levels; the signal is chosen in Explore and in Fit Model.")
             note.setWordWrap(True)
             note.setStyleSheet(secondary_text_style())
             layout.addWidget(note)
@@ -408,7 +408,7 @@ class AddDataFileDialog(QDialog):
                              f"{saturated:.2f} % saturated")
         elif choice == SHARED:
             if self._shared.count() == 0:
-                lines.append("No data file of the project has reference spectra.")
+                lines.append("No dataset of the project has reference spectra.")
                 ok = False
             else:
                 lines.append(f"References copied from {self._shared.currentText()}.")

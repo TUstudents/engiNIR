@@ -450,7 +450,7 @@ class DC3Panel(_ImagePanel):
         if self._data is None:
             return None
         metadata = self._metadata("band")
-        metadata["signal_unit"] = "DN (raw)"
+        metadata["signal_unit"] = "Raw counts (DN)"
         return PlotTable(matrix=self._data, row_label="row", column_label="frame",
                          metadata=metadata)
 
@@ -471,7 +471,7 @@ class SensorPanel(_ImagePanel):
 
     row_pick = pyqtSignal(int)
     band_pick = pyqtSignal(int)
-    plot_title = "Sensor Frame"
+    plot_title = "Sensor frame"
 
     def __init__(self, state: ViewerState) -> None:
         super().__init__(state, x_label="Band", y_label="Cross-track",
@@ -520,7 +520,7 @@ class SpatialProfilePanel(_BasePanelWidget):
     """
 
     row_pick = pyqtSignal(int)
-    plot_title = "Spatial Profile"
+    plot_title = "Spatial profile"
 
     def __init__(self, state: ViewerState) -> None:
         super().__init__(state, defer_initial_hidden_refresh=False)
@@ -638,7 +638,7 @@ class SpectrumPanel(_BasePanelWidget):
     """
 
     band_pick = pyqtSignal(int)
-    plot_title = "Spectral Profile"
+    plot_title = "Spectral profile"
 
     def __init__(self, state: ViewerState) -> None:
         super().__init__(state, defer_initial_hidden_refresh=False)

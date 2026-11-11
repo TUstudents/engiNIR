@@ -67,7 +67,7 @@ def test_prediction_view_warns_when_no_models(qapp, project_state, monkeypatch):
     view.predict_btn_clicked()
 
     assert infos == ["info"]
-    assert "fit or load a model run" in view._readiness_status.text().lower()
+    assert "fit or load a model" in view._readiness_status.text().lower()
 
 
 def test_prediction_view_cancel_button_requests_cooperative_cancel(qapp, project_state):
@@ -83,7 +83,7 @@ def test_prediction_view_cancel_button_requests_cooperative_cancel(qapp, project
 
     assert cancel_event.is_set()
     assert not view._btn_cancel.isEnabled()
-    assert "cancelling" in view._service_status.label.text().lower()
+    assert "canceling" in view._service_status.label.text().lower()
 
 
 def test_prediction_map_widget_orients_map_like_spatial_canvas_and_adds_colorbar(qapp):
@@ -163,7 +163,7 @@ def test_a_subsampled_map_shows_and_exports_true_frames_and_rows(qapp, tmp_path)
     frame.show()
     payload = _subsampled_map_payload()
     widget.update_data(payload)
-    assert frame.title == "Prediction Map (%)"
+    assert frame.title == "Prediction map (%)"
     assert widget._ax.get_xlim()[1] == pytest.approx(12 * 3 - 0.5)
 
     widget._on_motion(types.SimpleNamespace(inaxes=widget._ax, xdata=7.2, ydata=4.0))
@@ -314,7 +314,7 @@ def test_the_layer_selector_shows_the_diagnostics_and_marks_pixels_above_the_lim
     assert int((~np.ma.getmaskarray(overlay)).sum()) == 1, "one pixel above DCrit is marked"
     assert not np.ma.getmaskarray(overlay)[0, 1]  # frame 1, row 0 (shown transposed)
     assert "above DCrit 1: 1 pixels (17 %)" in widget._stats_label.text()
-    assert widget.plot_title == "DModX Map"
+    assert widget.plot_title == "DModX map"
     assert shown[-1]["quantity"] == "DModX" and shown[-1]["limit"] == 1.0
     assert widget.plot_table_metadata()["layer"] == "DModX"
 
@@ -395,7 +395,7 @@ def test_predict_map_shows_the_map_and_the_rois_of_its_file(qapp, fitted_tray, m
         result.spatial_map[f0:f1 + 1, r0:r1 + 1])), rtol=1e-5)
 
 
-def test_the_uncertainty_layer_shows_the_pixel_intervals_and_none_outside_the_model(
+def test_the_prediction_interval_layer_shows_the_pixel_intervals_and_none_outside_the_model(
         qapp, fitted_tray, monkeypatch):
     """The half-width at 0.95 of the library, its own scale, pixels outside the model marked,
     the median and the share without an interval, and ± in the hover readout."""
@@ -416,7 +416,7 @@ def test_the_uncertainty_layer_shows_the_pixel_intervals_and_none_outside_the_mo
     payload = view.workspace_visual_payload()
     assert payload is not None
     widget.update_data(payload)
-    widget.set_layer("Uncertainty")
+    widget.set_layer("Prediction interval")
     shown = widget._ax.images[0].get_array()
     np.testing.assert_allclose(np.ma.filled(shown, np.nan), expected.T, rtol=1e-6)
     assert widget._ax.images[0].get_clim() == pytest.approx(
@@ -425,7 +425,7 @@ def test_the_uncertainty_layer_shows_the_pixel_intervals_and_none_outside_the_mo
     median = float(np.median(expected[~outside]))
     assert f"95 % interval: median ± {median:.3g}" in label
     assert f"no interval for {int(outside.sum())} pixels" in label
-    assert widget.plot_title.startswith("± 95 % Prediction Interval")
+    assert widget.plot_title.startswith("± 95 % prediction interval")
 
     frame, row = np.argwhere(~outside)[0]
     assert f"± {expected[frame, row]:.3g} (95 %)" in widget.describe_pixel(int(frame), int(row))
@@ -468,7 +468,7 @@ def test_predict_rois_compares_models_and_the_exclusion_needs_no_new_prediction(
     after = view.roi_results_payload()
     assert after is not before and sum(row["removed"] for row in after["roi_rows"]) > 0
     assert len(calls) == 2, "recalculated from the predicted pixels"
-    assert "removed" in after["exclusion_text"]
+    assert "excluded" in after["exclusion_text"]
 
     # The histogram shows the pixels behind the statistics: the kept ROI pixels per model.
     shown = {"values": np.full((4, 4), -60.0), "provenance": {}}  # a background-only map
@@ -517,8 +517,8 @@ def test_a_map_of_a_file_without_prediction_rois_drops_the_old_roi_results(
 
 
 def test_hovering_a_map_pixel_describes_it_in_the_status_line(qapp):
-    """Frame, row, prediction against the colour range, DModX against DCrit and the
-    removal limit, T² and the prediction ROI under the cursor; leaving clears it."""
+    """Frame, row, prediction against the color range, DModX against DCrit and the
+    exclusion limit, T² and the prediction ROI under the cursor; leaving clears it."""
     from enginir.viewer._prediction import PredictionMapWidget
 
     widget = PredictionMapWidget()
@@ -533,10 +533,10 @@ def test_hovering_a_map_pixel_describes_it_in_the_status_line(qapp):
     # spatial_map is (frames, rows): the shown map is (rows, frames).
     text = widget.describe_pixel(1, 0)
     assert text == ("Frame 1 | Row 0 | Prediction 5 | DModX 1.2 (DCrit 0.99 1: above, "
-                    "removal limit 2) | T² 2.4")
+                    "exclusion limit 2) | T² 2.4")
     text = widget.describe_pixel(0, 1)
-    assert "Prediction 12 (above the colour range)" in text
-    assert "DModX 3 (DCrit 0.99 1: above, removal limit 2: removed)" in text
+    assert "Prediction 12 (above the color range)" in text
+    assert "DModX 3 (DCrit 0.99 1: above, exclusion limit 2: excluded)" in text
     assert text.endswith("ROI 03")
     widget._on_motion(types.SimpleNamespace(inaxes=widget._ax, xdata=0.0, ydata=1.0))
     widget._on_motion(types.SimpleNamespace(inaxes=None, xdata=None, ydata=None))
@@ -544,7 +544,7 @@ def test_hovering_a_map_pixel_describes_it_in_the_status_line(qapp):
 
 
 def test_the_roi_table_shows_the_session_results_and_sorts_by_them(qapp, fitted_tray):
-    """Per model: mean, SD, % removed, % above DCrit, residual; read-only, following the
+    """Per model: mean, SD, % excluded, % above DCrit, residual; read-only, following the
     pixel removal, sortable, and gone with another project (never stored)."""
     from enginir.viewer._prediction import PredictionView
     from enginir.viewer._roi_table import RoiTableModel
@@ -564,7 +564,7 @@ def test_the_roi_table_shows_the_session_results_and_sorts_by_them(qapp, fitted_
     headers = [table.headerData(c, Qt.Orientation.Horizontal) for c in
                range(n_columns, n_columns + 5)]
     assert headers == [f"{model.name}: {h}" for h in
-                       ("mean", "SD", "% removed", "% above DCrit", "residual")]
+                       ("mean", "SD", "% excluded", "% above DCrit", "residual")]
     mean_column = n_columns
     row = table.row_of(project.roi("t09").roi_id)
     assert row is not None

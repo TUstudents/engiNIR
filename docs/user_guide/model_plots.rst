@@ -14,54 +14,56 @@ its title or legend.
 Fit page
 --------
 
-**Predicted vs Reference, per ROI**
+**Predicted vs target value, per ROI**
 
-Each point is one ROI: its reference value against the mean of its pixels'
+Each point is one ROI: its target value against the mean of its pixels'
 cross-validated predictions, so the statistics are per ROI. Q² (the
-cross-validated R²), RMSECV and bias come from these points; RMSEE and R²adj
-from the fit. Points should lie along the dashed line. A tilt (low values over-,
-high values under-predicted) means the model is pulled to the mean; points in
-groups by data file mean the model may separate scans rather than the target.
+cross-validated R²), RMSECV (per ROI) and bias come from these points; RMSEE
+(per ROI) and R²adj from the fit. Points should lie along the dashed line. A
+tilt (low values over-, high values under-predicted) means the model is pulled
+to the mean; points in groups by dataset mean the model may separate scans
+rather than the target.
 
 **Residuals, per ROI**
 
-Per ROI: the cross-validated prediction minus the reference value, against the
-reference. Residuals should scatter around zero with no pattern. A slope means
-the model is pulled to the mean; a curve means a non-linear relation; one level
-far off points to a problem with those samples or their reference values.
+Per ROI: the cross-validated prediction minus the target value, against the
+target value. Residuals should scatter around zero with no pattern. A slope
+means the model is pulled to the mean; a curve means a non-linear relation; one
+level far off points to a problem with those samples or their target values.
 
-**Target Distribution, per ROI**
+**Target value distribution, per ROI**
 
-Per ROI: how many ROIs have each reference value (one bar per value when there
-are at most 12 distinct values, else bins). A model predicts best inside the
-range it was trained on and where values are dense; few distinct levels limit
-how many components the data can support.
+Per ROI: how many ROIs have each target value (one bar per value when there are
+at most 12 distinct values, else bins). A model predicts best inside the range
+it was calibrated on and where values are dense; few distinct levels limit how
+many components the data can support.
 
-**Training Scores (LV1 vs LV2), per ROI**
+**Calibration scores (LV1 vs LV2), per ROI**
 
 Each point is one ROI: the mean of its pixels' scores on the first two latent
-variables, coloured by reference value. The grey ellipses are Hotelling T²
-limits for single training pixels; ROI means sit well inside them. The coloured
-ellipses treat the ROI means as the observations: an ROI outside them is unusual
-among the ROIs. A smooth colour gradient means LV1 and LV2 follow the target.
+variables, colored by target value. The gray ellipses are Hotelling's T² limits
+for single calibration pixels; ROI means sit well inside them. The colored
+ellipses are computed from the ROI means: an ROI outside them is unusual among
+the ROIs. A smooth color gradient means LV1 and LV2 follow the target.
 
 Spectral page
 -------------
 
-**Regression Coefficients**
+**Regression coefficients**
 
 The regression coefficients over the model's bands: how much each band adds to
 the prediction, in the units of the preprocessed spectra. Broad features at
 known absorption bands are a good sign; many sharp swings from band to band, or
 large values at the detector ends, suggest the model fits noise.
 
-**Scaled Coefficients (CoeffCS)**
+**Scaled coefficients (CoeffCS)**
 
-The coefficients in the model's scaled units (SIMCA's CoeffCS): each coefficient
-times its band's scaling, divided by the target's. Comparable between bands, so
-their size shows importance when bands are scaled differently.
+The coefficients in the model's scaled units (SIMCA's CoeffCS): each
+coefficient times its band's scaling, divided by the target's. Comparable
+between bands, so their size shows importance when bands are scaled
+differently.
 
-**Latent Loadings (LV1-LV3)**
+**Latent loadings (LV1-LV3)**
 
 The loadings of the first three latent variables over the bands: which spectral
 shape each component describes. A loading that looks like an absorption band is
@@ -72,51 +74,51 @@ noisy loading is a component that models noise.
 
 VIP (PLS): the weight of each band in the components, weighted by how much of
 the target each component explains; the mean of VIP² is 1. Bands above 1 matter
-more than average, below 0.8 little. The model's mean spectrum is shaded behind.
-High VIP at the detector ends or in a saturated band is a warning, not
+more than average, below 0.8 little. The model's mean spectrum is shaded
+behind. High VIP at the detector ends or in a saturated band is a warning, not
 chemistry.
 
 **VIP, sorted**
 
 VIP of every band, sorted from the largest, with the five largest listed. Bars
-above 1 (coloured) are the bands the model relies on most; the share of bands
+above 1 (colored) are the bands the model relies on most; the share of bands
 above 1 is in the VIP plot.
 
-**Selectivity Ratio**
+**Selectivity ratio**
 
-Selectivity ratio (PLS and PCR): per band, the variance explained by the model's
-prediction direction divided by the variance it leaves. Independent of how one
-algorithm spreads weights over components. Values well below 1 everywhere mean
-most spectral variation is unrelated to the target.
+Selectivity ratio (PLS and PCR): per band, the variance explained by the
+model's prediction direction divided by the variance it leaves. Independent of
+how one algorithm spreads weights over components. Values well below 1
+everywhere mean most spectral variation is unrelated to the target.
 
 Components page
 ---------------
 
-**RMSECV and RMSEE vs Components, per ROI**
+**RMSECV (per ROI) and RMSEE (per ROI) vs components**
 
-Per ROI, against the number of components: RMSECV with its standard error
-(cross-validated) and RMSEE (fit, with R − A − 1 degrees of freedom). The
-vertical line is the model's number; the list gives each rule's choice and the
-number that decided it, and what the noise guard changed. RMSECV that keeps
-creeping down after a clear knee usually means optimistic folds, not more
-chemistry.
+Per ROI, against the number of components: RMSECV (per ROI) with its standard
+error (cross-validated) and RMSEE (per ROI) (fit, with R − A − 1 degrees of
+freedom). The vertical line is the model's number; the list gives each rule's
+choice and the number that decided it, and what the noise guard changed. RMSECV
+(per ROI) that keeps creeping down after a clear knee usually means optimistic
+folds, not more chemistry.
 
-**R²Y and Q² vs Components, per ROI**
+**R²Y and Q² vs components, per ROI**
 
 Per ROI: R²Y(cum), the share of the target the fit explains, and Q²(cum), the
 share it predicts in cross-validation, both over ROI means. The shaded gap is
 what the fit gains over prediction; a gap that widens with more components is
 over-fitting.
 
-**Each Component: Q²ₐ, ΔR²X, Roughness**
+**Each component: Q²ₐ, ΔR²X, roughness**
 
 Each component on its own: Q²ₐ (per ROI, how much it improves the prediction;
 the dashed line is the limit L of SIMCA's rule R1), ΔR²X (per pixel, the share
 of the spectra it explains) and the Durbin–Watson value of its weights (orange,
-right axis: 0 smooth, 2 noise). Grey components explain under 1 % of the spectra
-and do not improve the prediction: noise, which the noise guard drops.
+right axis: 0 smooth, 2 noise). Gray components explain under 1 % of the
+spectra and do not improve the prediction: noise, which the noise guard drops.
 
-**R²X and R²Y vs Components, per pixel**
+**R²X and R²Y vs components, per pixel**
 
 Per pixel, against the number of components: R²X(cum), the share of the spectra
 explained, and R²Y(cum), the share of the target explained over single pixels.
@@ -126,24 +128,24 @@ levelling off shows where the spectra have no more structure.
 Distance page
 -------------
 
-**Distance to Model (DModX), per pixel**
+**Distance to the model (DModX), per pixel**
 
-Per pixel: the distance of each training pixel to the model (normalised DModX),
-with its 0.99 limit. About 1 % of the pixels should lie above it; many more mean
-the pixels are not one homogeneous population. Bins go up to the 99.5th
-percentile; the grey bar holds the rest.
+Per pixel: the distance of each calibration pixel to the model (normalized
+DModX), with its 0.99 limit. About 1 % of the pixels should lie above it; many
+more mean the pixels are not one homogeneous population. Bins go up to the
+99.5th percentile; the gray bar holds the rest.
 
-**Hotelling T², per pixel**
+**Hotelling's T², per pixel**
 
-Per pixel: Hotelling T² of each training pixel in the model's components, with
-its 0.99 limit. About 1 % should lie above it; a long tail means extreme pixels
-such as glints or edges. Bins go up to the 99.5th percentile; the grey bar holds
-the rest.
+Per pixel: Hotelling's T² of each calibration pixel in the model's components,
+with its 0.99 limit. About 1 % should lie above it; a long tail means extreme
+pixels such as glints or edges. Bins go up to the 99.5th percentile; the gray
+bar holds the rest.
 
-**Pixels Above the Limits, per ROI**
+**Pixels above the limits, per ROI**
 
-Per ROI: the share of its training pixels above the DModX limit (bars, coloured
-by reference value) and above the T² limit (markers), sorted from the largest.
-The dashed line is the 1 % a 0.99 limit expects. ROIs far above it have spectra
-the model does not describe: another substrate, saturation, drift along a scan.
-Click a bar to select the ROI.
+Per ROI: the share of its calibration pixels above the DModX limit (bars,
+colored by target value) and above the T² limit (markers), sorted from the
+largest. The dashed line is the 1 % a 0.99 limit expects. ROIs far above it
+have spectra the model does not describe: another substrate, saturation, drift
+along a scan. Click a bar to select the ROI.

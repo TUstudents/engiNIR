@@ -86,7 +86,7 @@ class PredictRoisDialog(QDialog):
         form = QFormLayout()
         self._file_combo = QComboBox()
         total = sum(count for _id, _label, count in files)
-        self._file_combo.addItem(f"All data files ({total} prediction ROIs)", ALL_FILES)
+        self._file_combo.addItem(f"All datasets ({total} prediction ROIs)", ALL_FILES)
         for dataset_id, label, count in files:
             self._file_combo.addItem(f"{label} ({count} prediction ROIs)", dataset_id)
         self._file_combo.setCurrentIndex(max(0, self._file_combo.findData(default_file)))
@@ -159,15 +159,15 @@ class PredictMapDialog(QDialog):
         self._file_combo.setCurrentIndex(max(0, self._file_combo.findData(default_file)))
         self._file_combo.currentIndexChanged.connect(self._update)
         _show_whole_items(self._file_combo)
-        add = QPushButton("Add data file...")
-        add.setToolTip("Register a new scan with the Add data file dialog (its calibration is "
-                       "chosen there, as for training scans)")
+        add = QPushButton("Add Dataset...")
+        add.setToolTip("Register a new scan with the Add Dataset dialog (its reference correction "
+                       "is chosen there, as for the calibration scans)")
         add.clicked.connect(self._add)
         add.setEnabled(add_data_file is not None)
         row = QHBoxLayout()
         row.addWidget(self._file_combo, 1)
         row.addWidget(add)
-        form.addRow("Data file:", row)
+        form.addRow("Dataset:", row)
         self._chain = QLabel("")
         self._chain.setWordWrap(True)
         self._chain.setStyleSheet(secondary_text_style())
@@ -207,7 +207,7 @@ class PredictMapDialog(QDialog):
         self._chain.setText("" if model is None else model.chain)
         reason = None
         if self.dataset_id is None:
-            reason = "Add a data file first."
+            reason = "Add a dataset first."
         elif model is not None:
             reason = self._check(model.model_run_id, self.dataset_id)
         self._reason.setText("" if reason is None else f"⚠ Cannot predict: {reason}")
@@ -264,7 +264,7 @@ def _render_roi_results(fig: Figure, payload: Any, colors: Mapping[str, str]
         if refs and m == 0:
             rx, ry = zip(*refs, strict=True)
             ax.scatter(rx, ry, marker="x", color=colors["fg"], s=40, zorder=4,
-                       label="reference value")
+                       label="target value")
         points.append(RoiPoints(ax, x, mean, tuple(row["roi_id"] for row in mine)))
     ax.set_xticks(range(len(rois)))
     labels = [names[roi_id] for roi_id in rois]
@@ -295,7 +295,7 @@ def _render_roi_results(fig: Figure, payload: Any, colors: Mapping[str, str]
             handles.append(Line2D([], [], marker="o", linestyle="", markerfacecolor="none",
                                   markeredgecolor=colors["fg"], markersize=9))
             labels_.append(f"unusual spectra (> {100 * high:.0f} % of pixels above DCrit, "
-                           "training 90 %)")
+                           "calibration ROIs' 90 %)")
     # Headroom above the bars for the legend, so it never hides a tablet.
     low, high = ax.get_ylim()
     ax.set_ylim(low, high + 0.12 * len(handles) * (high - low))
@@ -336,10 +336,10 @@ ROI_RESULTS = PlotSpec(
     empty_text="No ROI predictions yet.",
     help=("Each prediction ROI (a tablet), predicted from its stored pixels: the dot is the "
           "mean of its pixel predictions (the reported value, written next to it), the bar "
-          "the 5–95 % range of its pixels; one colour per model; × the reference value when "
+          "the 5–95 % range of its pixels; one color per model; × the target value when "
           "the ROI has one. A ring marks unusual spectra: a larger share of the ROI's pixels "
-          "above the DModX limit (0.99) than 90 % of the model's training ROIs have. The "
-          "shares, SD and removed pixels are in the ROI table. Remove pixels above the DModX "
-          "limit (Predict controls) to leave glare and substrate out of the statistics."))
+          "above DCrit (0.99) than 90 % of the model's calibration ROIs have. The shares, SD "
+          "and excluded pixels are in the ROI table. Exclude pixels above the DModX limit "
+          "(Predict controls) to leave glare and substrate out of the statistics."))
 
 __all__ = ["ALL_FILES", "ROI_RESULTS", "ModelChoice", "PredictMapDialog", "PredictRoisDialog"]

@@ -96,18 +96,18 @@ class BandRangeDialog(QDialog):
         else:
             self._spectrum_plot.setLabel("bottom", source.axis_label)
 
-        self._status = QLabel("Loading the spectra of the sample set...")
+        self._status = QLabel("Loading the spectra of the calibration set...")
         self._status.setStyleSheet(secondary_text_style())
         layout.addWidget(self._status)
 
         buttons_row = QHBoxLayout()
-        self._add_keep = QPushButton("Add keep range")
-        self._add_exclude = QPushButton("Add exclude range")
+        self._add_keep = QPushButton("Add Keep Range")
+        self._add_exclude = QPushButton("Add Exclude Range")
         self._clear = QPushButton("Clear")
         buttons_row.addWidget(self._add_keep)
         buttons_row.addWidget(self._add_exclude)
         for low, high in WATER_BANDS:
-            water = QPushButton(f"Exclude water {low:.0f}-{high:.0f}")
+            water = QPushButton(f"Exclude Water {low:.0f}-{high:.0f}")
             water.setToolTip("A common NIR water band; added only when you click.")
             water.clicked.connect(lambda _checked=False, r=(low, high): self.add_region(
                 "exclude", r))
@@ -193,9 +193,9 @@ class ProposeBandsDialog(QDialog):
         self._cancelled = False
         layout = QVBoxLayout(self)
         intro = QLabel("Forward interval PLS: each step adds the interval that lowers the "
-                       "RMSECV most, until the gain is within one standard error. The whole "
-                       "search is repeated inside every outer fold, so the nested RMSECV "
-                       "includes the selection.")
+                       "RMSECV (per ROI) most, until the gain is within one standard error. "
+                       "The whole search is repeated inside every outer fold, so the nested "
+                       "RMSECV (per ROI) includes the selection.")
         intro.setWordWrap(True)
         intro.setStyleSheet(secondary_text_style())
         layout.addWidget(intro)
@@ -208,12 +208,12 @@ class ProposeBandsDialog(QDialog):
         self._plot = pg.PlotWidget()
         self._plot.setBackground(panel_colors()["bg"])
         self._plot.setLabel("bottom", "Step (intervals chosen)")
-        self._plot.setLabel("left", "RMSECV")
+        self._plot.setLabel("left", "RMSECV (per ROI)")
         self._plot.setMenuEnabled(False)
         self._plot.hide()
         layout.addWidget(self._plot, 1)
         self._buttons = QDialogButtonBox()
-        self._use = self._buttons.addButton("Use as keep ranges",
+        self._use = self._buttons.addButton("Use as Keep Ranges",
                                             QDialogButtonBox.ButtonRole.AcceptRole)
         self._cancel = self._buttons.addButton(QDialogButtonBox.StandardButton.Cancel)
         if self._use is not None:
@@ -244,7 +244,7 @@ class ProposeBandsDialog(QDialog):
     def _cancel_or_close(self) -> None:
         if self._running:
             self._cancelled = True
-            self._status.setText("Cancelling...")
+            self._status.setText("Canceling...")
             return
         self.reject()
 
@@ -257,12 +257,12 @@ class ProposeBandsDialog(QDialog):
         self._bar.hide()
         last = proposal.steps[-1]
         lines = [f"Proposed keep ranges: {format_ranges(proposal.ranges) or 'none'}",
-                 f"RMSECV with these ranges: {last.rmsecv:.4g} ({last.n_components} "
+                 f"RMSECV (per ROI) with these ranges: {last.rmsecv:.4g} ({last.n_components} "
                  "components)",
-                 f"Nested RMSECV (selection included): {proposal.nested_rmsecv:.4g}",
-                 f"RMSECV with all bands: {proposal.all_bands_rmsecv:.4g}"]
+                 f"Nested RMSECV (per ROI) (selection included): {proposal.nested_rmsecv:.4g}",
+                 f"RMSECV (per ROI) with all bands: {proposal.all_bands_rmsecv:.4g}"]
         if not proposal.ranges:
-            lines.append("No interval beat the mean of the reference values.")
+            lines.append("No interval beat the mean of the target values.")
         self._status.setText("\n".join(lines))
         steps = np.arange(len(proposal.steps), dtype=float)
         rmsecv = np.array([step.rmsecv for step in proposal.steps])
@@ -283,7 +283,7 @@ class ProposeBandsDialog(QDialog):
     def _failed(self, message: str) -> None:
         self._bar.hide()
         if self._cancelled:
-            self._status.setText("Cancelled.")
+            self._status.setText("Canceled.")
         else:
             logger.error("Band proposal failed: {}", message)
             self._status.setText(f"Band proposal failed: {message}")

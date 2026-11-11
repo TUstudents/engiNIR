@@ -100,7 +100,7 @@ def describe_calibration(calibration: CalibrationSpec) -> str:
     if calibration.mode == "raw_dn":
         return "raw counts"
     if calibration.mode == "precalibrated_import":
-        return f"calibrated {calibration.output_signal_unit.lower()} values"
+        return f"already corrected {calibration.output_signal_unit.lower()} values"
     if calibration.dark_ref_data is not None or calibration.dark_ref_source is not None:
         return "dark/white references"
     if calibration.black_level is not None and calibration.white_level is not None:
@@ -118,13 +118,14 @@ _MAP_PREVIEW_PIXELS = 512 * 512
 
 #: Map layers of the Predict workspace; the diagnostics come with the saved model's
 #: projection data (prediction-runtime contract, Applicability Diagnostics).
-MAP_LAYERS = ("Prediction", "DModX", "T²", "Uncertainty")
+MAP_LAYERS = ("Prediction", "DModX", "T²", "Prediction interval")
 _LAYER_LIMITS = {"DModX": ("dcrit_099", "n_above_dcrit", "share_above_dcrit", "DCrit"),
                  "T²": ("t2_crit_099", "n_above_t2crit", "share_above_t2crit", "T²Crit")}
 _NO_DIAGNOSTICS = ("No {} map: this model has no projection data (fitted before engiNIR 1.3). "
                    "Refit it to get the DModX and T² maps.")
-_NO_INTERVAL = ("No Uncertainty map: this model has no prediction-interval inputs (a PLS or "
-                "PCR model with one target, its pixel RMSEE and at least A + 2 training ROIs).")
+_NO_INTERVAL = ("No prediction interval map: this model has no prediction-interval inputs "
+                "(a PLS or PCR model with one target, its RMSEE (per pixel) and at least "
+                "A + 2 calibration ROIs).")
 #: Level of the prediction intervals the viewer shows (prediction-runtime contract).
 INTERVAL_LEVEL = 0.95
 
@@ -159,7 +160,7 @@ def interval_text(summary: dict[str, Any] | None) -> str:
 
 
 def _missing_layer_reason(layer: str) -> str:
-    return _NO_INTERVAL if layer == "Uncertainty" else _NO_DIAGNOSTICS.format(layer)
+    return _NO_INTERVAL if layer == "Prediction interval" else _NO_DIAGNOSTICS.format(layer)
 
 
 def _map_previews(result: PredictionResult) -> dict[str, Any]:
@@ -172,7 +173,7 @@ def _map_previews(result: PredictionResult) -> dict[str, Any]:
     full = tuple(int(n) for n in spatial_map.shape[:2])
     step = _preview_step(full, _MAP_PREVIEW_PIXELS)
     layers = {"DModX": result.diagnostic_map(result.dmodx), "T²": result.diagnostic_map(result.t2),
-              "Uncertainty": result.diagnostic_map(result.half_width(INTERVAL_LEVEL))}
+              "Prediction interval": result.diagnostic_map(result.half_width(INTERVAL_LEVEL))}
     return {"spatial_map": np.ascontiguousarray(spatial_map[::step, ::step, ...]),
             "layers": {name: np.ascontiguousarray(values[::step, ::step])
                        for name, values in layers.items() if values is not None},
@@ -199,7 +200,7 @@ class PredictionMapWidget(QWidget):
     displayed_map_changed = pyqtSignal(object)
     #: The pixel under the cursor, as one status-line text (``""``: the cursor left the map).
     hovered = pyqtSignal(str)
-    plot_title = "Prediction Map"
+    plot_title = "Prediction map"
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -228,8 +229,7 @@ class PredictionMapWidget(QWidget):
         self._layer_combo.setToolTip("Map layer: the prediction; the distance to the model "
                                      "(DModX) or within it (T²) with the pixels above the "
                                      "0.99 limit marked; or the ± half-width of the 95 % "
-                                     "prediction interval (Uncertainty), none outside the "
-                                     "model")
+                                     "prediction interval, none outside the model")
         self._layer_combo.currentIndexChanged.connect(self._on_output_changed)
         self._overlay: Any = None
         #: Colour limits the user set (⋯ menu); ``None``: the training range of the target.
@@ -356,7 +356,7 @@ class PredictionMapWidget(QWidget):
         extent = (-0.5, arr.shape[1] * step - 0.5, arr.shape[0] * step - 0.5, -0.5)
         limits = None
         cmap: Any = "viridis" if layer == "Prediction" else "magma"
-        if layer == "Uncertainty":
+        if layer == "Prediction interval":
             # Its own scale over the shown half-widths (they never fall below q · s, so a
             # scale from zero would hide their spread); pixels outside the model marked.
             finite = arr[np.isfinite(arr)]
@@ -396,7 +396,7 @@ class PredictionMapWidget(QWidget):
         self._step = step
         self._rendered_output_index = output_index
         self._rendered_layer = layer
-        units = (str(payload.get("target_unit", "")) if layer in ("Prediction", "Uncertainty")
+        units = (str(payload.get("target_unit", "")) if layer in ("Prediction", "Prediction interval")
                  else "")
         unit_suffix = f" ({units})" if units else ""
         limit = self._layer_limit(payload, layer)
@@ -406,8 +406,8 @@ class PredictionMapWidget(QWidget):
                 above, cmap=ListedColormap([panel_colors()["accent"]]), alpha=0.9,
                 origin="upper", aspect="auto", interpolation="nearest",
                 extent=(-0.5, arr.shape[1] * step - 0.5, arr.shape[0] * step - 0.5, -0.5))
-        self._set_title(f"± {100 * INTERVAL_LEVEL:.0f} % Prediction Interval{unit_suffix}"
-                        if layer == "Uncertainty" else f"{layer} Map{unit_suffix}")
+        self._set_title(f"± {100 * INTERVAL_LEVEL:.0f} % prediction interval{unit_suffix}"
+                        if layer == "Prediction interval" else f"{layer} map{unit_suffix}")
         self._ax.set_xlabel("Frame", color=colors["fg"])
         self._ax.set_ylabel("Row", color=colors["fg"])
         self._colorbar = self._fig.colorbar(
@@ -456,7 +456,7 @@ class PredictionMapWidget(QWidget):
     @staticmethod
     def _limit_text(payload: dict[str, Any], layer: str) -> str:
         """`` | above DCrit 2.1: 40 pixels (1.3 %)`` over the whole scan, or ``""``."""
-        if layer == "Uncertainty":
+        if layer == "Prediction interval":
             text = interval_text(payload.get("interval"))
             return f" | {text}" if text else ""
         summary = payload.get("diagnostics") or {}
@@ -486,7 +486,7 @@ class PredictionMapWidget(QWidget):
         self._overlay = None
         self._output_combo.setVisible(False)
         style_axes(self._ax)
-        self._set_title(f"{self.layer} Map")
+        self._set_title(f"{self.layer} map")
         self._ax.set_xlabel("Frame", color=colors["fg"])
         self._ax.set_ylabel("Row", color=colors["fg"])
         draw_placeholder(self._ax, empty_reason or "No prediction in this session yet.", colors)
@@ -535,7 +535,7 @@ class PredictionMapWidget(QWidget):
         if self.layer == "Prediction" and self._shown_limits is not None:
             low, high = self._shown_limits
             metadata["colour_scale"] = (f"{low:.6g} .. {high:.6g} "
-                                        f"({'user limits' if self.user_limits else 'training range'})")
+                                        f"({'user limits' if self.user_limits else 'calibration range'})")
         if self._step > 1:
             metadata["preview_step"] = self._step
             full_shape = payload.get("full_map_shape")
@@ -626,7 +626,7 @@ class PredictionMapWidget(QWidget):
                                                output_index=output_index)
         if prediction is not None and prediction.shape == shape:
             layers["Prediction"] = prediction
-        for name in ("DModX", "T²", "Uncertainty"):
+        for name in ("DModX", "T²", "Prediction interval"):
             values = (payload.get("layers") or {}).get(name)
             shown = None if values is None else self._display_spatial_map(values)
             if shown is not None and shown.shape == shape:
@@ -655,12 +655,12 @@ class PredictionMapWidget(QWidget):
             limits = self._hover.get("limits")
             if limits is not None and np.isfinite(value):
                 if value < limits[0]:
-                    text += " (below the colour range)"
+                    text += " (below the color range)"
                 elif value > limits[1]:
-                    text += " (above the colour range)"
+                    text += " (above the color range)"
             parts.append(text)
-        if "Uncertainty" in layers:
-            half = float(layers["Uncertainty"][shown_row, shown_column])
+        if "Prediction interval" in layers:
+            half = float(layers["Prediction interval"][shown_row, shown_column])
             text = (f"± {half:.3g} ({100 * INTERVAL_LEVEL:.0f} %)" if np.isfinite(half)
                     else "no interval (outside the model)")
             if parts[-1].startswith("Prediction"):
@@ -675,8 +675,8 @@ class PredictionMapWidget(QWidget):
             if dcrit is not None:
                 notes.append(f"DCrit 0.99 {dcrit:.3g}" + (": above" if value > dcrit else ""))
             if removed is not None:
-                notes.append(f"removal limit {removed:.3g}"
-                             + (": removed" if value > removed else ""))
+                notes.append(f"exclusion limit {removed:.3g}"
+                             + (": excluded" if value > removed else ""))
             parts.append(text + (f" ({', '.join(notes)})" if notes else ""))
         if "T²" in layers:
             parts.append(f"T² {float(layers['T²'][shown_row, shown_column]):.3g}")
@@ -803,7 +803,7 @@ def _histogram_table(payload: Any) -> PlotTable:
 #: Distribution of the predictions: the kept pixels of the prediction ROIs when
 #: there are ROI results, else the shown map (:meth:`PredictionView.histogram_payload`).
 PREDICTION_HISTOGRAM = register_plot(PlotSpec(
-    "predict.histogram", "Prediction Distribution", _histogram_render, _histogram_table,
+    "predict.histogram", "Prediction distribution", _histogram_render, _histogram_table,
     empty_text="No prediction in this session yet."))
 
 
@@ -864,7 +864,7 @@ class PredictionView(QWidget):
 
         # Status texts for the summary headline; the dock shows only controls and progress.
         self._prediction_status = QLabel("Prediction: none")
-        self._readiness_status = QLabel("Ready: fit or load a model run.")
+        self._readiness_status = QLabel("Ready: fit or load a model.")
 
         button_row = QHBoxLayout()
         self._btn_predict_rois = QToolButton()
@@ -875,8 +875,8 @@ class PredictionView(QWidget):
         self._btn_predict_rois.clicked.connect(self.predict_rois_clicked)
         button_row.addWidget(self._btn_predict_rois)
         self._btn_predict = QToolButton()
-        self._btn_predict.setText("Predict map...")
-        self._btn_predict.setToolTip("Predict every pixel of a project data file with one model, "
+        self._btn_predict.setText("Predict Map...")
+        self._btn_predict.setToolTip("Predict every pixel of a project dataset with one model, "
                                      "with the results of its prediction ROIs")
         self._btn_predict.clicked.connect(self.predict_btn_clicked)
         button_row.addWidget(self._btn_predict)
@@ -889,7 +889,7 @@ class PredictionView(QWidget):
         layout.addLayout(button_row)
 
         exclusion_row = QHBoxLayout()
-        self._exclusion_check = QCheckBox("Remove pixels above the DModX limit")
+        self._exclusion_check = QCheckBox("Exclude pixels above the DModX limit")
         self._exclusion_check.setToolTip(
             "Leave pixels outside the model (glare, exposed substrate, direct reflections) "
             "out of every ROI statistic; recalculated without predicting again")
@@ -906,7 +906,7 @@ class PredictionView(QWidget):
         self._dcrit_label = QLabel("")
         self._dcrit_label.setStyleSheet(secondary_text_style())
         self._dcrit_label.setToolTip("The DModX limit at this level, per model: pixels above "
-                                     "it are removed")
+                                     "it are excluded")
         exclusion_row.addWidget(self._dcrit_label)
         exclusion_row.addStretch(1)
         layout.addLayout(exclusion_row)
@@ -922,11 +922,11 @@ class PredictionView(QWidget):
         grid.setHorizontalSpacing(6)
         grid.setVerticalSpacing(2)
         self._colour_mode = QComboBox()
-        self._colour_mode.addItem("Training range", "training")
+        self._colour_mode.addItem("Calibration range", "training")
         self._colour_mode.addItem("Own limits", "own")
-        self._colour_mode.setToolTip("Map colours: the target's range in the model's training "
-                                     "values, or your own limits (one scale over a series of "
-                                     "trays); values outside get their own colours")
+        self._colour_mode.setToolTip("Map colors: the calibration range (the target values of "
+                                     "the calibration set), or your own limits (one scale over "
+                                     "a series of trays); values outside get their own colors")
         self._colour_low, self._colour_high = QDoubleSpinBox(), QDoubleSpinBox()
         for spin, prefix in ((self._colour_low, "low "), (self._colour_high, "high ")):
             spin.setRange(-1e6, 1e6)
@@ -935,15 +935,15 @@ class PredictionView(QWidget):
             spin.setEnabled(False)
             spin.valueChanged.connect(self._on_display_changed)
         self._colour_mode.currentIndexChanged.connect(self._on_colour_mode_changed)
-        grid.addWidget(QLabel("Colour scale"), 0, 0)
+        grid.addWidget(QLabel("Color scale"), 0, 0)
         grid.addWidget(self._colour_mode, 0, 1)
         grid.addWidget(self._colour_low, 0, 2)
         grid.addWidget(self._colour_high, 0, 3)
         self._show_outlines = QCheckBox("ROI outlines")
         self._show_outlines.setToolTip("Outline the prediction ROIs on the map, with their mean")
-        self._grey_removed = QCheckBox("Grey removed pixels")
-        self._grey_removed.setToolTip("Grey the pixels above the DModX limit when pixels are "
-                                      "removed")
+        self._grey_removed = QCheckBox("Gray excluded pixels")
+        self._grey_removed.setToolTip("Gray the pixels above the DModX limit when pixels are "
+                                      "excluded")
         for check in (self._show_outlines, self._grey_removed):
             check.setChecked(True)
             check.toggled.connect(self._on_display_changed)
@@ -1039,7 +1039,7 @@ class PredictionView(QWidget):
                 recipe = PreprocessingRecipe.from_dict(
                     state.recipes[sample_set.preprocessing_recipe_id]).describe()
             unit = "?" if domain is None else domain.required_signal_unit
-            chain = (f"the data file's calibration → {unit} → {recipe} → {name}; "
+            chain = (f"the dataset's reference correction → {unit} → {recipe} → {name}; "
                      f"trained with {self._training_calibration(run)}")
             choices.append(ModelChoice(model_run_id, name, chain))
         return choices
@@ -1052,7 +1052,7 @@ class PredictionView(QWidget):
                  for roi_id in (sample_set.roi_ids if sample_set is not None else ())
                  if roi_id in state.rois
                  and state.rois[roi_id].calibration_id in state.calibrations}
-        return " / ".join(sorted(texts)) or "unknown calibration"
+        return " / ".join(sorted(texts)) or "unknown reference correction"
 
     def _default_model_id(self) -> str | None:
         active = self.project_state.active_model_name
@@ -1093,7 +1093,7 @@ class PredictionView(QWidget):
         rois = [roi for roi in state.rois.values() if roi.use == "prediction"
                 and (dataset_id is None or roi.dataset_id == dataset_id)]
         self._start_roi_job(model_ids, rois, scope=(
-            "all data files" if dataset_id is None else state.data_file_label(dataset_id)))
+            "all datasets" if dataset_id is None else state.data_file_label(dataset_id)))
 
     def _start_roi_job(self, model_ids: list[str], rois: list[Any], *, scope: str) -> None:
         state = self.project_state
@@ -1113,7 +1113,7 @@ class PredictionView(QWidget):
 
         def done(predictions: list[RoiPrediction]) -> None:
             if cancel_event.is_set():
-                self._service_status.set_idle("Service: ROI prediction cancelled")
+                self._service_status.set_idle("Service: ROI prediction canceled")
                 return
             self._set_roi_predictions(predictions, scope=scope)
             refused = sum(len(prediction.refused) for prediction in predictions)
@@ -1147,7 +1147,7 @@ class PredictionView(QWidget):
         self._exclusion_check.setEnabled(has_projection)
         self._exclusion_check.setToolTip(
             self._exclusion_check.toolTip() if has_projection
-            else "This model has no projection data (fitted before 1.3): refit it to remove "
+            else "This model has no projection data (fitted before 1.3): refit it to exclude "
                  "pixels by DModX")
         for widget in (self._exclusion_check, self._exclusion_level):
             widget.blockSignals(False)
@@ -1215,7 +1215,7 @@ class PredictionView(QWidget):
                     "share_above_t2crit": row.share_above_t2crit,
                     "reference": row.reference, "residual": row.residual})
             if summary.rmsep is not None:
-                rmsep[prediction.model_name] = (f"RMSEP {summary.rmsep:.4g}, bias "
+                rmsep[prediction.model_name] = (f"RMSEP (per ROI) {summary.rmsep:.4g}, bias "
                                                 f"{summary.bias:.4g}, n {summary.n_reference}")
         rows.sort(key=lambda row: row["roi"].lower())  # ROIs in name order, models in order
         level = self._exclusion_level.value() if self._exclusion_check.isChecked() else None
@@ -1226,7 +1226,7 @@ class PredictionView(QWidget):
         return {"roi_rows": rows, "target_unit": unit, "rmsep": rmsep,
                 "training_share": None if first is None else first.training_share_range,
                 "exclusion_text": ("" if not rows else "all pixels kept" if level is None
-                                   else f"pixels above DCrit at {level:g} removed"),
+                                   else f"pixels above DCrit at {level:g} excluded"),
                 "message": self._roi_note or (
                     None if self._roi_predictions or not state.model_runs else
                     "Predict ROIs to see one result per tablet.")}
@@ -1239,9 +1239,9 @@ class PredictionView(QWidget):
         lines = []
         several = len(self._roi_predictions) > 1
         for prediction, summary in zip(self._roi_predictions, self._roi_summaries, strict=True):
-            text = (f"RMSEP {summary.rmsep:.3g}, bias {summary.bias:.3g} "
+            text = (f"RMSEP (per ROI) {summary.rmsep:.3g}, bias {summary.bias:.3g} "
                     f"(n {summary.n_reference})" if summary.rmsep is not None
-                    else "no reference values: no RMSEP")
+                    else "no target values: no RMSEP (per ROI)")
             if prediction.refused:
                 text += f"; {len(prediction.refused)} ROI(s) refused"
             lines.append(f"{prediction.model_name}: {text}" if several else text)
@@ -1276,7 +1276,7 @@ class PredictionView(QWidget):
             text = f"{summary.model_name} {row.mean:.4g}"
             if np.isfinite(row.sd):
                 text += f" ± {row.sd:.2g}"
-            text += f", {100 * row.n_removed / max(row.n_pixels, 1):.0f} % removed"
+            text += f", {100 * row.n_removed / max(row.n_pixels, 1):.0f} % excluded"
             if np.isfinite(row.share_above_dcrit):
                 text += f", {100 * row.share_above_dcrit:.0f} % above DCrit"
             parts.append(text)
@@ -1331,7 +1331,7 @@ class PredictionView(QWidget):
         dataset = state.datasets.get(dataset_id)
         calibration = state.active_calibration(dataset_id)
         if dataset is None or calibration is None:
-            return "the data file has no calibration in the project"
+            return "the dataset has no reference correction in the project"
         if not Path(dataset.source_path).exists():
             return f"{dataset.source_path} was not found (Locate file... in Explore)"
         try:
@@ -1380,7 +1380,7 @@ class PredictionView(QWidget):
         dataset = state.datasets[dataset_id]
         calibration = state.active_calibration(dataset_id)
         if calibration is None:
-            QMessageBox.warning(self, "Prediction failed", "The data file has no calibration.")
+            QMessageBox.warning(self, "Prediction failed", "The dataset has no reference correction.")
             return
         rois = [roi for roi in state.rois.values()
                 if roi.use == "prediction" and roi.dataset_id == dataset_id]
@@ -1442,7 +1442,7 @@ class PredictionView(QWidget):
             active_model = next(reversed(self.project_state.model_runs))
         if active_model is None:
             self._prediction_status.setText("Prediction: none")
-            self._readiness_status.setText("Ready: fit or load a model run.")
+            self._readiness_status.setText("Ready: fit or load a model.")
             return
         run = self.project_state.model_runs.get(str(active_model))
         name = active_model if run is None else (run.name or f"{run.model_type} model")
@@ -1527,7 +1527,7 @@ class PredictionView(QWidget):
             headline = f"Map of {dataset_text} with {model_text} (not stored)"
 
         return {
-            "title": "Prediction Results",
+            "title": "Prediction results",
             "headline": headline,
             "status": status_text,
             "readiness": readiness_text,
@@ -1739,7 +1739,7 @@ class PredictionView(QWidget):
             message,
         )
         if "cancelled" in message.lower():
-            self._service_status.set_idle("Service: prediction cancelled")
+            self._service_status.set_idle("Service: prediction canceled")
             self._update_status()
             return
         if self._last_prediction_phase:
@@ -1770,7 +1770,7 @@ class PredictionView(QWidget):
             return
         self._job_cancel_event.set()
         self._btn_cancel.setEnabled(False)
-        self._service_status.set_busy("Service: cancelling after current chunk...")
+        self._service_status.set_busy("Service: canceling after current chunk...")
 
     def _clear_job(self) -> None:
         self._job_thread = None

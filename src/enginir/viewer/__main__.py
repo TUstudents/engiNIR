@@ -40,7 +40,7 @@ def _main(argv: list[str] | None = None) -> int:
         "path",
         nargs="?",
         default=None,
-        help="Path to a data file or viewer project file. Omit to show the welcome screen.",
+        help="Path to a dataset file or viewer project file. Omit to show the welcome screen.",
     )
     parser.add_argument(
         "--project",
