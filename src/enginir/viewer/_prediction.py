@@ -1049,7 +1049,7 @@ class PredictionView(QWidget):
                     state.recipes[sample_set.preprocessing_recipe_id]).describe()
             unit = "?" if domain is None else domain.required_signal_unit
             chain = (f"the dataset's reference correction → {unit} → {recipe} → {name}; "
-                     f"trained with {self._training_calibration(run)}")
+                     f"fitted with {self._training_calibration(run)}")
             choices.append(ModelChoice(model_run_id, name, chain))
         return choices
 

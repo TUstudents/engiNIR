@@ -768,8 +768,8 @@ def _chosen_components(spec: FitSpec, hyperparameters: dict[str, Any],
 #: Plain words of the fold warnings (contract §7.4).
 _FOLD_WARNING_TEXT = {
     "few_groups": "fewer than 7 independent samples (fold groups)",
-    "one_level_per_file": "the ROIs of a data file share one value but are held out in "
-                          "different folds, so the model can learn the data file; give "
+    "one_level_per_file": "the ROIs of one dataset share one value but are held out in "
+                          "different folds, so the model can learn the dataset; give "
                           "them one sample label",
 }
 

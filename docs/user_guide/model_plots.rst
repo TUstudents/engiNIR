@@ -38,13 +38,14 @@ at most 12 distinct values, else bins). A model predicts best inside the range
 it was calibrated on and where values are dense; few distinct levels limit how
 many components the data can support.
 
-**Calibration scores (LV1 vs LV2), per ROI**
+**Calibration scores (components 1 and 2), per ROI**
 
-Each point is one ROI: the mean of its pixels' scores on the first two latent
-variables, colored by target value. The gray ellipses are Hotelling's T² limits
+Each point is one ROI: the mean of its pixels' scores on the first two
+components (LV for PLS, PC for PCR), colored by target value. The gray ellipses are Hotelling's T² limits
 for single calibration pixels; ROI means sit well inside them. The colored
 ellipses are computed from the ROI means: an ROI outside them is unusual among
-the ROIs. A smooth color gradient means LV1 and LV2 follow the target.
+the ROIs. A smooth color gradient means the first two components follow the
+target.
 
 Spectral page
 -------------
@@ -63,9 +64,9 @@ coefficient times its band's scaling, divided by the target's. Comparable
 between bands, so their size shows importance when bands are scaled
 differently.
 
-**Latent loadings (LV1-LV3)**
+**Loadings (components 1 to 3)**
 
-The loadings of the first three latent variables over the bands: which spectral
+The loadings of the first three components over the bands: which spectral
 shape each component describes. A loading that looks like an absorption band is
 chemistry; a smooth slope or offset is usually scatter or baseline; a rough,
 noisy loading is a component that models noise.

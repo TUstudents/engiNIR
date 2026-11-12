@@ -55,7 +55,7 @@ from ._band_ranges import (
     ProposeBandsDialog,
 )
 from ._jobs import BusyStatusWidget, BackgroundWorker, start_background_job
-from ._state import ProjectState, ViewerState
+from ._state import ProjectState, signal_label, ViewerState
 from ._theme import secondary_text_style
 from ._ui_helpers import spectral_axis_label
 from ..project._ids import now_iso
@@ -110,12 +110,12 @@ class NewROIDialog(QDialog):
         layout.addRow("Pixels:", QLabel(str(n_pixels)))
 
         s = viewer_state
-        layout.addRow("Signal:", QLabel(s.y_unit))
+        layout.addRow("Signal:", QLabel(signal_label(s.y_unit)))
 
         filt = s.preprocess_filter
         if filt != "none":
             filt = f"{filt}  w={s.sg_window}  p={s.sg_polyorder}"
-        layout.addRow("Filter:", QLabel(filt))
+        layout.addRow("Smoothing and derivatives:", QLabel(filt))
 
         norm_parts = []
         if s.preprocess_snv:
@@ -126,7 +126,7 @@ class NewROIDialog(QDialog):
             norm_parts.append("EMSC")
         if s.preprocess_detrend:
             norm_parts.append(f"Detrend(order={s.detrend_order})")
-        layout.addRow("Norm:", QLabel(", ".join(norm_parts) or "none"))
+        layout.addRow("Scatter correction:", QLabel(", ".join(norm_parts) or "none"))
         from ._roi_grid import prediction_only_check
 
         self.prediction_check = prediction_only_check(prediction)
@@ -372,7 +372,7 @@ class FitModelRunDialog(QDialog):
         filter_row.addWidget(self._window_spin)
         filter_row.addWidget(QLabel("order"))
         filter_row.addWidget(self._poly_spin)
-        layout.addRow("Filter:", filter_row)
+        layout.addRow("Smoothing and derivatives:", filter_row)
         self._snv = QCheckBox("SNV")
         self._msc = QCheckBox("MSC")
         self._emsc = QCheckBox("EMSC")
@@ -386,7 +386,7 @@ class FitModelRunDialog(QDialog):
         scatter_row = QHBoxLayout()
         for widget in (self._snv, self._msc, self._emsc, self._detrend, self._detrend_order):
             scatter_row.addWidget(widget)
-        layout.addRow("Normalization:", scatter_row)
+        layout.addRow("Scatter correction:", scatter_row)
         # AsLS and the Savitzky-Golay edge handling have no controls here (scripts
         # only); a preset recipe keeps them (viewer contract, Fit again).
         self._kept_recipe = recipe
@@ -398,7 +398,7 @@ class FitModelRunDialog(QDialog):
         self._detrend.toggled.connect(self._update_enabled)
         self._update_enabled()
         layout.addRow("Bands:", self._bands_row(recipe))
-        hint = QLabel("Starts from the Explore preview; the model is trained with this.")
+        hint = QLabel("Starts from the Explore preview; the model is fitted with this.")
         hint.setStyleSheet(secondary_text_style())
         layout.addRow("", hint)
 
@@ -646,7 +646,7 @@ class FitModelRunDialog(QDialog):
         scaling_row.addStretch(1)
         form.addRow("Scaling:", scaling_row)
 
-        self._exclude_check = QCheckBox("Exclude outlying pixels by DModX")
+        self._exclude_check = QCheckBox("Exclude pixels above DCrit (DModX)")
         self._exclude_check.setToolTip(
             "Leave out pixels above the critical distance to the model, inside every "
             "validation fold from its calibration pixels only; held-out pixels are never "
@@ -840,6 +840,9 @@ def _component_payload(model_run: ModelRun, artifact: dict[str, Any]) -> dict[st
     Presentation only: every value comes from the stored run.
     """
     payload: dict[str, Any] = {"n_components": model_run.hyperparameters.get("n_components"),
+                               # LV for PLS, PC for PCR (terminology contract, LV, PC)
+                               "component_prefix": "PC" if model_run.model_type == "PCR"
+                               else "LV",
                                "fit_statistics": {key: model_run.metrics[key] for key in
                                                   ("rmsee", "r2_adj", "pixel_rmsee")
                                                   if key in model_run.metrics}}

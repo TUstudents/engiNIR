@@ -61,7 +61,7 @@ from ._plot_panel import (
     draw_placeholder,
 )
 from ._plot_registry import register_plot
-from ._state import ProjectState, ViewerState
+from ._state import ProjectState, ViewerState, signal_label
 from ._theme import GUIDE_COLOR, panel_colors, print_colors, secondary_text_style
 from ._ui_helpers import spectral_axis_label, style_axes
 
@@ -963,10 +963,11 @@ class ProjectRoisView(QWidget):
         def computed(result: Any) -> None:
             self._summaries, self._skipped = result
             described = recipe.describe()
-            self._signal_label = unit if described == "none" else f"{unit}, {described}"
+            shown = signal_label(unit)
+            self._signal_label = shown if described == "none" else f"{shown}, {described}"
             self._update_means_plot()
 
-        self._signal_label = unit
+        self._signal_label = signal_label(unit)
         self._spectra_job = start_background_job(owner=self, fn=compute, on_success=computed,
                                                  on_error=self._job_failed, on_finished=done)
         self._update_status()

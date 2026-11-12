@@ -296,6 +296,11 @@ def roi_t2_ellipse(scores: np.ndarray, level: float, n_points: int = 200
             + axes @ (np.sqrt(limit * variances)[:, None] * circle)).T
 
 
+def _component_prefix(payload: Any) -> str:
+    """``"LV"`` for PLS, ``"PC"`` for PCR (terminology contract, LV, PC)."""
+    return "PC" if (payload or {}).get("component_prefix") == "PC" else "LV"
+
+
 def _render_scores(fig: Figure, payload: Any, colors: Mapping[str, str]
                    ) -> Sequence[RoiPoints] | None:
     ax = _axes(fig, colors)
@@ -328,7 +333,8 @@ def _render_scores(fig: Figure, payload: Any, colors: Mapping[str, str]
                     linestyle=style, label=f"T² {level:.0%} ROIs".replace("%", " %"))
     if ax.get_legend_handles_labels()[0]:
         _legend(ax, colors, loc="upper right", ncols=2, handlelength=2.2)
-    _label(ax, "LV1 calibration score", "LV2 calibration score", colors)
+    prefix = _component_prefix(payload)
+    _label(ax, f"{prefix}1 calibration score", f"{prefix}2 calibration score", colors)
     ids = _roi_ids(payload, pairs[0].size)
     return None if ids is None else [RoiPoints(ax, scores[:, 0], scores[:, 1], ids)]
 
@@ -339,8 +345,10 @@ def _table_scores(payload: Any) -> PlotTable:
     if pairs is None or scores is None:
         return PlotTable()
     return PlotTable(columns=(*_roi_columns(payload, scores.shape[0]),
-                              PlotColumn("lv1_calibration_score", scores[:, 0]),
-                              PlotColumn("lv2_calibration_score", scores[:, 1]),
+                              PlotColumn(f"{_component_prefix(payload).lower()}1_calibration_score",
+                                         scores[:, 0]),
+                              PlotColumn(f"{_component_prefix(payload).lower()}2_calibration_score",
+                                         scores[:, 1]),
                               PlotColumn("target_value", pairs[0], _unit(payload))),
                      metadata={"scores": "ROI mean of the calibration pixel scores"})
 
@@ -622,7 +630,8 @@ def _render_loadings(fig: Figure, payload: Any, colors: Mapping[str, str]) -> No
          else np.arange(matrix.shape[0], dtype=float))
     gapped_x, gapped = _gapped(x, matrix)
     for c in range(matrix.shape[1]):
-        ax.plot(gapped_x, gapped[:, c], linewidth=1.1, label=f"LV{c + 1}")
+        ax.plot(gapped_x, gapped[:, c], linewidth=1.1,
+                label=f"{_component_prefix(payload)}{c + 1}")
     ax.axhline(0.0, color=GUIDE_COLOR, linewidth=0.6, linestyle="--")
     _legend(ax, colors)
     band_axis = axis is None or is_band_index_axis(x)
@@ -638,7 +647,8 @@ def _table_loadings(payload: Any) -> PlotTable:
     x = (np.asarray(axis, dtype=float) if axis is not None and np.size(axis) == matrix.shape[0]
          else np.arange(matrix.shape[0], dtype=float))
     return PlotTable(columns=(PlotColumn("wavelength" if axis is not None else "band", x),
-                              *(PlotColumn(f"lv{c + 1}_loading", matrix[:, c])
+                              *(PlotColumn(f"{_component_prefix(payload).lower()}{c + 1}_loading",
+                                           matrix[:, c])
                                 for c in range(matrix.shape[1]))))
 
 
@@ -782,6 +792,28 @@ def _overflow_bin(edges: np.ndarray) -> tuple[float, float]:
     return float(edges[-1]), float(edges[-1]) + width
 
 
+def _note_block(ax: Any, lines: list[str], colors: Mapping[str, str]) -> Any:
+    """The notes of a plot as one boxed block in the top-right corner, inside the axes.
+
+    The font shrinks (down to 6 pt) until the block fits, so narrow panels never
+    overlap notes with each other, the ticks or a neighboring plot.
+    """
+    text = ax.text(0.97, 0.97, "\n".join(lines), transform=ax.transAxes, ha="right", va="top",
+                   fontsize=8, color=colors["fg"],
+                   bbox={"boxstyle": "round,pad=0.25", "facecolor": colors.get("ax_bg", "none"),
+                         "edgecolor": "none", "alpha": 0.85})
+    try:
+        renderer = ax.figure.canvas.get_renderer()
+    except AttributeError:  # a canvas without a renderer: keep the default size
+        return text
+    for size in (8, 7, 6):
+        text.set_fontsize(size)
+        box = text.get_window_extent(renderer)
+        if box.width <= 0.94 * ax.get_window_extent(renderer).width:
+            break
+    return text
+
+
 def _distance_spec(key: str, limit_key: str, plot_id: str, title: str, xlabel: str) -> PlotSpec:
     def render(fig: Figure, payload: Any, colors: Mapping[str, str]) -> None:
         ax = _axes(fig, colors)
@@ -796,17 +828,17 @@ def _distance_spec(key: str, limit_key: str, plot_id: str, title: str, xlabel: s
         if overflow:
             start, end = _overflow_bin(edges)
             ax.stairs([overflow], [start, end], fill=True, color=GUIDE_COLOR, alpha=0.85)
-            lines.append(f"last bar: {overflow} pixels > {start:.3g} (max {largest:.3g})")
+            lines.append(f"last bar: {overflow} > {start:.3g}, max {largest:.3g}")
         values = np.asarray(values, dtype=float)
         limit = payload.get(limit_key)
-        if limit is not None:
+        if limit is not None and np.isfinite(float(limit)):  # NaN: not defined, not drawn
             ax.axvline(float(limit), color=colors["fg"], linewidth=1.0, linestyle="--")
             share = float(np.mean(values > float(limit)))
-            lines[:0] = [f"limit (0.99) = {float(limit):.3g}",
-                         f"above: {share:.1%} (expected {_EXPECTED_ABOVE:.0%})"]
+            lines[:0] = [f"limit 0.99: {float(limit):.3g}",
+                         f"above: {share:.1%} ({_EXPECTED_ABOVE:.0%} expected)".replace(
+                             "%", " %")]
         if lines:
-            ax.text(0.97, 0.97, "\n".join(lines), transform=ax.transAxes, ha="right",
-                    va="top", fontsize=8, color=colors["fg"])
+            _note_block(ax, lines, colors)
         _label(ax, xlabel, "Calibration pixels", colors)
 
     def table(payload: Any) -> PlotTable:
@@ -921,12 +953,12 @@ _SPECS = (
     PlotSpec("model.target_distribution", "Target value distribution, per ROI",
              _render_target_distribution,
              _table_target_distribution, empty_text=_EMPTY),
-    PlotSpec("model.scores", "Calibration scores (LV1 vs LV2), per ROI", _render_scores,
+    PlotSpec("model.scores", "Calibration scores (components 1 and 2), per ROI", _render_scores,
              _table_scores,
              empty_text=_EMPTY),
     _spectral_spec("coefficients", "model.coefficients", "Regression coefficients",
                    "Coefficient", "No regression coefficients yet."),
-    PlotSpec("model.loadings", "Latent loadings (LV1-LV3)", _render_loadings, _table_loadings,
+    PlotSpec("model.loadings", "Loadings (components 1 to 3)", _render_loadings, _table_loadings,
              empty_text=_EMPTY),
     _spectral_spec("coef_cs", "model.coef_cs", "Scaled coefficients (CoeffCS)", "CoeffCS",
                    "No scaled coefficients available for this model."),

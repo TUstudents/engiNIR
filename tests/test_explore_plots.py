@@ -172,3 +172,15 @@ def test_the_spectrum_maximizes_within_the_explore_page(viewer, qapp):
     viewer._on_explore_escape()
     qapp.processEvents()
     assert not image.is_maximized and spectrum.isVisible()
+
+
+def test_raw_count_axes_name_the_signal_in_full(viewer, qapp):
+    """Terminology contract: the y axis of raw data says "Raw counts (DN)", never "DN" alone."""
+    from enginir.viewer._panels import SpatialProfilePanel
+
+    assert viewer.state.y_unit_effective == "DN"
+    panels = [panel for panel in viewer.findChildren(SpatialProfilePanel)]
+    assert panels
+    qapp.processEvents()
+    for panel in panels:
+        assert panel._ax.get_ylabel() == "Raw counts (DN)"

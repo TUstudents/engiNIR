@@ -725,7 +725,7 @@ def test_distance_histograms_show_the_tail_as_one_bar_and_rois_by_their_share():
     assert edges[-1] < 5.0, "the bins stop at the 99.5th percentile, not at the far pixel"
     assert overflow.get_data().values[0] == int(np.sum(pixels > edges[-1]))
     text = fig.axes[0].texts[0].get_text()
-    assert "(expected 1%)" in text and "max 35" in text
+    assert "(1 % expected)" in text and "max 35" in text
     rows = spec.table(payload).columns[2].values
     assert int(np.sum(rows)) == pixels.size, "every pixel is in the CSV"
 
@@ -775,14 +775,14 @@ def test_the_fit_dialog_offers_the_guard_and_warns_about_the_folds(qapp):
 
     def warner(target_id, spec, cv):
         seen.append((target_id, spec, cv))
-        return ["the ROIs of a data file share one value"]
+        return ["the ROIs of one dataset share one value"]
 
     dlg = FitModelRunDialog([("t1", "Layer")], default_target_id="t1",
                             recipe=__import__("enginir").PreprocessingRecipe(),
                             default_signal_unit="Absorbance",
                             readiness=lambda _t: ("Ready.", True), fold_warner=warner)
     try:
-        assert "Validation likely optimistic: the ROIs of a data file" in dlg.readiness_text
+        assert "Validation likely optimistic: the ROIs of one dataset" in dlg.readiness_text
         dlg._auto_check.setChecked(True)
         spec = dlg.fit_spec
         assert spec is not None and spec.components_noise_guard == "on"
@@ -882,3 +882,33 @@ def test_the_fit_summary_shows_the_fold_warnings_and_wraps_long_values(qapp):
     assert "fewer than 7 fold groups" in viewer._model_warnings.text()
     assert viewer._model_card_cv_value.wordWrap()
     viewer.close()
+
+
+@pytest.mark.parametrize("width", [2.2, 3.5, 6.0])
+def test_the_distance_notes_stay_inside_their_plot(width):
+    """W5: the notes of a distance histogram (limit, share above, overflow bar) are one block
+    inside the axes, also in a narrow panel; an undefined (NaN) limit is not drawn."""
+    import numpy as np
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    from enginir.viewer._model_diagnostics import _distance_spec
+    from enginir.viewer._theme import panel_colors
+
+    values = np.concatenate([np.random.default_rng(0).gamma(4, 0.25, 5000), [36.3] * 20])
+    spec = _distance_spec("dmodx", "dcrit_099", "model.dmodx", "DModX", "Normalized DModX")
+    fig = Figure(figsize=(width, 2.4))
+    canvas = FigureCanvasAgg(fig)
+    spec.render(fig, {"dmodx_pixels": values, "dcrit_099": 1.17}, panel_colors())
+    canvas.draw()
+    renderer = canvas.get_renderer()
+    (ax,) = fig.axes
+    notes = [t for t in ax.texts if "limit 0.99" in t.get_text()]
+    assert len(notes) == 1 and "last bar" in notes[0].get_text(), "one block with every note"
+    box, axes_box = notes[0].get_window_extent(renderer), ax.get_window_extent(renderer)
+    assert box.x0 >= axes_box.x0 - 1 and box.x1 <= axes_box.x1 + 1
+
+    fig = Figure(figsize=(width, 2.4))
+    FigureCanvasAgg(fig)
+    spec.render(fig, {"dmodx_pixels": values, "dcrit_099": float("nan")}, panel_colors())
+    assert not any("limit 0.99" in t.get_text() for t in fig.axes[0].texts)

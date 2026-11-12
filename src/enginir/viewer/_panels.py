@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import QLabel, QSizePolicy, QStackedLayout, QVBoxLayout, QW
 from .._checks import log_and_raise
 from .._logging import get_logger
 from ._plot_panel import PlotColumn, PlotTable, print_copy
-from ._state import ViewerState
+from ._state import ViewerState, signal_label
 from ._theme import panel_colors, print_colors
 from ._ui_helpers import LayoutState, maybe_tight_layout, style_axes
 
@@ -361,7 +361,7 @@ class HistogramPanel(_BasePanelWidget):
         # was four times slower to redraw while scrubbing through frames).
         self._stairs = self._ax.stairs(counts, edges, fill=True, color=colors["accent"])
         unit = self._state.y_unit_effective
-        self._ax.set_xlabel(unit, color=colors["fg"], fontsize=8)
+        self._ax.set_xlabel(signal_label(unit), color=colors["fg"], fontsize=8)
         self._ax.set_ylabel("Count", color=colors["fg"], fontsize=8)
         self._draw_idle()
 
@@ -378,7 +378,7 @@ class HistogramPanel(_BasePanelWidget):
         counts, edges = _finite_histogram(self._state.current_frame_image())
         self._stairs.set_data(counts, edges)
         unit = self._state.y_unit_effective
-        self._ax.set_xlabel(unit, color=colors["fg"], fontsize=8)
+        self._ax.set_xlabel(signal_label(unit), color=colors["fg"], fontsize=8)
         # Limits straight from the bins: relim() walks the 256-step path and
         # cost more than half of this update.
         span = float(edges[-1] - edges[0]) or 1.0
@@ -559,7 +559,7 @@ class SpatialProfilePanel(_BasePanelWidget):
 
         xlabel = "Row (mm)" if self._state.x_spatial_unit == "mm" else "Row (pixel)"
         self._ax.set_xlabel(xlabel, color=colors["fg"], fontsize=8)
-        self._ax.set_ylabel(self._state.y_unit_effective, color=colors["fg"], fontsize=8)
+        self._ax.set_ylabel(signal_label(self._state.y_unit_effective), color=colors["fg"], fontsize=8)
         self._draw_idle()
 
     def _refresh_profile(self, *_) -> None:
@@ -576,7 +576,7 @@ class SpatialProfilePanel(_BasePanelWidget):
         self._marker.set_xdata([x[self._state.row], x[self._state.row]])
         xlabel = "Row (mm)" if self._state.x_spatial_unit == "mm" else "Row (pixel)"
         self._ax.set_xlabel(xlabel, color=colors["fg"], fontsize=8)
-        self._ax.set_ylabel(self._state.y_unit_effective, color=colors["fg"], fontsize=8)
+        self._ax.set_ylabel(signal_label(self._state.y_unit_effective), color=colors["fg"], fontsize=8)
         self._ax.relim()
         self._ax.autoscale_view()
         self._draw_idle()
@@ -677,7 +677,7 @@ class SpectrumPanel(_BasePanelWidget):
 
         xlabel = "Wavelength (nm)" if self._state.x_spectral_unit == "nm" else "Band"
         self._ax.set_xlabel(xlabel, color=colors["fg"], fontsize=8)
-        self._ax.set_ylabel(self._state.y_unit_effective, color=colors["fg"], fontsize=8)
+        self._ax.set_ylabel(signal_label(self._state.y_unit_effective), color=colors["fg"], fontsize=8)
         self._draw_idle()
 
     def _refresh_spectrum(self, *_) -> None:
@@ -694,7 +694,7 @@ class SpectrumPanel(_BasePanelWidget):
         self._marker.set_xdata([x[self._state.band], x[self._state.band]])
         xlabel = "Wavelength (nm)" if self._state.x_spectral_unit == "nm" else "Band"
         self._ax.set_xlabel(xlabel, color=colors["fg"], fontsize=8)
-        self._ax.set_ylabel(self._state.y_unit_effective, color=colors["fg"], fontsize=8)
+        self._ax.set_ylabel(signal_label(self._state.y_unit_effective), color=colors["fg"], fontsize=8)
         self._ax.relim()
         self._ax.autoscale_view()
         self._draw_idle()

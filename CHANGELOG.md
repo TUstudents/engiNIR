@@ -61,6 +61,18 @@ read against the code.
 
 ### Fixed
 
+- Wording: the fit dialog's groups are "Smoothing and derivatives" and
+  "Scatter correction" (were "Filter", "Normalization", "Norm"); "fitted"
+  replaces "trained"; DModX exclusion says "pixels above DCrit"; the Explore
+  and Project ROIs axes say "Raw counts (DN)"; PCR plots label their
+  components PC1, PC2, … (the score and loading plot titles name
+  "components"); the welcome screen says "engiNIR"; the fold warning says
+  "dataset".
+- The dataset selector showed "Dataset: none" while a file opened without a
+  project was shown; it names the file.
+- The notes of the Distance histograms overlapped in narrow panels; they are
+  one block inside the plot, and an undefined limit is not drawn.
+- The terminology test also scans library messages.
 - **Fit Again** preset the signal unit shown in Explore instead of the
   model's, so OK could fit a different model; it now repeats the model's.
 - The pixel-subsample seed field took only 32-bit values; a stored seed

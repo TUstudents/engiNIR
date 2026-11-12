@@ -841,7 +841,7 @@ class ModelRun(SerializableModel):
         self.software = check_software(software_versions() if self.software is None
                                        else self.software)
         if self.fit_spec is None:
-            log_and_raise("Model run '{}' has no fit_spec; every model stores its fit "
+            log_and_raise("Model '{}' has no fit_spec; every model stores its fit "
                           "specification", self.model_run_id)
         self.fit_spec = FitSpec.from_dict(self.fit_spec, stored=True).to_dict()
         if self.name is not None:  # an empty stored name means no name
@@ -856,7 +856,7 @@ class ModelRun(SerializableModel):
         for name in ("cv_spec", "metrics"):
             value = getattr(self, name)
             if not isinstance(value, dict):
-                logger.warning("Model run '{}' has no readable {} (got {}); it is shown as "
+                logger.warning("Model '{}' has no readable {} (got {}); it is shown as "
                                "not available", self.model_run_id, name, type(value).__name__)
                 value = {}
             setattr(self, name, value)

@@ -22,7 +22,9 @@ VIEWER = Path(__file__).resolve().parents[1] / "src" / "enginir" / "viewer"
 BANNED: dict[str, str] = {
     r"\bdata ?files?\b": "Dataset (the object) or file (on disk)",
     r"\bdata sets?\b": "Dataset",
-    r"\btraining\b": "calibration, Calibration set",
+    r"\btrain(?:s|ed|ing)?\b": "calibration, Calibration set; fit (the verb)",
+    r"\boutlying\b": "above DCrit, above T²Crit, outside the model",
+    r"^(?:Filter|Normalization|Norm):$": "Smoothing and derivatives:, Scatter correction:",
     r"\bsample sets?\b": "Calibration set",
     r"\bmodel runs?\b": "Model",
     r"\bsignal domains?\b": "Input contract",
@@ -178,6 +180,47 @@ def violations() -> list[str]:
                     seen.add(key)
                     found.append(f"{path.name}:{line}: {problem}   in {text[:70]!r}")
     return found
+
+
+def library_violations() -> list[str]:
+    """Banned words and British spellings in library messages (outside the viewer).
+
+    Messages are the first argument of ``log_and_raise``, the ``logger`` calls
+    and ``raise ...Error(...)``; text in backticks names identifiers and is exempt
+    (terminology contract, Enforcement).
+    """
+    found: list[str] = []
+    root = VIEWER.parent
+    for path in sorted(root.rglob("*.py")):
+        if VIEWER in path.parents:
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call) or not node.args:
+                continue
+            func = node.func
+            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+            if not (name in {"log_and_raise", "warning", "error", "info", "debug", "critical",
+                             "exception"} or (isinstance(func, ast.Name)
+                                              and name.endswith("Error"))):
+                continue
+            arg = node.args[0]
+            parts = ([arg.value] if isinstance(arg, ast.Constant) and isinstance(arg.value, str)
+                     else [v.value for v in arg.values if isinstance(v, ast.Constant)]
+                     if isinstance(arg, ast.JoinedStr) else [])
+            text = re.sub(r"`[^`]*`", "", "".join(str(part) for part in parts))
+            for table in (BANNED, BRITISH):
+                for pattern, use in table.items():
+                    match = re.search(pattern, text, re.IGNORECASE)
+                    if match:
+                        found.append(f"{path.relative_to(root)}:{node.lineno}: "
+                                     f"{match.group(0)!r} -> {use}   in {text[:70]!r}")
+    return found
+
+
+def test_library_messages_use_the_terms_of_the_contract():
+    found = library_violations()
+    assert not found, (f"{len(found)} wording problems in library messages "
+                       "(contracts/terminology_v3.md):\n" + "\n".join(found))
 
 
 def test_the_viewer_uses_the_terms_of_the_contract():

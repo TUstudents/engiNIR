@@ -360,8 +360,11 @@ Renamed in 1.5.x (format `enginir-1.5`, no reading of earlier files):
   justified exceptions are listed in a reviewed allow-list. The test fails
   with the file, line and replacement for every word in "Words not used"
   and every British spelling.
-- Library log and error messages, documentation and contracts follow the
-  same terms and are checked in review. Words that text alone cannot judge
+- Library log and error messages follow the same terms and are checked by a
+  second scan (the first argument of `log_and_raise`, the logger calls and
+  `raise …Error(...)` outside the viewer; text in backticks is exempt).
+  Documentation and contracts follow the same terms and are checked in
+  review. Words that text alone cannot judge
   (calibration for reference correction) are checked in review.
 
 ## Acceptance tests

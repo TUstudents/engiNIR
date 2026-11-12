@@ -79,7 +79,7 @@ def fit_summary(model_run: ModelRun, roi_names: dict[str, str],
                 f"{roi_names.get(r, r)} {n}" for r, n in zip(roi_ids, counts)))
         flagged = [str(r) for r in np.atleast_1d(exclusion.get("flagged_roi_ids", []))]
         if flagged:
-            lines.append("Flagged ROIs (more outlying pixels than allowed): "
+            lines.append("Flagged ROIs (more pixels above DCrit than allowed): "
                          + ", ".join(roi_names.get(r, r) for r in flagged))
         if "dcrit" in exclusion:
             lines.append(f"DCrit: {float(exclusion['dcrit']):.4g}")
