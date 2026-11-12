@@ -8,17 +8,18 @@ import pytest
 from enginir.preprocessing import PreprocessingRecipe
 
 CONTRACT_FIELDS = {"filter", "sg_window", "sg_polyorder", "snv", "msc", "emsc", "detrend",
-                   "detrend_order"}
+                   "detrend_order", "sg_edges", "asls", "asls_lambda", "asls_p",
+                   "asls_iterations", "bands_keep", "bands_exclude"}
 
 
-def test_persisted_form_has_exactly_the_contract_fields_and_round_trips():
-    recipe = PreprocessingRecipe(filter="sg_smooth", sg_window=9, sg_polyorder=3, msc=True,
-                                 sg_edges="interp")
-    assert set(recipe.to_dict()) == CONTRACT_FIELDS
-    assert PreprocessingRecipe.from_dict(recipe.to_dict()) == recipe
-    dropping = PreprocessingRecipe(filter="sg_smooth", sg_window=9, sg_polyorder=3)
-    assert set(dropping.to_dict()) == CONTRACT_FIELDS | {"sg_edges"}
-    assert PreprocessingRecipe.from_dict(dropping.to_dict()) == dropping
+def test_persisted_form_has_every_contract_field_and_round_trips():
+    # enginir-1.5: every field is written, also when it has no effect.
+    for recipe in (PreprocessingRecipe(filter="sg_smooth", sg_window=9, sg_polyorder=3,
+                                       msc=True, sg_edges="interp"),
+                   PreprocessingRecipe(),
+                   PreprocessingRecipe(asls=True, bands_keep=[(1100, 1300)])):
+        assert set(recipe.to_dict()) == CONTRACT_FIELDS
+        assert PreprocessingRecipe.from_dict(recipe.to_dict()) == recipe
 
 
 def test_from_dict_requires_every_field_and_discards_extras():

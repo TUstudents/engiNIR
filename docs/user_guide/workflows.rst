@@ -43,7 +43,7 @@ One call per step:
        ``prediction.t2_map``, ``prediction.interval_map()`` or
        ``prediction.diagnostics``
    * - Predict tablets (prediction ROIs)
-     - ``dataset.add_roi(name, ..., use="prediction")``, then
+     - ``dataset.add_roi(name, ..., job="prediction")``, then
        ``model.predict_rois()``: per-ROI statistics with the mean's prediction
        interval, RMSEP (per ROI) over ROIs with a value
 
@@ -61,7 +61,7 @@ reference set:
 ``project.set_value(roi, target, value)`` sets or replaces a target value;
 ``value=None`` removes it.
 
-ROIs marked ``use="prediction"`` (or ``project.set_use(roi, "prediction")``)
+ROIs marked ``job="prediction"`` (or ``project.set_job(roi, "prediction")``)
 are samples to predict: they never enter a fit, even with a value. A model
 predicts them from the project file alone, each ROI with its own reference correction:
 
@@ -69,7 +69,7 @@ predicts them from the project file alone, each ROI with its own reference corre
 
    tray = project.add_dataset("production_tray.eiff", black_level=128, white_level=3500)
    for i, (first, last) in enumerate([(170, 349), (564, 743), (958, 1137)]):
-       tray.add_roi(f"tablet{i + 1}", frames=(first, last), rows=(70, 179), use="prediction")
+       tray.add_roi(f"tablet{i + 1}", frames=(first, last), rows=(70, 179), job="prediction")
    result = model.predict_rois(exclude_dmodx=0.99)   # leave glare and substrate out
    for row in result.rois:
        print(project.workspace.rois[row.roi_id].name, row.mean, row.interval, row.n_removed)

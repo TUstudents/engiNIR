@@ -310,13 +310,15 @@ def save_preprocessing_recipe(
         existing = f["recipes"].get(recipe_id)
         stored = read_mapping(existing) if isinstance(existing, h5py.Group) else None
     if stored is not None:
-        # Compare normalized content (project-schema contract §4): a stored recipe
-        # that spells out a default (e.g. sg_edges = "interp") is the same recipe.
+        # Compare normalized content (project-schema contract §4).
         if PreprocessingRecipe.from_dict(stored, location=location).to_dict() == payload:
             return
         log_and_raise("Refusing to overwrite PreprocessingRecipe '{}' with different content; "
                       "stable ids are immutable, use a new id", recipe_id)
-    _save_object(path, "recipes", recipe_id, payload, "PreprocessingRecipe", compression)
+    # Band ranges are stored as float64 (n, 2) datasets, (0, 2) when empty (contract §4).
+    stored_payload = {**payload, **{name: np.asarray(payload[name], dtype=np.float64)
+                                    .reshape(-1, 2) for name in ("bands_keep", "bands_exclude")}}
+    _save_object(path, "recipes", recipe_id, stored_payload, "PreprocessingRecipe", compression)
 
 
 def save_signal_domain_contract(
@@ -382,8 +384,7 @@ def save_training_roi(
                           spectra.shape, dark.shape, white.shape)
         payload["calibration_refs"] = {"dark": dark, "white": white}
     _save_object(path, "rois", roi_id, payload, "TrainingROI", compression,
-                 mutable_fields=frozenset({"name"}),  # sample, use: only their writers
-                 same_content=_same_roi_content)
+                 mutable_fields=frozenset({"name"}))  # sample, job: only their writers
 
 
 def save_roi_sample(path: PathLike, roi_id: str, sample: str | None) -> None:
@@ -408,21 +409,20 @@ def save_roi_sample(path: PathLike, roi_id: str, sample: str | None) -> None:
     logger.info("Set the sample label of ROI '{}' to {!r} in {}", roi_id, sample, path)
 
 
-def save_roi_use(path: PathLike, roi_id: str, use: str) -> None:
-    """Set an ROI's ``use`` (``"calibration"`` or ``"prediction"``) in place.
+def save_roi_job(path: PathLike, roi_id: str, job: str) -> None:
+    """Set an ROI's ``job`` (``"calibration"`` or ``"prediction"``) in place.
 
-    The only field written (roi-target contract, ``use``); the value is
-    stored explicitly.
+    The only field written (roi-target contract, ``job``).
     """
-    from enginir.project._models import check_roi_use  # enginir.project imports this module
+    from enginir.project._models import check_roi_job  # enginir.project imports this module
 
-    use = check_roi_use(use)
+    job = check_roi_job(job)
     with _open_project(path, writable=True) as f:
         group = f["rois"].get(roi_id)
         if not isinstance(group, h5py.Group):
             log_and_raise("No ROI '{}' in {}", roi_id, path, error=KeyError)
-        group.attrs["use"] = use
-    logger.info("Set the use of ROI '{}' to {!r} in {}", roi_id, use, path)
+        group.attrs["job"] = job
+    logger.info("Set the job of ROI '{}' to {!r} in {}", roi_id, job, path)
 
 
 def save_sample_set(
@@ -1032,14 +1032,6 @@ def _save_object(
     logger.info("Saved {} '{}' to {}", label, object_id, path)
 
 
-def _same_roi_content(values: dict[str, Any]) -> dict[str, Any]:
-    """An ROI's fields for the identity rule: a missing ``use``, ``training`` and
-    ``calibration`` are the same content (terminology contract)."""
-    from enginir.project._models import same_roi_use  # enginir.project imports this module
-
-    return {**values, "use": same_roi_use(values.get("use"))}
-
-
 def _check_roi_arrays(group: h5py.Group) -> None:
     """Validate stored ROI array shapes without reading the arrays."""
     spectra = group.get("spectra")
@@ -1150,7 +1142,7 @@ __all__ = [
     "save_prediction_run",
     "save_preprocessing_recipe",
     "save_roi_sample",
-    "save_roi_use",
+    "save_roi_job",
     "save_sample_set",
     "save_signal_domain_contract",
     "save_target_assignment",

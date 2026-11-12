@@ -183,6 +183,7 @@ def test_project_store_round_trip_keeps_v3_workspace_objects(tmp_path):
             "name": "roi_a",
             "wavelengths": wavelengths,
             "source_file": "/tmp/sample.eiff",
+            "job": "calibration",
             "spatial_bounds": (0, 1, 0, 1),
             "n_pixels": 4,
             "created_at": "2026-01-01T00:00:00+00:00",

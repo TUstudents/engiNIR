@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import h5py
+
+from enginir.preprocessing import PreprocessingRecipe
 from loguru import logger
 import numpy as np
 import pytest
@@ -115,6 +117,7 @@ def _roi_payload(
         "name": name,
         "wavelengths": wavelengths,
         "source_file": source_file,
+        "job": "calibration",
         "spatial_bounds": (0, 2, 0, 3),
         "n_pixels": n_pixels,
         "created_at": "2026-03-28T10:00:00+00:00",
@@ -574,7 +577,10 @@ def test_save_recipe_enforces_current_schema_and_discards_extras(tmp_path):
         logger.remove(sink_id)
 
     saved = load_project_store(path)["recipes"]["recipe_1"]
-    assert saved == recipe_payload(snv=True)
+    assert set(saved) == set(recipe_payload())
+    assert saved["bands_keep"].shape == (0, 2), "empty band ranges are a (0, 2) dataset"
+    assert PreprocessingRecipe.from_dict(saved) == PreprocessingRecipe.from_dict(
+        recipe_payload(snv=True))
     assert any("/recipes/recipe_1" in message and "created_at" in message for message in messages)
 
     incomplete = recipe_payload()
@@ -587,7 +593,8 @@ def test_save_recipe_enforces_current_schema_and_discards_extras(tmp_path):
     save_preprocessing_recipe(path, "recipe_1", recipe_payload(snv=True))
     with pytest.raises(ValueError, match="Refusing to overwrite PreprocessingRecipe"):
         save_preprocessing_recipe(path, "recipe_1", recipe_payload(msc=True))
-    assert load_project_store(path)["recipes"]["recipe_1"] == recipe_payload(snv=True)
+    assert PreprocessingRecipe.from_dict(load_project_store(path)["recipes"]["recipe_1"]) \
+        == PreprocessingRecipe.from_dict(recipe_payload(snv=True))
 
 
 def test_failed_object_serialization_preserves_previous_group(tmp_path, monkeypatch):

@@ -94,7 +94,7 @@ project = Project.create("tablets.h5")
 scan = project.add_dataset("scan.eiff", dark="dark.eiff", white="white.eiff")
 project.add_target("API content", unit="% w/w")
 scan.add_roi("tablet 1", frames=(0, 4), rows=(0, 9), values={"API content": 1.0})
-# ... more ROIs, and ROIs marked use="prediction" for the tablets to predict
+# ... more ROIs, and ROIs marked job="prediction" for the tablets to predict
 model = project.fit("API content", recipe=PreprocessingRecipe(snv=True),
                     n_components="auto")
 model.metrics["rmsecv"]

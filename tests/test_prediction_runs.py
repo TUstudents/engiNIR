@@ -103,6 +103,13 @@ def _create_phase6_model_project(path: str) -> None:
             "emsc": False,
             "detrend": False,
             "detrend_order": 1,
+            "sg_edges": "interp",
+            "asls": False,
+            "asls_lambda": 10000.0,
+            "asls_p": 0.001,
+            "asls_iterations": 10,
+            "bands_keep": [],
+            "bands_exclude": [],
         },
     )
     save_preprocessing_recipe(
@@ -117,6 +124,13 @@ def _create_phase6_model_project(path: str) -> None:
             "emsc": False,
             "detrend": False,
             "detrend_order": 1,
+            "sg_edges": "interp",
+            "asls": False,
+            "asls_lambda": 10000.0,
+            "asls_p": 0.001,
+            "asls_iterations": 10,
+            "bands_keep": [],
+            "bands_exclude": [],
         },
     )
     save_signal_domain_contract(
@@ -154,6 +168,7 @@ def _create_phase6_model_project(path: str) -> None:
                 "calibration_id": "cal_train",
                 "name": roi_id.upper(),
                 "source_file": "/data/train.h5",
+                "job": "calibration",
                 "n_pixels": int(spectra.shape[0]),
                 "created_at": f"2026-04-02T10:0{4 + index}:00+00:00",
                 "spatial_bounds": (index, index, 0, 1),

@@ -1090,7 +1090,7 @@ class PredictionView(QWidget):
         state = self.project_state
         counts: dict[str, int] = {}
         for roi in state.rois.values():
-            if roi.use == "prediction":
+            if roi.job == "prediction":
                 counts[roi.dataset_id] = counts.get(roi.dataset_id, 0) + 1
         files = sorted(((dataset_id, state.data_file_full_label(dataset_id), count)
                         for dataset_id, count in counts.items()),
@@ -1100,7 +1100,7 @@ class PredictionView(QWidget):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         model_ids, dataset_id = dialog.model_ids, dialog.dataset_id
-        rois = [roi for roi in state.rois.values() if roi.use == "prediction"
+        rois = [roi for roi in state.rois.values() if roi.job == "prediction"
                 and (dataset_id is None or roi.dataset_id == dataset_id)]
         self._start_roi_job(model_ids, rois, scope=(
             "all datasets" if dataset_id is None else state.data_file_label(dataset_id)))
@@ -1361,7 +1361,7 @@ class PredictionView(QWidget):
         state = self.project_state
         files = sorted(((dataset_id, self._map_file_label(dataset_id))
                         for dataset_id in state.datasets), key=lambda item: item[1].lower())
-        roi_files = [roi.dataset_id for roi in state.rois.values() if roi.use == "prediction"]
+        roi_files = [roi.dataset_id for roi in state.rois.values() if roi.job == "prediction"]
         adder = self._data_file_adder
         dialog = PredictMapDialog(
             self._model_choices(), files, check=self._map_check,
@@ -1375,7 +1375,7 @@ class PredictionView(QWidget):
     def _map_file_label(self, dataset_id: str) -> str:
         """A data file in the Predict map list: its full label and its prediction ROIs."""
         count = sum(1 for roi in self.project_state.rois.values()
-                    if roi.use == "prediction" and roi.dataset_id == dataset_id)
+                    if roi.job == "prediction" and roi.dataset_id == dataset_id)
         return (f"{self.project_state.data_file_full_label(dataset_id)}  —  "
                 + (f"{count} prediction ROI(s)" if count else "no prediction ROIs"))
 
@@ -1393,7 +1393,7 @@ class PredictionView(QWidget):
             QMessageBox.warning(self, "Prediction failed", "The dataset has no reference correction.")
             return
         rois = [roi for roi in state.rois.values()
-                if roi.use == "prediction" and roi.dataset_id == dataset_id]
+                if roi.job == "prediction" and roi.dataset_id == dataset_id]
         name = self._model_name(model_run_id)
         snapshot = {"datasets": dict(state.datasets), "calibrations": dict(state.calibrations),
                     "signal_domains": dict(state.signal_domains),
@@ -1633,7 +1633,7 @@ class PredictionView(QWidget):
         from ._project_rois import _short_names
 
         rois = [roi for roi in state.rois.values()
-                if roi.dataset_id == dataset_id and roi.use == "prediction"]
+                if roi.dataset_id == dataset_id and roi.job == "prediction"]
         short = _short_names({roi.roi_id: roi.name for roi in rois}, {})
         extras["show_roi_outlines"] = self.show_roi_outlines
         extras["roi_overlays"] = [

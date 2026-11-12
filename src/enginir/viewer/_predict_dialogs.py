@@ -1,6 +1,6 @@
 """Predict ROIs and Predict map: dialogs and the per-ROI results plot.
 
-Prediction ROIs (ROI ``use = prediction``) are predicted from the project file
+Prediction ROIs (ROI ``job = prediction``) are predicted from the project file
 alone (:func:`enginir.prediction.predict_rois`); a map prediction predicts a
 registered data file with its own calibration. Both dialogs name models and
 data files, show the chain the prediction applies read-only (the data file's

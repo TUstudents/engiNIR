@@ -20,8 +20,7 @@ from tests.test_workflow import _labelled_project
 
 #: Core fields of the format, as HDF5 paths: ``group@attribute`` or a
 #: dataset/group path. Placeholders are filled with the ids of the project.
-#: Phases 3b–3d of plans/release-1.5x.md add ``job``, the new recipe
-#: fields, ``fit_spec`` and ``software``.
+#: Phases 3c–3d of plans/release-1.5x.md add ``fit_spec`` and ``software``.
 CORE_FIELDS = (
     "project_meta@project_id",
     "project_meta@FileSchemaVersion",
@@ -38,7 +37,7 @@ CORE_FIELDS = (
         "mode", "output_signal_unit", "created_at")),
     *(f"rois/{{roi}}@{name}" for name in (
         "dataset_id", "calibration_id", "name", "n_pixels", "created_at", "spatial_bounds",
-        "source_file")),
+        "source_file", "job")),
     "rois/{roi}/wavelengths",
     "rois/{roi}/spectra",
     "rois/{roi}/provenance",
@@ -48,7 +47,9 @@ CORE_FIELDS = (
     "target_assignments/{target}/{roi}@assigned_at",
     *(f"recipes/{{recipe}}@{name}" for name in (
         "filter", "sg_window", "sg_polyorder", "snv", "msc", "emsc", "detrend",
-        "detrend_order")),
+        "detrend_order", "sg_edges", "asls", "asls_lambda", "asls_p", "asls_iterations")),
+    "recipes/{recipe}/bands_keep",
+    "recipes/{recipe}/bands_exclude",
     *(f"signal_domains/{{signal_domain}}@{name}" for name in (
         "input_format", "source_modality", "required_signal_unit", "required_calibration_mode",
         "requires_dark_ref", "requires_white_ref", "calibrated_input_allowed", "n_bands",

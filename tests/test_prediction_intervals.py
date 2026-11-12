@@ -90,7 +90,7 @@ def test_pixels_outside_the_model_have_no_interval(tray, tmp_path):
     assert np.array_equal(np.isnan(half), outside)
 
 
-def test_the_mean_interval_of_a_prediction_roi_uses_the_training_roi_scores(tray):
+def test_the_mean_interval_of_a_prediction_roi_uses_the_calibration_roi_scores(tray):
     """h̄ = 1/R′ + d²/(R′ − 1) against the stored ROI scores, s = RMSEE; it follows the pixel
     exclusion, and a ROI beyond the ROI-level T² limit has none."""
     project, _scan, _path = tray

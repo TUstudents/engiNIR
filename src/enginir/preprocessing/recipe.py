@@ -29,14 +29,15 @@ logger = get_logger(__name__)
 SG_FILTERS: dict[str, int] = {"sg_smooth": 0, "sg_d1": 1, "sg_d2": 2}
 _FILTERS = ("none", *SG_FILTERS)
 _BOOLEAN_FIELDS = ("snv", "msc", "emsc", "detrend", "asls")
-#: The fields of every stored recipe (project-schema contract §4).
-_REQUIRED = ("filter", "sg_window", "sg_polyorder", "snv", "msc", "emsc", "detrend",
-             "detrend_order")
 _ASLS_FIELDS = ("asls_lambda", "asls_p", "asls_iterations")
 _ASLS_DEFAULTS = {"asls_lambda": 1e4, "asls_p": 0.001, "asls_iterations": 10}
 #: Signal units whose peaks point up (AsLS as is); other units are flipped.
 _PEAKS_UP = ("absorbance",)
 _BAND_FIELDS = ("bands_keep", "bands_exclude")
+#: The fields of every stored recipe, all required (project-schema contract,
+#: Object identity rules §4; format enginir-1.5).
+_REQUIRED = ("filter", "sg_window", "sg_polyorder", "snv", "msc", "emsc", "detrend",
+             "detrend_order", "sg_edges", "asls", *_ASLS_FIELDS, *_BAND_FIELDS)
 #: A band lies in a range when low - tau <= wavelength <= high + tau, with tau
 #: this share of the smallest band spacing (contract §4: typed bounds match
 #: float32 wavelengths), or _SINGLE_BAND_TOL for a one-band axis.
@@ -351,22 +352,15 @@ class PreprocessingRecipe:
         return "; ".join(parts) or "all"
 
     def to_dict(self) -> dict[str, Any]:
-        """Return the recipe as a plain dict (the persisted HDF5 representation).
+        """Return every field of the recipe as a plain dict (the persisted form).
 
-        The fields added in engiNIR 1.3 and 1.4 are included only when they
-        change what the recipe does (``sg_edges="drop"`` with a Savitzky-Golay
-        filter; the AsLS fields with ``asls``; band ranges when given), so
-        recipes stored before keep their content and id.
+        Fields without effect hold their normalized default (``sg_edges`` without
+        a Savitzky-Golay filter, the AsLS parameters without ``asls``); band
+        ranges are lists of ``[low, high]`` pairs, empty when none.
         """
         payload = {name: value for name, value in asdict(self).items() if name in _REQUIRED}
-        if self.filter in SG_FILTERS and self.sg_edges == "drop":
-            payload["sg_edges"] = "drop"
-        if self.asls:
-            payload["asls"] = True
-            payload.update({name: getattr(self, name) for name in _ASLS_FIELDS})
         for name in _BAND_FIELDS:
-            if getattr(self, name):
-                payload[name] = [list(pair) for pair in getattr(self, name)]
+            payload[name] = [list(pair) for pair in getattr(self, name)]
         return payload
 
     @classmethod
@@ -378,13 +372,9 @@ class PreprocessingRecipe:
     ) -> PreprocessingRecipe:
         """Construct a recipe from a dict as produced by :meth:`to_dict`.
 
-        The eight fields of every stored recipe are required: a persisted
-        recipe defines how a model was trained, so missing values are never
-        filled from defaults. The fields added in 1.3 mean what a recipe
-        stored before does when absent: no ``sg_edges`` is ``"interp"``, no
-        ``asls`` is ``False``; with ``asls`` the three AsLS parameters are
-        required. No ``bands_keep``/``bands_exclude`` selects every band.
-        Unknown keys are ignored with a warning.
+        Every field is required: a persisted recipe defines how a model was
+        fitted, so a missing value is never filled from a default. Unknown keys
+        are ignored with a warning.
 
         Parameters
         ----------
@@ -401,18 +391,13 @@ class PreprocessingRecipe:
         if not isinstance(payload, Mapping):
             log_and_raise("{} must be a mapping, got {}", location, type(payload).__name__)
         names = [field.name for field in fields(cls)]
-        required = list(_REQUIRED)
-        if _truthy(payload.get("asls", False)):
-            required += list(_ASLS_FIELDS)
-        missing = [name for name in required if name not in payload]
+        missing = [name for name in _REQUIRED if name not in payload]
         if missing:
             log_and_raise("{} is missing required field(s): {}", location, missing)
         extras = sorted(set(payload) - set(names))
         if extras:
             logger.warning("Ignoring unknown field(s) in {}: {}", location, extras)
         values = {name: payload[name] for name in names if name in payload}
-        values.setdefault("sg_edges", "interp")
-        values.setdefault("asls", False)
         return cls(**values)
 
 
@@ -471,11 +456,6 @@ def parse_ranges(text: str, name: str = "ranges") -> tuple[tuple[float, float], 
         except ValueError:
             log_and_raise("{}: '{}' is not a range like 1100-1350", name, part, depth=2)
     return _normalize_ranges(ranges, name)
-
-
-def _truthy(value: Any) -> bool:
-    """A stored boolean (``bool`` or ``numpy.bool_``); anything else is left to validation."""
-    return isinstance(value, (bool, np.bool_)) and bool(value)
 
 
 __all__ = ["PreprocessingRecipe", "SG_FILTERS", "format_ranges", "parse_ranges"]

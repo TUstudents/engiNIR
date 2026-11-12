@@ -121,6 +121,7 @@ def _create_reopenable_model_project(path: str, wavelengths: np.ndarray) -> None
                 "name": roi_id,
                 "wavelengths": wavelengths.astype(np.float32),
                 "source_file": "/data/train.eiff",
+                "job": "calibration",
                 "spatial_bounds": bounds,
                 "n_pixels": int(spectra.shape[0]),
                 "created_at": f"2026-04-13T10:00:1{index}+00:00",

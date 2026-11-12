@@ -72,6 +72,7 @@ def _save_project_roi(
             "name": roi_id,
             "wavelengths": wavelengths.astype(np.float32),
             "source_file": source_file,
+            "job": "calibration",
             "spatial_bounds": (0, 1, 0, 2),
             "n_pixels": int(spectra.shape[0]),
             "created_at": "2026-03-28T10:00:00+00:00",

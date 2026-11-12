@@ -539,6 +539,7 @@ def test_training_roi_requires_matching_complete_provenance(wavelengths):
         "n_pixels": 12,
         "spatial_bounds": (0, 2, 0, 3),
         "source_file": "/data/train.eiff",
+        "job": "calibration",
         "created_at": "2026-04-02T10:02:00+00:00",
     }
 

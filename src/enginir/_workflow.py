@@ -45,7 +45,7 @@ from .project import (
     validate_project_relationships,
 )
 from .project._ids import new_id, now_iso
-from .project._models import check_roi_use, sample_label
+from .project._models import check_roi_job, sample_label
 from .prediction._rois import (
     RoiPrediction,
     RoiPredictionSummary,
@@ -279,14 +279,13 @@ class Project:
         """
         self.save_roi_sample(self._roi_of(roi).roi_id, label)
 
-    def set_use(self, roi: str | TrainingROI, use: str) -> None:
-        """Mark ``roi`` (name or object) as ``"calibration"`` or ``"prediction"``.
+    def set_job(self, roi: str | TrainingROI, job: str) -> None:
+        """Set the job of ``roi`` (name or object): ``"calibration"`` or ``"prediction"``.
 
         A prediction ROI is a sample to predict (``model.predict_rois()``); it
         never enters a calibration set, whatever target values it has.
-        ``"training"`` (the name before 1.5) is refused.
         """
-        self.save_roi_use(self._roi_of(roi).roi_id, use)
+        self.save_roi_job(self._roi_of(roi).roi_id, job)
 
     def set_value(self, roi: str | TrainingROI, target: str | TargetDefinition,
                   value: float | None) -> None:
@@ -520,13 +519,13 @@ class Project:
                                 white_ref_spectra=white_ref_spectra)
         self.workspace.rois[roi.roi_id] = roi
 
-    def save_roi_use(self, roi_id: str, use: str) -> None:
-        """Set a stored ROI's use: ``"calibration"`` or ``"prediction"`` (never in a calibration
+    def save_roi_job(self, roi_id: str, job: str) -> None:
+        """Set a stored ROI's job: ``"calibration"`` or ``"prediction"`` (never in a calibration
         set)."""
         roi = _with_id(self.workspace.rois, roi_id, "ROI")
-        use = check_roi_use(use)
-        store.save_roi_use(self.path, roi_id, use)
-        self.workspace.rois[roi_id] = replace(roi, use=use)
+        job = check_roi_job(job)
+        store.save_roi_job(self.path, roi_id, job)
+        self.workspace.rois[roi_id] = replace(roi, job=job)
 
     def save_roi_sample(self, roi_id: str, sample: str | None) -> None:
         """Set (or, with ``None`` or blank text, remove) the sample label of a stored ROI."""
@@ -823,7 +822,7 @@ class Dataset:
 
     def add_roi(self, name: str, *, frames: tuple[int, int], rows: tuple[int, int],
                 values: Mapping[str, float] | None = None,
-                use: str = "calibration") -> TrainingROI:
+                job: str = "calibration") -> TrainingROI:
         """Store the pixels ``frames`` x ``rows`` as an ROI with its reference values.
 
         Parameters
@@ -836,7 +835,7 @@ class Dataset:
             Inclusive ``(first, last)`` index ranges.
         values:
             Reference values ``{target name: value}``.
-        use:
+        job:
             ``"calibration"`` (default) or ``"prediction"``: a sample to
             predict (``model.predict_rois()``), never in a calibration set.
 
@@ -851,7 +850,7 @@ class Dataset:
         first, last = _index_range(frames, n_frames, "frames")
         roi, spectra, refs = make_roi(self.ref, self.calibration, name=name,
                                       frames=(first, last), rows=rows,
-                                      pixels=read_frames(self.path, first, last), use=use)
+                                      pixels=read_frames(self.path, first, last), job=job)
         created_at = roi.created_at
         assignments = [TargetAssignment(roi_id=roi.roi_id, target_id=target.target_id,
                                         value=float(values[target_name]), assigned_at=created_at)
@@ -1155,10 +1154,10 @@ class Model:
     def roi_prediction(self, rois: Sequence[str | TrainingROI] | None = None) -> RoiPrediction:
         """The pixel predictions of the prediction ROIs (see :meth:`predict_rois`)."""
         ws = self.project.workspace
-        chosen = ([roi for roi in ws.rois.values() if roi.use == "prediction"] if rois is None
+        chosen = ([roi for roi in ws.rois.values() if roi.job == "prediction"] if rois is None
                   else [self.project._roi_of(roi) for roi in rois])
         if not chosen:
-            log_and_raise("No prediction ROIs to predict; mark ROIs with use='prediction'")
+            log_and_raise("No prediction ROIs to predict; mark ROIs with job='prediction'")
         return predict_rois(
             project_path=self.project.path, model_run=self.ref, model_name=self.name,
             rois=chosen, datasets=ws.datasets, calibrations=ws.calibrations,
@@ -1730,7 +1729,7 @@ def make_roi(
     preview_recipe: PreprocessingRecipe | None = None,
     created_at: str | None = None,
     grid_cell: GridCell | None = None,
-    use: str = "calibration",
+    job: str = "calibration",
 ) -> tuple[TrainingROI, np.ndarray, tuple[np.ndarray, np.ndarray] | None]:
     """Build an ROI of ``dataset`` from its frames ``pixels`` ``(frames, height, n_bands)``.
 
@@ -1758,7 +1757,7 @@ def make_roi(
     created_at = created_at or now_iso()
     recipe = preview_recipe or PreprocessingRecipe()
     roi = TrainingROI(
-        roi_id=new_id(), use=check_roi_use(use), dataset_id=dataset.dataset_id,
+        roi_id=new_id(), job=check_roi_job(job), dataset_id=dataset.dataset_id,
         calibration_id=calibration.calibration_id, name=name,
         wavelengths=dataset.wavelengths, n_pixels=int(spectra.shape[0]),
         spatial_bounds=(f0, f1, r0, r1), source_file=dataset.source_path, created_at=created_at,

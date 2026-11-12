@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 
 import numpy as np
 import pytest
@@ -14,8 +12,11 @@ from enginir._workflow import recipe_id_for
 from enginir.preprocessing import AsLSBaseline, SavitzkyGolay
 from tests.test_workflow import N_BANDS, _labelled_project
 
+#: A recipe as stored before enginir-1.5: only the first eight fields.
 LEGACY = {"filter": "sg_d1", "sg_window": 11, "sg_polyorder": 2, "snv": True, "msc": False,
           "emsc": False, "detrend": False, "detrend_order": 1}
+#: The same recipe in the enginir-1.5 form: every field.
+FULL = PreprocessingRecipe(filter="sg_d1", snv=True, sg_edges="interp").to_dict()
 
 
 def _dense_asls(z, lam, p, n_iter, direction="up"):
@@ -76,16 +77,16 @@ def test_asls_removes_constant_and_linear_baselines_and_keeps_float32():
 # -- the recipe ----------------------------------------------------------------------------
 
 
-def test_stored_recipes_keep_their_ids_and_meaning():
-    legacy_id = "recipe_" + hashlib.sha256(
-        json.dumps(LEGACY, sort_keys=True).encode()).hexdigest()[:12]
-    recipe = PreprocessingRecipe.from_dict(LEGACY)
+def test_a_recipe_without_the_newer_fields_is_refused():
+    # No backward compatibility (enginir-1.5): a recipe missing a field is refused.
+    with pytest.raises(ValueError, match="missing required field"):
+        PreprocessingRecipe.from_dict(LEGACY)
+    recipe = PreprocessingRecipe.from_dict(FULL)
     assert recipe.sg_edges == "interp" and not recipe.asls
-    assert recipe_id_for(LEGACY) == recipe_id_for(recipe) == legacy_id
-    assert PreprocessingRecipe.from_dict(LEGACY | {"sg_edges": "interp"}) == recipe
-    none = {**LEGACY, "filter": "none"}
+    assert recipe_id_for(FULL) == recipe_id_for(recipe)
+    none = {**FULL, "filter": "none"}
     assert recipe_id_for(none) == recipe_id_for(PreprocessingRecipe(snv=True))
-    assert recipe_id_for(PreprocessingRecipe(filter="sg_d1", snv=True)) != legacy_id
+    assert recipe_id_for(PreprocessingRecipe(filter="sg_d1", snv=True)) != recipe_id_for(FULL)
 
 
 def test_new_fields_are_normalized_and_validated():
@@ -99,7 +100,7 @@ def test_new_fields_are_normalized_and_validated():
     with pytest.raises(ValueError, match="asls_p"):
         PreprocessingRecipe.from_dict(payload)
     with pytest.raises(ValueError, match="sg_edges"):
-        PreprocessingRecipe.from_dict(LEGACY | {"sg_edges": "mirror"})
+        PreprocessingRecipe.from_dict(FULL | {"sg_edges": "mirror"})
     with pytest.raises(ValueError, match="asls_p"):
         PreprocessingRecipe(asls=True, asls_p=0.7)
     with pytest.raises(ValueError, match="signal unit"):
@@ -118,19 +119,15 @@ def test_the_order_and_the_direction_follow_the_contract():
     assert dict(steps)["detrend"].wavelengths.size == 30 - 2 * 5  # the output axis
 
 
-def test_resaving_a_stored_recipe_that_spells_out_a_default_is_a_no_op(tmp_path):
-    import h5py
-
+def test_resaving_a_stored_recipe_is_a_no_op_and_a_change_is_refused(tmp_path):
     from enginir.io.project_store import create_project, save_preprocessing_recipe
 
     path = str(tmp_path / "p.h5")
     create_project(path)
-    save_preprocessing_recipe(path, "r", LEGACY)
-    with h5py.File(path, "r+") as f:
-        f["recipes/r"].attrs["sg_edges"] = "interp"
-    save_preprocessing_recipe(path, "r", LEGACY)  # same normalized content
+    save_preprocessing_recipe(path, "r", FULL)
+    save_preprocessing_recipe(path, "r", FULL)  # same content
     with pytest.raises(ValueError, match="different content"):
-        save_preprocessing_recipe(path, "r", LEGACY | {"sg_edges": "drop"})
+        save_preprocessing_recipe(path, "r", FULL | {"sg_edges": "drop"})
 
 
 # -- Savitzky-Golay edges --------------------------------------------------------------------
@@ -173,9 +170,11 @@ def test_a_model_on_the_trimmed_axis_predicts_like_it_was_trained(tmp_path, unit
     assert np.isfinite(prediction.map).all()
 
 
-def test_a_mapping_without_sg_edges_is_a_stored_recipe_that_keeps_the_edges(tmp_path):
+def test_a_recipe_mapping_must_be_complete_and_keeps_its_edges(tmp_path):
     project, scan = _labelled_project(tmp_path)
-    model = project.fit("API", recipe={**LEGACY, "sg_window": 5}, n_components=2)
+    with pytest.raises(ValueError, match="missing required field"):
+        project.fit("API", recipe={**LEGACY, "sg_window": 5}, n_components=2)
+    model = project.fit("API", recipe={**FULL, "sg_window": 5}, n_components=2)
     assert np.size(model.diagnostics["wavelengths"]) == N_BANDS
     assert "(edges kept)" in model.name
     _training_scan_identity(model, scan)

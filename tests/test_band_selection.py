@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 
 import numpy as np
 import pytest
@@ -15,7 +13,7 @@ from enginir.modeling._components import band_importance
 from enginir.preprocessing import SNV, BandSelection, Detrend
 from enginir.preprocessing._pipeline import apply_preprocessing_recipe
 from enginir.preprocessing.recipe import parse_ranges
-from tests.test_simca_preprocessing import LEGACY, _training_scan_identity
+from tests.test_simca_preprocessing import _training_scan_identity
 from tests.test_workflow import N_BANDS, _labelled_project
 
 AXIS = np.linspace(1000, 2500, 151)  # 10 nm steps
@@ -105,15 +103,13 @@ def test_ranges_are_normalized_before_the_id():
         parse_ranges("1100")
 
 
-def test_stored_recipes_keep_their_ids():
-    legacy_id = "recipe_" + hashlib.sha256(
-        json.dumps(LEGACY, sort_keys=True).encode()).hexdigest()[:12]
-    recipe = PreprocessingRecipe.from_dict(LEGACY)
+def test_band_ranges_are_always_stored_and_change_the_id():
+    recipe = PreprocessingRecipe(filter="sg_d1", snv=True)
     assert not recipe.has_band_selection
-    assert "bands_keep" not in recipe.to_dict() and "bands_exclude" not in recipe.to_dict()
-    assert recipe_id_for(recipe) == legacy_id
-    with_bands = PreprocessingRecipe.from_dict({**LEGACY, "bands_exclude": [[1400, 1500]]})
-    assert recipe_id_for(with_bands) != legacy_id
+    assert recipe.to_dict()["bands_keep"] == [] and recipe.to_dict()["bands_exclude"] == []
+    with_bands = PreprocessingRecipe.from_dict(
+        {**recipe.to_dict(), "bands_exclude": [[1400, 1500]]})
+    assert recipe_id_for(with_bands) != recipe_id_for(recipe)
     assert PreprocessingRecipe.from_dict(with_bands.to_dict()) == with_bands
 
 

@@ -96,6 +96,13 @@ def _create_model_project(path: str, *, seed_rois: bool = True) -> None:
             "emsc": False,
             "detrend": False,
             "detrend_order": 1,
+            "sg_edges": "interp",
+            "asls": False,
+            "asls_lambda": 10000.0,
+            "asls_p": 0.001,
+            "asls_iterations": 10,
+            "bands_keep": [],
+            "bands_exclude": [],
         },
     )
     save_signal_domain_contract(
@@ -136,6 +143,7 @@ def _create_model_project(path: str, *, seed_rois: bool = True) -> None:
                 "calibration_id": "cal_1",
                 "name": roi_id.upper(),
                 "source_file": "/data/train.eiff",
+                "job": "calibration",
                 "n_pixels": int(spectra.shape[0]),
                 "created_at": f"2026-04-02T10:0{4 + index}:00+00:00",
                 "spatial_bounds": (index, index, 0, 1),
@@ -255,6 +263,7 @@ def test_project_state_fit_model_run_uses_roi_local_reference_snapshots(tmp_path
                 "calibration_id": "cal_1",
                 "name": roi_id.upper(),
                 "source_file": "/data/train.eiff",
+                "job": "calibration",
                 "n_pixels": int(spectra.shape[0]),
                 "created_at": f"2026-04-02T10:0{4 + index}:00+00:00",
                 "spatial_bounds": (index, index, 0, 1),
@@ -497,6 +506,13 @@ def test_fit_model_run_preprocesses_stateless_recipe_once_before_cv(tmp_path, mo
             "emsc": False,
             "detrend": True,
             "detrend_order": 1,
+            "sg_edges": "interp",
+            "asls": False,
+            "asls_lambda": 10000.0,
+            "asls_p": 0.001,
+            "asls_iterations": 10,
+            "bands_keep": [],
+            "bands_exclude": [],
         },
     )
 

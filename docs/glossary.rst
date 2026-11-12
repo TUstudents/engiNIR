@@ -114,9 +114,8 @@ Modeling
       The two roles of an ROI (the ROI table's "Set"). Calibration ROIs build
       models; prediction ROIs are predicted and never enter a model; those
       with target values give the RMSEP (an external test set). Elsewhere:
-      SIMCA *prediction set*. Project file: ``use = calibration |
-      prediction`` (``training`` and a missing ``use`` read as
-      ``calibration``).
+      SIMCA *prediction set*. Project file and API: ``job = calibration |
+      prediction``.
 
    Calibration set
       The frozen calibration ROIs, with their target values and the

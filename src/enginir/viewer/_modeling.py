@@ -162,7 +162,7 @@ class NewROIDialog(QDialog):
         return self._name_edit.text().strip()
 
     @property
-    def use(self) -> str:
+    def job(self) -> str:
         """``"prediction"`` when Prediction only is ticked, else ``"calibration"``."""
         return "prediction" if self.prediction_check.isChecked() else "calibration"
 
@@ -1301,7 +1301,7 @@ class ModelingView(QWidget):
         state = self.project_state
         counts = [roi.n_pixels for roi in state.rois.values()
                   if (roi.roi_id, target_id) in state.target_assignments
-                  and roi.use != "prediction"]
+                  and roi.job != "prediction"]
         return min(counts) if counts else None
 
     def fit_readiness(self, target_id: str) -> tuple[str, bool]:
@@ -1310,7 +1310,7 @@ class ModelingView(QWidget):
         per_file: dict[str, list[int]] = {}
         for roi in state.rois.values():
             counts = per_file.setdefault(roi.dataset_id, [0, 0, 0])
-            if roi.use == "prediction":
+            if roi.job == "prediction":
                 counts[2] += 1
                 continue
             counts[1] += 1
@@ -1457,7 +1457,7 @@ class ModelingView(QWidget):
         """Fold warnings for the fit dialog: all ROIs with a value for the target."""
         roi_ids = [roi_id for roi_id, roi in self.project_state.rois.items()
                    if (roi_id, target_id) in self.project_state.target_assignments
-                   and roi.use != "prediction"]
+                   and roi.job != "prediction"]
         return self._predicted_warnings(roi_ids, target_id, fit_spec, cv)
 
     def _sample_set_label(self, sample_set: SampleSet) -> str:
@@ -1837,7 +1837,7 @@ class ModelingView(QWidget):
             roi_id
             for roi_id, roi in self.project_state.rois.items()
             if (roi_id, target.target_id) in self.project_state.target_assignments
-            and roi.use != "prediction"
+            and roi.job != "prediction"
         }
         if not self.project_state.rois:
             self._readiness_status.setText("Ready: draw ROIs in Explore.")

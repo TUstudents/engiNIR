@@ -177,11 +177,11 @@ def plan_sample_set(
         value, or the ROIs have different wavelength axes.
     """
     explicit = roi_ids is not None
-    selected = ([roi_id for roi_id, roi in rois.items() if roi.use != "prediction"]
+    selected = ([roi_id for roi_id, roi in rois.items() if roi.job != "prediction"]
                 if roi_ids is None else [str(roi_id) for roi_id in roi_ids])
     left_out = 0 if explicit else sum(
         1 for roi_id, roi in rois.items()
-        if roi.use == "prediction" and (roi_id, target_id) in target_assignments)
+        if roi.job == "prediction" and (roi_id, target_id) in target_assignments)
     if not selected:
         if left_out:
             log_and_raise("No calibration ROI has a value for target '{}' ({} prediction ROI(s) "
@@ -206,7 +206,7 @@ def plan_sample_set(
             log_and_raise("No calibration ROI has a value for target '{}' ({} prediction ROI(s) "
                           "with a value left out)", target_id, left_out)
         log_and_raise("No selected ROI has a value for target '{}'", target_id)
-    switched = [roi.name for roi in labelled if roi.use == "prediction"]
+    switched = [roi.name for roi in labelled if roi.job == "prediction"]
     if explicit and switched:  # a stored sample set keeps its ROIs (sample-set contract §1)
         logger.warning("ROI(s) of the stored selection are now prediction ROIs and are used "
                        "as stored: {}", switched)
@@ -820,7 +820,7 @@ def predicted_fold_warnings(*, roi_ids: Sequence[str], target_id: str,
     spec, _requested = resolve_fit_spec(cv, fit_spec)
     roi_ids = [roi_id for roi_id in roi_ids
                if (roi_id, target_id) in target_assignments and roi_id in rois
-               and rois[roi_id].use != "prediction"]
+               and rois[roi_id].job != "prediction"]
     if len(roi_ids) < 2:
         return []
     subset: Any = SimpleNamespace(roi_ids=roi_ids, target_id=target_id,

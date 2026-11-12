@@ -256,10 +256,10 @@ def test_the_set_column_switches_an_roi_between_calibration_and_prediction(qapp,
     editor.setCurrentIndex(1)
     delegate.setModelData(editor, model, index)
     roi_id = model.roi_id(0)
-    assert state.rois[roi_id].use == "prediction"
-    assert Project.open(project.path).workspace.rois[roi_id].use == "prediction", "stored"
+    assert state.rois[roi_id].job == "prediction"
+    assert Project.open(project.path).workspace.rois[roi_id].job == "prediction", "stored"
     assert model.data(model.index(0, 3)) == "Prediction"
     failed: list[str] = []
     model.edit_failed.connect(failed.append)
     assert not model.setData(model.index(0, 3), "Test", Qt.ItemDataRole.EditRole)
-    assert failed and state.rois[roi_id].use == "prediction", "an unknown set is refused"
+    assert failed and state.rois[roi_id].job == "prediction", "an unknown set is refused"

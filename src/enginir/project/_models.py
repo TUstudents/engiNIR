@@ -368,49 +368,19 @@ class CalibrationSpec(SerializableModel):
 # ---------------------------------------------------------------------------
 
 
-#: What an ROI is for (roi-target contract, ``use``; terminology contract, Calibration and
+#: What an ROI is for (roi-target contract, ``job``; terminology contract, Calibration and
 #: Prediction).
-ROI_USES = ("calibration", "prediction")
-
-#: Stored forms that mean a calibration ROI: no ``use`` (before 1.4) and ``training``.
-_CALIBRATION_FORMS = (None, "training", "calibration")
+ROI_JOBS = ("calibration", "prediction")
 
 
-def roi_use(value: Any) -> str:
-    """An ROI's ``use`` as read from a project: ``"calibration"`` or ``"prediction"``.
-
-    A missing ``use`` (``None``) and ``"training"`` (the name before 1.5) read
-    as ``"calibration"``; any other value is refused.
-    """
+def check_roi_job(value: Any) -> str:
+    """An ROI's ``job``: ``"calibration"`` or ``"prediction"``; anything else is refused."""
     if isinstance(value, bytes):
         value = value.decode()
-    if value in _CALIBRATION_FORMS:
-        return "calibration"
-    if value not in ROI_USES:
-        log_and_raise("An ROI's use must be one of {}, got {!r}", list(ROI_USES), value,
+    if value not in ROI_JOBS:
+        log_and_raise("An ROI's job must be one of {}, got {!r}", list(ROI_JOBS), value,
                       depth=2)
     return str(value)
-
-
-def check_roi_use(value: Any) -> str:
-    """An ROI's ``use`` given by a caller: ``"calibration"`` or ``"prediction"``.
-
-    ``"training"`` is refused with the rename (engiNIR 1.5); stored projects
-    still read it (:func:`roi_use`).
-    """
-    if value == "training":
-        log_and_raise("use='training' was renamed to 'calibration' in engiNIR 1.5", depth=2)
-    if value not in ROI_USES:
-        log_and_raise("An ROI's use must be one of {}, got {!r}", list(ROI_USES), value,
-                      depth=2)
-    return str(value)
-
-
-def same_roi_use(value: Any) -> str | None:
-    """The stored ``use`` reduced for the identity rule: the calibration forms are one value."""
-    if isinstance(value, bytes):
-        value = value.decode()
-    return "calibration" if value in _CALIBRATION_FORMS else value
 
 
 def sample_label(value: Any) -> str | None:
@@ -459,11 +429,10 @@ class TrainingROI(SerializableModel):
         Label of the physical sample the ROI was taken from (may be changed);
         ROIs with equal labels are held out together when folds are grouped
         by sample. ``None`` (default): the ROI is its own sample.
-    use : str
+    job : str
         ``"calibration"`` (default) or ``"prediction"`` (may be changed): a
         prediction ROI marks a sample to predict and never enters a
-        calibration set (roi-target contract, ``use``). A stored ``training``
-        or a missing ``use`` reads as ``"calibration"``.
+        calibration set (roi-target contract, ``job``).
     """
 
     roi_id: str
@@ -477,12 +446,12 @@ class TrainingROI(SerializableModel):
     created_at: str
     provenance: dict[str, Any]
     sample: str | None = None
-    use: str = "calibration"
+    job: str = "calibration"
 
     def __post_init__(self) -> None:
         self.roi_id = _text(self.roi_id, "roi_id")
         self.sample = sample_label(self.sample)
-        self.use = roi_use(self.use)
+        self.job = check_roi_job(self.job)
         self.dataset_id = _text(self.dataset_id, "dataset_id")
         self.calibration_id = _text(self.calibration_id, "calibration_id")
         self.name = _text(self.name, "name")

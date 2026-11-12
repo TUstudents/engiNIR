@@ -53,9 +53,9 @@ logger = get_logger(__name__)
 _FIXED = ("Dataset", "ROI", "Pixels", "Set", "Sample")
 _SAMPLE_COLUMN = _FIXED.index("Sample")
 #: The ROI's set, Calibration or Prediction, chosen from a drop-down (roi-target contract,
-#: ``use``; terminology contract, Calibration and Prediction).
-_USE_COLUMN = _FIXED.index("Set")
-#: Stored ``use`` -> the label of the Set column, in the drop-down's order.
+#: ``job``; terminology contract, Calibration and Prediction).
+_SET_COLUMN = _FIXED.index("Set")
+#: Stored ``job`` -> the label of the Set column, in the drop-down's order.
 SET_LABELS = {"calibration": "Calibration", "prediction": "Prediction"}
 _ALL_FILES = "__all__"
 #: Per-ROI prediction result columns per model: (key, header, decimals as format).
@@ -176,8 +176,8 @@ class RoiTableModel(QAbstractTableModel):
     def _sort_value(self, roi_id: str, column: int) -> Any:
         """A cell's sort key: a float for numbers, a natural key for text, None if empty."""
         roi = self.project_state.rois[roi_id]
-        if column == _USE_COLUMN:
-            return SET_LABELS[roi.use]
+        if column == _SET_COLUMN:
+            return SET_LABELS[roi.job]
         if column == 2:
             return float(roi.n_pixels)
         number = self._number(roi_id, column)
@@ -256,12 +256,12 @@ class RoiTableModel(QAbstractTableModel):
         state = self.project_state
         roi = state.rois[self._roi_ids[index.row()]]
         column = index.column()
-        if column == _USE_COLUMN:
+        if column == _SET_COLUMN:
             if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
-                return SET_LABELS[roi.use]
+                return SET_LABELS[roi.job]
             if role == Qt.ItemDataRole.ToolTipRole:
                 return ("Prediction ROI: predicted in Predict > Predict ROIs, never used to fit "
-                        "a model (double-click to change)" if roi.use == "prediction"
+                        "a model (double-click to change)" if roi.job == "prediction"
                         else "Calibration ROI: used to fit models (double-click to change)")
             return None
         result = self.result_column(column)
@@ -301,24 +301,24 @@ class RoiTableModel(QAbstractTableModel):
     def flags(self, index: QModelIndex) -> Qt.ItemFlag:
         base = super().flags(index)
         editable = (self.target_id(index.column()) is not None
-                    or index.column() in (_SAMPLE_COLUMN, _USE_COLUMN))
+                    or index.column() in (_SAMPLE_COLUMN, _SET_COLUMN))
         return base | Qt.ItemFlag.ItemIsEditable if editable else base
 
     def setData(self, index: ModelIndex, value: Any,  # noqa: N802 (Qt API)
                 role: int = Qt.ItemDataRole.EditRole) -> bool:
-        if role == Qt.ItemDataRole.EditRole and index.column() == _USE_COLUMN:
+        if role == Qt.ItemDataRole.EditRole and index.column() == _SET_COLUMN:
             roi_id = self._roi_ids[index.row()]
-            by_label = {label.lower(): use for use, label in SET_LABELS.items()}
-            use = by_label.get(str(value).strip().lower(), str(value))
-            if use not in SET_LABELS:
+            by_label = {label.lower(): job for job, label in SET_LABELS.items()}
+            job = by_label.get(str(value).strip().lower(), str(value))
+            if job not in SET_LABELS:
                 self.edit_failed.emit(f"{value!r} is not a set: choose Calibration or "
                                       "Prediction.")
                 return False
-            if use != self.project_state.rois[roi_id].use:
+            if job != self.project_state.rois[roi_id].job:
                 try:
-                    self.project_state.set_roi_uses([(roi_id, use)])
+                    self.project_state.set_roi_jobs([(roi_id, job)])
                 except (OSError, ValueError, KeyError) as exc:
-                    logger.error("ROI use not stored: {}", exc)
+                    logger.error("ROI job not stored: {}", exc)
                     self.edit_failed.emit(str(exc))
                     return False
             return True
@@ -369,8 +369,8 @@ class _SetDelegate(QStyledItemDelegate):
     def createEditor(self, parent: QWidget | None, option: Any,  # noqa: N802 (Qt API)
                      index: QModelIndex) -> QWidget:
         combo = QComboBox(parent)
-        for use, label in SET_LABELS.items():
-            combo.addItem(label, use)
+        for job, label in SET_LABELS.items():
+            combo.addItem(label, job)
         return combo
 
     def setEditorData(self, editor: QWidget | None, index: QModelIndex) -> None:  # noqa: N802
@@ -446,7 +446,7 @@ class RoiTableWidget(QWidget):
         self._count.setStyleSheet(secondary_text_style())
         self.view = _RoiTableView()
         self.view.setModel(self.model)
-        self.view.setItemDelegateForColumn(_USE_COLUMN, _SetDelegate(self.view))
+        self.view.setItemDelegateForColumn(_SET_COLUMN, _SetDelegate(self.view))
         self.view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
         self.view.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked
                                   | QAbstractItemView.EditTrigger.EditKeyPressed

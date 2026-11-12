@@ -18,6 +18,12 @@ read against the code.
   model without its executable model or without the MSC/EMSC state its
   recipe needs; missing display data (a model's metrics or CV
   specification) no longer stops a project from opening.
+- The ROI field `use` is renamed `job` in the project file and the API:
+  `Dataset.add_roi(..., job=...)`, `Project.set_job`, `Project.save_roi_job`,
+  `TrainingROI.job`, `enginir.io.project_store.save_roi_job`.
+- Recipes store every field, also those without effect; a recipe given as a
+  mapping must have every field (`PreprocessingRecipe(...).to_dict()` gives
+  one). Recipe ids change.
 - New PCR models are named in principal components (`"PCR 5 PC, SNV"`);
   PLS keeps `LV`. Stored names are labels and do not change.
 - Exported CSV columns: the Model plots name the measured value
