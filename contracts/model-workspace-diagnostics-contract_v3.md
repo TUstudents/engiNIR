@@ -141,9 +141,12 @@ Required v3 pages, in this order:
      by target value) and above T²Crit (markers), sorted from the largest
      DModX share, with the expected 1 % as a line; a bar selects its ROI
 
-Every model has every diagnostic of these pages (the `enginir-1.5` format
-requires them); there are no "refit" placeholders. The fit summary shows
-RMSEE (per ROI) and R²adj, per ROI, when they are defined (R − 1 − A ≥ 1).
+Every model stores every diagnostic of these pages; there are no "refit"
+placeholders. A value that is not defined in a case (NaN, e.g. DCrit when
+K − A < 1 or RMSEE (per ROI) when R − 1 − A < 1) or missing is shown as "–"
+in its place, with the reason where it is known; the pages never fail on
+missing display data (`project-schema-contract_v3.md`, Core and display
+data).
 
 The `Fit` page is shown after a fit and when a saved run is opened. The page
 labels are not contract-frozen; their order and content are. New diagnostics

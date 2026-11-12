@@ -149,8 +149,10 @@ Required fields:
 - `output_signal_unit`
 - `created_at`
 
-Declared conditional fields (always part of the schema, nullable, populated
-only when the mode's executable-context rules below require or permit them):
+Declared conditional fields (always written; populated only when the mode's
+executable-context rules below require or permit them, otherwise "not
+defined": NaN, an empty string or an empty array,
+`project-schema-contract_v3.md`, Core and display data):
 
 - `dark_ref_source`
 - `white_ref_source`
@@ -289,9 +291,8 @@ Wavelength metadata rule:
   sanity checks
 - wavelength values are not repeatedly compared as a prediction-time hard gate
   after a dataset/model have been accepted
-- saved model artifacts may persist their own wavelength axis for diagnostics or
-  legacy compatibility, but prediction does not fail solely because that
-  metadata differs numerically
+- saved model artifacts persist their own wavelength axis for diagnostics, but
+  prediction does not fail solely because that metadata differs numerically
 
 Executable field semantics in v3:
 

@@ -121,7 +121,9 @@ The object-specific save helpers all use the same mapping encoder:
 - string/object arrays become UTF-8 string datasets
 - numeric arrays with `ndim <= 1` and `size <= 16` become attributes
 - larger numeric arrays become compressed datasets
-- `None` values are omitted in most payloads
+- values that are not defined in a case are written, never omitted: NaN for
+  numbers, an empty string for text, an empty array for arrays (Python
+  `None` is written the same way)
 
 Consequences for readers:
 
@@ -143,14 +145,23 @@ files before reading project objects:
 - `project_meta/@FileSchemaVersion` other than `enginir-1.5`, or missing
   (checked first, before anything else is read)
 - any missing required top-level object group
-- any missing required field of an object (every field listed in §3 without
-  "optional" is required; nothing is filled from a default)
+- a missing or malformed **core** field: ids and references, datasets and
+  reference corrections, ROI spectra, wavelengths, references and `job`, targets and
+  target values, every recipe field, input contracts, calibration sets,
+  a model's `model_type`, `hyperparameters`, `fit_spec`, `software` and
+  executable `prediction_model` (with its wavelengths and target names), and a stored prediction's references, `y_pred`,
+  shapes and dtype (`project-schema-contract_v3.md`, Core and display data);
+  nothing is filled from a default
 - a timestamp that does not parse or has no UTC offset
 - root `/calibration`
-- ROI-local `@y_value`
 
-Unknown extra groups, datasets, and attributes are warning-only when
-the file otherwise satisfies the complete format. Their contents are not
+**Display data** never stops a project from opening: metrics, the component
+curve, the calibration diagnostics, `cv_spec`, `cv_outputs` and prediction
+telemetry may be missing or malformed; the reader logs it, and the viewer
+shows "–" in its place. Writers still write all of it.
+
+Unknown extra groups, datasets, and attributes (e.g. an ROI `@y_value`) are
+warning-only when the file otherwise satisfies the format. Their contents are not
 loaded, merged, or used as aliases for missing fields. A root `/models`
 group is one example of a harmless ignored extra; `/model_runs` remains
 authoritative. `/staging/` is not an extra: a stale staging group (left by
@@ -182,7 +193,7 @@ Nested arrays under `artifact_refs` also stay disk-backed by default:
 - prediction `y_pred`
 
 Scalar artifact metadata such as shapes, output names, min/max summaries,
-chunking information, and write status remains available for project browsing,
+and chunking information remain available for project browsing,
 inspector panels, and summaries.
 
 Explicit lazy-load helpers:
@@ -199,9 +210,11 @@ Explicit lazy-load helpers:
 ## 3. Object layouts
 
 The following layouts describe the fields of the `enginir-1.5` format.
-Every field is required unless it is marked "optional"; a missing required
-field is refused. Additional unknown fields may be present; they are logged
-and ignored.
+Writers write every field shown, except those marked "optional"; a value
+that is not defined in a case is NaN (numbers), an empty string or an empty
+array. The reader refuses a file with a missing core field and tolerates
+missing display data (§2.3). Additional unknown fields are logged and
+ignored.
 
 ### 3.1. Project metadata
 
@@ -232,23 +245,23 @@ offset and microseconds, e.g. `2026-11-12T09:56:05.852000+00:00`.
 ├── @cube_shape              (n_frames, height, n_bands)
 ├── @n_bands
 ├── @import_timestamp
-├── @active_calibration_id   present after a calibration is saved
+├── @active_calibration_id   the dataset's reference correction (written with the dataset)
 ├── wavelengths              float32, shape (n_bands,)
 ├── loader_metadata/
 └── calibrations/{calibration_id}/
     ├── @mode                raw_dn | dark_white_reference | precalibrated_import
     ├── @output_signal_unit  DN | Reflectance | Absorbance
-    ├── @dark_ref_source     optional
-    ├── @white_ref_source    optional
-    ├── @black_level         optional
-    ├── @white_level         optional
+    ├── @dark_ref_source     empty string when the mode does not use it
+    ├── @white_ref_source    empty string when the mode does not use it
+    ├── @black_level         NaN when the mode does not use it
+    ├── @white_level         NaN when the mode does not use it
     ├── @created_at
-    ├── dark_ref_data        optional embedded reference array
-    └── white_ref_data       optional embedded reference array
+    ├── dark_ref_data        embedded reference array; empty when not used
+    └── white_ref_data       embedded reference array; empty when not used
 ```
 
-Reference correction is dataset-owned in v3. A project-global `/calibration` group is an
-invalid pre-v3 shape.
+Reference correction is dataset-owned. A project-global `/calibration` group
+is refused.
 
 Object ids are taken from the HDF5 path (`{dataset_id}`, `{calibration_id}`,
 ...). Writers do not need to store them as attributes; a stored id attribute
@@ -263,7 +276,7 @@ accepted when it equals the path id and rejected when it contradicts it. An
 ├── @dataset_id
 ├── @calibration_id
 ├── @name                   mutable display label
-├── @sample                 optional sample label (mutable); ROIs with equal
+├── @sample                 sample label (mutable; empty string: none); ROIs with equal
 │                           labels are one physical sample for fold groups
 ├── @job                    calibration | prediction (mutable, save_roi_job);
 │                           prediction ROIs never enter a calibration set
@@ -330,7 +343,7 @@ Recipes are replayed during calibration-set building, model fitting, and
 prediction. The path component `{recipe_id}` is the stable identity. Every
 field is written for every recipe, including disabled switches; a field
 without effect holds its normalized default, so equal recipes have equal
-content and ids (`project-schema-contract_v3.md` §4). With `@sg_edges = "drop"` the
+content and ids (`project-schema-contract_v3.md`, Object identity rules §4). With `@sg_edges = "drop"` the
 preprocessed spectra have 2⌊`sg_window`/2⌋ fewer bands: the model's
 arrays over bands (`prediction_model`: `wavelengths`, `coef_`, `x_mean`,
 `x_std`, `rotations`, `loadings`; `diagnostics`: `wavelengths`, loadings,
@@ -404,7 +417,7 @@ grouped and validated by ROI, then reported at ROI level using mean aggregation.
 ├── @sample_set_id
 ├── @signal_domain_id
 ├── @model_type             PLS | PCR
-├── @name                   optional display name (mutable label)
+├── @name                   display name (mutable label; empty string: none)
 ├── hyperparameters/
 ├── cv_spec/
 ├── fit_spec/
@@ -414,7 +427,7 @@ grouped and validated by ROI, then reported at ROI level using mean aggregation.
 │   ├── prediction_model/
 │   ├── diagnostics/
 │   ├── cv_outputs/
-│   └── exclusion/          only with DModX exclusion
+│   └── exclusion/          empty arrays without DModX exclusion
 └── @created_at
 ```
 
@@ -517,10 +530,10 @@ per-pixel diagnostics.
 @n_excluded_pixels       pixels excluded by DModX from the final model
 @pixel_rmsee             RMSEE over the fitted calibration pixels, N - 1 - A
 @pixel_r2_adj            adjusted R² over the fitted calibration pixels
-@rmsee                   RMSEE over ROI means, R - 1 - A; only when R - 1 - A >= 1
-@r2_adj                  adjusted R² over ROI means; only when R - 1 - A >= 1
+@rmsee                   RMSEE over ROI means, R - 1 - A; NaN when R - 1 - A < 1
+@r2_adj                  adjusted R² over ROI means; NaN when R - 1 - A < 1
 @interval_coverage_roi   share of held-out ROI means inside their 0.95 mean interval (PLS/PCR;
-                         written only with at least one interval)
+                         NaN with count 0 when there is no interval)
 @interval_coverage_roi_n ROIs counted for it
 @interval_coverage_pixel share of held-out pixels inside their 0.95 pixel interval
 @interval_coverage_pixel_n pixels counted for it
@@ -548,10 +561,10 @@ preprocessing_state      optional group, fitted MSC/EMSC parameters
 x_mean, x_std            float64 (n_bands,), the effective center and divisor
 rotations, loadings      (n_bands, A), scores = scaled X @ rotations
 score_variances          (A,), calibration score variances (N - 1); NaN for a component without variance
-@s0                      calibration pooled residual SD (unweighted); absent when K - A < 1
+@s0                      calibration pooled residual SD (unweighted); NaN when K - A < 1
 @n_train                 kept calibration pixels N of the final model (after DModX exclusion)
 @n_components            A
-@t2_crit_099, @dcrit_099 limits for the applicability diagnostics (each absent when undefined)
+@t2_crit_099, @dcrit_099 limits for the applicability diagnostics (NaN when undefined)
 ```
 
 `x_mean` is the center in the model's input space: for PCR the PCA mean is
@@ -597,10 +610,10 @@ Both (`sample-set-model-run-contract_v3.md` §7.5):
 ```text
 coef_cs                  coefficients for scaled, centered X and scaled Y (CoeffCS)
 t2                       float32, Hotelling's T² per drawn pixel (ROI order, then drawn index)
-dmodx                    float32, normalized unweighted DModX per drawn pixel (only if K - A >= 1)
+dmodx                    float32, normalized unweighted DModX per drawn pixel (NaN when K - A < 1)
 @t2_crit_095, @t2_crit_099   T²Crit with A components
-@t2_crit_2_095, @t2_crit_2_099   T²Crit for the first two components (ellipse; A >= 2)
-@dcrit_099               DCrit at 0.99 (normalized; only with dmodx)
+@t2_crit_2_095, @t2_crit_2_099   T²Crit for the first two components (ellipse; NaN when A < 2)
+@dcrit_099               DCrit at 0.99 (normalized; NaN when K - A < 1)
 roi_share_above_dcrit    float32 per ROI (cv_outputs/roi_ids order), share of pixels above DCrit
 roi_share_above_t2crit   float32 per ROI, share of pixels above T²Crit (0.99)
 roi_scores               float32 (n_rois, A), mean calibration score of each ROI's fitted pixels
@@ -647,8 +660,9 @@ y_pred_roi               float32, aggregated cross-validated prediction per ROI
 
 #### `artifact_refs/exclusion`
 
-Written when `fit_spec/exclusion/@method` is `dmodx`. Indices refer to the
-row order of each ROI's stored spectra.
+Always written; with `fit_spec/exclusion/@method = none` its arrays are
+empty and `@dcrit` is NaN. Indices refer to the row order of each ROI's
+stored spectra.
 
 ```text
 roi_ids                  string array, ROIs with excluded pixels, sample-set order
@@ -661,33 +675,33 @@ flagged_roi_ids          string array, ROIs with more pixels above DCrit than ma
 ### 3.9. Prediction runs
 
 ```text
-/predictions/{prediction_run_id}/     optional: only when a script stores a prediction
-├── @dataset_id
-├── @calibration_id
-├── @model_run_id
-├── @signal_domain_id
-├── @preprocessing_recipe_id
-├── @created_at
+/predictions/{prediction_run_id}/     a stored prediction (only when a script stores one)
+├── @dataset_id                    core
+├── @calibration_id                core
+├── @model_run_id                  core
+├── @signal_domain_id              core
+├── @preprocessing_recipe_id       core
+├── @created_at                    core
 └── artifact_refs/
-    ├── @source_path
-    ├── @output_dtype              float32
-    ├── @prediction_shape
-    ├── @spatial_shape             optional first two map dimensions
-    ├── @spatial_map_shape         optional full spatial-map shape
-    ├── @n_outputs
-    ├── @output_axis               shape of the output dimensions, e.g. (n_outputs,); multi-output only
-    ├── @output_index              0 for single-output predictions
-    ├── output_names               optional string array
-    ├── @chunk_axis                optional; frames (image cubes) or rows (spectra matrices)
-    ├── @chunk_size                optional; frames (or rows) per chunk
-    ├── @n_chunks                  optional
-    ├── @completed_chunks          optional
-    ├── @clip_low_count            optional
-    ├── @clip_high_count           optional
-    ├── @near_zero_denominator_count optional
-    ├── @prediction_min            optional
-    ├── @prediction_max            optional
-    └── y_pred                     float32 dataset
+    ├── @source_path               telemetry
+    ├── @output_dtype              core: float32
+    ├── @prediction_shape          core
+    ├── @spatial_shape             telemetry: first two map dimensions
+    ├── @spatial_map_shape         core for image datasets: the map shape of y_pred
+    ├── @n_outputs                 telemetry
+    ├── @output_axis               telemetry: shape of the output dimensions, e.g. (n_outputs,); empty for one output
+    ├── @output_index              telemetry: 0 for single-output predictions
+    ├── output_names               telemetry: string array
+    ├── @chunk_axis                telemetry; frames (image cubes) or rows (spectra matrices)
+    ├── @chunk_size                telemetry; frames (or rows) per chunk
+    ├── @n_chunks                  telemetry
+    ├── @completed_chunks          telemetry
+    ├── @clip_low_count            telemetry
+    ├── @clip_high_count           telemetry
+    ├── @near_zero_denominator_count telemetry
+    ├── @prediction_min            telemetry
+    ├── @prediction_max            telemetry
+    └── y_pred                     core: float32 dataset
 
 /staging/{prediction_run_id}/         optional: a staged write not finalized yet
 ```
@@ -699,10 +713,13 @@ to `/predictions/{prediction_run_id}/`, so `/predictions` only ever holds
 complete runs and there is no status attribute. A failed or canceled staged
 write deletes its staging group. A staging group left by a crash or power
 loss does not stop the project from opening: the reader logs one warning,
-and the next staged write or `discard_staged_predictions()` deletes it.
-Staging refuses an id that already exists in `/predictions` or `/staging`,
-and discarding never touches `/predictions`, so a failed attempt can never
-remove finished results.
+and only `discard_staged_predictions()` deletes it (a write, which never
+touches `/predictions`). Staging refuses an id that already exists in
+`/predictions` or `/staging`; one writer at a time works on a project file.
+
+Core attributes decide whether the run is read (a missing one refuses the
+project); the others are telemetry: written by the writers, tolerated when
+missing (§2.3). Clipping counts are 0 when nothing was clipped.
 
 Prediction summary views should use metadata such as `prediction_shape`,
 `spatial_map_shape`, `prediction_min`, and `prediction_max` rather than
@@ -822,19 +839,16 @@ initialize_prediction_run_artifacts(
             "chunk_size": 4,
             "n_chunks": 5,
         },
-        "created_at": "2026-04-02T10:09:00+00:00",
+        "created_at": "2026-04-02T10:09:00.000000+00:00",
     },
     y_pred_shape=(300,),
-    spatial_map_shape=(20, 15),
 )
 
 with open_prediction_run_artifact_writer("project.h5", "prediction_run_1") as writer:
-    for row_start, frame_start, y_chunk, map_chunk in chunks:
+    for row_start, y_chunk in chunks:
         writer.write_chunk(
             row_start=row_start,
             y_pred_chunk=y_chunk,
-            frame_start=frame_start,
-            spatial_map_chunk=map_chunk,
         )
 
 finalize_prediction_run_artifacts(

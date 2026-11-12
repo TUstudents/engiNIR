@@ -435,7 +435,7 @@ Required controls:
   bands are missing (blank), so band indices stay those of the dataset;
   the Project ROIs spectra are drawn on the recipe's output axis
 - band selection (engiNIR 1.4): the fit dialog has **Keep**
-  and **Exclude** band ranges (`project-schema-contract_v3.md` §4) as
+  and **Exclude** band ranges (`project-schema-contract_v3.md`, Object identity rules §4) as
   editable text (`1100-1350, 1500-2300`, in nm, or band numbers without
   wavelengths) and a **Select on Plot...** dialog: the mean spectrum of the
   calibration set's ROIs on the recipe's axis after Savitzky-Golay, with the

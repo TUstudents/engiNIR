@@ -93,8 +93,8 @@ Required fields:
 Optional fields:
 
 - `sample`: label of the physical sample the ROI was taken from (e.g. the
-  blend or tablet), a non-empty string; absent when the ROI is its own
-  sample
+  blend or tablet); an empty string when the ROI is its own sample (no
+  label)
 
 Required invariants:
 

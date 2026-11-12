@@ -184,7 +184,7 @@ once before cross-validation. A recipe with MSC or EMSC is fitted and
 applied inside every fold (all its steps, through the fold pipeline);
 either way the result equals applying the whole recipe per fold. AsLS
 takes its direction from the input contract's signal unit
-(`project-schema-contract_v3.md` §4). A recipe with `sg_edges = drop` or a
+(`project-schema-contract_v3.md`, Object identity rules §4). A recipe with `sg_edges = drop` or a
 band selection gives `X` the recipe's output axis (fewer bands than the
 input contract, with gaps after a selection); the
 model's coefficients, loadings, projection data (`x_mean`, `x_std`,
@@ -357,12 +357,12 @@ Fit statistics of the final model, stored in
 (drawn pixels minus excluded ones) and *R* ROIs:
 
 - `pixel_rmsee` = √(Σᵢ (ŷᵢ − yᵢ)² / (N − 1 − A)) over those pixels (ŷ the
-  final model's fitted values), as SIMCA computes RMSEE (over its observations, here pixels); written only when
-  N − 1 − A ≥ 1
+  final model's fitted values), as SIMCA computes RMSEE (over its observations, here pixels); NaN when
+  N − 1 − A < 1
 - `rmsee` = √(Σᵣ (ŷᵣ − yᵣ)² / (R − 1 − A)), ŷᵣ the mean fitted value of an
-  ROI's pixels the model was fitted on; written only when R − 1 − A ≥ 1
+  ROI's pixels the model was fitted on; NaN when R − 1 − A < 1
 - `pixel_r2_adj` = 1 − (RSS / (N − 1 − A)) / (TSS / (N − 1)) and `r2_adj`
-  the same over ROI means (written only when R − 1 − A ≥ 1)
+  the same over ROI means (each NaN when its denominator is below 1)
 
 Interval coverage (PLS and PCR): how often the
 run's own cross-validated predictions fall inside the 0.95 prediction
@@ -388,8 +388,8 @@ intervals are, if anything, too narrow and the coverage errs low.
   others), s = `pixel_rmsee`. It is pixel-weighted, and its count is not an
   effective sample size (pixels of one ROI are not independent)
 - each also stores its count, `interval_coverage_roi_n` and
-  `interval_coverage_pixel_n`; a coverage is written only when it has at
-  least one interval
+  `interval_coverage_pixel_n`; a coverage without any interval is NaN with
+  the count 0
 - they are reported, never used to correct the interval
 
 ## 6. Refitting a stored model
@@ -730,7 +730,7 @@ optimistic; it warns in the log and does not refuse:
 
 ### 7.5 Calibration diagnostics
 
-Every new PLS or PCR run also stores, from the final model (*N* the pixels
+Every PLS or PCR model also stores, from the final model (*N* the pixels
 it was fitted on):
 
 - `coef_cs`: the coefficients in the model's own scaled units (SIMCA's
@@ -746,8 +746,8 @@ it was fitted on):
 - T²Crit = A(N − 1)/(N − A) · F(level; A, N − A) at 0.95 and 0.99 (SIMCA's
   F form; `enginir.validation.outliers.hotelling_t2` uses the Beta form for
   calibration data points, a different number); T²Crit for the first two
-  components (the score-plot ellipse) only when A ≥ 2; DModX and DCrit at
-  0.99 only when K − A ≥ 1 and N − A₀ − A ≥ 1
+  components (the score-plot ellipse), NaN when A < 2; DModX and DCrit at
+  0.99, NaN when K − A < 1 or N − A₀ − A < 1 (`project-schema-contract_v3.md`, Core and display data)
 - ROI scores for the score plot (model-workspace-diagnostics contract §2):
   `roi_scores`, per ROI (in `cv_outputs/roi_ids` order) the mean calibration
   score of each component over that ROI's fitted pixels (the drawn pixels
@@ -885,7 +885,8 @@ Stateful preprocessing persistence rules:
   mutable recipe fields
 - reopening reconstructs fitted transformers from this state and must never
   call `fit()` on prediction data
-- missing or malformed required state blocks prediction during preflight
+- missing or malformed required state is core: the reader refuses the
+  project, and preflight refuses an in-memory model without it
 
 ## v3 HDF5 shape basis
 

@@ -5,7 +5,7 @@
 - Version: `v3`
 - Status: active contract for engiNIR 1.5; the file format `enginir-1.5` is the
   only format engiNIR reads and writes (Compatibility policy)
-- Scope: project-level persistence structure, object ids, relationships, required HDF5 groups, v3 compatibility rules
+- Scope: project-level persistence structure, object ids, relationships, required HDF5 groups, the compatibility policy
 
 ## Goal
 
@@ -246,12 +246,13 @@ recipes have equal content and ids:
   (n, 2); an empty list is a dataset of shape (0, 2). Empty lists select
   every band.
 
-Reading: a recipe missing any field is refused with a logged error; an
-`sg_edges` value other than `drop` or `interp` is refused; a field that has
-no effect but differs from its normalized default is accepted and
-normalized. "The same content" below compares the normalized stored recipe
-with the normalized new one. A recipe given to the API as a mapping is
-the persisted form and must have every field.
+Reading: a recipe missing any field is refused with a logged error, and so
+is an `sg_edges` value other than `drop` or `interp`. Writers store every
+field normalized (a field without effect holds its default); the reader
+checks that every field is present and allowed, not that it is normalized.
+"The same content" below compares the normalized stored recipe with the
+normalized new one. A recipe given to the API as a mapping is the persisted
+form and must have every field.
 
 The execution order is AsLS, Savitzky-Golay, SNV, MSC, EMSC, detrending,
 then band selection for the enabled steps. AsLS fits, for every spectrum z, the
@@ -313,9 +314,9 @@ scientific content. Writers enforce, per object:
 - re-saving an existing id with changed content is rejected with a logged
   error, except for the mutable label fields (`TrainingROI.name`,
   `TargetDefinition.name`, `ModelRun.name`), which may change freely without
-  affecting identity; `ModelRun.name` is optional
-- `TrainingROI.sample` (optional) is also a label, but it is set, changed or
-  removed only by its own writer (`save_roi_sample`), in place; re-saving an
+  affecting identity; an empty `ModelRun.name` means no name
+- `TrainingROI.sample` (an empty string means no label) is also a label, but
+  it is set, changed or cleared only by its own writer (`save_roi_sample`), in place; re-saving an
   ROI never changes or removes it (a re-save whose `sample` differs from the
   stored one is changed content)
 - `TrainingROI.job` (`calibration` | `prediction`) is set when the ROI is
@@ -546,8 +547,8 @@ project.h5
 |   +-- @emsc
 |   +-- @detrend
 |   +-- @detrend_order
-|   +-- @sg_edges, @asls, @asls_lambda, @asls_p, @asls_iterations (§4)
-|   +-- bands_keep, bands_exclude (float64 (n, 2) datasets, n ≥ 0, §4)
+|   +-- @sg_edges, @asls, @asls_lambda, @asls_p, @asls_iterations (Object identity rules §4)
+|   +-- bands_keep, bands_exclude (float64 (n, 2) datasets, n ≥ 0, Object identity rules §4)
 |
 +-- /signal_domains/{signal_domain_id}/
 |   +-- input-contract fields / attrs
@@ -609,9 +610,9 @@ project.h5
 Prediction runtime metadata (source path, dtype, shapes, output-axis
 selection, chunking counters, clipping telemetry) is persisted as attributes on
 `/artifact_refs/`, alongside the artifact datasets. There is no separate
-`/runtime/` subgroup in v3. The complete attribute table is documented in
-`docs/hdf5_format.md`; the attributes shown above are the representative
-required set.
+`/runtime/` subgroup in v3. The attribute table, with the core attributes a
+stored prediction must have and the optional telemetry, is in
+`docs/hdf5_format.md` §3.9; the attributes shown above are examples.
 
 `y_pred` is the prediction data array; `spatial_map_shape` gives its
 spatial interpretation. No second `spatial_map` copy is stored.
@@ -683,12 +684,13 @@ v3 requirement:
 - a completed prediction run must store runtime/artifact metadata sufficient to
   interpret output shape, dtype, target/unit, source path, and chunking strategy
   without reading the output datasets
-- a completed multi-output prediction run must store output-axis metadata
-  sufficient for the UI to select a target/output explicitly
+- a completed multi-output prediction run stores output-axis metadata, so the
+  UI can select a target/output explicitly (telemetry; a run without it is
+  shown without an output selector)
 - wavelength metadata may be stored for diagnostics, but completed prediction
   runs do not need wavelength proof to be considered valid
-- a completed corrected prediction run must store reflectance clipping telemetry
-  when any values were clipped
+- a completed corrected prediction run stores its reflectance clipping counts
+  (0 when nothing was clipped)
 - failed or partial prediction output must not be indistinguishable from a
   finalized prediction run
 
@@ -697,6 +699,8 @@ v3 requirement:
 A stored prediction (low-level persistence only, Open questions §1) is
 either written in one operation or staged:
 
+- a staged write refuses an id that already exists in `/predictions` or
+  `/staging`; one writer at a time works on a project file
 - the staged write path creates `/staging/{prediction_run_id}/`, writes the
   artifact datasets and chunks there, and finalizes by moving the group to
   `/predictions/{prediction_run_id}/` (a rename inside the file) after all
@@ -706,8 +710,9 @@ either written in one operation or staged:
 - a failed or canceled staged write deletes its staging group
 - a staging group left by a crash or power loss does not stop the project
   from opening: the reader ignores `/staging/` apart from one logged warning
-  per stale group, and the next staged write or
-  `discard_staged_predictions(path)` deletes stale groups
+  per group; only `discard_staged_predictions(path)` deletes such groups. It
+  never touches `/predictions`, so it can never remove a finished run, and
+  it is a write (it updates `FileWriter` and `updated_at`)
 - nothing outside the staging writers reads `/staging/`
 
 ## Required serialization rules
@@ -764,9 +769,11 @@ Required read behavior:
 1. scan the project structure before hydrating scientific objects
 2. require `FileSchemaVersion = "enginir-1.5"`; refuse any other value, or
    its absence, before reading anything else
-3. require every current top-level group and required object field
-4. validate current enum, shape, dtype, identity, and relationship invariants
-5. log and raise for a missing, malformed, or incompatible required field
+3. require every top-level group and every core field (Core and display
+   data, below)
+4. validate enum, shape, dtype, identity, and relationship invariants of the
+   core
+5. log and raise for a missing, malformed, or incompatible core field
 6. log unknown extra groups, datasets, and attributes as warnings
 7. ignore unknown extras rather than interpreting, copying, merging, or
    promoting them into current objects or artifact metadata
@@ -783,11 +790,49 @@ permits it. Examples include `loader_metadata`, `hyperparameters`, `cv_spec`,
 `metrics`, `artifact_refs`, and ROI provenance preview details. Their contents
 must not be promoted to fields on the owning object.
 
+### Core and display data
+
+The reader is strict where a missing value would change a result, and
+tolerant where a value is only shown.
+
+**Core:** the reader refuses the project when one of these is missing or
+malformed:
+
+- `/project_meta` (Object identity rules §1)
+- every id and every reference between objects
+- datasets and their reference corrections (with `active_calibration_id`)
+- ROIs: spectra, wavelengths, `spatial_bounds`, `n_pixels`, reference
+  snapshots, `job`, `dataset_id`, `calibration_id`
+- targets and target values
+- every recipe field (Object identity rules §4)
+- input contracts
+- calibration sets
+- models: `model_type`, `hyperparameters`, `fit_spec`, `software`, and the
+  executable model in `artifact_refs/prediction_model` (coefficients,
+  intercept, wavelengths, target names, projection data, and the MSC/EMSC
+  state its recipe needs)
+- stored predictions: their references, `y_pred`, its shapes and dtype
+  (`docs/hdf5_format.md` §3.9)
+
+**Display data:** metrics, the component curve, the calibration
+diagnostics, shares above the limits, coverage, `cv_spec` and `cv_outputs`,
+and the telemetry of stored predictions. A missing or malformed display
+value never stops a project from opening: the reader logs it, and the
+viewer shows "–" (or "not available") in its place and never fails on it.
+
+**Undefined values.** Writers always write every field. A value that is not
+defined in a given case is stored as "not defined": NaN for numbers (e.g.
+`s0` and `dcrit_099` when K − A < 1, `rmsee` when R − 1 − A < 1, the
+two-component T²Crit when A < 2), an empty string for text, an empty array
+for arrays (e.g. `artifact_refs/exclusion` without DModX exclusion).
+Readers and the viewer treat NaN as "not defined", never as a number;
+Python `None` is written the same way.
+
 Extra-field tolerance covers additions, never older files. In particular:
 
 - a file with another `FileSchemaVersion` is refused, whatever it contains
 - there are no aliases for earlier field names or values
-- a missing required field is refused; it is never filled from a default
+- a missing core field is refused; nothing is filled from a default
 - objects are never transformed during project open
 - writes emit only the current format and do not preserve unknown extras
 - warning messages identify the project location and extra field names; repeated
@@ -799,9 +844,10 @@ authoritative.
 
 The executable model of a ModelRun is stored exclusively in
 `artifact_refs/prediction_model`. When the referenced recipe enables `MSC` or
-`EMSC`, the payload must contain the required `preprocessing_state`; a payload
-missing that state fails prediction preflight rather than refitting on
-prediction data.
+`EMSC`, the payload must contain the required `preprocessing_state`. It is
+core: the reader refuses a project whose model lacks it, and prediction
+preflight also refuses an in-memory model without it; the state is never
+refitted on prediction data.
 
 Reference correction content hashes are derived comparison aids, not persisted
 scientific fields in v3. Reference correction identity is determined from the canonical
@@ -811,7 +857,7 @@ comparison but must not make a stored hash authoritative over that content.
 ## Required invariants
 
 - `FileSchemaVersion` is `enginir-1.5`, and `FileCreator`, `FileWriter` and
-  the timestamps follow §1
+  the timestamps follow Object identity rules §1
 - every persisted id is unique within its object namespace
 - all inter-object references resolve to an existing object
 - every ROI references an existing dataset and reference correction
@@ -819,10 +865,8 @@ comparison but must not make a stored hash authoritative over that content.
 - every calibration set references existing ROIs, a target, and a recipe
 - every model references an existing calibration set and input contract
 - every prediction run references an existing dataset, reference correction, model, input contract, and recipe
-- every completed prediction run with multiple outputs stores explicit
-  output-axis metadata
-- `/predictions` holds only complete runs; a staged write lives under
-  `/staging/` until it is finalized (§7)
+- `/predictions` holds only complete runs, with unique ids; a staged write
+  lives under `/staging/` until it is finalized (§7)
 - wavelength metadata differences do not invalidate an otherwise completed
   prediction run
 
@@ -830,7 +874,7 @@ comparison but must not make a stored hash authoritative over that content.
 
 These are intentionally deferred:
 
-- schema migration from pre-v3 project formats
+- migration from any earlier project format (Compatibility policy: none)
 - multiple active reference correction variants per dataset
 - project-external object registries as a requirement
 - object-level history/version timelines
@@ -848,7 +892,8 @@ Resolved for v3:
 - structured fields (`loader_metadata`, `hyperparameters`, `cv_spec`,
   `metrics`, `artifact_refs`, ROI `provenance`) persist as nested HDF5 groups:
   scalars and short strings become attributes, arrays become datasets, nested
-  mappings become subgroups; `None` uses the writer's sentinel encoding
+  mappings become subgroups; undefined values follow Core and display data
+  (NaN, empty string, empty array)
 - no JSON blobs and no pickled Python state are used for these fields
 - `hyperparameters` holds constructor keyword arguments for the normalized
   `model_type` backend, so the estimator is reconstructable as

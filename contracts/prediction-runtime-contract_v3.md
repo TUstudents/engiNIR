@@ -263,7 +263,8 @@ Required behavior:
 - stateless per-spectrum preprocessing may be applied independently per chunk
 - stateful preprocessing requires persisted calibration-side transformer state
 - if the required calibration-side state is missing, prediction must fail before
-  processing chunks
+  processing chunks (a stored model without it is refused when the project is
+  read; `project-schema-contract_v3.md`, Core and display data)
 - failures must be user-visible and logged before raising
 
 Forbidden behavior:
@@ -376,8 +377,9 @@ components, N kept calibration pixels, i.e. after DModX exclusion):
   (single-output models; the diagnostics are per pixel, not per output)
 - pixels with a non-finite statistic are left out of the counts, shares and
   means; shares use the finite pixels as denominator
-- `t2_crit_099` is absent when N − A < 1, and `s0`/`dcrit_099` when
-  K − A < 1; a missing limit means no pixel is counted above it.
+- `t2_crit_099` is NaN when N − A < 1, and `s0`/`dcrit_099` when K − A < 1
+  or N − A₀ − A < 1 (as in `sample-set-model-run-contract_v3.md` §7.5); an
+  undefined (NaN) limit means no pixel is counted above it.
   `score_variances` may be NaN (a component without variance), and then
   T²PS is NaN; with `s0` below `1e-10` DModXPS is not computed (NaN)
 - the arithmetic is `float64` per row block; results are `float32`, and
@@ -435,7 +437,7 @@ assume. With N pixels the leverage would vanish (N = 396 000 gives at most
 departs from the letter of ASTM E1655, which assumes independent samples.
 The half-width
 q · s · √(1 + h) is NaN when the prediction or T²PS is not finite, when
-T²PS > T²Crit, or when DModXPS > DCrit (a missing limit is not checked; a
+T²PS > T²Crit, or when DModXPS > DCrit (an undefined limit is not checked; a
 NaN DModXPS with DCrit present is not checked either, as in Applicability
 Diagnostics). A score variance below `1e-10` is stored as NaN and makes
 every T²PS NaN, so such a run has no pixel interval. The leverage formula
@@ -597,26 +599,8 @@ Multi-output provenance in v3:
   in-memory multi-target predictors); they are not a v3 multi-target modeling
   feature
 
-Recommended artifact metadata:
-
-- `spatial_shape`
-- `prediction_shape`
-- `output_dtype`
-- `target_id`
-- `target_name`
-- `target_unit`
-- `output_axis`
-- `output_index`
-- `output_name`
-- `output_names`
-- `source_path`
-- `chunk_axis`
-- `chunk_size`
-- `n_chunks`
-- `completed_chunks`
-- `clip_low_count`
-- `clip_high_count`
-- `created_at`
+Artifact metadata: the core attributes a stored prediction must have and
+the telemetry are listed once, in `docs/hdf5_format.md` §3.9.
 
 Allowed artifact datasets:
 
@@ -643,8 +627,9 @@ The staged artifact write path follows `project-schema-contract_v3.md` §7:
 - a failure or cancellation between initialization and finalization deletes
   the staging group
 - a staging group left by a crash never stops the project from opening; the
-  reader logs one warning per stale group, and the next staged write or
-  `discard_staged_predictions(path)` deletes it
+  reader logs one warning per group, and `discard_staged_predictions(path)`
+  deletes it (a write; it never touches `/predictions`)
+- a staged write refuses an id already in `/predictions` or `/staging`
 
 Forbidden behavior:
 
@@ -727,8 +712,8 @@ Runtime tests must cover:
 - prediction finalization leaves no completed `PredictionRun` after a chunk
   write failure
 - a write interrupted between staging and finalizing leaves a project that
-  opens, with one warning and no run in `/predictions`; the next staged
-  write or `discard_staged_predictions` removes the stale group
+  opens, with one warning and no run in `/predictions`;
+  `discard_staged_predictions` removes the stale group
 - a canceled staged prediction run is discarded and leaves no staging or
   prediction group behind
 - full-sensor dark/white references are applied chunk-locally without tiling

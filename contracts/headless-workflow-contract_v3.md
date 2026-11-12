@@ -257,7 +257,7 @@ and writes nothing they would reject.
 - the name-based calls released in 1.0 stay supported
 - `recipe` is a `PreprocessingRecipe` (whose constructor has defaults for
   every field) or a mapping; a mapping is the persisted form
-  (`project-schema-contract_v3.md` §4) and must have every field
+  (`project-schema-contract_v3.md`, Object identity rules §4) and must have every field
 - `fit` names a model `"{model} {n} LV, {recipe summary}"` for PLS and
   `"{model} {n} PC, {recipe summary}"` for PCR (e.g.
   `"PLS 2 LV, SNV"`; the summary names AsLS, marks a Savitzky-Golay

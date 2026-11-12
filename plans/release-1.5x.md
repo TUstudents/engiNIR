@@ -1,8 +1,8 @@
 # Plan: engiNIR 1.5.x, a minimum project format and bug fixes
 
-Status: decided (2026-11-12): direction, decisions 1–10 and format
+Status: decided (2026-11-12): direction, decisions 1–11 and format
 decisions F2, F3 and F5 confirmed by the user. Branch `1.5x`; Phase 1 done
-(d406d04, b9974a4); next is Phase 2.
+(d406d04, b9974a4); Phase 2 done (c38e5ef and its review fix-up); next is Phase 3.
 
 ## Goal
 
@@ -34,8 +34,9 @@ follows later on the same branch, with its own plan.
    hyperparameters), with PCR's StandardScaler path; scaling is
    `x_scaling` and `y_scaling` only. The `eiff_raw` alias goes from the
    format comparison and the prediction service.
-7. **Stored predictions stay optional.** `/predictions` exists only when a
-   script stores a prediction with the low-level writers; the facade and
+7. **Stored predictions stay optional.** `/predictions` holds runs only when a
+   script stores a prediction with the low-level writers (the group itself
+   always exists, empty otherwise); the facade and
    the viewer still never write it. Its crash safety is F5.
 8. **File metadata** in `/project_meta`, replacing `schema_version` (this
    replaces the earlier proposal F1):
@@ -109,6 +110,27 @@ follows later on the same branch, with its own plan.
     - The Inspector shows the versions under "how the model was fitted".
     - Not in 1.5.x: a write history (who changed which object and when),
       which belongs with the 2.0 method file.
+11. **A strict core and tolerant display data** (after the Phase 2 review,
+    2026-11-12): do not overspecify, and keep the viewer robust.
+    - The reader refuses a file only when a core value is missing or
+      malformed: the file metadata, ids and references, datasets and
+      reference corrections, ROI spectra, wavelengths, references and `job`, targets
+      and target values, every recipe field, input contracts, calibration
+      sets, a model's `model_type`, `hyperparameters`, `fit_spec`, `software` and
+      executable `prediction_model`, and a stored prediction's references,
+      `y_pred`, shapes and dtype.
+    - Display data (metrics, the component curve, calibration diagnostics,
+      `cv_spec`, `cv_outputs`, prediction telemetry) never stops a project
+      from opening; the viewer shows "–" for a missing or undefined value
+      and never fails on it.
+    - Writers write every field. A value not defined in a case is NaN
+      (numbers), an empty string or an empty array, instead of a list of
+      conditional fields; `None` is written the same way.
+    - Smaller points of the review: the reader does not check that recipe
+      fields without effect hold their default; an ROI `@y_value` is an
+      ignored extra; a staged write refuses an id already in `/predictions`
+      or `/staging`; only `discard_staged_predictions` deletes stale
+      staging groups, and that is a write (second review).
 
 ## The minimum 1.5 project format
 
@@ -161,8 +183,8 @@ additions, not compatibility with older files.
     the group to `/predictions/{id}`, a rename inside the file, so
     `/predictions` only ever holds complete runs.
   - A crash leaves a stale staging group. The project still opens, the
-    reader logs one warning, and the next staged write or
-    `discard_staged_predictions(path)` removes it.
+    reader logs one warning, and `discard_staged_predictions(path)` removes
+    it.
   - `artifact_write_status` goes: a run in `/predictions` is complete by
     construction.
 
@@ -215,7 +237,7 @@ into a requirement:
 ### Phase 3: the minimum format in the code
 
 - **Reader.** It requires `FileSchemaVersion = "enginir-1.5"` and every
-  field of the table. Every writer sets `FileWriter` with `updated_at`;
+  core field (decision 11); display data is tolerated. Every writer sets `FileWriter` with `updated_at`;
   creation sets `FileCreator` (8). Fits and refits write `software`, and
   the refit's metric warning names differing versions (10). The `use` → `job`
   rename goes through the models, the store, the facade and the viewer (9). The
@@ -237,8 +259,9 @@ into a requirement:
 - **Tests.**
   - Tests that build legacy runs or old files are removed.
   - New: the reader refuses an older version string with the message;
-    refuses a 1.5 file with any required field removed (one test per
-    field, generated from the format table, so no field is forgotten);
+    refuses a 1.5 file with any core field removed (one test per core
+    field, generated from a list, so no field is forgotten); opens a file
+    with display data removed, and the viewer pages show "–" for it;
     reads and refits a complete file.
   - Fault-injected: a reader that accepts a missing `job` fails the test;
     a write that does not update `FileWriter` fails the test; a refit
