@@ -218,7 +218,8 @@ with `Q²`, `RMSEE`, `R²adj` and `RPD` when the run has them, and, for runs
 that store them, a *Per pixel* group with the `pixel_*` metrics (`R²`,
 `RMSECV`, `RMSEE`, `RPD`) and the pixel count. The `Predicted vs
 target value` statistics name their level (per ROI). The fit summary shows the
-fold warnings of the run (`cv_spec/@warnings`) in plain words.
+fold warnings of the run (`cv_spec/@warnings`) in plain words, and its long
+values (the validation scheme, names) wrap instead of being cut off.
 
 Metric definitions in v3:
 

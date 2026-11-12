@@ -263,3 +263,39 @@ def test_the_set_column_switches_an_roi_between_calibration_and_prediction(qapp,
     model.edit_failed.connect(failed.append)
     assert not model.setData(model.index(0, 3), "Test", Qt.ItemDataRole.EditRole)
     assert failed and state.rois[roi_id].job == "prediction", "an unknown set is refused"
+
+
+def test_the_dataset_and_roi_columns_stay_in_view_when_the_table_scrolls(table, qapp):
+    """B5: with many columns and the table scrolled to the far right, every row still shows
+    its dataset and ROI (frozen columns); a long dataset label is capped and elided, with the
+    full label as tooltip."""
+    from PyQt6.QtCore import Qt
+
+    from enginir.viewer._roi_table import _DATASET_WIDTH
+
+    from enginir.project import TargetDefinition
+
+    for i in range(12):  # many target columns, wider than the table
+        table.project_state.define_target(TargetDefinition(
+            target_id=f"t{i}", name=f"target number {i}", unit="%", value_type="float",
+            missing_value_policy="allowed", created_at="2026-11-12T00:00:00.000000+00:00"))
+    table.resize(320, 300)
+    qapp.processEvents()
+    view = table.view
+    bar = view.horizontalScrollBar()
+    assert bar.maximum() > 0, "the columns do not fit"
+    bar.setValue(bar.maximum())
+    qapp.processEvents()
+
+    frozen = view.frozen
+    assert frozen.isVisible()
+    assert not frozen.isColumnHidden(0) and not frozen.isColumnHidden(1)
+    assert all(frozen.isColumnHidden(c) for c in range(2, table.model.columnCount()))
+    assert frozen.width() == view.columnWidth(0) + view.columnWidth(1) > 0
+    assert view.columnViewportPosition(1) < 0, "the main ROI column is scrolled out of view"
+    assert frozen.x() <= view.verticalHeader().width() + 2 * view.frameWidth(), "at the left edge"
+    assert view.columnWidth(0) == _DATASET_WIDTH
+    names = {table.model.index(r, 1).data() for r in range(table.model.rowCount())}
+    assert names == {"A1", "A2", "A10", "B1"}
+    tooltip = table.model.index(0, 0).data(Qt.ItemDataRole.ToolTipRole)
+    assert "tray_" in tooltip, tooltip

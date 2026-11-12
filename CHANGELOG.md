@@ -61,6 +61,16 @@ read against the code.
 
 ### Fixed
 
+- **Fit Again** preset the signal unit shown in Explore instead of the
+  model's, so OK could fit a different model; it now repeats the model's.
+- The pixel-subsample seed field took only 32-bit values; a stored seed
+  above 2³¹ − 1 was cut down silently and a refit drew other pixels.
+- The ROI table lost its ROI names off the left edge after Predict ROIs
+  added result columns; the Dataset and ROI columns now stay in view, and a
+  long dataset label is elided in the middle with a tooltip.
+- The Model summary kept the previous model's fold warnings when the next
+  model's metrics looked the same, and cut off long values such as the
+  validation scheme; it now updates the warnings and wraps.
 - Prediction progress said "Calibrating" for the reference correction step;
   it now says "Reference correction".
 - The Inspector showed "centre", "Fitted on: pixel" and raw reference

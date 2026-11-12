@@ -8,7 +8,8 @@ from dataclasses import replace
 from typing import Any
 
 import numpy as np
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QRegularExpression, Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QRegularExpressionValidator
 from PyQt6.QtWidgets import (
     QCheckBox,
     QMenu,
@@ -283,6 +284,26 @@ class TargetSelectionDialog(QDialog):
         return self._targets_by_id.get(selected_target_id)
 
 
+class _SeedEdit(QLineEdit):
+    """The pixel-subsample seed, 0 <= seed < 2**63 (fit specification §7).
+
+    A spin box is 32-bit; a stored seed above 2**31 - 1 would be clamped, and a
+    refit would draw other pixels.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("0")
+        self.setValidator(QRegularExpressionValidator(QRegularExpression(r"\d{1,19}"), self))
+        self.setToolTip("Seed of the pixel subsample: an integer from 0 to 2⁶³ − 1")
+
+    def value(self) -> int:
+        """The seed; an empty field is 0. A value of 2**63 or more is left to the fit's check."""
+        return int(self.text() or 0)
+
+    def setValue(self, value: int) -> None:  # noqa: N802 (QSpinBox-like API)
+        self.setText(str(int(value)))
+
+
 class FitModelRunDialog(QDialog):
     """Everything a fit needs in one place (model diagnostics contract).
 
@@ -555,9 +576,17 @@ class FitModelRunDialog(QDialog):
         self._guard_check.setEnabled(auto)
         self._max_spin.setEnabled(auto)
 
-    def apply_model_run(self, model_run: ModelRun) -> None:
-        """Preset every choice from a stored model run (for "Fit again...")."""
+    def apply_model_run(self, model_run: ModelRun, *, signal_unit: str | None = None) -> None:
+        """Preset every choice from a stored model run (for "Fit again...").
+
+        ``signal_unit`` is the run's input contract's signal unit: the fit
+        repeats it, whatever Explore shows (viewer-workspace-ui contract).
+        """
         self._model_type_combo.setCurrentText(model_run.model_type)
+        if signal_unit is not None:
+            index = self._signal_unit_combo.findData(signal_unit)
+            if index >= 0:
+                self._signal_unit_combo.setCurrentIndex(index)
         hyper = model_run.hyperparameters
         self._components_spin.setValue(int(hyper.get("n_components", 6)))
         self._auto_check.setChecked(False)
@@ -595,8 +624,7 @@ class FitModelRunDialog(QDialog):
         self._pixels_spin = QSpinBox()
         self._pixels_spin.setRange(1, 1_000_000)
         self._pixels_spin.setValue(50)
-        self._seed_spin = QSpinBox()
-        self._seed_spin.setRange(0, 2**31 - 1)
+        self._seed_spin = _SeedEdit()
         self._smallest_label = QLabel("")
         self._smallest_label.setStyleSheet(secondary_text_style())
         pixels_row = QHBoxLayout()
@@ -1200,7 +1228,9 @@ class ModelingView(QWidget):
             parent=self,
         )
         if preset is not None:
-            dlg.apply_model_run(preset)
+            domain = state.signal_domains.get(preset.signal_domain_id)
+            dlg.apply_model_run(
+                preset, signal_unit=None if domain is None else domain.required_signal_unit)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         self._selected_target_id = dlg.target_id

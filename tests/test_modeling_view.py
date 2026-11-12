@@ -820,3 +820,65 @@ def test_every_model_plot_has_help_that_the_user_guide_repeats(qapp):
         panel.show_help()  # shows a tooltip; must not raise
     finally:
         widget.close()
+
+
+def test_fit_again_presets_the_models_signal_unit_and_its_full_seed(
+        qapp, state_and_project, monkeypatch):
+    """Fit Again repeats the model's signal unit, not Explore's (B1), and keeps a seed above
+    2**31 - 1 (B2): the dialog must not change what the refit draws."""
+    from enginir.viewer._modeling import FitModelRunDialog, ModelingView
+
+    state, project = state_and_project
+    _labelled_rois(state, project)
+    seen: dict[str, object] = {}
+
+    def fit_on_reflectance(self):
+        self._signal_unit_combo.setCurrentIndex(self._signal_unit_combo.findText("Reflectance"))
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(FitModelRunDialog, "exec", fit_on_reflectance)
+    monkeypatch.setattr("enginir.modeling.fit_model_run", _fake_fit([]))
+    view = ModelingView(state, project)
+    view._selected_target_id = "target_1"
+    view.fit_model_btn_clicked()
+    _wait_until(qapp, lambda: "model_1" in project.model_runs)
+    _wait_until(qapp, lambda: view._job_thread is None)
+    assert state.y_unit != "Reflectance", "Explore shows another signal"
+
+    def look(self):
+        seen["signal_unit"] = self.signal_unit
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(FitModelRunDialog, "exec", look)
+    monkeypatch.setattr(view, "_resolved_workspace_model_run",
+                        lambda: project.model_runs["model_1"])
+    view.fit_again_btn_clicked()
+    assert seen["signal_unit"] == "Reflectance"
+
+    dialog = FitModelRunDialog([("t", "API")], default_target_id="t",
+                               recipe=__import__("enginir").PreprocessingRecipe(),
+                               default_signal_unit="DN", readiness=lambda _t: ("", True))
+    dialog._draw_check.setChecked(True)
+    dialog._seed_spin.setValue(2**40)
+    assert dialog.fit_spec.seed == 2**40
+
+
+def test_the_fit_summary_shows_the_fold_warnings_and_wraps_long_values(qapp):
+    """B6: a model's fold warnings are shown, also when its metric rows equal the previous
+    model's; long summary values wrap instead of being cut off."""
+    import numpy as np
+
+    from enginir.viewer._viewer import HSIViewer
+
+    viewer = HSIViewer(np.zeros((4, 4, 4), np.uint16), np.arange(4.0), {})
+    viewer._workspace_tabs.setCurrentIndex(1)  # the Model page is built when first shown
+    qapp.processEvents()
+    rows = {"roi_metrics": [("Q² (CV R²)", "0.9")], "pixel_metrics": [],
+            "r2": "0.9", "rmsecv": "1", "bias": "0"}
+    viewer._set_metric_rows({**rows, "warnings": ""})
+    assert not viewer._model_warnings.isVisibleTo(viewer)
+    viewer._set_metric_rows({**rows, "warnings": "fewer than 7 fold groups"})
+    assert viewer._model_warnings.isVisibleTo(viewer)
+    assert "fewer than 7 fold groups" in viewer._model_warnings.text()
+    assert viewer._model_card_cv_value.wordWrap()
+    viewer.close()

@@ -330,7 +330,10 @@ Required controls:
 - ROI table (sample labels and target values; while the session has per-ROI
   prediction results, read-only columns per model: mean, SD, % excluded,
   % above DCrit, residual, never stored; a header click sorts the rows,
-  numbers by value, empty cells last, and an edit never moves its row)
+  numbers by value, empty cells last, and an edit never moves its row; the
+  Dataset and ROI columns stay in view when the table scrolls sideways, and
+  a long dataset label is elided in the middle with the full label as
+  tooltip)
 - ROI export
 
 Required behavior:
@@ -424,8 +427,10 @@ Required controls:
   with a value for the target, from all datasets; the counts, fold
   warnings and readiness consider calibration ROIs only
 - **Fit again...** opens the fit dialog with every choice of the selected
-  model (target, preprocessing, model, components, scaling, folds, pixel
-  sample, exclusion), e.g. to fit with another number of components; the
+  model (target, signal unit, preprocessing, model, components, scaling,
+  folds, pixel subsample with its full seed range, exclusion), e.g. to fit
+  with another number of components; the signal unit is the model's, not
+  the one Explore shows; the
   stored recipe's AsLS fields and `sg_edges` are kept (the dialog has no
   controls for them and cannot add AsLS; a recipe with AsLS is labeled
   "AsLS")

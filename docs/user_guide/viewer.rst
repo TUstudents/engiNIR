@@ -243,8 +243,8 @@ Model shows the selected model and its diagnostics:
   guard changed); R²Y and Q² per ROI, with the gap between them shaded; each
   component on its own (Q²ₐ per ROI, ΔR²X per pixel, the Durbin–Watson value
   of its weights; noise components gray); and R²X and R²Y per pixel.
-  **Fit Again...** opens the fit dialog with the model's settings to try
-  another number
+  **Fit Again...** opens the fit dialog with the model's settings, including
+  its signal unit, to try another number
 - the **Distance** page: the distance to the model (DModX) and Hotelling T²
   of the calibration pixels, with their 0.99 limits and the share above them.
   A 0.99 limit expects 1 % of the pixels above it; much more means the
@@ -275,9 +275,12 @@ Explore, or from the View menu. It opens by itself with the Project ROIs
 tab, in the right-hand column of the window, and is not shown on the Dataset tab; opened there, it takes the Sensor Frame's place as a tab. Closing
 or opening it on either tab is kept for that tab.
 
-- One row per ROI (dataset, name, pixel count, **Predict**, sample) and one
-  column per target. **Predict** marks a prediction ROI (a tablet to predict;
-  never used to fit a model).
+- One row per ROI (dataset, name, pixel count, **Set**, sample) and one
+  column per target. **Set** is Calibration or Prediction; a prediction ROI
+  is a tablet to predict and is never used to fit a model. The dataset and
+  ROI columns stay in view when the table scrolls sideways (with model
+  result columns, for example); a long dataset name is shortened in the
+  middle, and its tooltip shows it in full.
 - **Sample** names the physical sample an ROI was taken from. Give the same
   label to ROIs from one sample (for example three regions of one tablet),
   so that a fit can hold them out together. Labels are text; surrounding

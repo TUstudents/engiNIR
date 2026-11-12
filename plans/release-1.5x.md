@@ -2,7 +2,8 @@
 
 Status: decided (2026-11-12): direction, decisions 1–11 and format
 decisions F2, F3 and F5 confirmed by the user. Branch `1.5x`; Phase 1 done
-(d406d04, b9974a4); Phase 2 done (c38e5ef and its review fix-up); next is Phase 3.
+(d406d04, b9974a4); Phase 2 done (c38e5ef, 88eface); Phase 3 done (7d41ee5,
+06c5cf6, c8254d6, f038094); Phase 4 done; next is Phase 5.
 
 ## Goal
 
