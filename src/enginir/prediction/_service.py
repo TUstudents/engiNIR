@@ -818,7 +818,6 @@ class _PredictionOutputs:
                 self._run_id,
                 {**self._run_payload, "artifact_refs": dict(self._metadata)},
                 y_pred_shape=y_shape,
-                spatial_map_shape=None,
             )
             self._staged = True
             self._writer = self._stack.enter_context(

@@ -91,7 +91,10 @@ _PREDICTION_RUN_FIELDS = frozenset({
     "created_at",
     "artifact_refs",
 })
-_PREDICTION_ARRAYS = ("y_pred", "spatial_map")
+_PREDICTION_ARRAYS = ("y_pred",)
+#: Optional top-level group of staged prediction writes not yet finalized
+#: (project-schema contract §7); the reader ignores it apart from a warning.
+STAGING_GROUP = "staging"
 _PREVIEW_BLOCK_VALUES = 2**22  # values read per block for a map preview
 
 PathLike = str | os.PathLike[str]
@@ -198,8 +201,6 @@ def load_project_store(
 
         for roi_group in f["rois"].values():
             _check_roi_arrays(roi_group)
-        for prediction_group in f["predictions"].values():
-            _check_prediction_complete(prediction_group)
         predictions = read_all("predictions", **artifact_options)
         if not include_artifact_arrays:
             predictions = {
@@ -514,16 +515,15 @@ def initialize_prediction_run_artifacts(
     prediction_run_dict: dict[str, Any],
     *,
     y_pred_shape: tuple[int, ...],
-    spatial_map_shape: tuple[int, ...] | None,
     compression: str = "gzip",
 ) -> None:
-    """Create a prediction run whose ``y_pred`` (and ``spatial_map``) are filled later.
+    """Stage a prediction run under ``/staging/{id}``; its ``y_pred`` is filled later.
 
-    The run is marked ``artifact_write_status = "writing"`` until
-    :func:`finalize_prediction_run_artifacts`; a project containing such a run
-    does not load, so an interrupted prediction must be removed with
-    :func:`discard_prediction_run_artifacts`. An existing run with the same id
-    is never replaced.
+    The run reaches ``/predictions`` only through
+    :func:`finalize_prediction_run_artifacts`, so ``/predictions`` holds only
+    complete runs. A crash leaves the staging group behind; the project still
+    opens, and :func:`discard_staged_predictions` removes it. An id that already
+    exists in ``/predictions`` or ``/staging`` is refused.
 
     Parameters
     ----------
@@ -536,104 +536,72 @@ def initialize_prediction_run_artifacts(
     y_pred_shape:
         Shape of the per-pixel predictions, ``(n_pixels,)`` or
         ``(n_pixels, n_targets)``.
-    spatial_map_shape:
-        Shape of the prediction image, e.g. ``(n_frames, height)``, or
-        ``None`` for non-image data.
     compression:
         HDF5 compression filter.
     """
     artifact_refs = {key: value for key, value in prediction_run_dict.get("artifact_refs", {}).items()
                      if key not in _PREDICTION_ARRAYS}
-    artifact_refs["artifact_write_status"] = "writing"
     payload = {**prediction_run_dict, "artifact_refs": artifact_refs}
-    shapes = {"y_pred": y_pred_shape, "spatial_map": spatial_map_shape}
     with _open_project(path, writable=True) as f:
-        if prediction_run_id in f["predictions"]:
+        staging = f.require_group(STAGING_GROUP)
+        if prediction_run_id in f["predictions"] or prediction_run_id in staging:
             log_and_raise("Prediction run '{}' already exists in {}; use a new id",
                           prediction_run_id, path)
-        with replacement_group(f["predictions"], prediction_run_id) as group:
+        with replacement_group(staging, prediction_run_id) as group:
             write_mapping(group, payload, compression)
             artifact_group = child_group(group, "artifact_refs", create=True)
-            for name, shape in shapes.items():
-                if shape is None:
-                    continue
-                shape = tuple(int(dim) for dim in shape)
-                artifact_group.create_dataset(name, shape=shape, dtype=np.float32,
-                                              compression=compression, chunks=_chunk_shape(shape))
-    logger.info("Initialized prediction artifacts '{}' in {}", prediction_run_id, path)
+            shape = tuple(int(dim) for dim in y_pred_shape)
+            artifact_group.create_dataset("y_pred", shape=shape, dtype=np.float32,
+                                          compression=compression, chunks=_chunk_shape(shape))
+    logger.info("Staged prediction artifacts '{}' in {}", prediction_run_id, path)
 
 
 @dataclass(slots=True)
 class PredictionArtifactWriter:
-    """Writes prediction chunks into the datasets created by
+    """Writes prediction chunks into the staged ``y_pred`` created by
     :func:`initialize_prediction_run_artifacts`; see
     :func:`open_prediction_run_artifact_writer`."""
 
     prediction_run_id: str
     y_dataset: h5py.Dataset
-    spatial_dataset: h5py.Dataset | None
 
-    def write_chunk(
-        self,
-        *,
-        row_start: int,
-        y_pred_chunk: np.ndarray,
-        frame_start: int | None = None,
-        spatial_map_chunk: np.ndarray | None = None,
-    ) -> None:
-        """Store predictions for rows ``row_start:`` and, optionally, frames ``frame_start:``."""
+    def write_chunk(self, *, row_start: int, y_pred_chunk: np.ndarray) -> None:
+        """Store predictions for rows ``row_start:``."""
         y_chunk = np.asarray(y_pred_chunk, dtype=np.float32)
         self.y_dataset[row_start : row_start + y_chunk.shape[0], ...] = y_chunk
-        if spatial_map_chunk is None:
-            return
-        if self.spatial_dataset is None or frame_start is None:
-            log_and_raise(
-                "PredictionRun '{}': a spatial-map chunk needs a spatial_map dataset and "
-                "frame_start",
-                self.prediction_run_id,
-            )
-        spatial_chunk = np.asarray(spatial_map_chunk, dtype=np.float32)
-        self.spatial_dataset[frame_start : frame_start + spatial_chunk.shape[0], ...] = (
-            spatial_chunk
-        )
 
 
 @contextmanager
 def open_prediction_run_artifact_writer(
     path: PathLike, prediction_run_id: str
 ) -> Iterator[PredictionArtifactWriter]:
-    """Keep the project open while all chunks of a prediction are written.
+    """Keep the project open while all chunks of a staged prediction are written.
 
     Yields
     ------
     PredictionArtifactWriter
     """
     with _open_project(path, writable=True) as f:
-        artifact_group = child_group(_object_group(f, "predictions", prediction_run_id),
-                                     "artifact_refs")
+        artifact_group = child_group(_staged_group(f, prediction_run_id), "artifact_refs")
         y_dataset = artifact_group.get("y_pred")
         if not isinstance(y_dataset, h5py.Dataset):
             log_and_raise("PredictionRun '{}' has no y_pred dataset", prediction_run_id,
                           error=KeyError)
-        spatial_dataset = artifact_group.get("spatial_map")
-        yield PredictionArtifactWriter(
-            prediction_run_id,
-            y_dataset,
-            spatial_dataset if isinstance(spatial_dataset, h5py.Dataset) else None,
-        )
+        yield PredictionArtifactWriter(prediction_run_id, y_dataset)
 
 
 def finalize_prediction_run_artifacts(
     path: PathLike, prediction_run_id: str, artifact_metadata: dict[str, Any]
 ) -> None:
-    """Store summary metadata of an incrementally written run and mark it complete.
+    """Store the summary metadata of a staged run and move it to ``/predictions``.
 
     Scalars and short numeric vectors of ``artifact_metadata`` become
     attributes of ``artifact_refs``; arrays and ``None`` values are skipped.
+    The move is a rename inside the file (project-schema contract §7).
     """
     with _open_project(path, writable=True) as f:
-        artifact_group = child_group(_object_group(f, "predictions", prediction_run_id),
-                                     "artifact_refs")
+        group = _staged_group(f, prediction_run_id)
+        artifact_group = child_group(group, "artifact_refs")
         for key, value in artifact_metadata.items():
             if key in _PREDICTION_ARRAYS or value is None:
                 continue
@@ -646,28 +614,52 @@ def finalize_prediction_run_artifacts(
             elif (array.ndim == 1 and array.size <= MAX_ATTRIBUTE_VECTOR
                   and array.dtype.kind not in "UO"):
                 artifact_group.attrs[key] = array
-        artifact_group.attrs["artifact_write_status"] = "complete"
+        f.move(group.name, f"/predictions/{prediction_run_id}")
+        if len(f[STAGING_GROUP]) == 0:
+            del f[STAGING_GROUP]
     logger.info("Finalized prediction artifacts '{}' in {}", prediction_run_id, path)
 
 
 def discard_prediction_run_artifacts(path: PathLike, prediction_run_id: str) -> None:
-    """Delete a staged (``"writing"``) prediction run if it exists.
+    """Delete the staged run ``prediction_run_id`` if it exists.
 
-    Completed runs are refused, so that cleaning up a failed attempt can never
-    remove finished results.
+    Only ``/staging`` is touched, so cleaning up a failed attempt can never
+    remove a finished run in ``/predictions``.
     """
     with _open_project(path, writable=True) as f:
-        group = f["predictions"].get(prediction_run_id)
-        if group is None:
+        staging = f.get(STAGING_GROUP)
+        if not isinstance(staging, h5py.Group) or prediction_run_id not in staging:
             return
-        artifact_group = group.get("artifact_refs")
-        status = (decode(artifact_group.attrs.get("artifact_write_status", "complete"))
-                  if isinstance(artifact_group, h5py.Group) else "complete")
-        if status != "writing":
-            log_and_raise("Prediction run '{}' is {!r}, not a staged run; refusing to discard "
-                          "it", prediction_run_id, status)
-        del f["predictions"][prediction_run_id]
-    logger.warning("Discarded prediction artifacts '{}' in {}", prediction_run_id, path)
+        del staging[prediction_run_id]
+        if len(staging) == 0:
+            del f[STAGING_GROUP]
+    logger.warning("Discarded staged prediction artifacts '{}' in {}", prediction_run_id, path)
+
+
+def discard_staged_predictions(path: PathLike) -> list[str]:
+    """Delete every staged prediction (left by a crash); return their ids.
+
+    A write (it updates ``FileWriter`` and ``updated_at``); ``/predictions`` is
+    never touched.
+    """
+    with _open_project(path, writable=True) as f:
+        staging = f.get(STAGING_GROUP)
+        if not isinstance(staging, h5py.Group):
+            return []
+        removed = sorted(staging)
+        del f[STAGING_GROUP]
+    if removed:
+        logger.warning("Discarded {} staged prediction(s) in {}: {}", len(removed), path, removed)
+    return removed
+
+
+def _staged_group(f: h5py.File, prediction_run_id: str) -> h5py.Group:
+    staging = f.get(STAGING_GROUP)
+    group = staging.get(prediction_run_id) if isinstance(staging, h5py.Group) else None
+    if not isinstance(group, h5py.Group):
+        log_and_raise("No staged prediction '{}' in {}", prediction_run_id, f.filename,
+                      error=KeyError)
+    return group
 
 
 def has_prediction_run(path: PathLike, prediction_run_id: str) -> bool:
@@ -959,9 +951,19 @@ def _check_project_file(f: h5py.File, path: PathLike) -> None:
     missing = [name for name in PROJECT_TOP_LEVEL_GROUPS if name not in f]
     if missing:
         log_and_raise("Project {} is missing top-level group(s) {}", path, missing, depth=3)
-    extra = tuple(sorted(set(f) - set(PROJECT_TOP_LEVEL_GROUPS)))
+    extra = tuple(sorted(set(f) - set(PROJECT_TOP_LEVEL_GROUPS) - {STAGING_GROUP}))
     if extra:
         _warn_extra_groups(str(Path(path).resolve()), extra)
+    staging = f.get(STAGING_GROUP)
+    if isinstance(staging, h5py.Group) and len(staging):
+        _warn_stale_staging(str(Path(path).resolve()), tuple(sorted(staging)))
+
+
+@lru_cache(maxsize=256)
+def _warn_stale_staging(path: str, names: tuple[str, ...]) -> None:
+    logger.warning("Project {} has staged prediction(s) {} that were not finalized (a crash "
+                   "or an interrupted write); they are ignored. Remove them with "
+                   "discard_staged_predictions().", path, list(names))
 
 
 @lru_cache(maxsize=256)
@@ -1056,18 +1058,6 @@ def _check_roi_arrays(group: h5py.Group) -> None:
                 )
 
 
-def _check_prediction_complete(group: h5py.Group) -> None:
-    artifact_group = group.get("artifact_refs")
-    if not isinstance(artifact_group, h5py.Group):
-        return
-    status = decode(artifact_group.attrs.get("artifact_write_status", "complete"))
-    if status == "writing":
-        log_and_raise("Prediction run '{}' was not written completely; discard it", group.name)
-    if status != "complete":
-        log_and_raise("Prediction run '{}' has unknown artifact_write_status {!r}", group.name,
-                      status)
-
-
 def _spatial_map_shape(artifact_group: h5py.Group) -> tuple[int, ...] | None:
     value = artifact_group.attrs.get("spatial_map_shape")
     if value is None:
@@ -1117,6 +1107,7 @@ __all__ = [
     "as_roi_storage_array",
     "create_project",
     "discard_prediction_run_artifacts",
+    "discard_staged_predictions",
     "has_prediction_run",
     "finalize_prediction_run_artifacts",
     "initialize_prediction_run_artifacts",

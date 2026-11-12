@@ -52,7 +52,7 @@ from ..project._fit_spec import FitSpec, fold_groups_problem
 from ._components import component_curve, default_max, rank_limit, training_diagnostics
 from ._exclusion import DModXExclusion
 from ..project._ids import new_id, now_iso
-from ..project._models import SAMPLE_SET_SEMANTICS
+from ..project._models import SAMPLE_SET_SEMANTICS, software_versions
 from ._pixels import draw_pixels, roi_digest, sample_checksum
 from ..validation import (
     RoundRobinGroups,
@@ -621,6 +621,7 @@ def fit_model_run(
         },
         created_at=created_at or now_iso(),
         fit_spec=spec.to_dict(),
+        software=software_versions(),
     )
     logger.info("Fitted model '{}' ({}) on calibration set '{}': {} ROIs, {} pixels, RMSECV (per ROI) {:.4g}",
                 model_run.model_run_id, model_type, sample_set.sample_set_id, roi_ids.size,

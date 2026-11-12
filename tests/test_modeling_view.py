@@ -371,13 +371,14 @@ def test_the_inspector_summarises_how_a_run_was_fitted(tmp_path):
     assert lines[0] == "Folds: round-robin, 7 folds; held out together: each ROI"
     assert lines[1] == "Pixels: 10 per ROI (seed 3)"
     assert lines[2] == "Scaling: X center, Y unit variance"
-    assert lines[3].startswith("Pixel exclusion: DModX (weighted), level 0.51, 1 round(s), "
+    assert lines[3].startswith("Software: enginir ") and "scikit-learn " in lines[3]
+    assert lines[4].startswith("Pixel exclusion: DModX (weighted), level 0.51, 1 round(s), "
                                "at most 10% per ROI;")
     excluded = model.excluded_pixels
-    assert lines[4] == "Excluded per ROI: " + ", ".join(
+    assert lines[5] == "Excluded per ROI: " + ", ".join(
         f"{names[r]} {len(v)}" for r, v in excluded.items())
     assert any(line.startswith("Flagged ROIs") for line in lines)
-    assert fit_summary(project.fit("API", n_components=2).ref, names)[3] \
+    assert fit_summary(project.fit("API", n_components=2).ref, names)[4] \
         == "Pixel exclusion: none"
 
 

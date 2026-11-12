@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enginir.project import FitSpec
+from enginir.project._models import software_versions
 
 import os
 from unittest.mock import patch
@@ -217,6 +218,7 @@ def project_store_path(tmp_path, wl, sample_provenance):
             "signal_domain_id": "signal_domain_1",
             "model_type": "PLS",
             "fit_spec": FitSpec(groups=(0,)).to_dict(),
+            "software": software_versions(),
             "hyperparameters": {"n_components": 3},
             "cv_spec": {"type": "GroupKFold", "n_splits": 5},
             "metrics": {"rmsecv": 1.23},

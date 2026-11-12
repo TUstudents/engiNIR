@@ -20,7 +20,6 @@ from tests.test_workflow import _labelled_project
 
 #: Core fields of the format, as HDF5 paths: ``group@attribute`` or a
 #: dataset/group path. Placeholders are filled with the ids of the project.
-#: Phase 3d of plans/release-1.5x.md adds ``software``.
 CORE_FIELDS = (
     "project_meta@project_id",
     "project_meta@FileSchemaVersion",
@@ -65,6 +64,9 @@ CORE_FIELDS = (
         "sample_set_id", "signal_domain_id", "model_type", "created_at")),
     "model_runs/{model}/hyperparameters",
     "model_runs/{model}/fit_spec",
+    "model_runs/{model}/software",
+    *(f"model_runs/{{model}}/software@{package}"
+      for package in ("enginir", "numpy", "scipy", "scikit-learn")),
     "model_runs/{model}/artifact_refs",
     "model_runs/{model}/artifact_refs/prediction_model",
     "model_runs/{model}/artifact_refs/prediction_model@model_type",
@@ -243,3 +245,18 @@ def test_a_metric_that_is_not_defined_is_stored_as_nan(tmp_path):
         metrics = f[f"model_runs/{model.ref.model_run_id}/metrics"].attrs
         assert "rmsee" in metrics and np.isnan(metrics["rmsee"])
         assert "r2_adj" in metrics and np.isnan(metrics["r2_adj"])
+
+
+def test_a_refit_with_other_metrics_names_the_software_that_differs(complete_project, tmp_path):
+    """Sample-set-model-run contract §6: the warning names every version that differs."""
+    from tests.test_fit_spec import _warnings_during
+
+    path, ids = complete_project
+    copy = tmp_path / "copy.h5"
+    shutil.copy(path, copy)
+    with h5py.File(copy, "r+") as f:  # as if fitted elsewhere, with other numbers
+        f[f"model_runs/{ids['model']}/software"].attrs["scikit-learn"] = "0.0.1"
+        f[f"model_runs/{ids['model']}/metrics"].attrs["rmsecv"] = 123.0
+    model = Project.open(copy).model(model_run_id=ids["model"])
+    _refitted, messages = _warnings_during(model.refit)
+    assert any("scikit-learn 0.0.1 -> " in message for message in messages), messages

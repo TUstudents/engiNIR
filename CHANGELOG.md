@@ -36,6 +36,16 @@ read against the code.
   of being left out (e.g. RMSEE (per ROI) when R - 1 - A < 1; an ROI without a
   sample label; `artifact_refs/exclusion` without DModX exclusion). The viewer
   shows a missing value as "not available" instead of asking to refit.
+- Every model stores the software it was fitted with (`software`: engiNIR,
+  numpy, scipy, scikit-learn), shown in the Inspector; a refit whose metrics
+  differ names the versions that differ.
+- Stored predictions (low-level writers only) are staged under `/staging/`
+  and moved to `/predictions` when finalized: a crash during a write leaves
+  a project that opens, and `enginir.io.discard_staged_predictions` removes
+  the leftover. `artifact_write_status` and the second `spatial_map` array
+  are gone; `initialize_prediction_run_artifacts` no longer takes
+  `spatial_map_shape`, and `PredictionArtifactWriter.write_chunk` only
+  `row_start` and `y_pred_chunk`.
 - New PCR models are named in principal components (`"PCR 5 PC, SNV"`);
   PLS keeps `LV`. Stored names are labels and do not change.
 - Exported CSV columns: the Model plots name the measured value

@@ -760,6 +760,33 @@ class SampleSet(SerializableModel):
         self.created_at = _timestamp(self.created_at, "created_at")
 
 
+#: The packages whose versions a model records (sample-set-model-run contract §7).
+SOFTWARE_PACKAGES = ("enginir", "numpy", "scipy", "scikit-learn")
+
+
+def software_versions() -> dict[str, str]:
+    """The installed versions of :data:`SOFTWARE_PACKAGES`, from the package metadata."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    versions = {}
+    for package in SOFTWARE_PACKAGES:
+        try:
+            versions[package] = version(package)
+        except PackageNotFoundError:
+            versions[package] = "unknown"
+    return versions
+
+
+def check_software(value: Any) -> dict[str, str]:
+    """A model's ``software``: every package of :data:`SOFTWARE_PACKAGES` with its version."""
+    value = _mapping(value, "software")
+    missing = [package for package in SOFTWARE_PACKAGES if package not in value]
+    if missing:
+        log_and_raise("software is missing the version(s) of {}", missing, depth=2)
+    return {package: _text(value[package], f"software/{package}")
+            for package in SOFTWARE_PACKAGES}
+
+
 @dataclass(slots=True, eq=False)
 class ModelRun(SerializableModel):
     """One fitted model with its cross-validation results and saved artifacts.
@@ -788,6 +815,10 @@ class ModelRun(SerializableModel):
     fit_spec : dict
         The fit specification (:meth:`FitSpec.to_dict
         <enginir.project.FitSpec.to_dict>`), complete; required.
+    software : dict
+        The versions the model was fitted with: ``enginir``, ``numpy``,
+        ``scipy``, ``scikit-learn`` (:func:`software_versions`); required in a
+        project file, the running versions by default.
     """
 
     model_run_id: str
@@ -801,9 +832,14 @@ class ModelRun(SerializableModel):
     created_at: str
     name: str | None = None
     fit_spec: dict[str, Any] | None = None
+    software: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         self.model_run_id = _text(self.model_run_id, "model_run_id")
+        # In memory a new model is fitted by the running software; a stored model
+        # must carry its own (project-schema contract, Core and display data).
+        self.software = check_software(software_versions() if self.software is None
+                                       else self.software)
         if self.fit_spec is None:
             log_and_raise("Model run '{}' has no fit_spec; every model stores its fit "
                           "specification", self.model_run_id)
@@ -867,6 +903,8 @@ class PredictionRun(SerializableModel):
 
 
 __all__ = [
+    "check_software",
+    "software_versions",
     "validate_project_meta",
     "CALIBRATION_MODES",
     "MODEL_TYPES",

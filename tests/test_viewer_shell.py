@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enginir.project import FitSpec
+from enginir.project._models import software_versions
 
 import numpy as np
 import pytest
@@ -169,6 +170,7 @@ def _create_reopenable_model_project(path: str, wavelengths: np.ndarray) -> None
             "signal_domain_id": "signal_domain_1",
             "model_type": "PLS",
             "fit_spec": FitSpec(groups=(0, 1)).to_dict(),
+            "software": software_versions(),
             "hyperparameters": {"n_components": 2},
             "cv_spec": {"cv": "logo"},
             "metrics": {"rmsecv": 0.55, "r2": 0.9, "bias": 0.05},

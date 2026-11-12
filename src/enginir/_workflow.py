@@ -1054,7 +1054,13 @@ class Model:
         refitted = Model(project, project.workspace.model_runs[run.model_run_id])
         differences = _metric_differences(self.metrics, refitted.metrics)
         if differences:
-            logger.warning("Refit of '{}' differs in {}", self.name, differences)
+            before = self.ref.software or {}
+            changed = [f"{package} {before.get(package, '?')} -> {version}"
+                       for package, version in (refitted.ref.software or {}).items()
+                       if before.get(package) != version]
+            logger.warning("Refit of '{}' differs in {}{}", self.name, differences,
+                           f"; fitted with other software ({', '.join(changed)})" if changed
+                           else "")
         else:
             logger.info("Refit of '{}' reproduced its metrics as '{}'", self.name, refitted.name)
         return refitted

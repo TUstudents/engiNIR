@@ -60,6 +60,9 @@ def fit_summary(model_run: ModelRun, roi_names: dict[str, str],
     if "y_scaling" in hyper:
         scaling += f", Y {_SCALINGS.get(str(hyper['y_scaling']), hyper['y_scaling'])}"
     lines.append(f"Scaling: {scaling}")
+    software = model_run.software or {}
+    lines.append("Software: " + (", ".join(f"{package} {version}" for package, version
+                                          in software.items()) or "not available"))
     if spec.exclusion == "none":
         lines.append("Pixel exclusion: none")
         return lines

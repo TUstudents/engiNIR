@@ -1114,7 +1114,7 @@ def test_predict_with_model_run_can_persist_chunks_without_returning_arrays(tmp_
         project_path,
         "prediction_run_persist_chunks",
     )
-    assert artifact_refs["artifact_write_status"] == "complete"
+    assert "artifact_write_status" not in artifact_refs, "complete by construction"
     assert artifact_refs["y_pred"].shape == (4,)
     assert artifact_refs["spatial_map"].shape == (2, 2)
     assert "prediction_min" in artifact_refs
