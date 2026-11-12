@@ -1,5 +1,101 @@
 # Changelog
 
+## Unreleased
+
+The terminology contract applied where 1.5.0 missed it, and the contracts
+read against the code.
+
+### Breaking
+
+- **New project file format `enginir-1.5`; projects written by earlier
+  versions do not open** (no migration, no repair; create them again).
+  `/project_meta` stores `FileSchemaVersion = "enginir-1.5"`, `FileCreator`
+  and `FileWriter` (`"engiNIR <version>"`) instead of `schema_version`;
+  every write updates `FileWriter` and `updated_at`, and every timestamp
+  must state its UTC offset. `enginir.io.PROJECT_SCHEMA_VERSION` is now
+  `FILE_SCHEMA_VERSION`.
+- The reader refuses a project whose core is incomplete, now including a
+  model without its executable model or without the MSC/EMSC state its
+  recipe needs; missing display data (a model's metrics or CV
+  specification) no longer stops a project from opening.
+- The ROI field `use` is renamed `job` in the project file and the API:
+  `Dataset.add_roi(..., job=...)`, `Project.set_job`, `Project.save_roi_job`,
+  `TrainingROI.job`, `enginir.io.project_store.save_roi_job`.
+- Recipes store every field, also those without effect; a recipe given as a
+  mapping must have every field (`PreprocessingRecipe(...).to_dict()` gives
+  one). Recipe ids change.
+- `PLSRegression` and `PCR` no longer take `scale`; scaling is `x_scaling`
+  (and `y_scaling` for PLS) only. Their defaults are now X centered and Y
+  unit variance (as for model runs); before, `scale=True` autoscaled X too.
+- A stored model must have its fit specification; models fitted before 1.2
+  are not read. GroupKFold remains an optional fold rule. The legacy reading
+  rules (`eiff_raw`, `band_mapping_policy = reject`, absent noise guard) are
+  removed, and a request that names `components` without `noise_guard`
+  now gets the default (on with `"auto"`).
+- Undefined values are written as NaN, empty strings or empty arrays instead
+  of being left out (e.g. RMSEE (per ROI) when R - 1 - A < 1; an ROI without a
+  sample label; `artifact_refs/exclusion` without DModX exclusion). The viewer
+  shows a missing value as "not available" instead of asking to refit.
+- Every model stores the software it was fitted with (`software`: engiNIR,
+  numpy, scipy, scikit-learn), shown in the Inspector; a refit whose metrics
+  differ names the versions that differ.
+- Stored predictions (low-level writers only) are staged under `/staging/`
+  and moved to `/predictions` when finalized: a crash during a write leaves
+  a project that opens, and `enginir.io.discard_staged_predictions` removes
+  the leftover. `artifact_write_status` and the second `spatial_map` array
+  are gone; `initialize_prediction_run_artifacts` no longer takes
+  `spatial_map_shape`, and `PredictionArtifactWriter.write_chunk` only
+  `row_start` and `y_pred_chunk`.
+- New PCR models are named in principal components (`"PCR 5 PC, SNV"`);
+  PLS keeps `LV`. Stored names are labels and do not change.
+- Exported CSV columns: the Model plots name the measured value
+  `target_value` (was `reference`), the score plot `lv1_calibration_score`
+  and `lv2_calibration_score` (was `..._training_score`), the per-ROI
+  prediction table `mean_dmodxps` and `mean_t2ps` (was `mean_dmodx`,
+  `mean_t2`).
+- The Predict workspace names the distances of predicted spectra DModXPS and
+  T²PS (map layers, hover readout, the exclusion checkbox); the Model
+  workspace keeps DModX and T² for calibration spectra.
+- Cancellation errors say "canceled" (US spelling); scripts that match the
+  message must be updated.
+
+### Fixed
+
+- Wording: the fit dialog's groups are "Smoothing and derivatives" and
+  "Scatter correction" (were "Filter", "Normalization", "Norm"); "fitted"
+  replaces "trained"; DModX exclusion says "pixels above DCrit"; the Explore
+  and Project ROIs axes say "Raw counts (DN)"; PCR plots label their
+  components PC1, PC2, … (the score and loading plot titles name
+  "components"); the welcome screen says "engiNIR"; the fold warning says
+  "dataset".
+- The dataset selector showed "Dataset: none" while a file opened without a
+  project was shown; it names the file.
+- The notes of the Distance histograms overlapped in narrow panels; they are
+  one block inside the plot, and an undefined limit is not drawn.
+- The terminology test also scans library messages.
+- **Fit Again** preset the signal unit shown in Explore instead of the
+  model's, so OK could fit a different model; it now repeats the model's.
+- The pixel-subsample seed field took only 32-bit values; a stored seed
+  above 2³¹ − 1 was cut down silently and a refit drew other pixels.
+- The ROI table lost its ROI names off the left edge after Predict ROIs
+  added result columns; the Dataset and ROI columns now stay in view, and a
+  long dataset label is elided in the middle with a tooltip.
+- The Model summary kept the previous model's fold warnings when the next
+  model's metrics looked the same, and cut off long values such as the
+  validation scheme; it now updates the warnings and wraps.
+- Prediction progress said "Calibrating" for the reference correction step;
+  it now says "Reference correction".
+- The Inspector showed "centre", "Fitted on: pixel" and raw reference
+  correction modes (`dark_white_reference`); it now shows "center",
+  "Fitted on: pixels" and the modes in words.
+- Predict hints pointed to a "Predict column"; the ROI table's column is Set.
+- Contracts and documentation: leftovers of the 1.5.0 rename (garbled
+  sentences, wrong levels, words not used), labels matched to the viewer,
+  "pixel sample" is now "pixel subsample", and the prediction interval's
+  leverage is stated as used (h = 1/R + T²PS/(R − 1) over the calibration
+  ROIs).
+- The terminology test also checks one-word labels for British spelling.
+
 ## 1.5.0 (2026-11-11)
 
 One vocabulary for the process analytical technology expert: everything a

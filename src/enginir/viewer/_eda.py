@@ -586,13 +586,13 @@ class EDAView(QWidget):
         try:
             accepted = dialog.exec() == QDialog.DialogCode.Accepted
             cells = list(dialog.cells)
-            use = dialog.use
+            job = dialog.job
         finally:
             self._canvas.clear_grid_preview()
             dialog.deleteLater()
         if not accepted or not cells:
             return
-        save_prediction_default(cube_path, use == "prediction")
+        save_prediction_default(cube_path, job == "prediction")
         try:
             context = self._ensure_current_dataset_context()
         except Exception as exc:
@@ -606,7 +606,7 @@ class EDAView(QWidget):
             built = [make_roi(dataset, calibration, name=cell.name, frames=cell.frames,
                               rows=cell.rows,
                               pixels=self.state.cube[cell.frames[0]:cell.frames[1] + 1],
-                              preview_recipe=self.state.recipe, grid_cell=cell, use=use)
+                              preview_recipe=self.state.recipe, grid_cell=cell, job=job)
                      for cell in cells]
             self.project_state.add_rois(built)
         except (OSError, ValueError, KeyError) as exc:
@@ -683,13 +683,13 @@ class EDAView(QWidget):
         )
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        save_prediction_default(self._cube_path_provider() or "", dlg.use == "prediction")
+        save_prediction_default(self._cube_path_provider() or "", dlg.job == "prediction")
 
         left, right, top, bottom = self.state._normalized_roi_bounds(f0, f1, r0, r1)
         roi, spectra, refs = make_roi(
             dataset, calibration, name=dlg.roi_name, frames=(left, right), rows=(top, bottom),
             pixels=self.state.cube[left:right + 1], preview_recipe=self.state.recipe,
-            use=dlg.use)
+            job=dlg.job)
         self.project_state.add_roi(roi, spectra,
                                    dark_ref_spectra=None if refs is None else refs[0],
                                    white_ref_spectra=None if refs is None else refs[1])

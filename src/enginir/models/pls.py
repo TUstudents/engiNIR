@@ -35,17 +35,13 @@ class PLSRegression(RegressorMixin, EnginirEstimator):
     n_components:
         Number of latent variables, ``1 <= n_components <= min(n_samples - 1,
         n_wavelengths)`` (the rank limit of mean-centred X). Default ``6``.
-    scale:
-        Shorthand kept for models stored before engiNIR 1.2: ``True``
-        (default) autoscales X and Y (``uv``), ``False`` only centres them.
-        Used for a scaling left as ``None`` below.
     x_scaling, y_scaling:
-        Scaling of X and of Y: ``"center"`` (mean-centred), ``"uv"`` (also
+        Scaling of X and of Y: ``"center"`` (mean-centered), ``"uv"`` (also
         divided by the standard deviation, N - 1) or ``"pareto"`` (divided by
-        its square root). ``None`` (default) follows ``scale``. Model runs use
-        ``x_scaling="center"``, ``y_scaling="uv"`` (sample-set-model-run
-        contract §7). For one target, the Y scaling does not change the
-        predictions or the coefficients in raw units.
+        its square root). Defaults ``x_scaling="center"``, ``y_scaling="uv"``,
+        as for model runs (sample-set-model-run contract §7). For one target,
+        the Y scaling does not change the predictions or the coefficients in
+        raw units.
     max_iter:
         Maximum number of NIPALS iterations per component (only used for
         PLS2). Default ``500``.
@@ -100,14 +96,12 @@ class PLSRegression(RegressorMixin, EnginirEstimator):
     def __init__(
         self,
         n_components: int = 6,
-        scale: bool = True,
         max_iter: int = 500,
         tol: float = 1e-6,
-        x_scaling: str | None = None,
-        y_scaling: str | None = None,
+        x_scaling: str = "center",
+        y_scaling: str = "uv",
     ) -> None:
         self.n_components = n_components
-        self.scale = scale
         self.max_iter = max_iter
         self.tol = tol
         self.x_scaling = x_scaling
@@ -133,7 +127,7 @@ class PLSRegression(RegressorMixin, EnginirEstimator):
         y = as_target_array(y, n_samples=X.shape[0])
         n_components = check_n_components(self.n_components, "n_components",
                                           maximum=max_components(X))
-        x_scaling, y_scaling = resolve_scalings(self.scale, self.x_scaling, self.y_scaling)
+        x_scaling, y_scaling = resolve_scalings(self.x_scaling, self.y_scaling)
 
         # engiNIR centres and scales; scikit-learn gets the scaled data (one
         # float64 working copy, which scikit-learn would make anyway) and only

@@ -123,6 +123,8 @@ Saving objects
 
 .. autofunction:: enginir.io.project_store.save_roi_sample
 
+.. autofunction:: enginir.io.project_store.save_roi_job
+
 .. autofunction:: enginir.io.project_store.save_sample_set
 
 .. autofunction:: enginir.io.project_store.save_model_run
@@ -151,6 +153,8 @@ Writing large predictions incrementally
 .. autofunction:: enginir.io.project_store.finalize_prediction_run_artifacts
 
 .. autofunction:: enginir.io.project_store.discard_prediction_run_artifacts
+
+.. autofunction:: enginir.io.project_store.discard_staged_predictions
 
 .. autofunction:: enginir.io.project_store.has_prediction_run
 

@@ -182,13 +182,8 @@ same quantity), and the words it replaces.
   RMSEP comes from prediction ROIs that have target values. Shown in the ROI
   table's column "Set"; in text always "calibration ROI(s)" or "prediction
   ROI(s)".
-: Stored as `use = calibration` or `use = prediction`. New calibration ROIs
-  store `calibration` (a project with them does not open in engiNIR 1.4,
-  which refuses unknown values). A missing `use` and the value `training`
-  (no 1.4 file has it) read as `calibration`; for the identity rule
-  (`project-schema-contract_v3.md` §5) a missing `use`, `training` and
-  `calibration` are the same content, so re-saving an older ROI is not a
-  change.
+: Stored as the ROI field `job` = `calibration` or `prediction`, required
+  (`roi-target-contract_v3.md`).
 : Elsewhere: SIMCA *prediction set* for prediction ROIs; prediction ROIs
   with target values form an external *test set* (they give the RMSEP).
 : Replaces: "training" in every user-visible meaning ("training range" →
@@ -210,6 +205,13 @@ same quantity), and the words it replaces.
 **Fold group**
 : The unit cross-validation holds out together: by ROI (default), by sample
   label, or by target value ("Fold groups: by sample").
+
+**Pixel subsample**
+: The pixels a fit draws from every ROI: the same number from each, chosen
+  by a seed, so that every ROI weighs the same
+  (`sample-set-model-run-contract_v3.md` §7.1). Without one, a fit uses
+  every pixel.
+: Replaces: "pixel sample" ("sample" is the physical sample only).
 
 **Model**
 : One fitted model with its id, never overwritten; its name describes it
@@ -239,9 +241,12 @@ same quantity), and the words it replaces.
 
 **DModX**, **DCrit**
 : The normalized distance of a spectrum to the model (its residual, scaled
-  by the calibration residual s0) and its critical limit; DModXPS for
-  predicted spectra where the distinction matters. Tooltips and the first
-  mention on a page say "distance to the model".
+  by the calibration residual s0) and its critical limit. *DModX* is the
+  distance of a calibration spectrum (the fit and the Model workspace);
+  *DModXPS* the distance of a predicted spectrum, always (the Predict
+  workspace, prediction results and their exports), so the two are never
+  taken for each other. Tooltips and the first mention on a page say
+  "distance to the model".
 : Elsewhere: SIMCA *DModX*, *DModXPS*, *DCrit* (the formulas follow SIMCA);
   *related*: PLS_Toolbox *Q residuals*, The Unscrambler *F-residuals*
   (different scaling and limits).
@@ -249,9 +254,10 @@ same quantity), and the words it replaces.
 **Hotelling's T²**, **T²**, **T²Crit**
 : The distance of a spectrum within the model plane and its critical limit.
   "Hotelling's T²" in titles and first mentions, "T²" in compact labels;
-  tooltips say "distance within the model".
+  tooltips say "distance within the model". *T²PS* is the T² of a predicted
+  spectrum, always, as DModXPS.
 : Elsewhere: the same name in SIMCA, The Unscrambler and PLS_Toolbox.
-  *Related*: leverage, h = 1/N + T²/(N − 1).
+  *Related*: leverage (see Prediction interval).
 
 **Above DCrit**, **above T²Crit**, **outside the model**
 : A pixel or ROI whose DModX or T² exceeds the 0.99 limit is "above DCrit"
@@ -268,10 +274,15 @@ same quantity), and the words it replaces.
 : Replaces: "removed".
 
 **Prediction interval**
-: ŷ ± q · s · √(1 + h), the leverage formula as in ASTM E1655
-  (`prediction-runtime-contract_v3.md`, Prediction intervals); shown as "±"
-  with its level ("Prediction interval (±, 95 %)"). API
-  `prediction.interval_map(level)`.
+: ŷ ± q · s · √(1 + h), the leverage formula of ASTM E1655 with the R
+  calibration ROIs as the independent samples
+  (`prediction-runtime-contract_v3.md`, Prediction intervals): for a pixel
+  h = 1/R + T²PS/(R − 1); for the mean of a prediction ROI
+  h̄ = 1/R′ + d²/(R′ − 1), with d² the Mahalanobis distance of its mean
+  scores from the calibration ROIs' mean scores. The standard's leverage
+  over N calibration spectra, h = 1/N + T²/(N − 1), would vanish for the
+  pixels of an image. Shown as "±" with its level ("Prediction interval
+  (±, 95 %)"). API `prediction.interval_map(level)`.
 : Elsewhere: SIMCA *YPredPS confidence interval* (jack-knifed, a different
   number); The Unscrambler *Y-deviation* (a different estimate).
 : Replaces: "uncertainty".
@@ -293,6 +304,7 @@ for:
 | `SignalDomainContract`, `signal_domain_id` | Input contract |
 | `SampleSet`, `sample_set_id`, `sample-set-model-run-contract_v3.md` | Calibration set |
 | `ModelRun`, `model_run_id` | Model |
+| `job` (ROI field), `TrainingROI.job` | Calibration and Prediction (ROI set) |
 | `PreprocessingRecipe`, `recipe_id` | Preprocessing recipe |
 | `raw_dn` (signal unit) | Raw counts (DN) |
 | `pixel_*` metric keys | Metrics per pixel |
@@ -305,6 +317,11 @@ Renamed in 1.5.0:
 
 - ROI `use`: calibration ROIs store `calibration` (see Calibration and
   Prediction).
+
+Renamed in 1.5.x (format `enginir-1.5`, no reading of earlier files):
+
+- ROI `use` → `job` (`TrainingROI.job`, `add_roi(job=...)`, `set_job`,
+  `save_roi_job`).
 - `Prediction.uncertainty_map(level)` → `Prediction.interval_map(level)`
   (breaking: the old name is removed).
 
@@ -328,6 +345,7 @@ Renamed in 1.5.0:
 | reference value (for a target value) | Target value |
 | outlier | above DCrit, above T²Crit, outside the model |
 | removed (pixels) | excluded |
+| pixel sample | pixel subsample |
 | a metric without its level ("RMSECV" alone) | "RMSECV (per ROI)", "RMSECV (per pixel)" |
 | British spellings (colour, normalise, analyse, centre, behaviour) | US spellings |
 
@@ -342,8 +360,11 @@ Renamed in 1.5.0:
   justified exceptions are listed in a reviewed allow-list. The test fails
   with the file, line and replacement for every word in "Words not used"
   and every British spelling.
-- Library log and error messages, documentation and contracts follow the
-  same terms and are checked in review. Words that text alone cannot judge
+- Library log and error messages follow the same terms and are checked by a
+  second scan (the first argument of `log_and_raise`, the logger calls and
+  `raise …Error(...)` outside the viewer; text in backticks is exempt).
+  Documentation and contracts follow the same terms and are checked in
+  review. Words that text alone cannot judge
   (calibration for reference correction) are checked in review.
 
 ## Acceptance tests
@@ -354,9 +375,8 @@ Renamed in 1.5.0:
   case (the same scan, for strings passed to buttons, actions and titles),
   with an allow-list of abbreviations (ROI, PLS, PCR, LV, PC, SNV, MSC,
   EMSC, SG, DModX, DCrit, T², RMSE…).
-- New calibration ROIs store `use = calibration`; a missing `use` and
-  `training` read as calibration; re-saving an ROI stored without `use` is
-  not refused as a content change.
+- Every ROI stores `job` = `calibration` or `prediction`; a missing `job`
+  or any other value is refused on read.
 - `Prediction.interval_map(level)` returns what `uncertainty_map` returned;
   `uncertainty_map` no longer exists.
 - The glossary has an entry for every term of this contract.

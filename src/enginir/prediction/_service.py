@@ -538,7 +538,7 @@ def predict_with_model_run(
             chunk = next(chunks, None)
             if chunk is None:
                 break
-            progress.report("calibrating", f"Calibrating {step}")
+            progress.report("calibrating", f"Applying the reference correction to {step}")
             signal = transform_spectra_to_signal_domain(
                 chunk.raw_matrix,
                 dataset=dataset,
@@ -663,7 +663,7 @@ def _iter_input_chunks(
             data_path, chunk_size=chunk_size, frames=loader_kwargs.get("frames"),
             spectra_key=str(loader_kwargs.get("spectra_key", "spectra")),
         )
-    elif source_format in ("eiff", "eiff_raw"):
+    elif source_format == "eiff":
         blocks = iter_eiff_frame_chunks(data_path, chunk_size=chunk_size,
                                         frames=loader_kwargs.get("frames"))
     elif source_format == "envi":
@@ -818,7 +818,6 @@ class _PredictionOutputs:
                 self._run_id,
                 {**self._run_payload, "artifact_refs": dict(self._metadata)},
                 y_pred_shape=y_shape,
-                spatial_map_shape=None,
             )
             self._staged = True
             self._writer = self._stack.enter_context(
@@ -907,7 +906,7 @@ class _Progress:
             ))
         if check_cancel and self._cancel_callback is not None and self._cancel_callback():
             logger.info("Prediction canceled during {}", phase)
-            raise PredictionCancelledError(f"Prediction cancelled during {phase}")
+            raise PredictionCancelledError(f"Prediction canceled during {phase}")
 
 
 __all__ = [

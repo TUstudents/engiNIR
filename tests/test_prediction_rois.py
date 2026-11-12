@@ -36,59 +36,50 @@ def tray(tmp_path):
         first = 2 + i * FRAMES_PER_ROI
         scan.add_roi(f"t{i + 1:02d}", frames=(first, first + FRAMES_PER_ROI - 1),
                      rows=(0, HEIGHT - 1), values={"API": float(value)},
-                     use="prediction" if i >= 7 else "calibration")
+                     job="prediction" if i >= 7 else "calibration")
     return project, scan, path
 
 
-def test_the_use_is_stored_read_back_and_switched_in_place(tray):
-    """Calibration and prediction are stored explicitly and switched in place; an unknown
-    stored value makes the project fail to open."""
+def test_the_job_is_stored_read_back_and_switched_in_place(tray):
+    """Calibration and prediction are stored as the ROI's job and switched in place; an
+    unknown stored value makes the project fail to open."""
     project, _scan, _path = tray
     reopened = Project.open(project.path)
-    assert reopened.roi("t09").use == "prediction" and reopened.roi("t01").use == "calibration"
+    assert reopened.roi("t09").job == "prediction" and reopened.roi("t01").job == "calibration"
     with h5py.File(project.path, "r") as f:
-        assert f[f"rois/{project.roi('t01').roi_id}"].attrs["use"] == "calibration"
-    reopened.set_use("t09", "calibration")
-    assert Project.open(project.path).roi("t09").use == "calibration"
+        assert f[f"rois/{project.roi('t01').roi_id}"].attrs["job"] == "calibration"
+    reopened.set_job("t09", "calibration")
+    assert Project.open(project.path).roi("t09").job == "calibration"
     with h5py.File(project.path, "r+") as f:
-        f[f"rois/{project.roi('t02').roi_id}"].attrs["use"] = "validation"
-    with pytest.raises(ValueError, match="use must be one of"):
+        f[f"rois/{project.roi('t02').roi_id}"].attrs["job"] = "validation"
+    with pytest.raises(ValueError, match="job must be one of"):
         Project.open(project.path)
 
 
-@pytest.mark.parametrize("stored", [None, "training"])
-def test_older_stored_forms_read_as_calibration_and_resave_unchanged(tray, stored):
-    """A missing use (before 1.4) and 'training' (1.4) read as calibration, and re-saving such
-    an ROI is not refused as a change of content (terminology contract)."""
-    from enginir.io import project_store as store
-
+@pytest.mark.parametrize("stored", ["use", "training"])
+def test_earlier_forms_of_the_job_are_refused(tray, stored):
+    """No backward compatibility (enginir-1.5): an ROI that stores the earlier ``use`` instead
+    of ``job``, or the earlier value ``training``, makes the project fail to open."""
     project, _scan, _path = tray
     roi = project.roi("t01")
     with h5py.File(project.path, "r+") as f:
         attrs = f[f"rois/{roi.roi_id}"].attrs
-        del attrs["use"]
-        if stored is not None:
-            attrs["use"] = stored
-    reopened = Project.open(project.path)
-    assert reopened.roi("t01").use == "calibration"
-    key = f"/rois/{roi.roi_id}/spectra"
-    spectra = store.load_roi_spectra_batch(project.path, [key])[key]
-    refs = next(iter(store.iter_roi_calibration_refs(project.path, [roi.roi_id])))[1]
-    dark, white = refs if refs is not None else (None, None)
-    store.save_training_roi(project.path, roi.roi_id, reopened.roi("t01").to_dict(), spectra,
-                            dark_ref_spectra=dark, white_ref_spectra=white)
-    with h5py.File(project.path, "r") as f:
-        assert f[f"rois/{roi.roi_id}"].attrs.get("use") == stored, "re-saving changes nothing"
-    assert reopened.fit("API", n_components=2, cv=3).ref is not None, "still a calibration ROI"
+        if stored == "use":
+            del attrs["job"]
+            attrs["use"] = "calibration"
+        else:
+            attrs["job"] = "training"
+    with pytest.raises(ValueError, match="job"):
+        Project.open(project.path)
 
 
-def test_the_api_refuses_the_old_name_training(tray):
+def test_the_api_accepts_only_calibration_and_prediction(tray):
     project, scan, _path = tray
-    with pytest.raises(ValueError, match="renamed to 'calibration'"):
-        project.set_use("t01", "training")
-    with pytest.raises(ValueError, match="renamed to 'calibration'"):
-        scan.add_roi("t11", frames=(0, 1), rows=(0, 1), use="training")
-    assert project.roi("t01").use == "calibration"
+    with pytest.raises(ValueError, match="job must be one of"):
+        project.set_job("t01", "training")
+    with pytest.raises(ValueError, match="job must be one of"):
+        scan.add_roi("t11", frames=(0, 1), rows=(0, 1), job="training")
+    assert project.roi("t01").job == "calibration"
 
 
 def test_prediction_rois_never_enter_a_fit(tray):
@@ -99,13 +90,13 @@ def test_prediction_rois_never_enter_a_fit(tray):
     assert names == {f"t{i:02d}" for i in range(1, 8)}, "t08-t10 are prediction ROIs"
 
     # A stored sample set keeps its ROIs: switching one later only warns on refit.
-    project.set_use("t03", "prediction")
+    project.set_job("t03", "prediction")
     refitted, messages = _warnings_during(model.refit)
     assert any("now prediction ROIs" in message for message in messages)
     assert refitted.ref.sample_set_id == model.ref.sample_set_id
 
     for name in [f"t{i:02d}" for i in range(1, 8)]:
-        project.set_use(name, "prediction")
+        project.set_job(name, "prediction")
     with pytest.raises(ValueError, match=r"No calibration ROI has a value .*10 prediction ROI"):
         project.fit("API", n_components=2, cv=3)
 
@@ -175,7 +166,7 @@ def test_an_roi_that_cannot_give_the_models_signal_is_refused_and_the_others_pre
     save_hdf5(raw, np.full((4, HEIGHT, N_BANDS), 2000, dtype=np.uint16),
               np.linspace(1000, 1600, N_BANDS))
     counts = project.add_dataset(raw, unit="DN")
-    counts.add_roi("raw", frames=(0, 3), rows=(0, HEIGHT - 1), use="prediction")
+    counts.add_roi("raw", frames=(0, 3), rows=(0, HEIGHT - 1), job="prediction")
     prediction = model.roi_prediction()
     assert set(prediction.refused) == {project.roi("raw").roi_id}
     assert len(prediction.pixels) == 3

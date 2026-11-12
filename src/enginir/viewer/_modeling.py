@@ -8,7 +8,8 @@ from dataclasses import replace
 from typing import Any
 
 import numpy as np
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QRegularExpression, Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QRegularExpressionValidator
 from PyQt6.QtWidgets import (
     QCheckBox,
     QMenu,
@@ -54,7 +55,7 @@ from ._band_ranges import (
     ProposeBandsDialog,
 )
 from ._jobs import BusyStatusWidget, BackgroundWorker, start_background_job
-from ._state import ProjectState, ViewerState
+from ._state import ProjectState, signal_label, ViewerState
 from ._theme import secondary_text_style
 from ._ui_helpers import spectral_axis_label
 from ..project._ids import now_iso
@@ -109,12 +110,12 @@ class NewROIDialog(QDialog):
         layout.addRow("Pixels:", QLabel(str(n_pixels)))
 
         s = viewer_state
-        layout.addRow("Signal:", QLabel(s.y_unit))
+        layout.addRow("Signal:", QLabel(signal_label(s.y_unit)))
 
         filt = s.preprocess_filter
         if filt != "none":
             filt = f"{filt}  w={s.sg_window}  p={s.sg_polyorder}"
-        layout.addRow("Filter:", QLabel(filt))
+        layout.addRow("Smoothing and derivatives:", QLabel(filt))
 
         norm_parts = []
         if s.preprocess_snv:
@@ -125,7 +126,7 @@ class NewROIDialog(QDialog):
             norm_parts.append("EMSC")
         if s.preprocess_detrend:
             norm_parts.append(f"Detrend(order={s.detrend_order})")
-        layout.addRow("Norm:", QLabel(", ".join(norm_parts) or "none"))
+        layout.addRow("Scatter correction:", QLabel(", ".join(norm_parts) or "none"))
         from ._roi_grid import prediction_only_check
 
         self.prediction_check = prediction_only_check(prediction)
@@ -162,7 +163,7 @@ class NewROIDialog(QDialog):
         return self._name_edit.text().strip()
 
     @property
-    def use(self) -> str:
+    def job(self) -> str:
         """``"prediction"`` when Prediction only is ticked, else ``"calibration"``."""
         return "prediction" if self.prediction_check.isChecked() else "calibration"
 
@@ -283,6 +284,26 @@ class TargetSelectionDialog(QDialog):
         return self._targets_by_id.get(selected_target_id)
 
 
+class _SeedEdit(QLineEdit):
+    """The pixel-subsample seed, 0 <= seed < 2**63 (fit specification §7).
+
+    A spin box is 32-bit; a stored seed above 2**31 - 1 would be clamped, and a
+    refit would draw other pixels.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("0")
+        self.setValidator(QRegularExpressionValidator(QRegularExpression(r"\d{1,19}"), self))
+        self.setToolTip("Seed of the pixel subsample: an integer from 0 to 2⁶³ − 1")
+
+    def value(self) -> int:
+        """The seed; an empty field is 0. A value of 2**63 or more is left to the fit's check."""
+        return int(self.text() or 0)
+
+    def setValue(self, value: int) -> None:  # noqa: N802 (QSpinBox-like API)
+        self.setText(str(int(value)))
+
+
 class FitModelRunDialog(QDialog):
     """Everything a fit needs in one place (model diagnostics contract).
 
@@ -351,7 +372,7 @@ class FitModelRunDialog(QDialog):
         filter_row.addWidget(self._window_spin)
         filter_row.addWidget(QLabel("order"))
         filter_row.addWidget(self._poly_spin)
-        layout.addRow("Filter:", filter_row)
+        layout.addRow("Smoothing and derivatives:", filter_row)
         self._snv = QCheckBox("SNV")
         self._msc = QCheckBox("MSC")
         self._emsc = QCheckBox("EMSC")
@@ -365,7 +386,7 @@ class FitModelRunDialog(QDialog):
         scatter_row = QHBoxLayout()
         for widget in (self._snv, self._msc, self._emsc, self._detrend, self._detrend_order):
             scatter_row.addWidget(widget)
-        layout.addRow("Normalization:", scatter_row)
+        layout.addRow("Scatter correction:", scatter_row)
         # AsLS and the Savitzky-Golay edge handling have no controls here (scripts
         # only); a preset recipe keeps them (viewer contract, Fit again).
         self._kept_recipe = recipe
@@ -377,7 +398,7 @@ class FitModelRunDialog(QDialog):
         self._detrend.toggled.connect(self._update_enabled)
         self._update_enabled()
         layout.addRow("Bands:", self._bands_row(recipe))
-        hint = QLabel("Starts from the Explore preview; the model is trained with this.")
+        hint = QLabel("Starts from the Explore preview; the model is fitted with this.")
         hint.setStyleSheet(secondary_text_style())
         layout.addRow("", hint)
 
@@ -555,9 +576,17 @@ class FitModelRunDialog(QDialog):
         self._guard_check.setEnabled(auto)
         self._max_spin.setEnabled(auto)
 
-    def apply_model_run(self, model_run: ModelRun) -> None:
-        """Preset every choice from a stored model run (for "Fit again...")."""
+    def apply_model_run(self, model_run: ModelRun, *, signal_unit: str | None = None) -> None:
+        """Preset every choice from a stored model run (for "Fit again...").
+
+        ``signal_unit`` is the run's input contract's signal unit: the fit
+        repeats it, whatever Explore shows (viewer-workspace-ui contract).
+        """
         self._model_type_combo.setCurrentText(model_run.model_type)
+        if signal_unit is not None:
+            index = self._signal_unit_combo.findData(signal_unit)
+            if index >= 0:
+                self._signal_unit_combo.setCurrentIndex(index)
         hyper = model_run.hyperparameters
         self._components_spin.setValue(int(hyper.get("n_components", 6)))
         self._auto_check.setChecked(False)
@@ -585,7 +614,7 @@ class FitModelRunDialog(QDialog):
         self._update_fitting()
 
     def _fitting_group(self) -> QGroupBox:
-        """Pixel sample, scaling and DModX exclusion (sample-set-model-run contract §7)."""
+        """Pixel subsample, scaling and DModX exclusion (sample-set-model-run contract §7)."""
         group = QGroupBox("Fitting")
         form = QFormLayout(group)
 
@@ -595,8 +624,7 @@ class FitModelRunDialog(QDialog):
         self._pixels_spin = QSpinBox()
         self._pixels_spin.setRange(1, 1_000_000)
         self._pixels_spin.setValue(50)
-        self._seed_spin = QSpinBox()
-        self._seed_spin.setRange(0, 2**31 - 1)
+        self._seed_spin = _SeedEdit()
         self._smallest_label = QLabel("")
         self._smallest_label.setStyleSheet(secondary_text_style())
         pixels_row = QHBoxLayout()
@@ -618,7 +646,7 @@ class FitModelRunDialog(QDialog):
         scaling_row.addStretch(1)
         form.addRow("Scaling:", scaling_row)
 
-        self._exclude_check = QCheckBox("Exclude outlying pixels by DModX")
+        self._exclude_check = QCheckBox("Exclude pixels above DCrit (DModX)")
         self._exclude_check.setToolTip(
             "Leave out pixels above the critical distance to the model, inside every "
             "validation fold from its calibration pixels only; held-out pixels are never "
@@ -812,6 +840,9 @@ def _component_payload(model_run: ModelRun, artifact: dict[str, Any]) -> dict[st
     Presentation only: every value comes from the stored run.
     """
     payload: dict[str, Any] = {"n_components": model_run.hyperparameters.get("n_components"),
+                               # LV for PLS, PC for PCR (terminology contract, LV, PC)
+                               "component_prefix": "PC" if model_run.model_type == "PCR"
+                               else "LV",
                                "fit_statistics": {key: model_run.metrics[key] for key in
                                                   ("rmsee", "r2_adj", "pixel_rmsee")
                                                   if key in model_run.metrics}}
@@ -839,8 +870,6 @@ def _component_payload(model_run: ModelRun, artifact: dict[str, Any]) -> dict[st
         if values is not None and np.ndim(np.squeeze(values)) == 1:
             payload[key] = np.asarray(values, dtype=np.float32).reshape(-1)
     vip = artifact.get("vip")
-    if vip is None:
-        vip = _vip_from_weights(artifact)  # PLS runs from before 1.4 (contract §7.5)
     if vip is not None and np.ndim(np.squeeze(vip)) == 1:
         payload["vip"] = np.asarray(vip, dtype=np.float32).reshape(-1)
     scores = artifact.get("x_scores_", artifact.get("scores_"))
@@ -860,37 +889,18 @@ def _component_payload(model_run: ModelRun, artifact: dict[str, Any]) -> dict[st
     return payload
 
 
-def _vip_from_weights(artifact: dict[str, Any]) -> np.ndarray | None:
-    """VIP from a stored PLS run's X weights, X scores and Y loadings (no refit)."""
-    try:
-        weights = np.asarray(artifact["x_weights_"], dtype=np.float64)
-        scores = np.asarray(artifact["x_scores_"], dtype=np.float64)
-        y_loadings = np.asarray(artifact["y_loadings_"], dtype=np.float64)
-    except KeyError:
-        return None
-    if weights.ndim != 2 or scores.ndim != 2 or y_loadings.ndim != 2:
-        return None
-    if not weights.shape[1] == scores.shape[1] == y_loadings.shape[1]:
-        return None
-    explained = np.sum(scores ** 2, axis=0) * np.sum(y_loadings ** 2, axis=0)
-    norms = np.linalg.norm(weights, axis=0)
-    if explained.sum() <= 0 or np.any(norms <= 0):
-        return None
-    return np.sqrt(weights.shape[0] * ((weights / norms) ** 2 @ explained) / explained.sum())
-
-
 def _roi_score_payload(artifact: dict[str, Any] | None) -> dict[str, Any]:
     """The ROI scores the fit stored (model-workspace-diagnostics contract §2).
 
     The viewer never rebuilds them from pixel counts: a run without stored
-    ROI scores gets a placeholder message.
+    ROI scores shows them as not available.
     """
     scores = None if artifact is None else artifact.get("roi_scores")
     if scores is None:
-        return {"scores_message": "ROI scores are not stored for this model; fit it again."}
+        return {"scores_message": "ROI scores are not available for this model."}
     matrix = np.asarray(scores, dtype=np.float32)
     if matrix.ndim != 2:
-        return {"scores_message": "ROI scores of this model are malformed; fit it again."}
+        return {"scores_message": "ROI scores of this model cannot be read (not shown)."}
     return {"scores_roi": matrix,
             "scores_without_pixels": int(np.sum(~np.isfinite(matrix).all(axis=1)))}
 
@@ -1221,7 +1231,9 @@ class ModelingView(QWidget):
             parent=self,
         )
         if preset is not None:
-            dlg.apply_model_run(preset)
+            domain = state.signal_domains.get(preset.signal_domain_id)
+            dlg.apply_model_run(
+                preset, signal_unit=None if domain is None else domain.required_signal_unit)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         self._selected_target_id = dlg.target_id
@@ -1301,7 +1313,7 @@ class ModelingView(QWidget):
         state = self.project_state
         counts = [roi.n_pixels for roi in state.rois.values()
                   if (roi.roi_id, target_id) in state.target_assignments
-                  and roi.use != "prediction"]
+                  and roi.job != "prediction"]
         return min(counts) if counts else None
 
     def fit_readiness(self, target_id: str) -> tuple[str, bool]:
@@ -1310,7 +1322,7 @@ class ModelingView(QWidget):
         per_file: dict[str, list[int]] = {}
         for roi in state.rois.values():
             counts = per_file.setdefault(roi.dataset_id, [0, 0, 0])
-            if roi.use == "prediction":
+            if roi.job == "prediction":
                 counts[2] += 1
                 continue
             counts[1] += 1
@@ -1457,7 +1469,7 @@ class ModelingView(QWidget):
         """Fold warnings for the fit dialog: all ROIs with a value for the target."""
         roi_ids = [roi_id for roi_id, roi in self.project_state.rois.items()
                    if (roi_id, target_id) in self.project_state.target_assignments
-                   and roi.use != "prediction"]
+                   and roi.job != "prediction"]
         return self._predicted_warnings(roi_ids, target_id, fit_spec, cv)
 
     def _sample_set_label(self, sample_set: SampleSet) -> str:
@@ -1837,7 +1849,7 @@ class ModelingView(QWidget):
             roi_id
             for roi_id, roi in self.project_state.rois.items()
             if (roi_id, target.target_id) in self.project_state.target_assignments
-            and roi.use != "prediction"
+            and roi.job != "prediction"
         }
         if not self.project_state.rois:
             self._readiness_status.setText("Ready: draw ROIs in Explore.")

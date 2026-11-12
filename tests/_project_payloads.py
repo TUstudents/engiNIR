@@ -31,6 +31,13 @@ def recipe_payload(**overrides: object) -> dict[str, object]:
         "emsc": False,
         "detrend": False,
         "detrend_order": 1,
+        "sg_edges": "drop",
+        "asls": False,
+        "asls_lambda": 10000.0,
+        "asls_p": 0.001,
+        "asls_iterations": 10,
+        "bands_keep": [],
+        "bands_exclude": [],
     }
     payload.update(overrides)
     return payload

@@ -13,7 +13,7 @@ def new_id() -> str:
 
 def now_iso() -> str:
     """Return the current UTC time as an ISO 8601 string."""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
 __all__ = ["new_id", "now_iso"]

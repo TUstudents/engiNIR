@@ -3,7 +3,8 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.0; v3 is the default and only supported project schema
+- Status: active contract for engiNIR 1.5; the file format `enginir-1.5` is the
+  only format engiNIR reads and writes (`project-schema-contract_v3.md`)
 - Scope: viewer/project workflow states, dataset attachment, datasets of a project, project-only behavior, mismatch validation, eager-write semantics
 
 ## Goal
@@ -120,7 +121,7 @@ Allowed:
 - all project-backed workflow actions
 - ROI creation on the shown dataset
 - dataset-local reference correction creation or reuse
-- sample-set build
+- calibration-set build
 - model fit
 - prediction against the attached or explicitly loaded dataset
 - switching the shown dataset to another registered dataset, or adding
@@ -181,7 +182,9 @@ Creating a project file must create an empty scientific workspace only.
 Required behavior:
 
 - create all top-level v3 groups
-- write `project_meta`
+- write `project_meta` with `FileSchemaVersion = "enginir-1.5"`,
+  `FileCreator`, `FileWriter` and the timestamps
+  (`project-schema-contract_v3.md`, Object identity rules §1)
 - do not create any dataset implicitly
 - do not create any reference correction implicitly
 - do not create any ROI implicitly
@@ -268,7 +271,7 @@ with its own active reference correction (`dataset-calibration-contract_v3.md`).
 
 ### Adding a dataset
 
-`Add data file...`, and `Open Data...` in a project window, add a dataset
+`Add Dataset...`, and `Open Data...` in a project window, add a dataset
 to the project in the same window.
 
 Required behavior:
@@ -306,7 +309,7 @@ Required behavior:
 - it is marked as not found
 - its ROIs, their target assignments, calibration sets and models remain fully
   usable, because they need only the project file
-- `Locate file...` accepts a new path only if:
+- `Locate File...` accepts a new path only if:
   - the file matches the `DatasetRef` (format, modality, shape, wavelength
     axis), and
   - for every ROI of that dataset, the stored raw pixels equal the file's
@@ -319,7 +322,7 @@ Required behavior:
 Required behavior:
 
 - a project with ROIs opens on the stored ROIs (Project ROIs view); no dataset is loaded until the user shows one
-- a project without ROIs opens on the data-file view with `Add data file...`
+- a project without ROIs opens on the Dataset tab with `Add Dataset...`
 - the last shown dataset of a project is UI state, kept in the user
   settings by `project_id`, never in the project file
 
@@ -447,10 +450,10 @@ v3 requires regression coverage for:
 - a project window shows only the ROIs of the shown dataset
 - attaching a dataset never warns about ROIs of other datasets, and warns
   when a registered file no longer matches its `DatasetRef`
-- `Add data file...` writes the dataset and its reference correction together or not
+- `Add Dataset...` writes the dataset and its reference correction together or not
   at all
 - `Open Data...` in a project window keeps the project
-- `Locate file...` refuses a file whose pixels differ from the stored ROI
+- `Locate File...` refuses a file whose pixels differ from the stored ROI
   pixels
 - target assignments, calibration sets and fits work with every dataset
   missing

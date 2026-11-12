@@ -61,7 +61,7 @@ from ._plot_panel import (
     draw_placeholder,
 )
 from ._plot_registry import register_plot
-from ._state import ProjectState, ViewerState
+from ._state import ProjectState, ViewerState, signal_label
 from ._theme import GUIDE_COLOR, panel_colors, print_colors, secondary_text_style
 from ._ui_helpers import spectral_axis_label, style_axes
 
@@ -461,7 +461,7 @@ class RoiMosaic(QWidget):
             value = self._values.get(roi_id)
             pen = pg.mkPen(color=_value_color(value, norm), width=1 if value is None else 2.5)
             roi = self._rois.get(roi_id)
-            if roi is not None and roi.use == "prediction":  # a sample to predict, not training
+            if roi is not None and roi.job == "prediction":  # a sample to predict, not calibration
                 pen.setStyle(Qt.PenStyle.DashLine)
             pen.setCosmetic(True)
             outline.setPen(pen)
@@ -963,10 +963,11 @@ class ProjectRoisView(QWidget):
         def computed(result: Any) -> None:
             self._summaries, self._skipped = result
             described = recipe.describe()
-            self._signal_label = unit if described == "none" else f"{unit}, {described}"
+            shown = signal_label(unit)
+            self._signal_label = shown if described == "none" else f"{shown}, {described}"
             self._update_means_plot()
 
-        self._signal_label = unit
+        self._signal_label = signal_label(unit)
         self._spectra_job = start_background_job(owner=self, fn=compute, on_success=computed,
                                                  on_error=self._job_failed, on_finished=done)
         self._update_status()
@@ -997,7 +998,7 @@ class ProjectRoisView(QWidget):
         payload["means"] = {roi_id: s.mean for roi_id, s in self._summaries.items()}
         payload["prediction_ids"] = [roi_id for roi_id in self._summaries
                                      if roi_id in state.rois
-                                     and state.rois[roi_id].use == "prediction"]
+                                     and state.rois[roi_id].job == "prediction"]
         payload["values"] = {
             roi_id: (state.target_assignments[(roi_id, target_id)].value
                      if target_id and (roi_id, target_id) in state.target_assignments else None)

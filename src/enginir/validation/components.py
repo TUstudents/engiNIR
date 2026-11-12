@@ -117,7 +117,7 @@ def choose_components(curve: Mapping[str, Any], rule: str = "one_se", *,
     n_samples = check_integer(n_samples, "n_samples", minimum=1)
     rmsecv = np.asarray(curve["rmsecv"], dtype=np.float64)
     if rmsecv.ndim != 1 or rmsecv.size < 1 or not np.all(np.isfinite(rmsecv)):
-        log_and_raise("rmsecv must be a non-empty 1-D array of finite values")
+        log_and_raise("curve[`rmsecv`] must be a non-empty 1-D array of finite values")
     best = int(np.argmin(rmsecv))  # the first (smallest a) of equal minima
     if rule == "min_rmsecv":
         return best + 1
@@ -135,12 +135,13 @@ def choose_components(curve: Mapping[str, Any], rule: str = "one_se", *,
     if rule == "one_se":
         se = np.asarray(curve["rmsecv_se"], dtype=np.float64)
         if se.shape != rmsecv.shape or not np.isfinite(se[best]) or se[best] < 0:
-            log_and_raise("rmsecv_se must match rmsecv and be finite and non-negative")
+            log_and_raise("curve[`rmsecv_se`] must match curve[`rmsecv`] and be finite and "
+                          "non-negative")
         threshold = rmsecv[best] + se[best]
         return int(np.flatnonzero(rmsecv <= threshold)[0]) + 1
     q2 = np.asarray(curve["q2"], dtype=np.float64)
     if q2.shape != rmsecv.shape:
-        log_and_raise("q2 must match rmsecv")
+        log_and_raise("curve[`q2`] must match curve[`rmsecv`]")
     passing = np.nan_to_num(q2, nan=-np.inf) > q2_limit(n_samples)  # a NaN Q² fails
     if rule == "q2_lookahead":
         chosen, b = 1, 0

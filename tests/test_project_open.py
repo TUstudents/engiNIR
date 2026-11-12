@@ -72,6 +72,7 @@ def _save_project_roi(
             "name": roi_id,
             "wavelengths": wavelengths.astype(np.float32),
             "source_file": source_file,
+            "job": "calibration",
             "spatial_bounds": (0, 1, 0, 2),
             "n_pixels": int(spectra.shape[0]),
             "created_at": "2026-03-28T10:00:00+00:00",
@@ -216,7 +217,7 @@ def test_open_project_rejects_invalid_non_v3_file(
     viewer._open_project_btn_clicked_with_path(invalid_path)
 
     assert len(warnings) == 1
-    assert "is not an engiNIR viewer-v3 project file" in warnings[0]
+    assert "is not an engiNIR project file" in warnings[0]
     assert viewer.project_state.project_path is None
 
 

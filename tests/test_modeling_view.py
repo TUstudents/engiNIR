@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from enginir.project import FitSpec
+
 import time
 import types
 
@@ -193,7 +195,7 @@ def _fake_fit(captured: list[dict[str, object]], *, fail: bool = False):
         if fail:
             raise RuntimeError("fit exploded")
         return types.SimpleNamespace(
-            model_run=ModelRun(
+            model_run=ModelRun(fit_spec=FitSpec(groups=tuple(range(len(kwargs["sample_set"].roi_ids)))).to_dict(), 
                 model_run_id=f"model_{len(captured)}",
                 sample_set_id=kwargs["sample_set"].sample_set_id,
                 signal_domain_id=kwargs["signal_domain_id"],
@@ -368,14 +370,15 @@ def test_the_inspector_summarises_how_a_run_was_fitted(tmp_path):
     lines = fit_summary(model.ref, names, exclusion)
     assert lines[0] == "Folds: round-robin, 7 folds; held out together: each ROI"
     assert lines[1] == "Pixels: 10 per ROI (seed 3)"
-    assert lines[2] == "Scaling: X centre, Y unit variance"
-    assert lines[3].startswith("Pixel exclusion: DModX (weighted), level 0.51, 1 round(s), "
+    assert lines[2] == "Scaling: X center, Y unit variance"
+    assert lines[3].startswith("Software: enginir ") and "scikit-learn " in lines[3]
+    assert lines[4].startswith("Pixel exclusion: DModX (weighted), level 0.51, 1 round(s), "
                                "at most 10% per ROI;")
     excluded = model.excluded_pixels
-    assert lines[4] == "Excluded per ROI: " + ", ".join(
+    assert lines[5] == "Excluded per ROI: " + ", ".join(
         f"{names[r]} {len(v)}" for r, v in excluded.items())
     assert any(line.startswith("Flagged ROIs") for line in lines)
-    assert fit_summary(project.fit("API", n_components=2).ref, names)[3] \
+    assert fit_summary(project.fit("API", n_components=2).ref, names)[4] \
         == "Pixel exclusion: none"
 
 
@@ -722,7 +725,7 @@ def test_distance_histograms_show_the_tail_as_one_bar_and_rois_by_their_share():
     assert edges[-1] < 5.0, "the bins stop at the 99.5th percentile, not at the far pixel"
     assert overflow.get_data().values[0] == int(np.sum(pixels > edges[-1]))
     text = fig.axes[0].texts[0].get_text()
-    assert "(expected 1%)" in text and "max 35" in text
+    assert "(1 % expected)" in text and "max 35" in text
     rows = spec.table(payload).columns[2].values
     assert int(np.sum(rows)) == pixels.size, "every pixel is in the CSV"
 
@@ -772,14 +775,14 @@ def test_the_fit_dialog_offers_the_guard_and_warns_about_the_folds(qapp):
 
     def warner(target_id, spec, cv):
         seen.append((target_id, spec, cv))
-        return ["the ROIs of a data file share one value"]
+        return ["the ROIs of one dataset share one value"]
 
     dlg = FitModelRunDialog([("t1", "Layer")], default_target_id="t1",
                             recipe=__import__("enginir").PreprocessingRecipe(),
                             default_signal_unit="Absorbance",
                             readiness=lambda _t: ("Ready.", True), fold_warner=warner)
     try:
-        assert "Validation likely optimistic: the ROIs of a data file" in dlg.readiness_text
+        assert "Validation likely optimistic: the ROIs of one dataset" in dlg.readiness_text
         dlg._auto_check.setChecked(True)
         spec = dlg.fit_spec
         assert spec is not None and spec.components_noise_guard == "on"
@@ -817,3 +820,95 @@ def test_every_model_plot_has_help_that_the_user_guide_repeats(qapp):
         panel.show_help()  # shows a tooltip; must not raise
     finally:
         widget.close()
+
+
+def test_fit_again_presets_the_models_signal_unit_and_its_full_seed(
+        qapp, state_and_project, monkeypatch):
+    """Fit Again repeats the model's signal unit, not Explore's (B1), and keeps a seed above
+    2**31 - 1 (B2): the dialog must not change what the refit draws."""
+    from enginir.viewer._modeling import FitModelRunDialog, ModelingView
+
+    state, project = state_and_project
+    _labelled_rois(state, project)
+    seen: dict[str, object] = {}
+
+    def fit_on_reflectance(self):
+        self._signal_unit_combo.setCurrentIndex(self._signal_unit_combo.findText("Reflectance"))
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(FitModelRunDialog, "exec", fit_on_reflectance)
+    monkeypatch.setattr("enginir.modeling.fit_model_run", _fake_fit([]))
+    view = ModelingView(state, project)
+    view._selected_target_id = "target_1"
+    view.fit_model_btn_clicked()
+    _wait_until(qapp, lambda: "model_1" in project.model_runs)
+    _wait_until(qapp, lambda: view._job_thread is None)
+    assert state.y_unit != "Reflectance", "Explore shows another signal"
+
+    def look(self):
+        seen["signal_unit"] = self.signal_unit
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(FitModelRunDialog, "exec", look)
+    monkeypatch.setattr(view, "_resolved_workspace_model_run",
+                        lambda: project.model_runs["model_1"])
+    view.fit_again_btn_clicked()
+    assert seen["signal_unit"] == "Reflectance"
+
+    dialog = FitModelRunDialog([("t", "API")], default_target_id="t",
+                               recipe=__import__("enginir").PreprocessingRecipe(),
+                               default_signal_unit="DN", readiness=lambda _t: ("", True))
+    dialog._draw_check.setChecked(True)
+    dialog._seed_spin.setValue(2**40)
+    assert dialog.fit_spec.seed == 2**40
+
+
+def test_the_fit_summary_shows_the_fold_warnings_and_wraps_long_values(qapp):
+    """B6: a model's fold warnings are shown, also when its metric rows equal the previous
+    model's; long summary values wrap instead of being cut off."""
+    import numpy as np
+
+    from enginir.viewer._viewer import HSIViewer
+
+    viewer = HSIViewer(np.zeros((4, 4, 4), np.uint16), np.arange(4.0), {})
+    viewer._workspace_tabs.setCurrentIndex(1)  # the Model page is built when first shown
+    qapp.processEvents()
+    rows = {"roi_metrics": [("Q² (CV R²)", "0.9")], "pixel_metrics": [],
+            "r2": "0.9", "rmsecv": "1", "bias": "0"}
+    viewer._set_metric_rows({**rows, "warnings": ""})
+    assert not viewer._model_warnings.isVisibleTo(viewer)
+    viewer._set_metric_rows({**rows, "warnings": "fewer than 7 fold groups"})
+    assert viewer._model_warnings.isVisibleTo(viewer)
+    assert "fewer than 7 fold groups" in viewer._model_warnings.text()
+    assert viewer._model_card_cv_value.wordWrap()
+    viewer.close()
+
+
+@pytest.mark.parametrize("width", [2.2, 3.5, 6.0])
+def test_the_distance_notes_stay_inside_their_plot(width):
+    """W5: the notes of a distance histogram (limit, share above, overflow bar) are one block
+    inside the axes, also in a narrow panel; an undefined (NaN) limit is not drawn."""
+    import numpy as np
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    from enginir.viewer._model_diagnostics import _distance_spec
+    from enginir.viewer._theme import panel_colors
+
+    values = np.concatenate([np.random.default_rng(0).gamma(4, 0.25, 5000), [36.3] * 20])
+    spec = _distance_spec("dmodx", "dcrit_099", "model.dmodx", "DModX", "Normalized DModX")
+    fig = Figure(figsize=(width, 2.4))
+    canvas = FigureCanvasAgg(fig)
+    spec.render(fig, {"dmodx_pixels": values, "dcrit_099": 1.17}, panel_colors())
+    canvas.draw()
+    renderer = canvas.get_renderer()
+    (ax,) = fig.axes
+    notes = [t for t in ax.texts if "limit 0.99" in t.get_text()]
+    assert len(notes) == 1 and "last bar" in notes[0].get_text(), "one block with every note"
+    box, axes_box = notes[0].get_window_extent(renderer), ax.get_window_extent(renderer)
+    assert box.x0 >= axes_box.x0 - 1 and box.x1 <= axes_box.x1 + 1
+
+    fig = Figure(figsize=(width, 2.4))
+    FigureCanvasAgg(fig)
+    spec.render(fig, {"dmodx_pixels": values, "dcrit_099": float("nan")}, panel_colors())
+    assert not any("limit 0.99" in t.get_text() for t in fig.axes[0].texts)

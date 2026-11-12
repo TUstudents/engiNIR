@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from enginir.project import FitSpec
+from enginir.project._models import software_versions
+
 import h5py
+
+from enginir.preprocessing import PreprocessingRecipe
 from loguru import logger
 import numpy as np
 import pytest
@@ -115,6 +120,7 @@ def _roi_payload(
         "name": name,
         "wavelengths": wavelengths,
         "source_file": source_file,
+        "job": "calibration",
         "spatial_bounds": (0, 2, 0, 3),
         "n_pixels": n_pixels,
         "created_at": "2026-03-28T10:00:00+00:00",
@@ -152,7 +158,7 @@ def test_v3_project_store_round_trip_and_skip_flags(project_path, rng, wavelengt
         project_path,
         "signal_domain_1",
         {
-            "input_format": "eiff_raw",
+            "input_format": "eiff",
             "source_modality": "nir_hsi",
             "required_signal_unit": "Absorbance",
             "required_calibration_mode": "dark_white_reference",
@@ -210,11 +216,14 @@ def test_v3_project_store_round_trip_and_skip_flags(project_path, rng, wavelengt
             "sample_set_id": "sample_set_1",
             "signal_domain_id": "signal_domain_1",
             "model_type": "PLS",
+            "fit_spec": FitSpec(groups=(0,)).to_dict(),
+            "software": software_versions(),
             "hyperparameters": {"n_components": 3},
             "cv_spec": {"type": "GroupKFold", "n_splits": 5},
             "metrics": {"rmsecv": 1.23},
             "artifact_refs": {
                 "prediction_model": {
+                    "n_components": 1,
                     "model_type": "PLSRegression",
                     "coef_": np.ones(50, dtype=np.float32),
                     "intercept_": 0.0,
@@ -259,7 +268,10 @@ def test_v3_project_store_round_trip_and_skip_flags(project_path, rng, wavelengt
     )
     trimmed_store = load_project_store(project_path)
 
-    assert full_store["project_meta"]["schema_version"] == "viewer-v3"
+    meta = full_store["project_meta"]
+    assert meta["FileSchemaVersion"] == "enginir-1.5"
+    assert meta["FileCreator"].startswith("engiNIR ") and meta["FileWriter"].startswith("engiNIR ")
+    assert "schema_version" not in meta
     assert full_store["datasets"]["dataset_1"]["active_calibration_id"] == "cal_1"
     assert full_store["targets"]["target_moisture"]["name"] == "moisture"
     assert full_store["recipes"]["recipe_1"]["filter"] == "sg_d1"
@@ -323,7 +335,9 @@ def test_v3_project_store_round_trip_and_skip_flags(project_path, rng, wavelengt
         hydrate_project_store(invalid_store)
 
 
-def test_incremental_prediction_artifacts_are_disk_backed_and_key_loadable(project_path):
+def test_incremental_prediction_artifacts_are_staged_then_moved(project_path):
+    """Project-schema contract §7: a staged run lives under /staging until it is finalized;
+    the project opens meanwhile (with a warning), and /predictions holds only complete runs."""
     create_project(project_path)
     payload = {
         "dataset_id": "dataset_1",
@@ -343,68 +357,48 @@ def test_incremental_prediction_artifacts_are_disk_backed_and_key_loadable(proje
         "created_at": "2026-04-02T10:09:00+00:00",
     }
 
-    initialize_prediction_run_artifacts(
-        project_path,
-        "prediction_stream",
-        payload,
-        y_pred_shape=(4,),
-        spatial_map_shape=(2, 2),
-    )
+    initialize_prediction_run_artifacts(project_path, "prediction_stream", payload,
+                                        y_pred_shape=(4,))
     with open_prediction_run_artifact_writer(project_path, "prediction_stream") as writer:
-        writer.write_chunk(
-            row_start=0,
-            y_pred_chunk=np.array([1.0, 2.0], dtype=np.float32),
-            frame_start=0,
-            spatial_map_chunk=np.array([[1.0, 2.0]], dtype=np.float32),
-        )
+        writer.write_chunk(row_start=0, y_pred_chunk=np.array([1.0, 2.0], dtype=np.float32))
 
-    with pytest.raises(ValueError, match="not written completely"):
-        load_project_store(project_path)
+    store = load_project_store(project_path)  # opens while the run is staged
+    assert "prediction_stream" not in store["predictions"]
+    with h5py.File(project_path, "r") as handle:
+        assert "staging/prediction_stream" in handle
 
     with open_prediction_run_artifact_writer(project_path, "prediction_stream") as writer:
-        writer.write_chunk(
-            row_start=2,
-            y_pred_chunk=np.array([3.0, 4.0], dtype=np.float32),
-            frame_start=1,
-            spatial_map_chunk=np.array([[3.0, 4.0]], dtype=np.float32),
-        )
+        writer.write_chunk(row_start=2, y_pred_chunk=np.array([3.0, 4.0], dtype=np.float32))
     finalize_prediction_run_artifacts(
         project_path,
         "prediction_stream",
         {"completed_chunks": 2, "clip_low_count": 0, "clip_high_count": 1},
     )
+    with h5py.File(project_path, "r") as handle:
+        assert "staging" not in handle, "an empty staging group is removed"
 
-    trimmed_store = load_project_store(project_path)
-    artifact_refs = trimmed_store["predictions"]["prediction_stream"]["artifact_refs"]
-    assert artifact_refs["artifact_write_status"] == "complete"
+    artifact_refs = load_project_store(project_path)["predictions"]["prediction_stream"][
+        "artifact_refs"]
+    assert "artifact_write_status" not in artifact_refs
     assert artifact_refs["completed_chunks"] == 2
     assert "y_pred" not in artifact_refs
-    assert "spatial_map" not in artifact_refs
 
-    selected_refs = load_prediction_run_artifact_refs(
-        project_path,
-        "prediction_stream",
-        keys=("spatial_map",),
-    )
-    assert set(selected_refs) == {"spatial_map"}
-    np.testing.assert_allclose(
-        selected_refs["spatial_map"],
-        np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
-    )
+    selected_refs = load_prediction_run_artifact_refs(project_path, "prediction_stream",
+                                                      keys=("spatial_map",))
+    np.testing.assert_allclose(selected_refs["spatial_map"],
+                               np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32))
     np.testing.assert_allclose(
         load_prediction_spatial_map_preview(project_path, "prediction_stream", max_pixels=1),
         np.array([[1.0]], dtype=np.float32),
     )
-
     all_refs = load_prediction_run_artifact_refs(project_path, "prediction_stream")
     np.testing.assert_allclose(all_refs["y_pred"], np.array([1.0, 2.0, 3.0, 4.0]))
-    with pytest.raises(ValueError, match="refusing to discard"):
-        discard_prediction_run_artifacts(project_path, "prediction_stream")
+
+    discard_prediction_run_artifacts(project_path, "prediction_stream")  # only touches /staging
     assert "prediction_stream" in load_project_store(project_path)["predictions"]
     with pytest.raises(ValueError, match="already exists"):
-        initialize_prediction_run_artifacts(
-            project_path, "prediction_stream", {}, y_pred_shape=(4,), spatial_map_shape=None
-        )
+        initialize_prediction_run_artifacts(project_path, "prediction_stream", {},
+                                            y_pred_shape=(4,))
 
 
 def test_hydration_rejects_calibration_id_collision_across_datasets(project_path, wavelengths):
@@ -478,36 +472,27 @@ def test_hydration_rejects_dangling_or_foreign_active_calibration_id(project_pat
         hydrate_project_store(load_project_store(project_path))
 
 
-def test_prediction_run_artifact_write_status_lifecycle_enum(project_path):
+def test_a_crash_while_staging_leaves_a_project_that_opens(project_path):
+    """Fault case of contract §7: the writer dies between initialize and finalize. The project
+    still opens, the run is not in /predictions, and discard_staged_predictions removes it
+    (as a write)."""
+    from enginir.io import discard_staged_predictions
+
     create_project(project_path)
-    initialize_prediction_run_artifacts(
-        project_path,
-        "prediction_status",
-        {
-            "dataset_id": "dataset_1",
-            "calibration_id": "cal_1",
-            "model_run_id": "model_run_1",
-            "signal_domain_id": "signal_domain_1",
-            "preprocessing_recipe_id": "recipe_1",
-            "artifact_refs": {"output_dtype": "float32", "prediction_shape": (2,)},
-            "created_at": "2026-07-17T10:00:00+00:00",
-        },
-        y_pred_shape=(2,),
-        spatial_map_shape=None,
-    )
-    finalize_prediction_run_artifacts(project_path, "prediction_status", {"completed_chunks": 1})
-
-    with h5py.File(project_path, "r+") as handle:
-        handle["predictions/prediction_status/artifact_refs"].attrs["artifact_write_status"] = (
-            "finalizing"
-        )
-    with pytest.raises(ValueError, match="unknown artifact_write_status 'finalizing'"):
-        load_project_store(project_path)
-
-    with h5py.File(project_path, "r+") as handle:
-        del handle["predictions/prediction_status/artifact_refs"].attrs["artifact_write_status"]
+    initialize_prediction_run_artifacts(project_path, "crashed", {"dataset_id": "d"},
+                                        y_pred_shape=(2,))
+    # ... no finalize: the process died here.
     store = load_project_store(project_path)
-    assert "prediction_status" in store["predictions"]
+    assert "crashed" not in store["predictions"]
+    with pytest.raises(ValueError, match="already exists"):
+        initialize_prediction_run_artifacts(project_path, "crashed", {}, y_pred_shape=(2,))
+    writer_before = store["project_meta"]["updated_at"]
+
+    assert discard_staged_predictions(project_path) == ["crashed"]
+    with h5py.File(project_path, "r") as handle:
+        assert "staging" not in handle
+    assert load_project_store(project_path)["project_meta"]["updated_at"] > writer_before
+    assert discard_staged_predictions(project_path) == []
 
 
 def test_roi_storage_batch_loading(project_path, rng, wavelengths):
@@ -536,20 +521,32 @@ def test_roi_storage_batch_loading(project_path, rng, wavelengths):
         assert handle["rois/A/spectra"].dtype == np.uint16
 
 
-def test_load_project_store_rejects_wrong_schema_version(tmp_path):
-    path = str(tmp_path / "bad_schema.h5")
+def test_a_project_of_an_earlier_format_is_refused_with_one_message(tmp_path):
+    # Projects written before 1.5 store schema_version = "viewer-v3" and no
+    # FileSchemaVersion; they are refused up front, naming their format.
+    path = str(tmp_path / "earlier.h5")
     with h5py.File(path, "w") as handle:
         meta = handle.create_group("project_meta")
-        meta.attrs["schema_version"] = "viewer-v2"
+        meta.attrs["schema_version"] = "viewer-v3"
 
-    with pytest.raises(ValueError, match="schema_version"):
+    with pytest.raises(ValueError, match="format 'viewer-v3'.*'enginir-1.5'.*created again"):
+        load_project_store(path)
+
+
+def test_a_project_of_a_later_format_names_its_writer(tmp_path):
+    path = str(tmp_path / "later.h5")
+    with h5py.File(path, "w") as handle:
+        meta = handle.create_group("project_meta")
+        meta.attrs.update(FileSchemaVersion="enginir-9.0", FileWriter="engiNIR 9.0.0")
+
+    with pytest.raises(ValueError, match="format 'enginir-9.0', written by engiNIR 9.0.0"):
         load_project_store(path)
 
 
 def test_save_recipe_enforces_current_schema_and_discards_extras(tmp_path):
     path = str(tmp_path / "recipe_schema.h5")
     create_project(path)
-    payload = recipe_payload(snv=True, created_at="2026-01-01T00:00:00")
+    payload = recipe_payload(snv=True, created_at="2026-01-01T00:00:00+00:00")
     messages: list[str] = []
     sink_id = logger.add(lambda message: messages.append(str(message)), level="WARNING")
     try:
@@ -558,7 +555,10 @@ def test_save_recipe_enforces_current_schema_and_discards_extras(tmp_path):
         logger.remove(sink_id)
 
     saved = load_project_store(path)["recipes"]["recipe_1"]
-    assert saved == recipe_payload(snv=True)
+    assert set(saved) == set(recipe_payload())
+    assert saved["bands_keep"].shape == (0, 2), "empty band ranges are a (0, 2) dataset"
+    assert PreprocessingRecipe.from_dict(saved) == PreprocessingRecipe.from_dict(
+        recipe_payload(snv=True))
     assert any("/recipes/recipe_1" in message and "created_at" in message for message in messages)
 
     incomplete = recipe_payload()
@@ -571,7 +571,8 @@ def test_save_recipe_enforces_current_schema_and_discards_extras(tmp_path):
     save_preprocessing_recipe(path, "recipe_1", recipe_payload(snv=True))
     with pytest.raises(ValueError, match="Refusing to overwrite PreprocessingRecipe"):
         save_preprocessing_recipe(path, "recipe_1", recipe_payload(msc=True))
-    assert load_project_store(path)["recipes"]["recipe_1"] == recipe_payload(snv=True)
+    assert PreprocessingRecipe.from_dict(load_project_store(path)["recipes"]["recipe_1"]) \
+        == PreprocessingRecipe.from_dict(recipe_payload(snv=True))
 
 
 def test_failed_object_serialization_preserves_previous_group(tmp_path, monkeypatch):
@@ -810,11 +811,14 @@ def test_load_model_run_prediction_artifact_reads_only_lightweight_payload(proje
             "sample_set_id": "sample_set_1",
             "signal_domain_id": "signal_domain_1",
             "model_type": "PLS",
+            "fit_spec": FitSpec(groups=(0,)).to_dict(),
+            "software": software_versions(),
             "hyperparameters": {},
             "cv_spec": {},
             "metrics": {},
             "artifact_refs": {
                 "prediction_model": {
+                    "n_components": 1,
                     "model_type": "PLSRegression",
                     "coef_": np.ones_like(wavelengths),
                     "intercept_": 0.0,
@@ -842,7 +846,7 @@ def test_resaving_unchanged_objects_is_a_no_op(tmp_path, wavelengths):
     project_path = str(tmp_path / "resave.h5")
     create_project(project_path)
     target = {"name": "T", "unit": "g", "value_type": "float",
-              "missing_value_policy": "allowed", "created_at": "2026-01-01T00:00:00"}
+              "missing_value_policy": "allowed", "created_at": "2026-01-01T00:00:00+00:00"}
     save_target_definition(project_path, "target_1", target)
     save_target_definition(project_path, "target_1", target)
     save_target_definition(project_path, "target_1", {**target, "name": "renamed"})
@@ -850,18 +854,18 @@ def test_resaving_unchanged_objects_is_a_no_op(tmp_path, wavelengths):
     dataset = {"source_path": "/data/a.eiff", "source_format": "eiff",
                "source_modality": "nir_hsi", "cube_shape": np.array([20, 15, 50]),
                "n_bands": 50, "wavelengths": wavelengths, "loader_metadata": {},
-               "import_timestamp": "2026-01-01T00:00:00"}
+               "import_timestamp": "2026-01-01T00:00:00+00:00"}
     save_dataset_ref(project_path, "dataset_1", dataset)
     save_calibration_spec(project_path, "dataset_1", "cal_1", {
         "mode": "dark_white_reference", "black_level": 100.0, "white_level": 3000.0,
-        "output_signal_unit": "Reflectance", "created_at": "2026-01-01T00:00:00"})
+        "output_signal_unit": "Reflectance", "created_at": "2026-01-01T00:00:00+00:00"})
     save_dataset_ref(project_path, "dataset_1", dataset)
 
     # NaN is stored content like any other value: an unchanged re-save stays a no-op
     run = {"sample_set_id": "s", "signal_domain_id": "d", "model_type": "PLS",
            "hyperparameters": {"n_components": 1}, "cv_spec": {"type": "KFold"},
            "metrics": {"rmsecv": np.nan}, "artifact_refs": {},
-           "created_at": "2026-01-01T00:00:00"}
+           "fit_spec": FitSpec().to_dict(), "software": software_versions(), "created_at": "2026-01-01T00:00:00+00:00"}
     save_model_run(project_path, "run_1", run)
     save_model_run(project_path, "run_1", run)
     with pytest.raises(ValueError, match="Refusing to overwrite"):
@@ -885,7 +889,7 @@ def test_map_preview_subsamples_the_canonical_y_pred_layout(project_path, monkey
     y_pred = np.random.default_rng(0).random(y_shape).astype(np.float32)
     create_project(project_path)
     initialize_prediction_run_artifacts(project_path, "run", {"dataset_id": "d"},
-                                        y_pred_shape=y_shape, spatial_map_shape=None)
+                                        y_pred_shape=y_shape)
     with open_prediction_run_artifact_writer(project_path, "run") as writer:
         writer.write_chunk(row_start=0, y_pred_chunk=y_pred)
     finalize_prediction_run_artifacts(project_path, "run", {"spatial_map_shape": map_shape})
@@ -928,7 +932,7 @@ def test_writers_refuse_payloads_that_hydration_would_reject(project_path, chang
     """G03: direct writes are validated by the typed models before anything is stored."""
     create_project(project_path)
     target = {"name": "moisture", "unit": "%", "value_type": "float",
-              "missing_value_policy": "allowed", "created_at": "2026-01-01T00:00:00"}
+              "missing_value_policy": "allowed", "created_at": "2026-01-01T00:00:00+00:00"}
 
     with pytest.raises(ValueError, match=message):
         save_target_definition(project_path, "target_1", {**target, **change})
@@ -945,7 +949,7 @@ def test_child_object_writers_validate_too(project_path, wavelengths):
     with pytest.raises(ValueError, match="mode"):
         save_calibration_spec(project_path, "dataset_1", "cal_x", {
             "mode": "guess", "output_signal_unit": "Reflectance",
-            "created_at": "2026-01-01T00:00:00"})
+            "created_at": "2026-01-01T00:00:00+00:00"})
     with pytest.raises(ValueError, match="assigned_at"):
         save_target_assignment(project_path, "target_1", "roi_1",
                                {"value": 1.0, "assigned_at": "now"})

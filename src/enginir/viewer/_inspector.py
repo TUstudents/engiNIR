@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
@@ -22,10 +23,24 @@ __all__ = ["ProjectInspector", "fit_summary"]
 logger = get_logger(__name__)
 
 _FOLD_RULES = {"round_robin": "round-robin, {n} folds", "leave_one_group_out": "leave one out",
-               "group_kfold": "GroupKFold, {n} folds (before 1.2)"}
+               "group_kfold": "GroupKFold, {n} folds"}
 _GROUPS = {"roi": "each ROI", "sample": "ROIs with the same Sample label",
            "target": "ROIs with the same target value"}
-_SCALINGS = {"center": "centre", "uv": "unit variance", "pareto": "Pareto"}
+_SCALINGS = {"center": "center", "uv": "unit variance", "pareto": "Pareto"}
+#: What a calibration set was fitted on (terminology contract, Pixel: "Fitted on: ...").
+_FITTED_ON = {"pixel": "pixels", "roi_mean": "ROI means"}
+#: Reference correction modes as people say them (terminology contract, Reference correction).
+_CORRECTION_MODES = {"raw_dn": "none (raw counts)",
+                     "dark_white_reference": "dark/white references or detector levels",
+                     "precalibrated_import": "already corrected"}
+
+
+def _local_time(value: Any) -> str:
+    """A stored UTC timestamp in local time, to the second; "–" when it cannot be read."""
+    try:
+        return datetime.fromisoformat(str(value)).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return "–"
 
 
 def fit_summary(model_run: ModelRun, roi_names: dict[str, str],
@@ -41,13 +56,13 @@ def fit_summary(model_run: ModelRun, roi_names: dict[str, str],
     lines.append("Pixels: all" if spec.pixels_per_roi is None
                  else f"Pixels: {spec.pixels_per_roi} per ROI (seed {spec.seed})")
     hyper = model_run.hyperparameters
-    if "x_scaling" in hyper:
-        scaling = f"X {_SCALINGS.get(str(hyper['x_scaling']), hyper['x_scaling'])}"
-        if "y_scaling" in hyper:
-            scaling += f", Y {_SCALINGS.get(str(hyper['y_scaling']), hyper['y_scaling'])}"
-    else:
-        scaling = "unit variance (before 1.2)" if hyper.get("scale", True) else "centre"
+    scaling = f"X {_SCALINGS.get(str(hyper.get('x_scaling')), hyper.get('x_scaling', '–'))}"
+    if "y_scaling" in hyper:
+        scaling += f", Y {_SCALINGS.get(str(hyper['y_scaling']), hyper['y_scaling'])}"
     lines.append(f"Scaling: {scaling}")
+    software = model_run.software or {}
+    lines.append("Software: " + (", ".join(f"{package} {version}" for package, version
+                                          in software.items()) or "not available"))
     if spec.exclusion == "none":
         lines.append("Pixel exclusion: none")
         return lines
@@ -64,7 +79,7 @@ def fit_summary(model_run: ModelRun, roi_names: dict[str, str],
                 f"{roi_names.get(r, r)} {n}" for r, n in zip(roi_ids, counts)))
         flagged = [str(r) for r in np.atleast_1d(exclusion.get("flagged_roi_ids", []))]
         if flagged:
-            lines.append("Flagged ROIs (more outlying pixels than allowed): "
+            lines.append("Flagged ROIs (more pixels above DCrit than allowed): "
                          + ", ".join(roi_names.get(r, r) for r in flagged))
         if "dcrit" in exclusion:
             lines.append(f"DCrit: {float(exclusion['dcrit']):.4g}")
@@ -123,8 +138,21 @@ class ProjectInspector(QWidget):
         layout.addWidget(scroll)
 
     def show_default(self) -> None:
-        self.title_label.setText("Inspector")
-        self.body_label.setText("Select a project object to inspect details.")
+        """The project's file format and software, or a hint when no project is open."""
+        meta = self.project_state.project_meta
+        if self.project_state.project_path is None or not meta:
+            self.title_label.setText("Inspector")
+            self.body_label.setText("Select a project object to inspect details.")
+            return
+        self.title_label.setText(f"Project {Path(self.project_state.project_path).name}")
+        self.body_label.setText("\n".join([
+            f"File format: {meta.get('FileSchemaVersion', '–')}",
+            f"Created by: {meta.get('FileCreator', '–')}, {_local_time(meta.get('created_at'))}",
+            f"Last written by: {meta.get('FileWriter', '–')}, "
+            f"{_local_time(meta.get('updated_at'))}",
+            "",
+            "Select a project object to inspect details.",
+        ]))
 
     def show_workspace_summary(self, title: str, lines: list[str]) -> None:
         self.title_label.setText(title)
@@ -208,7 +236,7 @@ class ProjectInspector(QWidget):
                 [
                     f"ID: {calibration.calibration_id}",
                     f"Dataset: {calibration.dataset_id}",
-                    f"Mode: {calibration.mode}",
+                    f"Mode: {_CORRECTION_MODES.get(calibration.mode, calibration.mode)}",
                     f"Output unit: {calibration.output_signal_unit}",
                     f"Has dark context: {calibration.dark_ref_source is not None or calibration.dark_ref_data is not None or calibration.black_level is not None}",
                     f"Has white context: {calibration.white_ref_source is not None or calibration.white_ref_data is not None or calibration.white_level is not None}",
@@ -288,7 +316,7 @@ class ProjectInspector(QWidget):
                     f"Preprocessing recipe: {sample_set.preprocessing_recipe_id}",
                     f"Datasets: {', '.join(sample_set.dataset_ids)}",
                     f"ROIs: {len(sample_set.roi_ids)}",
-                    f"Fitted on: {sample_set.observation_unit}",
+                    f"Fitted on: {_FITTED_ON.get(sample_set.observation_unit, sample_set.observation_unit)}",
                     f"Validation unit: {sample_set.validation_unit}",
                 ]
             )
@@ -306,7 +334,7 @@ class ProjectInspector(QWidget):
                     f"ID: {signal_domain.signal_domain_id}",
                     f"Input: {signal_domain.input_format} | {signal_domain.source_modality}",
                     f"Signal unit: {signal_domain.required_signal_unit}",
-                    f"Reference correction: {signal_domain.required_calibration_mode}",
+                    f"Reference correction: {_CORRECTION_MODES.get(signal_domain.required_calibration_mode, signal_domain.required_calibration_mode)}",
                     f"Requires refs: dark={signal_domain.requires_dark_ref}, white={signal_domain.requires_white_ref}",
                     f"Corrected input allowed: {signal_domain.calibrated_input_allowed}",
                     f"Bands: {signal_domain.n_bands}",
@@ -365,7 +393,8 @@ class ProjectInspector(QWidget):
         lines = [
             "Not stored: predictions live in this session only.",
             f"Dataset file: {result.dataset.source_path}",
-            f"Reference correction: {result.calibration.mode} -> {result.calibration.output_signal_unit}",
+            f"Reference correction: {_CORRECTION_MODES.get(result.calibration.mode, result.calibration.mode)}"
+            f" -> {result.calibration.output_signal_unit}",
             f"Model: {model_run.name if model_run is not None and model_run.name else run.model_run_id}",
             f"Spatial map: {map_shape}",
         ]
@@ -373,7 +402,7 @@ class ProjectInspector(QWidget):
             lines.append(f"Above DCrit: {100 * float(summary.get('share_above_dcrit', 0)):.2g} % | "
                          f"above T²Crit: {100 * float(summary.get('share_above_t2crit', 0)):.2g} %")
         else:
-            lines.append("No DModX/T² maps (refit the model to get them)")
+            lines.append("DModXPS and T²PS: not available")
         self.title_label.setText("Prediction")
         self.body_label.setText("\n".join(lines))
 

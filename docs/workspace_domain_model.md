@@ -48,7 +48,7 @@ PredictionRun  *───1  CalibrationSpec   (one prediction with one calibrati
 ## HDF5 storage mapping (v3 project files)
 
 ```
-/project_meta/                @schema_version, @created_at, @updated_at
+/project_meta/                @FileSchemaVersion, @FileCreator, @FileWriter, @created_at, @updated_at
 /datasets/{dataset_id}/       source_path, source_format, source_modality,
                               cube_shape, n_bands, wavelengths, loader_metadata,
                               @active_calibration_id

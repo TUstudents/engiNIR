@@ -28,11 +28,11 @@ MODEL_PLOT_HELP: dict[str, str] = {
         "calibrated on and where values are dense; few distinct levels limit how many "
         "components the data can support."),
     "model.scores": (
-        "Each point is one ROI: the mean of its pixels' scores on the first two latent "
-        "variables, colored by target value. The gray ellipses are Hotelling's T² limits for "
+        "Each point is one ROI: the mean of its pixels' scores on the first two components "
+        "(LV for PLS, PC for PCR), colored by target value. The gray ellipses are Hotelling's T² limits for "
         "single calibration pixels; ROI means sit well inside them. The colored ellipses are "
         "computed from the ROI means: an ROI outside them is unusual among the ROIs. A smooth "
-        "color gradient means LV1 and LV2 follow the target."),
+        "color gradient means the first two components follow the target."),
     "model.coefficients": (
         "The regression coefficients over the model's bands: how much each band adds to the "
         "prediction, in the units of the preprocessed spectra. Broad features at known "
@@ -43,7 +43,7 @@ MODEL_PLOT_HELP: dict[str, str] = {
         "times its band's scaling, divided by the target's. Comparable between bands, so "
         "their size shows importance when bands are scaled differently."),
     "model.loadings": (
-        "The loadings of the first three latent variables over the bands: which spectral "
+        "The loadings of the first three components over the bands: which spectral "
         "shape each component describes. A loading that looks like an absorption band is "
         "chemistry; a smooth slope or offset is usually scatter or baseline; a rough, noisy "
         "loading is a component that models noise."),

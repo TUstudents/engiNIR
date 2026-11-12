@@ -121,7 +121,7 @@ this profile and should be added explicitly when needed.
 HDF5 project files
 ------------------
 
-A project file (HDF5, schema ``viewer-v3``) records a whole analysis:
+A project file (HDF5, format ``enginir-1.5``) records a whole analysis:
 
 - project metadata and schema version
 - dataset references

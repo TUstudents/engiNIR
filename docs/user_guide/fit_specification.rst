@@ -158,13 +158,13 @@ A few things to keep in mind:
   far below the reference method's own error means overfitting.
 
 engiNIR refits every fold with all components, so its Q² is stricter than
-SIMCA's (see the comparison below). Every model also stores RMSEE (per ROI) and the
+SIMCA's (see the comparison below). Every model also stores RMSEE and the
 adjusted R² (per pixel as SIMCA computes them, and per ROI), the scaled
 coefficients (CoeffCS), and the Hotelling T² and distance to the model of
 every calibration pixel with their 0.99 limits.
 
-Pixel sample
-------------
+Pixel subsample
+---------------
 
 Larger ROIs contribute more pixels and so weigh more. ``"pixels":
 {"per_roi": n, "seed": s}`` draws *n* pixels from every ROI (at most the
@@ -182,10 +182,11 @@ variance (``x_scaling="center"``, ``y_scaling="uv"``), as usual for spectra
 and in SIMCA. ``"uv"`` divides by the standard deviation (N − 1),
 ``"pareto"`` by its square root. Centering and scaling are learnt inside
 every fold. For one target, the Y scaling does not change the predictions.
-Models stored before engiNIR 1.2 keep their ``scale`` setting when refitted.
+``PLSRegression`` and ``PCR`` take the same defaults when used on arrays
+(X centered, Y unit variance).
 
-Excluding outlying pixels
--------------------------
+Excluding pixels above DCrit
+----------------------------
 
 DModX is the distance of a spectrum to the model: the size of the part the
 model cannot describe, relative to the typical residual of the calibration

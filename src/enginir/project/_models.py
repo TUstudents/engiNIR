@@ -23,8 +23,11 @@ from typing import Any
 import numpy as np
 
 from enginir._checks import check_choice, check_integer, check_real, log_and_raise
+from enginir._logging import get_logger
 
 from ._fit_spec import FitSpec
+
+logger = get_logger(__name__)
 
 SIGNAL_UNITS = ("DN", "Reflectance", "Absorbance")
 CALIBRATION_MODES = ("raw_dn", "dark_white_reference", "precalibrated_import")
@@ -57,24 +60,33 @@ def _text(value: Any, name: str, *, required: bool = True) -> str:
 
 
 def _timestamp(value: Any, name: str) -> str:
-    """Return an ISO 8601 timestamp as given; anything ``datetime`` cannot parse is an error."""
+    """Return an ISO 8601 timestamp with a UTC offset as given.
+
+    A timestamp that does not parse or has no offset is an error (project-schema
+    contract, Object identity rules §1).
+    """
     text = _text(value, name)
     try:
-        datetime.fromisoformat(text)
+        parsed = datetime.fromisoformat(text)
     except ValueError:
         log_and_raise("{} must be an ISO 8601 timestamp, got {!r}", name, text, depth=2)
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        log_and_raise("{} must state its UTC offset (e.g. +00:00), got {!r}", name, text,
+                      depth=2)
     return text
 
 
-def validate_project_meta(meta: Any, *, schema_version: str) -> dict[str, str]:
-    """Return validated project metadata: id, the current schema version and timestamps."""
+def validate_project_meta(meta: Any, *, file_schema_version: str) -> dict[str, str]:
+    """Return validated project metadata: id, file format, creator, writer and timestamps."""
     meta = _mapping(meta, "project_meta")
-    if meta.get("schema_version") != schema_version:
-        log_and_raise("project_meta schema_version must be {!r}, got {!r}", schema_version,
-                      meta.get("schema_version"))
+    if meta.get("FileSchemaVersion") != file_schema_version:
+        log_and_raise("project_meta FileSchemaVersion must be {!r}, got {!r}",
+                      file_schema_version, meta.get("FileSchemaVersion"))
     return {
         "project_id": _text(meta.get("project_id"), "project_id"),
-        "schema_version": schema_version,
+        "FileSchemaVersion": file_schema_version,
+        "FileCreator": _text(meta.get("FileCreator"), "FileCreator"),
+        "FileWriter": _text(meta.get("FileWriter"), "FileWriter"),
         "created_at": _timestamp(meta.get("created_at"), "project created_at"),
         "updated_at": _timestamp(meta.get("updated_at"), "project updated_at"),
     }
@@ -356,49 +368,19 @@ class CalibrationSpec(SerializableModel):
 # ---------------------------------------------------------------------------
 
 
-#: What an ROI is for (roi-target contract, ``use``; terminology contract, Calibration and
+#: What an ROI is for (roi-target contract, ``job``; terminology contract, Calibration and
 #: Prediction).
-ROI_USES = ("calibration", "prediction")
-
-#: Stored forms that mean a calibration ROI: no ``use`` (before 1.4) and ``training``.
-_CALIBRATION_FORMS = (None, "training", "calibration")
+ROI_JOBS = ("calibration", "prediction")
 
 
-def roi_use(value: Any) -> str:
-    """An ROI's ``use`` as read from a project: ``"calibration"`` or ``"prediction"``.
-
-    A missing ``use`` (``None``) and ``"training"`` (the name before 1.5) read
-    as ``"calibration"``; any other value is refused.
-    """
+def check_roi_job(value: Any) -> str:
+    """An ROI's ``job``: ``"calibration"`` or ``"prediction"``; anything else is refused."""
     if isinstance(value, bytes):
         value = value.decode()
-    if value in _CALIBRATION_FORMS:
-        return "calibration"
-    if value not in ROI_USES:
-        log_and_raise("An ROI's use must be one of {}, got {!r}", list(ROI_USES), value,
+    if value not in ROI_JOBS:
+        log_and_raise("An ROI's job must be one of {}, got {!r}", list(ROI_JOBS), value,
                       depth=2)
     return str(value)
-
-
-def check_roi_use(value: Any) -> str:
-    """An ROI's ``use`` given by a caller: ``"calibration"`` or ``"prediction"``.
-
-    ``"training"`` is refused with the rename (engiNIR 1.5); stored projects
-    still read it (:func:`roi_use`).
-    """
-    if value == "training":
-        log_and_raise("use='training' was renamed to 'calibration' in engiNIR 1.5", depth=2)
-    if value not in ROI_USES:
-        log_and_raise("An ROI's use must be one of {}, got {!r}", list(ROI_USES), value,
-                      depth=2)
-    return str(value)
-
-
-def same_roi_use(value: Any) -> str | None:
-    """The stored ``use`` reduced for the identity rule: the calibration forms are one value."""
-    if isinstance(value, bytes):
-        value = value.decode()
-    return "calibration" if value in _CALIBRATION_FORMS else value
 
 
 def sample_label(value: Any) -> str | None:
@@ -447,11 +429,10 @@ class TrainingROI(SerializableModel):
         Label of the physical sample the ROI was taken from (may be changed);
         ROIs with equal labels are held out together when folds are grouped
         by sample. ``None`` (default): the ROI is its own sample.
-    use : str
+    job : str
         ``"calibration"`` (default) or ``"prediction"`` (may be changed): a
         prediction ROI marks a sample to predict and never enters a
-        calibration set (roi-target contract, ``use``). A stored ``training``
-        or a missing ``use`` reads as ``"calibration"``.
+        calibration set (roi-target contract, ``job``).
     """
 
     roi_id: str
@@ -465,12 +446,12 @@ class TrainingROI(SerializableModel):
     created_at: str
     provenance: dict[str, Any]
     sample: str | None = None
-    use: str = "calibration"
+    job: str = "calibration"
 
     def __post_init__(self) -> None:
         self.roi_id = _text(self.roi_id, "roi_id")
         self.sample = sample_label(self.sample)
-        self.use = roi_use(self.use)
+        self.job = check_roi_job(self.job)
         self.dataset_id = _text(self.dataset_id, "dataset_id")
         self.calibration_id = _text(self.calibration_id, "calibration_id")
         self.name = _text(self.name, "name")
@@ -609,7 +590,7 @@ class SignalDomainContract(SerializableModel):
     wavelength_tolerance_nm : float
         Allowed wavelength difference, ``>= 0``.
     band_mapping_policy : str
-        ``"exact"`` or ``"reject"``.
+        ``"exact"`` (the only value; reserved for a future remapping contract).
     output_dtype : str
         ``"float32"``.
     created_at : str
@@ -662,7 +643,7 @@ class SignalDomainContract(SerializableModel):
             log_and_raise("wavelength_tolerance_nm must be >= 0, got {}",
                           self.wavelength_tolerance_nm)
         self.band_mapping_policy = _choice(self.band_mapping_policy, "band_mapping_policy",
-                                           ("exact", "reject"))
+                                           ("exact",))
         self.output_dtype = _choice(self.output_dtype, "output_dtype", ("float32",))
         self.created_at = _timestamp(self.created_at, "created_at")
 
@@ -779,6 +760,33 @@ class SampleSet(SerializableModel):
         self.created_at = _timestamp(self.created_at, "created_at")
 
 
+#: The packages whose versions a model records (sample-set-model-run contract §7).
+SOFTWARE_PACKAGES = ("enginir", "numpy", "scipy", "scikit-learn")
+
+
+def software_versions() -> dict[str, str]:
+    """The installed versions of :data:`SOFTWARE_PACKAGES`, from the package metadata."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    versions = {}
+    for package in SOFTWARE_PACKAGES:
+        try:
+            versions[package] = version(package)
+        except PackageNotFoundError:
+            versions[package] = "unknown"
+    return versions
+
+
+def check_software(value: Any) -> dict[str, str]:
+    """A model's ``software``: every package of :data:`SOFTWARE_PACKAGES` with its version."""
+    value = _mapping(value, "software")
+    missing = [package for package in SOFTWARE_PACKAGES if package not in value]
+    if missing:
+        log_and_raise("software is missing the version(s) of {}", missing, depth=2)
+    return {package: _text(value[package], f"software/{package}")
+            for package in SOFTWARE_PACKAGES}
+
+
 @dataclass(slots=True, eq=False)
 class ModelRun(SerializableModel):
     """One fitted model with its cross-validation results and saved artifacts.
@@ -804,10 +812,13 @@ class ModelRun(SerializableModel):
     name : str or None
         Display name (a label that may change); ``None`` for runs saved
         without one.
-    fit_spec : dict or None
+    fit_spec : dict
         The fit specification (:meth:`FitSpec.to_dict
-        <enginir.project.FitSpec.to_dict>`); ``None`` for legacy runs, see
-        :attr:`fit_specification`.
+        <enginir.project.FitSpec.to_dict>`), complete; required.
+    software : dict
+        The versions the model was fitted with: ``enginir``, ``numpy``,
+        ``scipy``, ``scikit-learn`` (:func:`software_versions`); required in a
+        project file, the running versions by default.
     """
 
     model_run_id: str
@@ -821,26 +832,40 @@ class ModelRun(SerializableModel):
     created_at: str
     name: str | None = None
     fit_spec: dict[str, Any] | None = None
+    software: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         self.model_run_id = _text(self.model_run_id, "model_run_id")
-        if self.fit_spec is not None:
-            self.fit_spec = FitSpec.from_dict(self.fit_spec).to_dict()
-        if self.name is not None:
-            self.name = _text(self.name, "name")
+        # In memory a new model is fitted by the running software; a stored model
+        # must carry its own (project-schema contract, Core and display data).
+        self.software = check_software(software_versions() if self.software is None
+                                       else self.software)
+        if self.fit_spec is None:
+            log_and_raise("Model '{}' has no fit_spec; every model stores its fit "
+                          "specification", self.model_run_id)
+        self.fit_spec = FitSpec.from_dict(self.fit_spec, stored=True).to_dict()
+        if self.name is not None:  # an empty stored name means no name
+            self.name = _text(self.name, "name", required=False) or None
         self.sample_set_id = _text(self.sample_set_id, "sample_set_id")
         self.signal_domain_id = _text(self.signal_domain_id, "signal_domain_id")
         self.model_type = _choice(self.model_type, "model_type", MODEL_TYPES)
-        for name in ("hyperparameters", "cv_spec", "metrics", "artifact_refs"):
+        for name in ("hyperparameters", "artifact_refs"):
             setattr(self, name, _mapping(getattr(self, name), name))
+        # Display data (project-schema contract, Core and display data): a
+        # missing or malformed value is logged and shown as "–", never refused.
+        for name in ("cv_spec", "metrics"):
+            value = getattr(self, name)
+            if not isinstance(value, dict):
+                logger.warning("Model '{}' has no readable {} (got {}); it is shown as "
+                               "not available", self.model_run_id, name, type(value).__name__)
+                value = {}
+            setattr(self, name, value)
         self.created_at = _timestamp(self.created_at, "created_at")
 
     @property
     def fit_specification(self) -> FitSpec:
-        """How the run was fitted: its stored specification, or the legacy one."""
-        if self.fit_spec is not None:
-            return FitSpec.from_dict(self.fit_spec)
-        return FitSpec.legacy(self.cv_spec.get("requested", "auto"))
+        """How the run was fitted: its stored specification."""
+        return FitSpec.from_dict(self.fit_spec or {}, stored=True)
 
 
 @dataclass(slots=True, eq=False)
@@ -878,6 +903,8 @@ class PredictionRun(SerializableModel):
 
 
 __all__ = [
+    "check_software",
+    "software_versions",
     "validate_project_meta",
     "CALIBRATION_MODES",
     "MODEL_TYPES",

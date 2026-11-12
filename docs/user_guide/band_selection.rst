@@ -15,8 +15,7 @@ Every model fitted with engiNIR 1.4 or later stores, on the model's bands:
   the weight it has in the components, weighted by the Y variance each
   component explains. The mean of VIP² over the bands is 1, so VIP > 1 marks
   bands of above-average importance; bands below about 0.8 contribute
-  little. PLS runs from before 1.4 get VIP in the viewer from their stored
-  weights.
+  little.
 - **Selectivity ratio** (Rajalahti et al.; PLS and PCR). The model is
   turned into one predictive component along its regression vector (target
   projection); for each band the ratio of the variance this component

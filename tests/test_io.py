@@ -155,7 +155,7 @@ def test_project_store_round_trip_keeps_v3_workspace_objects(tmp_path):
             "n_bands": 6,
             "wavelengths": wavelengths,
             "loader_metadata": {"instrument": "alpha"},
-            "import_timestamp": "2026-01-01T00:00:00",
+            "import_timestamp": "2026-01-01T00:00:00+00:00",
         },
     )
     save_calibration_spec(
@@ -171,7 +171,7 @@ def test_project_store_round_trip_keeps_v3_workspace_objects(tmp_path):
             "black_level": None,
             "white_level": None,
             "output_signal_unit": "DN",
-            "created_at": "2026-01-01T00:00:00",
+            "created_at": "2026-01-01T00:00:00+00:00",
         },
     )
     save_training_roi(
@@ -183,9 +183,10 @@ def test_project_store_round_trip_keeps_v3_workspace_objects(tmp_path):
             "name": "roi_a",
             "wavelengths": wavelengths,
             "source_file": "/tmp/sample.eiff",
+            "job": "calibration",
             "spatial_bounds": (0, 1, 0, 1),
             "n_pixels": 4,
-            "created_at": "2026-01-01T00:00:00",
+            "created_at": "2026-01-01T00:00:00+00:00",
             "provenance": roi_provenance(),
         },
         spectra,
@@ -194,7 +195,7 @@ def test_project_store_round_trip_keeps_v3_workspace_objects(tmp_path):
     store = load_project_store(str(path))
     loaded_spectra = load_roi_spectra(str(path), "/rois/roi_a/spectra")
 
-    assert store["project_meta"]["schema_version"] == "viewer-v3"
+    assert store["project_meta"]["FileSchemaVersion"] == "enginir-1.5"
     assert set(store["datasets"]) == {"dataset_1"}
     assert set(store["rois"]) == {"roi_a"}
     assert "spectra" not in store["rois"]["roi_a"]

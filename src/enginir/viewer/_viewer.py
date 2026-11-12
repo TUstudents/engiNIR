@@ -448,6 +448,9 @@ class HSIViewer(QMainWindow):
         self._model_card_roi_count_value = QLabel("0")
         self._model_card_pixel_count_value = QLabel("0")
 
+        for label in (self._model_card_target_value, self._model_card_sample_set_value,
+                      self._model_card_model_value, self._model_card_cv_value):
+            label.setWordWrap(True)  # long values wrap instead of being cut off
         summary_layout.addRow("Target", self._model_card_target_value)
         summary_layout.addRow("Calibration set", self._model_card_sample_set_value)
         summary_layout.addRow("Model", self._model_card_model_value)
@@ -1338,8 +1341,11 @@ class HSIViewer(QMainWindow):
                         ("Bias", model_summary["bias"])]
         rows = [f"{label}: {text}" for label, text in roi_rows]
         pixel_rows = list(model_summary.get("pixel_metrics") or [])
-        if rows == self._model_metric_rows and pixel_rows == getattr(self, "_pixel_rows", None):
+        warnings = str(model_summary.get("warnings") or "")
+        shown = (rows, pixel_rows, warnings)
+        if shown == getattr(self, "_shown_metric_rows", None):
             return
+        self._shown_metric_rows = shown
         self._model_metric_rows, self._pixel_rows = rows, pixel_rows
         for layout, entries in ((self._model_metrics_layout, roi_rows),
                                 (self._model_pixel_metrics_layout, pixel_rows)):
@@ -1348,7 +1354,6 @@ class HSIViewer(QMainWindow):
             for label, text in entries:
                 layout.addRow(label, QLabel(text))
         self._model_pixel_metrics_box.setVisible(bool(pixel_rows))
-        warnings = str(model_summary.get("warnings") or "")
         self._model_warnings.setText(f"⚠ Validation likely optimistic: {warnings}"
                                      if warnings else "")
         self._model_warnings.setVisible(bool(warnings))

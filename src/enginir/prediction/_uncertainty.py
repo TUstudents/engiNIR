@@ -178,10 +178,13 @@ def interval_coverage(inputs: IntervalInputs, *, pixel_y_true: np.ndarray,
 
     Each held-out prediction gets the interval around itself with the
     leverage of its observation in the final model; observations without an
-    interval are left out. Returns the coverage metrics that have at least one
-    interval.
+    interval are left out. A coverage without any interval is NaN with the
+    count 0 (model-run contract §5).
     """
-    metrics: dict[str, Any] = {}
+    metrics: dict[str, Any] = {"interval_coverage_pixel": float("nan"),
+                               "interval_coverage_pixel_n": 0,
+                               "interval_coverage_roi": float("nan"),
+                               "interval_coverage_roi_n": 0}
 
     def record(name: str, error: np.ndarray, half: np.ndarray) -> None:
         counted = np.isfinite(error) & np.isfinite(half)

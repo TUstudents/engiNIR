@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from enginir.project import FitSpec
+from enginir.project._models import software_versions
+
 import numpy as np
 import pytest
 
@@ -121,6 +124,7 @@ def _create_reopenable_model_project(path: str, wavelengths: np.ndarray) -> None
                 "name": roi_id,
                 "wavelengths": wavelengths.astype(np.float32),
                 "source_file": "/data/train.eiff",
+                "job": "calibration",
                 "spatial_bounds": bounds,
                 "n_pixels": int(spectra.shape[0]),
                 "created_at": f"2026-04-13T10:00:1{index}+00:00",
@@ -165,11 +169,14 @@ def _create_reopenable_model_project(path: str, wavelengths: np.ndarray) -> None
             "sample_set_id": "sample_set_1",
             "signal_domain_id": "signal_domain_1",
             "model_type": "PLS",
+            "fit_spec": FitSpec(groups=(0, 1)).to_dict(),
+            "software": software_versions(),
             "hyperparameters": {"n_components": 2},
             "cv_spec": {"cv": "logo"},
             "metrics": {"rmsecv": 0.55, "r2": 0.9, "bias": 0.05},
             "artifact_refs": {
                 "prediction_model": {
+                    "n_components": 1,
                     "model_type": "PLSRegression",
                     "wavelengths": wavelengths.astype(np.float32),
                     "target_names": ["moisture"],

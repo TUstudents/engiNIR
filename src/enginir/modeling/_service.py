@@ -52,7 +52,7 @@ from ..project._fit_spec import FitSpec, fold_groups_problem
 from ._components import component_curve, default_max, rank_limit, training_diagnostics
 from ._exclusion import DModXExclusion
 from ..project._ids import new_id, now_iso
-from ..project._models import SAMPLE_SET_SEMANTICS
+from ..project._models import SAMPLE_SET_SEMANTICS, software_versions
 from ._pixels import draw_pixels, roi_digest, sample_checksum
 from ..validation import (
     RoundRobinGroups,
@@ -92,7 +92,7 @@ class SampleSetData:
     roi_slices : dict
         ``{roi_id: slice}`` with the rows of every ROI.
     pixel_indices : dict or None
-        For a pixel sample, ``{roi_id: indices}`` of the drawn pixels in each
+        For a pixel subsample, ``{roi_id: indices}`` of the drawn pixels in each
         ROI's stored spectra (and reference snapshot); ``None`` for all pixels.
     """
 
@@ -177,11 +177,11 @@ def plan_sample_set(
         value, or the ROIs have different wavelength axes.
     """
     explicit = roi_ids is not None
-    selected = ([roi_id for roi_id, roi in rois.items() if roi.use != "prediction"]
+    selected = ([roi_id for roi_id, roi in rois.items() if roi.job != "prediction"]
                 if roi_ids is None else [str(roi_id) for roi_id in roi_ids])
     left_out = 0 if explicit else sum(
         1 for roi_id, roi in rois.items()
-        if roi.use == "prediction" and (roi_id, target_id) in target_assignments)
+        if roi.job == "prediction" and (roi_id, target_id) in target_assignments)
     if not selected:
         if left_out:
             log_and_raise("No calibration ROI has a value for target '{}' ({} prediction ROI(s) "
@@ -206,7 +206,7 @@ def plan_sample_set(
             log_and_raise("No calibration ROI has a value for target '{}' ({} prediction ROI(s) "
                           "with a value left out)", target_id, left_out)
         log_and_raise("No selected ROI has a value for target '{}'", target_id)
-    switched = [roi.name for roi in labelled if roi.use == "prediction"]
+    switched = [roi.name for roi in labelled if roi.job == "prediction"]
     if explicit and switched:  # a stored sample set keeps its ROIs (sample-set contract §1)
         logger.warning("ROI(s) of the stored selection are now prediction ROIs and are used "
                        "as stored: {}", switched)
@@ -437,9 +437,9 @@ def fit_model_run(
         Refused together with a ``fit_spec`` that sets the folds.
     fit_spec:
         The fit specification (:class:`~enginir.project.FitSpec` or its
-        mapping): fold rule, pixel sample and exclusion
+        mapping): fold rule, pixel subsample and exclusion
         (``sample-set-model-run-contract_v3.md`` §7). The stored run gets the
-        complete specification with the checksum of its pixel sample.
+        complete specification with the checksum of its pixel subsample.
         Folds follow the order of the ROIs in the sample set and the pixel
         sample depends only on the seed and the ROI spectra, so repeating
         the analysis gives the same folds and metrics.
@@ -564,7 +564,7 @@ def fit_model_run(
     # How often the held-out predictions fall inside their 0.95 intervals (§5).
     intervals = interval_inputs({**fit_metrics, "n_rois": int(roi_ids.size)}, projection,
                                 training.get("roi_scores"))
-    coverage = ({} if intervals is None else interval_coverage(
+    coverage = (_NO_COVERAGE if intervals is None else interval_coverage(
         intervals, pixel_y_true=data.y, pixel_y_cv=pixel_y_pred,
         pixel_t2=training.get("t2"), pixel_dmodx=training.get("dmodx"),
         roi_y_true=roi_y_true, roi_y_cv=roi_y_pred, roi_scores=training.get("roi_scores")))
@@ -616,11 +616,12 @@ def fit_model_run(
             "component_curve": curve,
             "cv_outputs": {"roi_ids": roi_ids, "y_true_roi": roi_y_true,
                            "y_pred_roi": roi_y_pred},
-            **({} if exclusion is None else
-               {"exclusion": _exclusion_artifact(exclusion, data, roi_ids_present)}),
+            "exclusion": (_NO_EXCLUSION if exclusion is None
+                          else _exclusion_artifact(exclusion, data, roi_ids_present)),
         },
         created_at=created_at or now_iso(),
         fit_spec=spec.to_dict(),
+        software=software_versions(),
     )
     logger.info("Fitted model '{}' ({}) on calibration set '{}': {} ROIs, {} pixels, RMSECV (per ROI) {:.4g}",
                 model_run.model_run_id, model_type, sample_set.sample_set_id, roi_ids.size,
@@ -767,8 +768,8 @@ def _chosen_components(spec: FitSpec, hyperparameters: dict[str, Any],
 #: Plain words of the fold warnings (contract §7.4).
 _FOLD_WARNING_TEXT = {
     "few_groups": "fewer than 7 independent samples (fold groups)",
-    "one_level_per_file": "the ROIs of a data file share one value but are held out in "
-                          "different folds, so the model can learn the data file; give "
+    "one_level_per_file": "the ROIs of one dataset share one value but are held out in "
+                          "different folds, so the model can learn the dataset; give "
                           "them one sample label",
 }
 
@@ -820,7 +821,7 @@ def predicted_fold_warnings(*, roi_ids: Sequence[str], target_id: str,
     spec, _requested = resolve_fit_spec(cv, fit_spec)
     roi_ids = [roi_id for roi_id in roi_ids
                if (roi_id, target_id) in target_assignments and roi_id in rois
-               and rois[roi_id].use != "prediction"]
+               and rois[roi_id].job != "prediction"]
     if len(roi_ids) < 2:
         return []
     subset: Any = SimpleNamespace(roi_ids=roi_ids, target_id=target_id,
@@ -859,6 +860,19 @@ def _excluding(model: Any, spec: FitSpec, roi_index: np.ndarray) -> DModXExclusi
                           formula=spec.exclusion_formula)
 
 
+#: The coverage metrics of a run without interval inputs: not defined (contract §5).
+_NO_COVERAGE: dict[str, Any] = {"interval_coverage_pixel": float("nan"),
+                                "interval_coverage_pixel_n": 0,
+                                "interval_coverage_roi": float("nan"),
+                                "interval_coverage_roi_n": 0}
+#: ``artifact_refs/exclusion`` without DModX exclusion: empty, always written.
+_NO_EXCLUSION: dict[str, Any] = {"roi_ids": np.array([], dtype=object),
+                                 "counts": np.array([], dtype=np.int32),
+                                 "pixel_indices": np.empty(0, dtype=np.uint32),
+                                 "flagged_roi_ids": np.array([], dtype=object),
+                                 "dcrit": float("nan")}
+
+
 def _exclusion_artifact(exclusion: DModXExclusion, data: SampleSetData,
                         roi_ids_present: np.ndarray) -> dict[str, Any]:
     """The excluded pixels of the final model per ROI, as indices into its stored spectra."""
@@ -889,18 +903,15 @@ def _exclusion_artifact(exclusion: DModXExclusion, data: SampleSetData,
 
 
 def _with_default_scaling(model_type: str, hyperparameters: dict[str, Any]) -> dict[str, Any]:
-    """Add the scaling defaults of new runs (contract §7) unless a scaling is given.
+    """Every run stores its scaling (contract §7): the defaults fill what is not given.
 
-    Centred X, and for PLS unit-variance Y, the usual setting for spectra.
-    Hyperparameters with ``scale`` (runs before engiNIR 1.2, refitted) are
-    left as they are.
+    Centered X, and for PLS unit-variance Y, the usual setting for spectra.
     """
-    keys = ("scale", "x_scaling", "y_scaling") if model_type == "PLS" else ("scale", "x_scaling")
-    if any(key in hyperparameters for key in keys):
-        return hyperparameters
+    if "scale" in hyperparameters:
+        log_and_raise("The scale switch was removed; give x_scaling (and y_scaling for PLS)")
     defaults = {"x_scaling": "center", "y_scaling": "uv"} if model_type == "PLS" \
         else {"x_scaling": "center"}
-    return {**hyperparameters, **defaults}
+    return {**defaults, **hyperparameters}
 
 
 def fold_groups(group_by: str, sample_set: SampleSet, rois: dict[str, TrainingROI],
@@ -973,7 +984,7 @@ def _splitter(spec: FitSpec, n_groups: int) -> Any:
         return RoundRobinGroups(spec.n_folds)
     if spec.fold_rule == "leave_one_group_out" or n_groups < spec.n_folds:
         return "logo"
-    return GroupKFold(n_splits=spec.n_folds)  # legacy runs (contract §7.3)
+    return GroupKFold(n_splits=spec.n_folds)  # the optional group_kfold rule (contract §4)
 
 
 def _pixel_sample(data: SampleSetData, spec: FitSpec, project_path: str,

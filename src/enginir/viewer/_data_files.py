@@ -197,7 +197,7 @@ class AddDataFileDialog(QDialog):
         if trained_with:
             # Opened from Predict: say what the model used, never reuse it silently
             # (dataset-calibration contract).
-            trained = QLabel(f"The model was trained with: {trained_with}. Choose this scan's "
+            trained = QLabel(f"The model was fitted with: {trained_with}. Choose this scan's "
                              "own reference correction (references of this session, or the "
                              "levels).")
             trained.setWordWrap(True)

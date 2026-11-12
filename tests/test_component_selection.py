@@ -108,7 +108,12 @@ def test_auto_chooses_by_the_rule_and_a_refit_keeps_the_number(tmp_path):
         == ("one_se", chosen, "on")
     by_minimum = project.fit("API", n_components="auto",
                              fit_spec={"components": {"rule": "min_rmsecv"}})
-    assert by_minimum.ref.hyperparameters["n_components"] == curve["suggested_min_rmsecv"]
+    # "auto" turns the noise guard on unless the request says otherwise (contract §7.4).
+    assert by_minimum.ref.hyperparameters["n_components"] == guarded_choice(
+        curve, curve["suggested_min_rmsecv"], n_samples=9)
+    unguarded = project.fit("API", n_components="auto", fit_spec={"components": {
+        "rule": "min_rmsecv", "noise_guard": "off"}})
+    assert unguarded.ref.hyperparameters["n_components"] == curve["suggested_min_rmsecv"]
 
     other = 1 if chosen != 1 else 2  # pretend the stored model chose another number
     with h5py.File(project.path, "r+") as f:
@@ -271,14 +276,17 @@ def test_the_guard_can_be_switched_off_and_the_curve_stores_the_new_fields(tmp_p
     assert "warnings" in fixed.ref.cv_spec
 
 
-def test_runs_from_before_the_guard_read_it_as_off():
+def test_a_stored_specification_must_have_every_key():
     from enginir.project import FitSpec
 
-    legacy = FitSpec.from_dict({"components": {"rule": "one_se", "max": 5, "selected": 3}})
-    assert legacy.components_noise_guard == "off" and legacy.components_rule_choice == 0
-    assert FitSpec().components_noise_guard == "default"
+    request = FitSpec.from_dict({"components": {"rule": "one_se", "max": 5}})
+    assert request.components_noise_guard == "default", "a request leaves the default"
     stored = FitSpec(components_noise_guard="on", components_rule_choice=4)
-    assert FitSpec.from_dict(stored.to_dict()) == stored
+    assert FitSpec.from_dict(stored.to_dict(), stored=True) == stored
+    incomplete = stored.to_dict()
+    del incomplete["components"]["noise_guard"]
+    with pytest.raises(ValueError, match="noise_guard"):
+        FitSpec.from_dict(incomplete, stored=True)
 
 
 def test_fold_warnings_find_a_data_file_held_out_roi_by_roi():

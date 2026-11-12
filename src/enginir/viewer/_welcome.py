@@ -60,7 +60,7 @@ class WelcomeWindow(QMainWindow):
         layout.setSpacing(10)
         layout.setContentsMargins(16, 16, 16, 16)
 
-        title = QLabel("enginir")
+        title = QLabel("engiNIR")
         font = QFont()
         font.setPointSize(22)
         font.setBold(True)
@@ -92,7 +92,7 @@ class WelcomeWindow(QMainWindow):
         quick_layout.addLayout(project_row)
 
         launcher_hint = QLabel(
-            "Open a dataset for EDA, or open/create a project to continue modeling and prediction."
+            "Open a dataset to explore it, or open or create a project for models and predictions."
         )
         launcher_hint.setWordWrap(True)
         launcher_hint.setStyleSheet(secondary_text_style())

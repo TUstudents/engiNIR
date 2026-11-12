@@ -1,6 +1,6 @@
 """Predict ROIs and Predict map: dialogs and the per-ROI results plot.
 
-Prediction ROIs (ROI ``use = prediction``) are predicted from the project file
+Prediction ROIs (ROI ``job = prediction``) are predicted from the project file
 alone (:func:`enginir.prediction.predict_rois`); a map prediction predicts a
 registered data file with its own calibration. Both dialogs name models and
 data files, show the chain the prediction applies read-only (the data file's
@@ -126,7 +126,7 @@ class PredictRoisDialog(QDialog):
         count = self._counts.get(self._file_combo.currentData() or ALL_FILES, 0)
         if not count:
             lines.append("No prediction ROIs here: tick Prediction only when adding ROIs, "
-                         "or the Predict column of the ROI table.")
+                         "or set Prediction in the Set column of the ROI table.")
         self._chain.setText("<br>".join(lines) or "Tick at least one model.")
         ok = self._buttons.button(QDialogButtonBox.StandardButton.Ok)
         if ok is not None:
@@ -321,8 +321,8 @@ def _table_roi_results(payload: Any) -> PlotTable:
                  column("model"), column("model_run_id"), column("pixels"),
                  column("removed", title="excluded"),
                  column("mean", unit), column("median", unit), column("sd", unit),
-                 column("p05", unit), column("p95", unit), column("mean_dmodx"),
-                 column("mean_t2"), column("share_above_dcrit"), column("share_above_t2crit"),
+                 column("p05", unit), column("p95", unit), column("mean_dmodx", title="mean_dmodxps"),
+                 column("mean_t2", title="mean_t2ps"), column("share_above_dcrit"), column("share_above_t2crit"),
                  PlotColumn("target_value", [np.nan if row["reference"] is None
                                           else row["reference"] for row in rows], unit),
                  PlotColumn("residual", [np.nan if row["residual"] is None
@@ -340,7 +340,7 @@ ROI_RESULTS = PlotSpec(
           "the 5–95 % range of its pixels; one color per model; × the target value when "
           "the ROI has one. A ring marks unusual spectra: a larger share of the ROI's pixels "
           "above DCrit (0.99) than 90 % of the model's calibration ROIs have. The shares, SD "
-          "and excluded pixels are in the ROI table. Exclude pixels above the DModX limit "
+          "and excluded pixels are in the ROI table. Exclude pixels above the DModXPS limit "
           "(Predict controls) to leave glare and substrate out of the statistics."))
 
 __all__ = ["ALL_FILES", "ROI_RESULTS", "ModelChoice", "PredictMapDialog", "PredictRoisDialog"]

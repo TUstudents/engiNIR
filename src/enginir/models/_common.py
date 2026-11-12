@@ -64,21 +64,9 @@ def check_scaling(value: Any, name: str) -> str:
     return value
 
 
-def resolve_scalings(scale: bool, x_scaling: str | None,
-                     y_scaling: str | None) -> tuple[str, str]:
-    """The X and Y scaling of an estimator: from ``x_scaling``/``y_scaling``, else ``scale``.
-
-    ``scale=True`` (the default) means ``uv``, ``scale=False`` ``center``. A
-    scaling left as ``None`` takes the value of ``scale``; ``scale=False``
-    together with an explicit scaling is ambiguous and refused.
-    """
-    if not isinstance(scale, (bool, np.bool_)):
-        log_and_raise("scale must be True or False, got {!r}", scale, depth=2)
-    if not scale and (x_scaling is not None or y_scaling is not None):
-        log_and_raise("Give either scale=False or x_scaling/y_scaling, not both", depth=2)
-    implied = "uv" if scale else "center"
-    return (check_scaling(implied if x_scaling is None else x_scaling, "x_scaling"),
-            check_scaling(implied if y_scaling is None else y_scaling, "y_scaling"))
+def resolve_scalings(x_scaling: str, y_scaling: str) -> tuple[str, str]:
+    """The checked X and Y scaling of an estimator (sample-set-model-run contract §7)."""
+    return check_scaling(x_scaling, "x_scaling"), check_scaling(y_scaling, "y_scaling")
 
 
 def scaling_statistics(values: np.ndarray, scaling: str) -> tuple[np.ndarray, np.ndarray]:

@@ -153,7 +153,7 @@ class GridDefaultsDialog(QDialog):
 
 
 def prediction_only_check(checked: bool) -> QCheckBox:
-    """The Prediction only checkbox of the ROI dialogs (roi-target contract, ``use``)."""
+    """The Prediction only checkbox of the ROI dialogs (roi-target contract, ``job``)."""
     check = QCheckBox("Prediction only (a sample to predict; never used to fit a model)")
     check.setChecked(checked)
     check.setToolTip("Prediction ROIs mark tablets to predict in Predict > Predict ROIs. They "
@@ -228,7 +228,7 @@ class RoiGridDialog(QDialog):
         self._update()
 
     @property
-    def use(self) -> str:
+    def job(self) -> str:
         """``"prediction"`` when Prediction only is ticked, else ``"calibration"``."""
         return "prediction" if self.prediction_check.isChecked() else "calibration"
 

@@ -30,12 +30,12 @@ Y_SEP = np.repeat([0, 1, 2], 20)
 
 # --- linear regression --------------------------------------------------------------------------
 
-@pytest.mark.parametrize("model", [PCR(n_components=10, scale=True), PCR(n_components=10, scale=False),
+@pytest.mark.parametrize("model", [PCR(n_components=10),
                                    PCR(n_components=10, x_scaling="center"),
                                    PCR(n_components=10, x_scaling="uv"),
                                    PCR(n_components=10, x_scaling="pareto"),
-                                   PLSRegression(n_components=5, scale=True),
-                                   PLSRegression(n_components=5, scale=False),
+                                   PLSRegression(n_components=5),
+                                   PLSRegression(n_components=5, x_scaling="uv", y_scaling="uv"),
                                    PLSRegression(n_components=5, x_scaling="center", y_scaling="uv"),
                                    PLSRegression(n_components=5, x_scaling="pareto",
                                                  y_scaling="center")])
@@ -73,14 +73,14 @@ def _textbook_pls1(X, y, n_components):
 
 
 def test_scaling_of_x_and_y():
-    """§7: uv/uv is the former autoscaling, centred X is textbook PLS1 on centred data, the Y
-    scaling does not change PLS1 coefficients, uv and pareto divide by the SD (N - 1) and its
-    square root."""
-    autoscaled = PLSRegression(n_components=4).fit(X_DUMMY, Y_REG)
+    """§7: the default is centered X and unit-variance Y, centered X is textbook PLS1 on centered
+    data, the Y scaling does not change PLS1 coefficients, uv and pareto divide by the SD (N - 1)
+    and its square root."""
+    default = PLSRegression(n_components=4).fit(X_DUMMY, Y_REG)
     uv = PLSRegression(n_components=4, x_scaling="uv", y_scaling="uv").fit(X_DUMMY, Y_REG)
-    np.testing.assert_allclose(uv.coef_, autoscaled.coef_, rtol=1e-10)
 
     centred = PLSRegression(n_components=4, x_scaling="center", y_scaling="uv").fit(X_DUMMY, Y_REG)
+    np.testing.assert_allclose(default.coef_, centred.coef_, rtol=1e-12)
     coef, intercept = _textbook_pls1(X_DUMMY, Y_REG, 4)
     np.testing.assert_allclose(centred.coef_, coef, rtol=1e-8)
     assert centred.intercept_ == pytest.approx(intercept, rel=1e-8)
@@ -99,9 +99,7 @@ def test_scaling_of_x_and_y():
 
 @pytest.mark.parametrize(("model", "message"), [
     (PLSRegression(x_scaling="none"), "x_scaling must be one of"),
-    (PLSRegression(scale=False, y_scaling="uv"), "either scale=False or"),
     (PCR(x_scaling="none"), "x_scaling must be one of"),
-    (PCR(scale=False, x_scaling="uv"), "either scale=False or"),
 ])
 def test_invalid_scalings_are_refused(model, message):
     with pytest.raises(ValueError, match=message):
@@ -111,18 +109,19 @@ def test_invalid_scalings_are_refused(model, message):
 def test_pls_matches_scikit_learn_and_keeps_2d_targets_2d():
     from sklearn.cross_decomposition import PLSRegression as SklearnPLS
 
-    model = PLSRegression(n_components=4).fit(X_DUMMY, Y_REG)
-    reference = SklearnPLS(n_components=4).fit(X_DUMMY, Y_REG)
+    model = PLSRegression(n_components=4, x_scaling="uv", y_scaling="uv").fit(X_DUMMY, Y_REG)
+    reference = SklearnPLS(n_components=4).fit(X_DUMMY, Y_REG)  # scikit-learn autoscales
     np.testing.assert_allclose(model.predict(X_DUMMY), reference.predict(X_DUMMY), rtol=1e-10)
     np.testing.assert_allclose(model.transform(X_DUMMY), reference.transform(X_DUMMY), rtol=1e-10)
-    column_model = PLSRegression(n_components=4).fit(X_DUMMY, Y_REG[:, np.newaxis])
+    column_model = PLSRegression(n_components=4, x_scaling="uv",
+                                 y_scaling="uv").fit(X_DUMMY, Y_REG[:, np.newaxis])
     assert column_model.coef_.shape == (P, 1)
     assert column_model.predict(X_DUMMY).shape == (N, 1)
 
 
 def test_vip_matches_textbook_definition():
     """VIP weights each component by the Y variance it explains (Chong & Jun 2005)."""
-    model = PLSRegression(n_components=4).fit(X_DUMMY, Y_REG)
+    model = PLSRegression(n_components=4, x_scaling="uv", y_scaling="uv").fit(X_DUMMY, Y_REG)
     X = (X_DUMMY - X_DUMMY.mean(0)) / X_DUMMY.std(0, ddof=1)
     f = (Y_REG - Y_REG.mean()) / Y_REG.std(ddof=1)
     weights, explained = [], []

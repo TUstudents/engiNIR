@@ -1,4 +1,4 @@
-"""Reading and writing engiNIR project files (schema ``viewer-v3``).
+"""Reading and writing engiNIR project files (format ``enginir-1.5``).
 
 A project file is an HDF5 file holding the scientific workspace: datasets and
 their calibrations, ROIs with their spectra, targets and target assignments,
@@ -9,7 +9,7 @@ collection, keyed by its stable id:
 ====================================================  =========================
 Group                                                 Object
 ====================================================  =========================
-``/project_meta`` (attributes)                        project id, schema version
+``/project_meta`` (attributes)                        project id, file format, writers
 ``/datasets/{dataset_id}``                            dataset reference
 ``/datasets/{dataset_id}/calibrations/{id}``          calibration
 ``/targets/{target_id}``                              target definition
@@ -66,7 +66,10 @@ from ._hdf5_groups import (
 
 logger = get_logger(__name__)
 
-PROJECT_SCHEMA_VERSION = "viewer-v3"
+#: The project file format (``/project_meta/@FileSchemaVersion``). engiNIR
+#: reads and writes only this format; it changes only when a field becomes
+#: required, is removed or changes meaning (project-schema contract).
+FILE_SCHEMA_VERSION = "enginir-1.5"
 PROJECT_TOP_LEVEL_GROUPS = (
     "project_meta",
     "datasets",
@@ -88,7 +91,10 @@ _PREDICTION_RUN_FIELDS = frozenset({
     "created_at",
     "artifact_refs",
 })
-_PREDICTION_ARRAYS = ("y_pred", "spatial_map")
+_PREDICTION_ARRAYS = ("y_pred",)
+#: Optional top-level group of staged prediction writes not yet finalized
+#: (project-schema contract §7); the reader ignores it apart from a warning.
+STAGING_GROUP = "staging"
 _PREVIEW_BLOCK_VALUES = 2**22  # values read per block for a map preview
 
 PathLike = str | os.PathLike[str]
@@ -100,12 +106,20 @@ PathLike = str | os.PathLike[str]
 
 
 def is_project_file(handle: h5py.File) -> bool:
-    """Return ``True`` if the open HDF5 file is an engiNIR v3 project."""
+    """Return ``True`` if the open HDF5 file is an engiNIR project in the current format."""
     project_meta = handle.get("project_meta")
     return (
         isinstance(project_meta, h5py.Group)
-        and decode(project_meta.attrs.get("schema_version", "")) == PROJECT_SCHEMA_VERSION
+        and decode(project_meta.attrs.get("FileSchemaVersion", "")) == FILE_SCHEMA_VERSION
     )
+
+
+def file_writer_label() -> str:
+    """``"engiNIR <version>"`` of the running package, for ``FileCreator`` and ``FileWriter``."""
+    # Imported here: the package metadata is read once per call, never typed in.
+    from enginir import __version__
+
+    return f"engiNIR {__version__}"
 
 
 def create_project(path: PathLike, *, project_id: str | None = None) -> None:
@@ -119,11 +133,14 @@ def create_project(path: PathLike, *, project_id: str | None = None) -> None:
         Stable project id; a random UUID by default.
     """
     now = _now_iso()
+    writer = file_writer_label()
     with h5py.File(path, "w") as f:
         project_meta = f.create_group("project_meta")
         project_meta.attrs.update(
             project_id=project_id or str(uuid.uuid4()),
-            schema_version=PROJECT_SCHEMA_VERSION,
+            FileSchemaVersion=FILE_SCHEMA_VERSION,
+            FileCreator=writer,
+            FileWriter=writer,
             created_at=now,
             updated_at=now,
         )
@@ -184,8 +201,6 @@ def load_project_store(
 
         for roi_group in f["rois"].values():
             _check_roi_arrays(roi_group)
-        for prediction_group in f["predictions"].values():
-            _check_prediction_complete(prediction_group)
         predictions = read_all("predictions", **artifact_options)
         if not include_artifact_arrays:
             predictions = {
@@ -296,13 +311,15 @@ def save_preprocessing_recipe(
         existing = f["recipes"].get(recipe_id)
         stored = read_mapping(existing) if isinstance(existing, h5py.Group) else None
     if stored is not None:
-        # Compare normalized content (project-schema contract §4): a stored recipe
-        # that spells out a default (e.g. sg_edges = "interp") is the same recipe.
+        # Compare normalized content (project-schema contract §4).
         if PreprocessingRecipe.from_dict(stored, location=location).to_dict() == payload:
             return
         log_and_raise("Refusing to overwrite PreprocessingRecipe '{}' with different content; "
                       "stable ids are immutable, use a new id", recipe_id)
-    _save_object(path, "recipes", recipe_id, payload, "PreprocessingRecipe", compression)
+    # Band ranges are stored as float64 (n, 2) datasets, (0, 2) when empty (contract §4).
+    stored_payload = {**payload, **{name: np.asarray(payload[name], dtype=np.float64)
+                                    .reshape(-1, 2) for name in ("bands_keep", "bands_exclude")}}
+    _save_object(path, "recipes", recipe_id, stored_payload, "PreprocessingRecipe", compression)
 
 
 def save_signal_domain_contract(
@@ -358,6 +375,8 @@ def save_training_roi(
         log_and_raise("ROI wavelengths shape {} does not match {} bands",
                       np.shape(declared_wavelengths), n_bands)
     payload = {**roi_dict, "spectra": spectra}
+    if payload.get("sample") is None:  # no label: an empty string, never left out
+        payload["sample"] = ""
     if (dark_ref_spectra is None) != (white_ref_spectra is None):
         log_and_raise("ROI references need both dark_ref_spectra and white_ref_spectra")
     if dark_ref_spectra is not None and white_ref_spectra is not None:
@@ -368,12 +387,11 @@ def save_training_roi(
                           spectra.shape, dark.shape, white.shape)
         payload["calibration_refs"] = {"dark": dark, "white": white}
     _save_object(path, "rois", roi_id, payload, "TrainingROI", compression,
-                 mutable_fields=frozenset({"name"}),  # sample, use: only their writers
-                 same_content=_same_roi_content)
+                 mutable_fields=frozenset({"name"}))  # sample, job: only their writers
 
 
 def save_roi_sample(path: PathLike, roi_id: str, sample: str | None) -> None:
-    """Set the sample label of a stored ROI in place; ``None`` removes it.
+    """Set the sample label of a stored ROI in place; ``None`` clears it (an empty string).
 
     The label is the only field written: the ROI's identity, spectra and
     other fields are never touched (roi-target contract, ``sample``).
@@ -386,29 +404,24 @@ def save_roi_sample(path: PathLike, roi_id: str, sample: str | None) -> None:
         group = f["rois"].get(roi_id)
         if not isinstance(group, h5py.Group):
             log_and_raise("No ROI '{}' in {}", roi_id, path, error=KeyError)
-        if sample is None:
-            if "sample" in group.attrs:
-                del group.attrs["sample"]
-        else:
-            group.attrs["sample"] = sample
+        group.attrs["sample"] = "" if sample is None else sample
     logger.info("Set the sample label of ROI '{}' to {!r} in {}", roi_id, sample, path)
 
 
-def save_roi_use(path: PathLike, roi_id: str, use: str) -> None:
-    """Set an ROI's ``use`` (``"calibration"`` or ``"prediction"``) in place.
+def save_roi_job(path: PathLike, roi_id: str, job: str) -> None:
+    """Set an ROI's ``job`` (``"calibration"`` or ``"prediction"``) in place.
 
-    The only field written (roi-target contract, ``use``); the value is
-    stored explicitly.
+    The only field written (roi-target contract, ``job``).
     """
-    from enginir.project._models import check_roi_use  # enginir.project imports this module
+    from enginir.project._models import check_roi_job  # enginir.project imports this module
 
-    use = check_roi_use(use)
+    job = check_roi_job(job)
     with _open_project(path, writable=True) as f:
         group = f["rois"].get(roi_id)
         if not isinstance(group, h5py.Group):
             log_and_raise("No ROI '{}' in {}", roi_id, path, error=KeyError)
-        group.attrs["use"] = use
-    logger.info("Set the use of ROI '{}' to {!r} in {}", roi_id, use, path)
+        group.attrs["job"] = job
+    logger.info("Set the job of ROI '{}' to {!r} in {}", roi_id, job, path)
 
 
 def save_sample_set(
@@ -425,6 +438,8 @@ def save_model_run(
 
     Its ``name`` may change.
     """
+    if model_run_dict.get("name") is None:  # no name: an empty string, never left out
+        model_run_dict = {**model_run_dict, "name": ""}
     _save_object(path, "model_runs", model_run_id, model_run_dict, "ModelRun", compression,
                  mutable_fields=frozenset({"name"}))
 
@@ -500,16 +515,15 @@ def initialize_prediction_run_artifacts(
     prediction_run_dict: dict[str, Any],
     *,
     y_pred_shape: tuple[int, ...],
-    spatial_map_shape: tuple[int, ...] | None,
     compression: str = "gzip",
 ) -> None:
-    """Create a prediction run whose ``y_pred`` (and ``spatial_map``) are filled later.
+    """Stage a prediction run under ``/staging/{id}``; its ``y_pred`` is filled later.
 
-    The run is marked ``artifact_write_status = "writing"`` until
-    :func:`finalize_prediction_run_artifacts`; a project containing such a run
-    does not load, so an interrupted prediction must be removed with
-    :func:`discard_prediction_run_artifacts`. An existing run with the same id
-    is never replaced.
+    The run reaches ``/predictions`` only through
+    :func:`finalize_prediction_run_artifacts`, so ``/predictions`` holds only
+    complete runs. A crash leaves the staging group behind; the project still
+    opens, and :func:`discard_staged_predictions` removes it. An id that already
+    exists in ``/predictions`` or ``/staging`` is refused.
 
     Parameters
     ----------
@@ -522,104 +536,72 @@ def initialize_prediction_run_artifacts(
     y_pred_shape:
         Shape of the per-pixel predictions, ``(n_pixels,)`` or
         ``(n_pixels, n_targets)``.
-    spatial_map_shape:
-        Shape of the prediction image, e.g. ``(n_frames, height)``, or
-        ``None`` for non-image data.
     compression:
         HDF5 compression filter.
     """
     artifact_refs = {key: value for key, value in prediction_run_dict.get("artifact_refs", {}).items()
                      if key not in _PREDICTION_ARRAYS}
-    artifact_refs["artifact_write_status"] = "writing"
     payload = {**prediction_run_dict, "artifact_refs": artifact_refs}
-    shapes = {"y_pred": y_pred_shape, "spatial_map": spatial_map_shape}
     with _open_project(path, writable=True) as f:
-        if prediction_run_id in f["predictions"]:
+        staging = f.require_group(STAGING_GROUP)
+        if prediction_run_id in f["predictions"] or prediction_run_id in staging:
             log_and_raise("Prediction run '{}' already exists in {}; use a new id",
                           prediction_run_id, path)
-        with replacement_group(f["predictions"], prediction_run_id) as group:
+        with replacement_group(staging, prediction_run_id) as group:
             write_mapping(group, payload, compression)
             artifact_group = child_group(group, "artifact_refs", create=True)
-            for name, shape in shapes.items():
-                if shape is None:
-                    continue
-                shape = tuple(int(dim) for dim in shape)
-                artifact_group.create_dataset(name, shape=shape, dtype=np.float32,
-                                              compression=compression, chunks=_chunk_shape(shape))
-    logger.info("Initialized prediction artifacts '{}' in {}", prediction_run_id, path)
+            shape = tuple(int(dim) for dim in y_pred_shape)
+            artifact_group.create_dataset("y_pred", shape=shape, dtype=np.float32,
+                                          compression=compression, chunks=_chunk_shape(shape))
+    logger.info("Staged prediction artifacts '{}' in {}", prediction_run_id, path)
 
 
 @dataclass(slots=True)
 class PredictionArtifactWriter:
-    """Writes prediction chunks into the datasets created by
+    """Writes prediction chunks into the staged ``y_pred`` created by
     :func:`initialize_prediction_run_artifacts`; see
     :func:`open_prediction_run_artifact_writer`."""
 
     prediction_run_id: str
     y_dataset: h5py.Dataset
-    spatial_dataset: h5py.Dataset | None
 
-    def write_chunk(
-        self,
-        *,
-        row_start: int,
-        y_pred_chunk: np.ndarray,
-        frame_start: int | None = None,
-        spatial_map_chunk: np.ndarray | None = None,
-    ) -> None:
-        """Store predictions for rows ``row_start:`` and, optionally, frames ``frame_start:``."""
+    def write_chunk(self, *, row_start: int, y_pred_chunk: np.ndarray) -> None:
+        """Store predictions for rows ``row_start:``."""
         y_chunk = np.asarray(y_pred_chunk, dtype=np.float32)
         self.y_dataset[row_start : row_start + y_chunk.shape[0], ...] = y_chunk
-        if spatial_map_chunk is None:
-            return
-        if self.spatial_dataset is None or frame_start is None:
-            log_and_raise(
-                "PredictionRun '{}': a spatial-map chunk needs a spatial_map dataset and "
-                "frame_start",
-                self.prediction_run_id,
-            )
-        spatial_chunk = np.asarray(spatial_map_chunk, dtype=np.float32)
-        self.spatial_dataset[frame_start : frame_start + spatial_chunk.shape[0], ...] = (
-            spatial_chunk
-        )
 
 
 @contextmanager
 def open_prediction_run_artifact_writer(
     path: PathLike, prediction_run_id: str
 ) -> Iterator[PredictionArtifactWriter]:
-    """Keep the project open while all chunks of a prediction are written.
+    """Keep the project open while all chunks of a staged prediction are written.
 
     Yields
     ------
     PredictionArtifactWriter
     """
     with _open_project(path, writable=True) as f:
-        artifact_group = child_group(_object_group(f, "predictions", prediction_run_id),
-                                     "artifact_refs")
+        artifact_group = child_group(_staged_group(f, prediction_run_id), "artifact_refs")
         y_dataset = artifact_group.get("y_pred")
         if not isinstance(y_dataset, h5py.Dataset):
             log_and_raise("PredictionRun '{}' has no y_pred dataset", prediction_run_id,
                           error=KeyError)
-        spatial_dataset = artifact_group.get("spatial_map")
-        yield PredictionArtifactWriter(
-            prediction_run_id,
-            y_dataset,
-            spatial_dataset if isinstance(spatial_dataset, h5py.Dataset) else None,
-        )
+        yield PredictionArtifactWriter(prediction_run_id, y_dataset)
 
 
 def finalize_prediction_run_artifacts(
     path: PathLike, prediction_run_id: str, artifact_metadata: dict[str, Any]
 ) -> None:
-    """Store summary metadata of an incrementally written run and mark it complete.
+    """Store the summary metadata of a staged run and move it to ``/predictions``.
 
     Scalars and short numeric vectors of ``artifact_metadata`` become
     attributes of ``artifact_refs``; arrays and ``None`` values are skipped.
+    The move is a rename inside the file (project-schema contract §7).
     """
     with _open_project(path, writable=True) as f:
-        artifact_group = child_group(_object_group(f, "predictions", prediction_run_id),
-                                     "artifact_refs")
+        group = _staged_group(f, prediction_run_id)
+        artifact_group = child_group(group, "artifact_refs")
         for key, value in artifact_metadata.items():
             if key in _PREDICTION_ARRAYS or value is None:
                 continue
@@ -632,28 +614,52 @@ def finalize_prediction_run_artifacts(
             elif (array.ndim == 1 and array.size <= MAX_ATTRIBUTE_VECTOR
                   and array.dtype.kind not in "UO"):
                 artifact_group.attrs[key] = array
-        artifact_group.attrs["artifact_write_status"] = "complete"
+        f.move(group.name, f"/predictions/{prediction_run_id}")
+        if len(f[STAGING_GROUP]) == 0:
+            del f[STAGING_GROUP]
     logger.info("Finalized prediction artifacts '{}' in {}", prediction_run_id, path)
 
 
 def discard_prediction_run_artifacts(path: PathLike, prediction_run_id: str) -> None:
-    """Delete a staged (``"writing"``) prediction run if it exists.
+    """Delete the staged run ``prediction_run_id`` if it exists.
 
-    Completed runs are refused, so that cleaning up a failed attempt can never
-    remove finished results.
+    Only ``/staging`` is touched, so cleaning up a failed attempt can never
+    remove a finished run in ``/predictions``.
     """
     with _open_project(path, writable=True) as f:
-        group = f["predictions"].get(prediction_run_id)
-        if group is None:
+        staging = f.get(STAGING_GROUP)
+        if not isinstance(staging, h5py.Group) or prediction_run_id not in staging:
             return
-        artifact_group = group.get("artifact_refs")
-        status = (decode(artifact_group.attrs.get("artifact_write_status", "complete"))
-                  if isinstance(artifact_group, h5py.Group) else "complete")
-        if status != "writing":
-            log_and_raise("Prediction run '{}' is {!r}, not a staged run; refusing to discard "
-                          "it", prediction_run_id, status)
-        del f["predictions"][prediction_run_id]
-    logger.warning("Discarded prediction artifacts '{}' in {}", prediction_run_id, path)
+        del staging[prediction_run_id]
+        if len(staging) == 0:
+            del f[STAGING_GROUP]
+    logger.warning("Discarded staged prediction artifacts '{}' in {}", prediction_run_id, path)
+
+
+def discard_staged_predictions(path: PathLike) -> list[str]:
+    """Delete every staged prediction (left by a crash); return their ids.
+
+    A write (it updates ``FileWriter`` and ``updated_at``); ``/predictions`` is
+    never touched.
+    """
+    with _open_project(path, writable=True) as f:
+        staging = f.get(STAGING_GROUP)
+        if not isinstance(staging, h5py.Group):
+            return []
+        removed = sorted(staging)
+        del f[STAGING_GROUP]
+    if removed:
+        logger.warning("Discarded {} staged prediction(s) in {}: {}", len(removed), path, removed)
+    return removed
+
+
+def _staged_group(f: h5py.File, prediction_run_id: str) -> h5py.Group:
+    staging = f.get(STAGING_GROUP)
+    group = staging.get(prediction_run_id) if isinstance(staging, h5py.Group) else None
+    if not isinstance(group, h5py.Group):
+        log_and_raise("No staged prediction '{}' in {}", prediction_run_id, f.filename,
+                      error=KeyError)
+    return group
 
 
 def has_prediction_run(path: PathLike, prediction_run_id: str) -> bool:
@@ -926,26 +932,38 @@ def _validate_payload(label: str, location: str, payload: dict[str, Any],
 
 @contextmanager
 def _open_project(path: PathLike, *, writable: bool = False) -> Iterator[h5py.File]:
-    """Open and validate a project; after a successful write, update ``updated_at``."""
+    """Open and validate a project; after a successful write, set ``FileWriter`` and ``updated_at``.
+
+    Both change together and only after the write succeeded; reading changes nothing.
+    """
     with h5py.File(path, "r+" if writable else "r") as f:
         _check_project_file(f, path)
         yield f
         if writable:
+            f["project_meta"].attrs["FileWriter"] = file_writer_label()
             f["project_meta"].attrs["updated_at"] = _now_iso()
 
 
 def _check_project_file(f: h5py.File, path: PathLike) -> None:
+    """Refuse any file that is not in the current format, before anything else is read."""
     if not is_project_file(f):
-        version = decode(f["project_meta"].attrs.get("schema_version", "")) \
-            if "project_meta" in f else None
-        log_and_raise("{} is not an engiNIR {} project file (schema_version={!r})", path,
-                      PROJECT_SCHEMA_VERSION, version, depth=3)
+        log_and_raise("{}", format_refusal(f, path), depth=3)
     missing = [name for name in PROJECT_TOP_LEVEL_GROUPS if name not in f]
     if missing:
         log_and_raise("Project {} is missing top-level group(s) {}", path, missing, depth=3)
-    extra = tuple(sorted(set(f) - set(PROJECT_TOP_LEVEL_GROUPS)))
+    extra = tuple(sorted(set(f) - set(PROJECT_TOP_LEVEL_GROUPS) - {STAGING_GROUP}))
     if extra:
         _warn_extra_groups(str(Path(path).resolve()), extra)
+    staging = f.get(STAGING_GROUP)
+    if isinstance(staging, h5py.Group) and len(staging):
+        _warn_stale_staging(str(Path(path).resolve()), tuple(sorted(staging)))
+
+
+@lru_cache(maxsize=256)
+def _warn_stale_staging(path: str, names: tuple[str, ...]) -> None:
+    logger.warning("Project {} has staged prediction(s) {} that were not finalized (a crash "
+                   "or an interrupted write); they are ignored. Remove them with "
+                   "discard_staged_predictions().", path, list(names))
 
 
 @lru_cache(maxsize=256)
@@ -1016,14 +1034,6 @@ def _save_object(
     logger.info("Saved {} '{}' to {}", label, object_id, path)
 
 
-def _same_roi_content(values: dict[str, Any]) -> dict[str, Any]:
-    """An ROI's fields for the identity rule: a missing ``use``, ``training`` and
-    ``calibration`` are the same content (terminology contract)."""
-    from enginir.project._models import same_roi_use  # enginir.project imports this module
-
-    return {**values, "use": same_roi_use(values.get("use"))}
-
-
 def _check_roi_arrays(group: h5py.Group) -> None:
     """Validate stored ROI array shapes without reading the arrays."""
     spectra = group.get("spectra")
@@ -1048,18 +1058,6 @@ def _check_roi_arrays(group: h5py.Group) -> None:
                 )
 
 
-def _check_prediction_complete(group: h5py.Group) -> None:
-    artifact_group = group.get("artifact_refs")
-    if not isinstance(artifact_group, h5py.Group):
-        return
-    status = decode(artifact_group.attrs.get("artifact_write_status", "complete"))
-    if status == "writing":
-        log_and_raise("Prediction run '{}' was not written completely; discard it", group.name)
-    if status != "complete":
-        log_and_raise("Prediction run '{}' has unknown artifact_write_status {!r}", group.name,
-                      status)
-
-
 def _spatial_map_shape(artifact_group: h5py.Group) -> tuple[int, ...] | None:
     value = artifact_group.attrs.get("spatial_map_shape")
     if value is None:
@@ -1080,17 +1078,36 @@ def _chunk_shape(shape: tuple[int, ...]) -> tuple[int, ...] | None:
     return (min(max(shape[0], 1), 32), *shape[1:])
 
 
+def format_refusal(f: h5py.File, path: PathLike) -> str:
+    """The one message for a file that is not an ``enginir-1.5`` project.
+
+    It names the file's format (and its writer, when it records one); earlier
+    files stored ``schema_version``, which is read here for the message only.
+    """
+    meta = f.get("project_meta")
+    if not isinstance(meta, h5py.Group):
+        return f"{path} is not an engiNIR project file (no /project_meta)"
+    attrs = meta.attrs
+    found = decode(attrs.get("FileSchemaVersion", attrs.get("schema_version", ""))) or "unknown"
+    writer = decode(attrs.get("FileWriter", ""))
+    by = f", written by {writer}" if writer else ""
+    return (f"{path} is an engiNIR project in format {found!r}{by}; this engiNIR reads only "
+            f"{FILE_SCHEMA_VERSION!r} projects, so the project must be created again")
+
+
 def _now_iso() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat()
+    """Now, in UTC with an explicit offset and microseconds (project-schema contract)."""
+    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
 
 
 __all__ = [
-    "PROJECT_SCHEMA_VERSION",
+    "FILE_SCHEMA_VERSION",
     "PROJECT_TOP_LEVEL_GROUPS",
     "PredictionArtifactWriter",
     "as_roi_storage_array",
     "create_project",
     "discard_prediction_run_artifacts",
+    "discard_staged_predictions",
     "has_prediction_run",
     "finalize_prediction_run_artifacts",
     "initialize_prediction_run_artifacts",
@@ -1116,7 +1133,7 @@ __all__ = [
     "save_prediction_run",
     "save_preprocessing_recipe",
     "save_roi_sample",
-    "save_roi_use",
+    "save_roi_job",
     "save_sample_set",
     "save_signal_domain_contract",
     "save_target_assignment",

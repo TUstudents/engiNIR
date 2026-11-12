@@ -37,7 +37,6 @@ REFLECTANCE_MIN = np.float32(1e-6)
 REFLECTANCE_MAX = np.float32(1.0)
 _EPS = np.float32(1e-10)
 _WORKING_DTYPE = np.float32
-_FORMAT_ALIASES = {"eiff_raw": "eiff"}
 
 
 class SignalDomainCompatibilityError(ValueError):
@@ -87,9 +86,8 @@ def check_signal_domain_compatibility(
     ------
     SignalDomainCompatibilityError
     """
-    dataset_format = _FORMAT_ALIASES.get(dataset.source_format.lower(), dataset.source_format.lower())
-    domain_format = _FORMAT_ALIASES.get(signal_domain.input_format.lower(),
-                                        signal_domain.input_format.lower())
+    dataset_format = dataset.source_format.lower()
+    domain_format = signal_domain.input_format.lower()
     if dataset_format != domain_format:
         _fail("Dataset '{}' has source_format {!r}, but signal domain '{}' requires {!r}",
               dataset.dataset_id, dataset.source_format, signal_domain.signal_domain_id,

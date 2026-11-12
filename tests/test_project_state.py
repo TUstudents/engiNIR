@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from enginir.project import FitSpec
+from enginir.project._models import software_versions
+
 import os
 from unittest.mock import patch
 
@@ -142,7 +145,7 @@ def project_store_path(tmp_path, wl, sample_provenance):
         path,
         "signal_domain_1",
         {
-            "input_format": "eiff_raw",
+            "input_format": "eiff",
             "source_modality": "nir_hsi",
             "required_signal_unit": "Absorbance",
             "required_calibration_mode": "dark_white_reference",
@@ -165,6 +168,7 @@ def project_store_path(tmp_path, wl, sample_provenance):
             "calibration_id": "cal_1",
             "name": "ROI 1",
             "source_file": "/data/train.eiff",
+            "job": "calibration",
             "n_pixels": 12,
             "created_at": "2026-04-02T10:05:00+00:00",
             "spatial_bounds": (0, 2, 0, 3),
@@ -213,11 +217,14 @@ def project_store_path(tmp_path, wl, sample_provenance):
             "sample_set_id": "sample_set_1",
             "signal_domain_id": "signal_domain_1",
             "model_type": "PLS",
+            "fit_spec": FitSpec(groups=(0,)).to_dict(),
+            "software": software_versions(),
             "hyperparameters": {"n_components": 3},
             "cv_spec": {"type": "GroupKFold", "n_splits": 5},
             "metrics": {"rmsecv": 1.23},
             "artifact_refs": {
                 "prediction_model": {
+                    "n_components": 1,
                     "model_type": "PLSRegression",
                     "coef_": np.ones(50, dtype=np.float32),
                     "intercept_": 0.0,
@@ -305,7 +312,7 @@ class TestTrainingROI:
                 "n_bands": 50,
                 "wavelengths": wl,
                 "loader_metadata": {},
-                "import_timestamp": "2026-03-28T10:00:00",
+                "import_timestamp": "2026-03-28T10:00:00+00:00",
             },
         )
         save_calibration_spec(
@@ -321,7 +328,7 @@ class TestTrainingROI:
                 "black_level": None,
                 "white_level": None,
                 "output_signal_unit": "DN",
-                "created_at": "2026-03-28T10:00:00",
+                "created_at": "2026-03-28T10:00:00+00:00",
             },
         )
         save_training_roi(
@@ -333,9 +340,10 @@ class TestTrainingROI:
                 "name": "grain_A",
                 "wavelengths": wl,
                 "source_file": "/x.eiff",
+                "job": "calibration",
                 "n_pixels": 12,
                 "spatial_bounds": (0, 2, 0, 3),
-                "created_at": "2026-03-28T10:00:00",
+                "created_at": "2026-03-28T10:00:00+00:00",
                 "provenance": sample_provenance,
             },
             spectra,
@@ -349,7 +357,7 @@ class TestTrainingROI:
             n_pixels=12,
             spatial_bounds=(0, 2, 0, 3),
             source_file="/x.eiff",
-            created_at="2026-03-28T10:00:00",
+            created_at="2026-03-28T10:00:00+00:00",
             provenance=sample_provenance,
         )
         loaded = roi.load_spectra(path)
@@ -389,7 +397,7 @@ class TestProjectState:
         assert ps.project_path == path
         assert signals_received == ["loaded"]
         assert os.path.exists(path)
-        assert ps.project_meta["schema_version"] == "viewer-v3"
+        assert ps.project_meta["FileSchemaVersion"] == "enginir-1.5"
         assert ps.datasets == {}
         assert ps.calibrations == {}
         assert ps.rois == {}
@@ -421,7 +429,7 @@ class TestProjectState:
             n_pixels=6,
             spatial_bounds=(0, 1, 0, 2),
             source_file="/x.eiff",
-            created_at="2026-03-28T10:00:00",
+            created_at="2026-03-28T10:00:00+00:00",
             provenance=sample_provenance,
         )
         ps.add_roi(roi, spectra)
@@ -449,7 +457,7 @@ class TestProjectState:
             n_pixels=4,
             spatial_bounds=(0, 1, 0, 1),
             source_file="/tmp/cube_b.eiff",
-            created_at="2026-03-28T10:00:00",
+            created_at="2026-03-28T10:00:00+00:00",
             provenance=sample_provenance,
         )
         ps.add_roi(roi, spectra)
@@ -472,7 +480,7 @@ class TestProjectState:
             n_pixels=4,
             spatial_bounds=(0, 1, 0, 1),
             source_file="/tmp/cube_c.eiff",
-            created_at="2026-03-28T10:00:00",
+            created_at="2026-03-28T10:00:00+00:00",
             provenance=sample_provenance,
         )
         ps.add_roi(roi, spectra)
@@ -555,7 +563,7 @@ class TestProjectState:
         ps.project_loaded.connect(lambda: loaded_signals.append("loaded"))
         ps.open_project(project_store_path)
         assert ps.project_path == project_store_path
-        assert ps.project_meta["schema_version"] == "viewer-v3"
+        assert ps.project_meta["FileSchemaVersion"] == "enginir-1.5"
         assert set(ps.datasets) == {"dataset_1"}
         assert ps.active_calibration_ids == {"dataset_1": "cal_1"}
         assert set(ps.calibrations) == {"cal_1"}
@@ -641,7 +649,7 @@ class TestProjectState:
             n_pixels=4,
             spatial_bounds=(0, 1, 0, 1),
             source_file="/tmp/cube.eiff",
-            created_at="2026-03-28T10:00:00",
+            created_at="2026-03-28T10:00:00+00:00",
             provenance=sample_provenance,
         )
         ps.add_roi(roi, np.zeros((4, 50), dtype=np.uint16))
@@ -695,7 +703,7 @@ class TestProjectState:
             n_pixels=4,
             spatial_bounds=(0, 1, 0, 1),
             source_file="/tmp/cube.eiff",
-            created_at="2026-03-28T10:00:00",
+            created_at="2026-03-28T10:00:00+00:00",
             provenance=sample_provenance,
         )
 
@@ -789,7 +797,7 @@ class TestProjectState:
             dataset_ids=["dataset_fast"],
             created_at="2026-04-02T10:03:00+00:00",
         )
-        model_run = ModelRun(
+        model_run = ModelRun(fit_spec=FitSpec(groups=(0,)).to_dict(), 
             model_run_id="model_fast",
             sample_set_id="sample_fast",
             signal_domain_id="signal_fast",
@@ -982,7 +990,7 @@ class TestProjectState:
             )
         )
 
-        model_run = ModelRun(
+        model_run = ModelRun(fit_spec=FitSpec(groups=(0,)).to_dict(), 
             model_run_id="model_fast",
             sample_set_id="sample_fast",
             signal_domain_id="signal_missing",
@@ -1206,7 +1214,7 @@ class TestProjectState:
             )
         )
         ps.register_model_run(
-            ModelRun(
+            ModelRun(fit_spec=FitSpec(groups=(0,)).to_dict(), 
                 model_run_id="model_fast",
                 sample_set_id="sample_fast",
                 signal_domain_id="signal_fast",
@@ -1336,7 +1344,7 @@ def test_add_roi_validates_relationships_before_writing(tmp_path, wl, sample_pro
     provenance = {**sample_provenance, "dataset_id": dataset_id, "calibration_id": "cal_missing"}
     roi = TrainingROI(roi_id="roi_orphan", dataset_id=dataset_id, calibration_id="cal_missing",
                       name="orphan", wavelengths=wl, n_pixels=4, spatial_bounds=(0, 1, 0, 1),
-                      source_file="/tmp/cube.eiff", created_at="2026-03-28T10:00:00",
+                      source_file="/tmp/cube.eiff", created_at="2026-03-28T10:00:00+00:00",
                       provenance=provenance)
 
     with pytest.raises(ProjectRelationshipError, match="missing calibration_id 'cal_missing'"):

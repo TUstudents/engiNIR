@@ -3,7 +3,8 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.0; v3 is the default and only supported project schema
+- Status: active contract for engiNIR 1.5; the file format `enginir-1.5` is the
+  only format engiNIR reads and writes (`project-schema-contract_v3.md`)
 - Scope: raw `.eiff` import, reference correction ownership, input-contract compatibility, prediction-time reuse
 
 ## Goal
@@ -13,7 +14,7 @@ Define the concrete contract for:
 - dataset identity at raw `.eiff` import time
 - reference correction ownership
 - signal conversion to reflectance or absorbance
-- how saved models express their required input input contract
+- how saved models express their required input contract
 - how prediction datasets are checked and processed against that requirement
 
 This contract exists to prevent ambiguity between:
@@ -63,7 +64,7 @@ There are three separate but linked objects:
 3. `SignalDomainContract`
    Owned by the model.
 
-The model references a input contract.
+The model references an input contract.
 The prediction run references both:
 
 - the model
@@ -117,8 +118,8 @@ Required invariants:
 - a lowercase file-format key inferred from the source extension; known values
   are `eiff`, `hdf5`, `envi`, and `csv`; unknown extensions persist as their
   bare lowercase suffix
-- compatibility comparisons normalize case and whitespace and treat legacy
-  `eiff_raw` as `eiff`
+- compatibility comparisons normalize case and whitespace; there are no
+  aliases for earlier values
 
 `source_modality` vocabulary in v3:
 
@@ -148,8 +149,10 @@ Required fields:
 - `output_signal_unit`
 - `created_at`
 
-Declared conditional fields (always part of the schema, nullable, populated
-only when the mode's executable-context rules below require or permit them):
+Declared conditional fields (always written; populated only when the mode's
+executable-context rules below require or permit them, otherwise "not
+defined": NaN, an empty string or an empty array,
+`project-schema-contract_v3.md`, Core and display data):
 
 - `dark_ref_source`
 - `white_ref_source`
@@ -228,7 +231,7 @@ Reflectance clipping rule:
   over-bright pixels
 - prediction runtime must count, log, and surface low-side and high-side clipped
   values
-- calibration-side conversion (ROI spectra transformed into the model's input contract during sample-set fitting) must also count clipped values and log a
+- calibration-side conversion (ROI spectra transformed into the model's input contract during model fitting) must also count clipped values and log a
   warning with the totals when any value was clipped; persisting calibration-side
   clip telemetry is not required in v3
 - future contract versions may move the clip range into explicit
@@ -236,7 +239,7 @@ Reflectance clipping rule:
 
 ## 3. SignalDomainContract
 
-Represents the input input contract a saved model requires before preprocessing.
+Represents the input contract a saved model requires before preprocessing.
 
 This is model-owned, not dataset-owned.
 
@@ -257,21 +260,19 @@ Required fields:
 - `output_dtype`
 - `created_at`
 
-Allowed `band_mapping_policy` values in v3:
+Allowed `band_mapping_policy` value in v3:
 
 - `exact`
-- `reject`
 
 v3 band-mapping rule:
 
 - no interpolation, regridding, or automatic band remapping is supported
-- both `exact` and `reject` assume band count and band order are already aligned
-  by the import/modeling workflow
+- `exact` assumes band count and band order are already aligned by the
+  import/modeling workflow
 - `band_mapping_policy` is a strict compatibility declaration in v3, not an
   executable interpolation strategy
-- `exact` and `reject` have identical runtime behavior in v3; current writers
-  emit `exact`, readers accept both, and the distinction between the two
-  values is reserved for a future remapping contract
+- the field is kept, with its one value, for a future remapping contract
+  (calibration transfer); any other value is refused on read
 - defer interpolation/regridding to a later contract version
 
 Required invariants:
@@ -290,9 +291,8 @@ Wavelength metadata rule:
   sanity checks
 - wavelength values are not repeatedly compared as a prediction-time hard gate
   after a dataset/model have been accepted
-- saved model artifacts may persist their own wavelength axis for diagnostics or
-  legacy compatibility, but prediction does not fail solely because that
-  metadata differs numerically
+- saved model artifacts persist their own wavelength axis for diagnostics, but
+  prediction does not fail solely because that metadata differs numerically
 
 Executable field semantics in v3:
 
@@ -300,7 +300,7 @@ Executable field semantics in v3:
   when its `mode` equals `required_calibration_mode`, or when its `mode` is
   `precalibrated_import` and `calibrated_input_allowed` is true
 - `calibrated_input_allowed` therefore permits an already-corrected import to
-  substitute for the trained reference correction mode, provided the reference correction can
+  substitute for the reference correction mode the model was fitted with, provided the reference correction can
   still produce `required_signal_unit`; current writers set it true exactly
   when the calibration reference correction mode was `precalibrated_import`
 - `requires_dark_ref` and `requires_white_ref` are additional preflight gates
@@ -326,7 +326,7 @@ Executable field semantics in v3:
 
 ### Model owns
 
-- the required input input contract
+- the required input contract
 - the preprocessing recipe to apply after reference correction
 - fitting and validation provenance
 
@@ -366,12 +366,14 @@ detector levels, or raw counts), the system must create or update an explicit
 
 Signal units of a reference correction:
 
-- the project always stores the raw counts of every ROI with what converts
-  them: the ROI's reference snapshot, or the reference correction's scalar
-  `black_level`/`white_level`. DN, reflectance and absorbance are views of
-  those counts, computed when needed, never a stored replacement
+- the project always stores the spectra of every ROI as recorded. Raw
+  counts are stored with what converts them: the ROI's reference snapshot,
+  or the reference correction's scalar `black_level`/`white_level`. Raw
+  counts (DN), reflectance and absorbance are views of those counts,
+  computed when needed, never a stored replacement; a `precalibrated_import`
+  ROI stores the corrected values it was imported with
 - for `dark_white_reference`, `output_signal_unit` is the working signal: the
-  signal Explore starts with and the one `Project.fit` trains in when no other
+  signal Explore starts with and the one `Project.fit` fits in when no other
   is chosen. It is not asked when a dataset is added; it is `Absorbance`.
   Reflectance and absorbance can both be produced from the counts at any
   time; the shown signal is chosen in Explore and in the fit dialog
@@ -379,7 +381,7 @@ Signal units of a reference correction:
   the counts give no other signal
 - for `precalibrated_import`, `output_signal_unit` states what the file holds
   (`Reflectance` or `Absorbance`); this is the only case in which the UI asks
-  for it, and DN is unavailable because there are no counts
+  for it, and Raw counts (DN) are unavailable because there are no counts
 - `viewable_signal_units` gives these signals per reference correction; Explore offers
   only them for the shown dataset
 
@@ -431,7 +433,8 @@ v3 storage rule:
 
 When a model is fit, the system must persist:
 
-- the calibration dataset reference correction context reference
+- the reference corrections (`calibration_id`) of the calibration datasets,
+  through the calibration set's ROIs
 - the model's `SignalDomainContract`
 - the `PreprocessingRecipe`
 
@@ -676,7 +679,7 @@ Decision:
 
 Resolved:
 
-- a moved or renamed file is mapped back with `Locate file...`. It is
+- a moved or renamed file is mapped back with `Locate File...`. It is
   verified against the `DatasetRef` and the stored raw ROI pixels, then
   `source_path` is updated (`project-dataset-attachment-contract_v3.md`).
 
@@ -708,7 +711,7 @@ This contract is implemented correctly when:
 - reference correction is explicit and attached to that dataset
 - dataset identity and reference correction records are stored inside the project file
 - ROI provenance records the applied dataset reference correction context
-- saved models declare the required input input contract
+- saved models declare the required input contract
 - prediction on a new dataset records the dataset-local reference correction context actually used
 - prediction is blocked when the new dataset cannot satisfy the saved model's input contract
 - repeated explicit reference correction choices with identical executable content reuse

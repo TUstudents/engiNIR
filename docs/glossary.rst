@@ -114,9 +114,8 @@ Modeling
       The two roles of an ROI (the ROI table's "Set"). Calibration ROIs build
       models; prediction ROIs are predicted and never enter a model; those
       with target values give the RMSEP (an external test set). Elsewhere:
-      SIMCA *prediction set*. Project file: ``use = calibration |
-      prediction`` (``training`` and a missing ``use`` read as
-      ``calibration``).
+      SIMCA *prediction set*. Project file and API: ``job = calibration |
+      prediction``.
 
    Calibration set
       The frozen calibration ROIs, with their target values and the
@@ -131,6 +130,11 @@ Modeling
    Fold group
       The unit cross-validation holds out together: by ROI, by sample label
       or by target value.
+
+   Pixel subsample
+      The pixels a fit draws from every ROI (the same number from each, by a
+      seed), so that every ROI weighs the same; "sample" alone is the
+      physical sample. API: ``fit_spec={"pixels": {"per_roi": n, "seed": s}}``.
 
    Model
       One fitted model with its id, never overwritten. API: ``ModelRun``.
@@ -162,16 +166,17 @@ Diagnostics and results
    DModX
    DCrit
       The normalized distance of a spectrum to the model (its residual,
-      scaled by the calibration residual s0) and its critical limit;
-      DModXPS for predicted spectra. Elsewhere: SIMCA *DModX*, *DModXPS*,
-      *DCrit*; related: PLS_Toolbox *Q residuals*, The Unscrambler
-      *F-residuals* (different scaling and limits).
+      scaled by the calibration residual s0) and its critical limit: DModX
+      for calibration spectra, DModXPS for predicted spectra. Elsewhere:
+      SIMCA *DModX*, *DModXPS*, *DCrit*; related: PLS_Toolbox *Q residuals*,
+      The Unscrambler *F-residuals* (different scaling and limits).
 
    Hotelling's T²
    T²
    T²Crit
       The distance of a spectrum within the model plane and its critical
-      limit. Related: leverage, h = 1/N + T²/(N − 1).
+      limit: T² for calibration spectra, T²PS for predicted spectra.
+      Related: leverage (see prediction interval).
 
    Outside the model
    Above DCrit
@@ -180,12 +185,16 @@ Diagnostics and results
       not a judgement that it is faulty; engiNIR does not say "outlier".
 
    Excluded pixels
-      Pixels left out by a DModX limit: from the fit (the fit specification)
+      Pixels left out by a distance limit (DModX in the fit, DModXPS in a
+      prediction): from the fit (the fit specification)
       or from the statistics of a prediction ROI (the Predict page).
 
    Prediction interval
-      ŷ ± q · s · √(1 + h), the leverage formula as in ASTM E1655
-      (:ref:`prediction-intervals`). Elsewhere: SIMCA *YPredPS confidence
+      ŷ ± q · s · √(1 + h), the leverage formula of ASTM E1655 with the R
+      calibration ROIs as the independent samples: h = 1/R + T²PS/(R − 1)
+      for a pixel, h̄ = 1/R′ + d²/(R′ − 1) for the mean of a prediction ROI
+      (:ref:`prediction-intervals`). The standard's h = 1/N + T²/(N − 1)
+      over N calibration spectra would vanish for image pixels. Elsewhere: SIMCA *YPredPS confidence
       interval* (jack-knifed, a different number), The Unscrambler
       *Y-deviation* (a different estimate). API:
       ``prediction.interval_map(level)``.

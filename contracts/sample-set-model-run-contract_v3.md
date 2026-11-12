@@ -3,8 +3,9 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.0; v3 is the default and only supported project schema
-- Scope: sample-building, fitting semantics, grouped validation, model-run identity, v3 PLS/PCR fitting behavior
+- Status: active contract for engiNIR 1.5; the file format `enginir-1.5` is the
+  only format engiNIR reads and writes (`project-schema-contract_v3.md`)
+- Scope: sample-building, fitting semantics, grouped validation, model identity, v3 PLS/PCR fitting behavior
 
 ## Goal
 
@@ -29,7 +30,7 @@ This contract exists to prevent two common errors:
 - one model uses one preprocessing recipe
 - working spectral arrays should default to `float32` unless a concrete backend
   contract requires higher precision
-- v3 may support PLS and PCR, but both obey the same sample-set contract
+- v3 may support PLS and PCR, but both obey the same calibration-set contract
 
 ## Problem this contract solves
 
@@ -65,7 +66,7 @@ There are two core objects:
 Represents one modeling dataset built from project objects.
 
 A new calibration set takes every ROI with a value for its target, except ROIs
-whose `use` is `prediction` (`roi-target-contract_v3.md`): those are never
+whose `job` is `prediction` (`roi-target-contract_v3.md`): those are never
 calibration data. A stored calibration set keeps its `roi_ids`; refitting it uses
 them as stored, and logs a warning when one of them has since been switched
 to `prediction`.
@@ -131,7 +132,7 @@ Required invariants:
   exists in the project; service-built calibration sets record exactly the ordered
   unique dataset ids of the included ROIs at build time
 - a persisted `dataset_ids` entry without a matching live ROI may remain when
-  included ROIs were later deleted (the stale sample-set policy)
+  included ROIs were later deleted (the stale calibration-set policy)
 
 ## 2. ModelRun
 
@@ -146,14 +147,13 @@ Required fields:
 - `cv_spec`
 - `metrics`
 - `artifact_refs`
+- `fit_spec`: the fit specification (§7)
+- `software`: the software that fitted the model (§7)
 - `created_at`
 
 Optional fields:
 
 - `name`: display name, a mutable label
-- `fit_spec`: the fit specification (§7). Every run written by engiNIR 1.2
-  or later has one; a run without it was fitted under the legacy
-  specification (§7, Legacy runs)
 
 Allowed `model_type` values in v3:
 
@@ -184,7 +184,7 @@ once before cross-validation. A recipe with MSC or EMSC is fitted and
 applied inside every fold (all its steps, through the fold pipeline);
 either way the result equals applying the whole recipe per fold. AsLS
 takes its direction from the input contract's signal unit
-(`project-schema-contract_v3.md` §4). A recipe with `sg_edges = drop` or a
+(`project-schema-contract_v3.md`, Object identity rules §4). A recipe with `sg_edges = drop` or a
 band selection gives `X` the recipe's output axis (fewer bands than the
 input contract, with gaps after a selection); the
 model's coefficients, loadings, projection data (`x_mean`, `x_std`,
@@ -194,7 +194,7 @@ MSC/EMSC state uses the axis after Savitzky-Golay, before the selection.
 
 Memory-aware v3 rules:
 
-- multi-ROI sample-set construction should use one batched/single-file-open
+- multi-ROI calibration-set construction should use one batched/single-file-open
   path rather than reopening the project once per ROI
 - raw ROI spectra remain the scientific truth and should stay in their stored
   raw dtype until the transformation boundary
@@ -242,9 +242,13 @@ Allowed v3 behavior:
   the default for new runs)
 - leave one fold group out (fold rule `leave_one_group_out`; with
   `group_by = roi` this is leave one ROI out)
-- `GroupKFold` (fold rule `group_kfold`), kept only so that legacy runs
-  refit identically; new runs do not use it unless it is requested
-  explicitly, and it requires `group_by = roi`
+- `GroupKFold` (fold rule `group_kfold`), an optional rule a user requests
+  explicitly; it requires `group_by = roi`. Each ROI is labeled by its
+  position in the calibration set's `roi_ids`; scikit-learn's
+  `GroupKFold(F)` (without shuffling) deals the ROIs to folds by pixel
+  count, so the folds depend on the ROI sizes and on scikit-learn's
+  algorithm; with fewer ROIs than *F* it is `LeaveOneGroupOut`. The fit
+  dialog does not offer it; round-robin is the default
 
 Required invariant:
 
@@ -299,11 +303,11 @@ Round-robin rule:
   *j* mod *k*
 - with *G* ≤ *F* every fold holds out exactly one group (leave one group
   out)
-- with `group_by = roi` the groups are the ROIs in sample-set order: this is
+- with `group_by = roi` the groups are the ROIs in calibration-set order: this is
   SIMCA's "assign every Nth observation to the same group" applied to ROIs
   (SIMCA 18 help, Cross validation group examples, No. 1); SIMCA numbers its
   groups differently, but the partition into folds is the same when SIMCA's
-  the data points are ROI means in calibration-set order, or pixels reordered so
+  observations are ROI means in calibration-set order, or pixels reordered so
   that every Nth observation comes from the same ROIs (as in the SIMCA
   reference export; verified against SIMCA 18.1). On pixels in ROI order
   SIMCA's every-Nth rule puts pixels of every ROI into every group
@@ -348,26 +352,26 @@ v3 reporting decision:
 - primary validation metrics are computed from one aggregated prediction per held-out ROI
 - pixel-level prediction distributions remain secondary diagnostics only
 
-Fit statistics of the final model (engiNIR 1.3 and later), stored in
+Fit statistics of the final model, stored in
 `metrics`, with *A* components, *N* the pixels the final model was fitted on
 (drawn pixels minus excluded ones) and *R* ROIs:
 
 - `pixel_rmsee` = √(Σᵢ (ŷᵢ − yᵢ)² / (N − 1 − A)) over those pixels (ŷ the
-  final model's fitted values), as SIMCA computes RMSEE (per ROI); written only when
-  N − 1 − A ≥ 1
+  final model's fitted values), as SIMCA computes RMSEE (over its observations, here pixels); NaN when
+  N − 1 − A < 1
 - `rmsee` = √(Σᵣ (ŷᵣ − yᵣ)² / (R − 1 − A)), ŷᵣ the mean fitted value of an
-  ROI's pixels the model was fitted on; written only when R − 1 − A ≥ 1
+  ROI's pixels the model was fitted on; NaN when R − 1 − A < 1
 - `pixel_r2_adj` = 1 − (RSS / (N − 1 − A)) / (TSS / (N − 1)) and `r2_adj`
-  the same over ROI means (written only when R − 1 − A ≥ 1)
+  the same over ROI means (each NaN when its denominator is below 1)
 
-Interval coverage (engiNIR 1.4 and later, PLS and PCR): how often the
+Interval coverage (PLS and PCR): how often the
 run's own cross-validated predictions fall inside the 0.95 prediction
 intervals of `prediction-runtime-contract_v3.md` (Prediction intervals),
-which use the fit error RMSEE (per ROI). A coverage well below 0.95 says the interval
+which use the fit error RMSEE (per ROI for the mean interval, per pixel for the pixel interval). A coverage well below 0.95 says the interval
 is too narrow for new data. Each held-out prediction gets the interval
 around itself, with the leverage of its ROI or pixel in the final model, and
 counts as covered when |ŷ_cv − y| ≤ half-width. This is an approximation:
-the held-out fold's model is not used, and the in-sample leverage and RMSEE (per ROI)
+the held-out fold's model is not used, and the in-sample leverage and RMSEE (of either level)
 are smaller than a held-out ROI's or pixel's would be, so the counted
 intervals are, if anything, too narrow and the coverage errs low.
 
@@ -384,8 +388,8 @@ intervals are, if anything, too narrow and the coverage errs low.
   others), s = `pixel_rmsee`. It is pixel-weighted, and its count is not an
   effective sample size (pixels of one ROI are not independent)
 - each also stores its count, `interval_coverage_roi_n` and
-  `interval_coverage_pixel_n`; a coverage is written only when it has at
-  least one interval
+  `interval_coverage_pixel_n`; a coverage without any interval is NaN with
+  the count 0
 - they are reported, never used to correct the interval
 
 ## 6. Refitting a stored model
@@ -394,9 +398,8 @@ A stored model can be fitted again on exactly what it was fitted on:
 
 - the refit uses the run's calibration set (its `roi_ids` and preprocessing
   recipe), input contract, model type, hyperparameters and fit
-  specification (the legacy specification for a run without one), never the
-  set of ROIs that have values now
-- the refit draws the pixel sample again from the stored seed and compares
+  specification, never the set of ROIs that have values now
+- the refit draws the pixel subsample again from the stored seed and compares
   its checksum with the stored one; a different checksum (the stored
   spectra of an ROI changed) is logged as a warning naming the run, the
   refit proceeds, and the new run stores its own checksum
@@ -420,6 +423,9 @@ A stored model can be fitted again on exactly what it was fitted on:
 - because folds depend only on the calibration set, unchanged ROIs and values give
   the same metrics; target values that changed since the fit are
   reported, and differing metrics are reported
+- the refit compares the stored `software` versions with the running ones;
+  when its metrics differ, the warning names every version that differs
+  (e.g. "fitted with scikit-learn 1.7.2, refitted with 1.8.0")
 - the refit is stored as a new model of the same calibration set and input contract; the original run is never changed
 
 ## 7. Fit specification
@@ -436,7 +442,7 @@ spectra and values, new ids) gives the same numbers.
 | `folds/group_by` | `roi`, `sample`, `target` (§4.1) | `roi` |
 | `folds/groups` | one integer per ROI of the calibration set, in `roi_ids` order: the index of its fold group in group order (§4.1); a fit output like `checksum` | – |
 | `components/rule` | `fixed` (the number was given), `one_se`, `min_rmsecv`, `q2_limit`, `f_test`, `q2_lookahead` (§7.4) | `fixed` with a number; `one_se` with `n_components="auto"` |
-| `components/noise_guard` | `on`, `off`: `on` applies the structure ceiling and the noise drop after an autofit rule (§7.4), `off` reproduces the choice of engiNIR 1.3; no effect with `fixed` | `on` with `"auto"`, `off` with a number |
+| `components/noise_guard` | `on`, `off`: `on` applies the structure ceiling and the noise drop after an autofit rule (§7.4), `off` gives the rule's plain choice; no effect with `fixed` | `on` with `"auto"`, `off` with a number |
 | `components/rule_choice` | the rule's number before the ceiling and the noise drop (§7.4); equal to `selected` with `fixed` or `noise_guard = off`; a fit output (a value in a request is ignored and replaced by the fit), and on read 1 ≤ `selected` ≤ `rule_choice` ≤ `max` | – |
 | `components/max` | integer ≥ 1, the largest number of components of the curve (*A*max) | max(*n*, min(15, max(1, *G* − 2), *M*)), *n* the given number (0 for `"auto"`), *M* the rank limit (§7.4) |
 | `components/selected` | the number of components of the run (equal to `hyperparameters/n_components`); a fit output | – |
@@ -449,12 +455,10 @@ spectra and values, new ids) gives the same numbers.
 | `exclusion/max_fraction` | largest share of an ROI's drawn pixels that may be excluded over all rounds, 0 < value < 1 | `0.2` |
 | `exclusion/formula` | DModX definition (§7.2): `dmodx-1` (unweighted) or `dmodx-2` (weighted by the modeling power, SIMCA's default) | `dmodx-1` |
 
-Runs stored before engiNIR 1.4 have neither `noise_guard` nor
-`rule_choice`: an absent `noise_guard` reads `off`, an absent `rule_choice`
-reads as `selected`, and an absent `cv_spec/@warnings` reads as "not
-recorded" (not as "no warnings").
+`cv_spec/@warnings` is required as well: the codes of §7.4, comma-separated,
+an empty string when there are none.
 
-Every key is written for every new run, also when it has no effect (e.g.
+Every key is written for every run, also when it has no effect (e.g.
 `n_folds` with `leave_one_group_out`, `level` with `method = none`), so that
 a stored specification compares equal to the same specification
 rebuilt from its keys.
@@ -465,11 +469,8 @@ integer in `hyperparameters/n_components`, so the stored model stays
 `Backend(**hyperparameters)`. A number given by the user is stored as is,
 with `components/rule = fixed`; the curve is computed in both cases.
 `components/selected` is written by the fit and refused in a request, like
-`folds/groups`. A stored `selected` other than 0 must equal
-`hyperparameters/n_components`, or the project is refused when read. A
-`fit_spec` without a `components` part (runs written by engiNIR 1.2) reads
-as `rule = fixed`, `max` = 0 (the default formula when refitted) and
-`selected` = 0 (not recorded).
+`folds/groups`. A stored `selected` must equal
+`hyperparameters/n_components`, or the project is refused when read.
 
 `folds/groups` is written by the fit; a fit request (`project.fit`) that
 contains it is refused. A stored `groups` is well-formed when it has one
@@ -487,30 +488,34 @@ the usual setting for spectra), so the estimator stays reconstructable as
 center: scikit-learn's PLS and PCA always center, and uncentred models are
 not used for spectra, so SIMCA's `none` is not offered (decided 2026-11-07;
 it was listed in Phase 0). `uv` divides by the standard deviation with
-N − 1, `pareto` by its square root. A fit that gives neither `scale` nor a
-scaling gets the defaults; a fit that gives `scale` (the form of runs before
-engiNIR 1.2) keeps it.
+N − 1, `pareto` by its square root. A fit that gives no scaling gets the
+defaults. There is no other way to request scaling (the `scale` switch of
+earlier versions is removed).
 Centering and scaling are learnt from the calibration pixels of each fold, like
 every other fitted step; standard deviations use N − 1.
 
 The short `cv` argument of the facade maps to the fold rule: `"auto"` →
 `round_robin` with *F* = 7, an integer *F* → `round_robin` with that *F*,
-`"logo"` → `leave_one_group_out`, each with `group_by = roi`. Two consequences for new runs: `cv="auto"`
-uses round-robin folds instead of `GroupKFold`, so cross-validated metrics
-can differ from a run fitted before engiNIR 1.2 on the same data; and an
-integer *F* larger than the number of ROIs gives leave one ROI out instead
-of being refused.
+`"logo"` → `leave_one_group_out`, each with `group_by = roi`. An integer *F*
+larger than the number of ROIs gives leave one ROI out instead of being
+refused.
 
 `cv_spec` records what ran: `type` `RoundRobinGroups` (also when *k* = *G*),
 `LeaveOneGroupOut` or `GroupKFold`; `n_splits` = *k*; `n_groups` = *G*, the
-number of fold groups (= the number of ROIs with `group_by = roi`, so also
-for every earlier run); `requested` = the short
+number of fold groups (= the number of ROIs with `group_by = roi`); `requested` = the short
 `cv` value, or `"fit_spec"` when the folds came from a `fit_spec`.
+
+`software` records the versions the fit ran with, as attributes: `enginir`,
+`numpy`, `scipy` and `scikit-learn`, each the installed version from the
+package metadata. Every fit and refit writes it; it is part of the model's
+content (a re-save with other versions is changed content), and a refit is
+a new model with its own versions. A model's numbers can depend on these
+versions (§6).
 
 Requests that cannot be met block the fit before any spectra are read (see
 Blocking Conditions).
 
-### 7.1 Pixel sample
+### 7.1 Pixel subsample
 
 - `per_roi = all` uses every stored pixel of every ROI
 - an integer *n* takes *n* pixels of every ROI, chosen by this algorithm,
@@ -524,7 +529,7 @@ Blocking Conditions).
      as 4-byte little-endian unsigned
   3. the *n* pixels with the smallest keys (compared as bytes) are taken;
      their indices are sorted ascending
-- the checksum is SHA-256 over, for each ROI in sample-set order, its digest
+- the checksum is SHA-256 over, for each ROI in calibration-set order, its digest
   *d* followed by its drawn indices as 4-byte little-endian unsigned
 - the choice for one ROI depends only on its own spectra and the seed:
   adding or removing an ROI, or new ids for the same spectra, never change
@@ -535,7 +540,7 @@ Blocking Conditions).
 
 ### 7.2 Pixel exclusion by DModX
 
-With `exclusion/method = dmodx`, outlying pixels are left out of a model.
+With `exclusion/method = dmodx`, pixels above DCrit are excluded from a model.
 For one model (a fold's model or the final model):
 
 1. fit the complete pipeline (stateful preprocessing, scaling, estimator)
@@ -602,39 +607,19 @@ Both definitions reproduce SIMCA 18.1 (plan Phase R: MPowX with the clip
 at 0, weighted and unweighted DModX); a run keeps the definition it was
 fitted with.
 
-### 7.3 Legacy runs
+### 7.3 Removed
 
-A run without `fit_spec` is a legacy run. Reading and refitting it uses:
-
-- folds from `cv_spec/requested`, with each ROI labeled by its position in
-  the calibration set's `roi_ids`: `"auto"` → scikit-learn `GroupKFold(7)`
-  (without shuffling), or `LeaveOneGroupOut` with fewer than 7 ROIs; an
-  integer *F* → `GroupKFold(F)`; `"logo"` → `LeaveOneGroupOut`. The fold
-  rule `group_kfold` uses `LeaveOneGroupOut` whenever there are fewer ROIs
-  than *F*; a stored legacy run with an integer *F* always has at least *F*
-  ROIs, because fewer were refused when it was fitted
-- fold groups `roi` (groups 0 … *R* − 1, not stored)
-- `components/rule = fixed`; no component curve and no calibration
-  diagnostics of §7.5 (they appear after a refit)
-- all pixels, no exclusion
-- the stored `hyperparameters/scale` (absent means `true`): `true` scales X
-  and Y (PLS, standard deviation with N − 1) or X (PCR, scikit-learn
-  `StandardScaler`, standard deviation with N) to unit variance; `false`
-  only center
-
-`GroupKFold` deals ROIs to folds by pixel count, so the folds of a legacy
-run depend on the ROI sizes and on scikit-learn's algorithm. The refit
-reproduces the metrics of runs written by engiNIR 1.0.1 to 1.1.x as long as
-that algorithm is unchanged. Runs written by 1.0.0 labeled ROIs by their
-random ids (CHANGELOG 1.0.1); their refit uses positions and may differ,
-and this is reported like any metric difference.
+Earlier versions read and refitted models without a fit specification
+(legacy runs). The `enginir-1.5` format has none: every model has a
+complete `fit_spec` (`project-schema-contract_v3.md`, Compatibility
+policy).
 
 ### 7.4 Component curve
 
-Every new PLS or PCR run stores, for *a* = 1 … *A*max (`components/max`),
+Every PLS or PCR run stores, for *a* = 1 … *A*max (`components/max`),
 how cross-validated prediction and fit change with the number of
 components (`artifact_refs/component_curve`). The curve uses the run's
-folds, fold groups, pixel sample, scaling and preprocessing; DModX pixel
+folds, fold groups, pixel subsample, scaling and preprocessing; DModX pixel
 exclusion is not applied to it (the exclusion depends on *A*; the chosen
 model is fitted with exclusion as specified). Without exclusion the curve's
 RMSECV (per ROI) at the run's *A* is the run's RMSECV (per ROI) (one cross-validation serves
@@ -690,7 +675,7 @@ Rules (`components/rule`), each choosing a number from 1 to *A*max:
   *b* + 1; the choice is max(1, *s* − 1), or *A*max when there is no such
   *b*
 
-Per component, from the same curve (engiNIR 1.4 and later):
+Per component, from the same curve:
 
 - ΔR²X(*a*) = R²X(cum)(*a*) − R²X(cum)(*a* − 1), R²X(cum)(0) = 0: the share of
   the spectra (scaled, centered drawn pixels) component *a* explains
@@ -716,16 +701,15 @@ Per component, from the same curve (engiNIR 1.4 and later):
   rule
 
 The curve stores `rmsee_roi`, `dw_weights`, `noise` and *C*
-(`@structure_ceiling`); ΔR²X is derived from `r2x_cum`. Runs from before
-1.4 lack them (see §7 for how their keys read).
+(`@structure_ceiling`); ΔR²X is derived from `r2x_cum`.
 
 With `n_components="auto"` the run's number is chosen in this order: *r*,
 the rule's choice (`components/rule_choice`); with `noise_guard = on`,
 *s* = min(*r*, *C*), then while *s* > 1 and `noise`(*s*), *s* − 1; with
 `noise_guard = off`, *r*. A given number is used as given. The guard is on
 by default because a curve from optimistic folds keeps falling slowly with
-components that model noise; the ceiling belongs to the guard so that a
-refit of a 1.3 run (guard `off`) chooses as it did.
+components that model noise. The ceiling belongs to the guard, so
+`noise_guard = off` gives the rule's plain choice.
 
 Ties are decided by exact comparison; values within floating-point noise of
 each other can choose differently on another platform, which a refit
@@ -746,7 +730,7 @@ optimistic; it warns in the log and does not refuse:
 
 ### 7.5 Calibration diagnostics
 
-Every new PLS or PCR run also stores, from the final model (*N* the pixels
+Every PLS or PCR model also stores, from the final model (*N* the pixels
 it was fitted on):
 
 - `coef_cs`: the coefficients in the model's own scaled units (SIMCA's
@@ -762,17 +746,17 @@ it was fitted on):
 - T²Crit = A(N − 1)/(N − A) · F(level; A, N − A) at 0.95 and 0.99 (SIMCA's
   F form; `enginir.validation.outliers.hotelling_t2` uses the Beta form for
   calibration data points, a different number); T²Crit for the first two
-  components (the score-plot ellipse) only when A ≥ 2; DModX and DCrit at
-  0.99 only when K − A ≥ 1 and N − A₀ − A ≥ 1
+  components (the score-plot ellipse), NaN when A < 2; DModX and DCrit at
+  0.99, NaN when K − A < 1 or N − A₀ − A < 1 (`project-schema-contract_v3.md`, Core and display data)
 - ROI scores for the score plot (model-workspace-diagnostics contract §2):
   `roi_scores`, per ROI (in `cv_outputs/roi_ids` order) the mean calibration
   score of each component over that ROI's fitted pixels (the drawn pixels
-  with a pixel sample, the kept pixels with DModX exclusion), and
+  with a pixel subsample, the kept pixels with DModX exclusion), and
   `roi_score_pixels`, the number of those pixels. An ROI with no fitted
   pixel has NaN scores and 0. The fit computes them because only the fit
   knows which row belongs to which ROI
 - per ROI the share of its drawn pixels above DCrit and above T²Crit (0.99)
-- band importance, on the model's axis (runs of engiNIR 1.4 and later):
+- band importance, on the model's axis:
   `mean_spectrum`, the mean preprocessed spectrum of the N fitted pixels
   (the model's `x_mean` in the units of X; stored with the diagnostics,
   which plots load without the prediction model); for PLS `vip`,
@@ -787,9 +771,7 @@ it was fitted on):
   i.e. Σᵢ (tᵢ pⱼ)² / Σᵢ (Zᵢⱼ − tᵢ pⱼ)² (explained over residual variance;
   computed in one chunked pass). A band whose residual is below 10⁻¹⁰ times
   its sum of squares (at least 10⁻¹⁰), or with zero variance, gets NaN with
-  a warning. Both are computed from the final model without a refit. PLS
-  runs from before 1.4 get VIP in the viewer from their stored `x_weights_`,
-  `x_scores_` and `y_loadings_`; the selectivity ratio needs a refit
+  a warning. Both are computed from the final model without a refit
 
 PCR computes its principal components with a deterministic full SVD, so a
 fit is reproducible and its first *a* components are those of an
@@ -813,7 +795,7 @@ v3 weighting decision:
   drawn pixels (§7.1); DModX exclusion can lower an ROI's count by at most
   `max_fraction`
 - the calibration set records the weighting policy; the model records the
-  pixel sample (`fit_spec/pixels`) and the excluded pixels
+  pixel subsample (`fit_spec/pixels`) and the excluded pixels
 - fold groups do not change weights: a sample with more ROIs contributes
   more pixels and more held-out ROI means than a sample with fewer
   (equal pixels per ROI, not per sample)
@@ -855,7 +837,7 @@ Model fitting for a calibration set must block or warn when:
 
 `SampleSet` and `ModelRun` must be persisted inside the project file.
 
-## Required persisted sample-set information
+## Required persisted calibration-set information
 
 - `sample_set_id`
 - included `roi_ids`
@@ -871,14 +853,15 @@ Model fitting for a calibration set must block or warn when:
 - `dataset_ids`
 - `created_at`
 
-## Required persisted model-run information
+## Required persisted model information
 
 - `model_run_id`
 - `sample_set_id`
 - `model_type`
 - hyperparameters
 - CV specification (what ran: fold type, fold and group counts)
-- fit specification (what was requested, §7; absent only for legacy runs)
+- fit specification (what was requested, §7)
+- software versions of the fit (§7)
 - metrics
 - references to fitted artifacts
 - `created_at`
@@ -902,7 +885,8 @@ Stateful preprocessing persistence rules:
   mutable recipe fields
 - reopening reconstructs fitted transformers from this state and must never
   call `fit()` on prediction data
-- missing or malformed required state blocks prediction during preflight
+- missing or malformed required state is core: the reader refuses the
+  project, and preflight refuses an in-memory model without it
 
 ## v3 HDF5 shape basis
 
@@ -946,7 +930,7 @@ These are intentionally deferred:
 - `roi_mean` as the primary model-fitting contract
 - `roi_feature` calibration sets
 - multi-target models
-- user-selectable sample-unit switching in the first modeling UI
+- user-selectable fitting-unit switching in the first modeling UI
 - weights other than 1
 - mixed fitting-unit comparisons in one comparison table
 
@@ -958,7 +942,7 @@ Decision:
 
 - v3 uses `per_pixel_unweighted`
 
-- equal ROI influence comes from equal pixel samples (§7.1), not from
+- equal ROI influence comes from equal pixel subsamples (§7.1), not from
   weights
 
 Out of scope for v3:
@@ -991,8 +975,8 @@ This contract is implemented correctly when:
 - fold groups never split a group: no ROI of a held-out fold group is in
   the calibration data of that fold, under every `group_by` and fold rule
 - a refit uses the stored fold groups and warns when the current ones differ
-- a model stores its sample-set and CV semantics explicitly
-- a model written by engiNIR 1.2 or later stores its complete fit
-  specification, and a refit reproduces its pixel sample, folds and metrics
+- a model stores its calibration-set and CV semantics explicitly
+- every model stores its complete fit specification and its software
+  versions, and a refit reproduces its pixel subsample, folds and metrics
 - DModX exclusion never sees held-out pixels
 - reported model performance cannot be mistaken for naive independent-pixel validation

@@ -221,7 +221,7 @@ Model shows the selected model and its diagnostics:
   there are at most 12 distinct values, as for levels 1, 4, 7, 10), and the
   calibration scores of the first two latent variables with Hotelling T²
   ellipses at 0.95 (dotted) and 0.99 (dashed); one point per ROI, the mean of
-  the pixels the model was fitted on (the drawn pixels with a pixel sample,
+  the pixels the model was fitted on (the drawn pixels with a pixel subsample,
   without the excluded ones). There are two pairs of ellipses, named in the
   legend. The gray **pixel** ellipses are the limits for single calibration
   pixels; an ROI mean averages thousands of pixels and sits well inside
@@ -243,8 +243,8 @@ Model shows the selected model and its diagnostics:
   guard changed); R²Y and Q² per ROI, with the gap between them shaded; each
   component on its own (Q²ₐ per ROI, ΔR²X per pixel, the Durbin–Watson value
   of its weights; noise components gray); and R²X and R²Y per pixel.
-  **Fit Again...** opens the fit dialog with the model's settings to try
-  another number
+  **Fit Again...** opens the fit dialog with the model's settings, including
+  its signal unit, to try another number
 - the **Distance** page: the distance to the model (DModX) and Hotelling T²
   of the calibration pixels, with their 0.99 limits and the share above them.
   A 0.99 limit expects 1 % of the pixels above it; much more means the
@@ -275,9 +275,12 @@ Explore, or from the View menu. It opens by itself with the Project ROIs
 tab, in the right-hand column of the window, and is not shown on the Dataset tab; opened there, it takes the Sensor Frame's place as a tab. Closing
 or opening it on either tab is kept for that tab.
 
-- One row per ROI (dataset, name, pixel count, **Predict**, sample) and one
-  column per target. **Predict** marks a prediction ROI (a tablet to predict;
-  never used to fit a model).
+- One row per ROI (dataset, name, pixel count, **Set**, sample) and one
+  column per target. **Set** is Calibration or Prediction; a prediction ROI
+  is a tablet to predict and is never used to fit a model. The dataset and
+  ROI columns stay in view when the table scrolls sideways (with model
+  result columns, for example); a long dataset name is shortened in the
+  middle, and its tooltip shows it in full.
 - **Sample** names the physical sample an ROI was taken from. Give the same
   label to ROIs from one sample (for example three regions of one tablet),
   so that a fit can hold them out together. Labels are text; surrounding
@@ -357,10 +360,10 @@ unusual spectra: a tablet with a larger share of pixels above the DModX limit
 columns per model while there are results: mean, SD, % excluded, % above
 DCrit and residual (read-only, not stored); click a header to sort the
 tablets, for example by predicted value. Its CSV is the per-ROI table: ROI, dataset, model, pixels, excluded pixels, mean, median,
-SD, 5 % and 95 %, mean DModX and T², shares above the limits, reference and
+SD, 5 % and 95 %, mean DModXPS and T²PS, shares above the limits, target value and
 residual, with RMSEP (per ROI) and bias per model.
 
-**Exclude pixels above the DModX limit** (with its level) leaves glare,
+**Exclude pixels above the DModXPS limit** (with its level) leaves glare,
 exposed substrate and direct reflections out of every ROI statistic; the
 statistics are recalculated at once, without predicting again. It starts as
 the model was fitted: on at its level for a model fitted with DModX
@@ -390,16 +393,15 @@ their mean; with the pixel exclusion on, excluded pixels are grayed. **Map** in
 the Controls dock turns the outlines and the graying off. Hovering the map
 shows the pixel in the status line at the bottom of the window: its frame and
 row, the prediction (and whether it is outside the color scale) with its
-95 % interval, DModX against DCrit (and whether the pixel is excluded), T²
+95 % interval, DModXPS against DCrit (and whether the pixel is excluded), T²PS
 and the prediction ROI under it. Hovering a tablet in the per-ROI plot shows its values there. The map header has the **Layer** selector (the
-prediction, **DModX** and **T²**, with the pixels above the 0.99 limits
+prediction, **DModXPS** and **T²PS**, with the pixels above the 0.99 limits
 marked, and **Prediction interval**, the ± half-width of each pixel's 95 %
 prediction interval with the pixels outside the model, which have none,
 marked; see :ref:`prediction-intervals`), the output selector (models with several targets), **Pan**,
 **Zoom** and **Reset View**. Large maps are shown as a preview that keeps
 every n-th frame and row; the axes, hover readout and CSV give the true
-frame and row. Models fitted before engiNIR 1.3 have no DModX and T²: fit
-them again to get the layers and the pixel removal.
+frame and row. A value a model does not have is shown as "not available".
 
 The **Prediction Distribution** histogram shows the pixels behind the per-ROI
 numbers: the kept pixels of the prediction ROIs, one outline per model, and

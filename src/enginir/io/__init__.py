@@ -41,10 +41,11 @@ from .jcamp_io import load_jcamp, JCAMPError
 from .envi_io import iter_envi_frame_chunks, load_envi, save_envi, ENVIError
 from .hdf5_io import iter_hdf5_frame_chunks, load_hdf5, save_hdf5
 from .project_store import (
-    PROJECT_SCHEMA_VERSION,
+    FILE_SCHEMA_VERSION,
     PredictionArtifactWriter,
     create_project,
     discard_prediction_run_artifacts,
+    discard_staged_predictions,
     has_prediction_run,
     finalize_prediction_run_artifacts,
     initialize_prediction_run_artifacts,
@@ -162,10 +163,11 @@ __all__ = [
     "save_envi",
     "save_hdf5",
     # project files
-    "PROJECT_SCHEMA_VERSION",
+    "FILE_SCHEMA_VERSION",
     "PredictionArtifactWriter",
     "create_project",
     "discard_prediction_run_artifacts",
+    "discard_staged_predictions",
     "has_prediction_run",
     "finalize_prediction_run_artifacts",
     "initialize_prediction_run_artifacts",

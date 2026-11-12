@@ -323,6 +323,7 @@ def _open_loaded_dataset_viewer(payload: _DatasetStartupPayload) -> "HSIViewer":
     t1 = time.perf_counter()
     viewer._cube_path = payload.path
     viewer._update_status_strip()
+    viewer._refresh_data_file_choices()  # the selector names the file, not "none"
     from ._recent import add as _recent_add
 
     _recent_add(payload.path)

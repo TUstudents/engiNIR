@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from enginir.project import FitSpec
+
 import dataclasses
 
 import h5py
@@ -103,6 +105,13 @@ def _create_phase6_model_project(path: str) -> None:
             "emsc": False,
             "detrend": False,
             "detrend_order": 1,
+            "sg_edges": "interp",
+            "asls": False,
+            "asls_lambda": 10000.0,
+            "asls_p": 0.001,
+            "asls_iterations": 10,
+            "bands_keep": [],
+            "bands_exclude": [],
         },
     )
     save_preprocessing_recipe(
@@ -117,6 +126,13 @@ def _create_phase6_model_project(path: str) -> None:
             "emsc": False,
             "detrend": False,
             "detrend_order": 1,
+            "sg_edges": "interp",
+            "asls": False,
+            "asls_lambda": 10000.0,
+            "asls_p": 0.001,
+            "asls_iterations": 10,
+            "bands_keep": [],
+            "bands_exclude": [],
         },
     )
     save_signal_domain_contract(
@@ -154,6 +170,7 @@ def _create_phase6_model_project(path: str) -> None:
                 "calibration_id": "cal_train",
                 "name": roi_id.upper(),
                 "source_file": "/data/train.h5",
+                "job": "calibration",
                 "n_pixels": int(spectra.shape[0]),
                 "created_at": f"2026-04-02T10:0{4 + index}:00+00:00",
                 "spatial_bounds": (index, index, 0, 1),
@@ -241,7 +258,7 @@ def test_preflight_prediction_uses_memory_budgeted_default_frame_chunks(tmp_path
             output_dtype="float32",
             created_at="2026-04-02T11:09:50+00:00",
         )
-        model_run = ModelRun(
+        model_run = ModelRun(fit_spec=FitSpec().to_dict(), 
             model_run_id="model_large",
             sample_set_id="sample_large",
             signal_domain_id=signal_domain.signal_domain_id,
@@ -316,7 +333,7 @@ def test_preflight_prediction_rejects_invalid_chunk_size(tmp_path):
         output_dtype="float32",
         created_at="2026-04-02T11:09:50+00:00",
     )
-    model_run = ModelRun(
+    model_run = ModelRun(fit_spec=FitSpec().to_dict(), 
         model_run_id="model_chunk",
         sample_set_id="sample_chunk",
         signal_domain_id=signal_domain.signal_domain_id,
@@ -684,11 +701,26 @@ def test_reopened_stateful_preprocessing_replays_persisted_training_state(tmp_pa
     )
 
 
+def test_a_model_without_its_msc_state_is_refused_when_the_project_is_read(tmp_path, qapp):
+    # The MSC/EMSC state is core (project-schema contract, Core and display
+    # data): the reader refuses the project, before any prediction.
+    project_path = str(tmp_path / "phase6_missing_msc_state.h5")
+    _create_phase6_model_project(project_path)
+    _fit_phase6_model_with_recipe(
+        project_path, recipe_id="recipe_msc", model_run_id="model_run_msc"
+    )
+    with h5py.File(project_path, "a") as handle:
+        del handle["model_runs/model_run_msc/artifact_refs/prediction_model/preprocessing_state"]
+
+    with pytest.raises(ValueError, match="no preprocessing_state"):
+        ProjectState().open_project(project_path)
+
+
 @pytest.mark.parametrize(
     ("damage", "match"),
-    [("delete", "missing its fitted state"), ("wrong_length", "has 4 bands, the recipe needs 3")],
+    [("wrong_length", "has 4 bands, the recipe needs 3")],
 )
-def test_reopened_stateful_preprocessing_rejects_missing_or_malformed_training_state(
+def test_reopened_stateful_preprocessing_rejects_malformed_training_state(
     tmp_path, qapp, damage, match
 ):
     project_path = str(tmp_path / "phase6_predict_missing_msc_state.h5")
@@ -998,7 +1030,7 @@ def test_predict_with_model_run_cancels_between_chunks_and_discards_artifacts(tm
     def cancel_after_first_chunk() -> bool:
         return any(event.phase == "predicting" and event.completed >= 1 for event in events)
 
-    with pytest.raises(PredictionCancelledError, match="cancelled"):
+    with pytest.raises(PredictionCancelledError, match="canceled"):
         predict_with_model_run(
             project_path=context.project_path,
             model_run=context.model_run,
@@ -1082,7 +1114,7 @@ def test_predict_with_model_run_can_persist_chunks_without_returning_arrays(tmp_
         project_path,
         "prediction_run_persist_chunks",
     )
-    assert artifact_refs["artifact_write_status"] == "complete"
+    assert "artifact_write_status" not in artifact_refs, "complete by construction"
     assert artifact_refs["y_pred"].shape == (4,)
     assert artifact_refs["spatial_map"].shape == (2, 2)
     assert "prediction_min" in artifact_refs
@@ -1637,6 +1669,27 @@ def test_every_chunk_reports_the_phases_in_order(tmp_path, qapp):
     assert [event.phase for event in events] == [
         "preflight", *per_chunk, *per_chunk, "finalizing", "finalizing"
     ]
+
+
+def test_progress_text_calls_the_reference_correction_by_its_name(tmp_path, qapp):
+    # Terminology contract: "calibration" means building a model, never the
+    # reference correction; the phase id `calibrating` is internal.
+    from enginir.viewer._prediction import _phase_label
+
+    X = np.ones((2, 2, 3), dtype=np.float32) * 10.0
+    context, spectral_data, dataset, calibration = _second_review_setup(tmp_path, "words", X)
+    events: list[PredictionProgressEvent] = []
+    predict_with_model_run(
+        project_path=context.project_path, model_run=context.model_run,
+        signal_domain=context.signal_domain, recipe=context.recipe, dataset=dataset,
+        calibration=calibration, model_registry={context.model_run.model_run_id: _SumPredictor()},
+        spectral_data=spectral_data, preprocessing_recipe_id=context.preprocessing_recipe_id,
+        chunk_size=1, progress_callback=events.append,
+    )
+
+    shown = [f"{_phase_label(event.phase)} {event.message}" for event in events]
+    assert not [text for text in shown if "calibrat" in text.lower()]
+    assert any(text.startswith("Reference correction") for text in shown)
 
 
 def test_flat_spectra_with_per_sensor_references_chunk_like_one_shot(tmp_path, qapp):

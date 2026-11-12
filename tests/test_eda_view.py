@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from enginir.project import FitSpec
+
 import numpy as np
 import pytest
 from PyQt6.QtWidgets import QMessageBox
@@ -325,7 +327,7 @@ def test_delete_roi_button_warns_when_roi_is_used_by_sample_set(
         dataset_ids=["dataset_1"],
         created_at="2026-04-02T10:01:00+00:00",
     )
-    project.model_runs["model_run_1"] = ModelRun(
+    project.model_runs["model_run_1"] = ModelRun(fit_spec=FitSpec().to_dict(), 
         model_run_id="model_run_1",
         sample_set_id="sample_set_1",
         signal_domain_id="signal_domain_1",

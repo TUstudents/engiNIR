@@ -1,4 +1,4 @@
-"""The pixel sample of a fit (``sample-set-model-run-contract_v3.md`` §7.1).
+"""The pixel subsample of a fit (``sample-set-model-run-contract_v3.md`` §7.1).
 
 The pixels of an ROI are chosen by SHA-256 keys of the seed, the ROI's stored
 spectra and the pixel index; the ``n`` smallest keys win. Only SHA-256 is
@@ -45,7 +45,7 @@ def draw_pixels(spectra: np.ndarray, n: int, seed: int, *,
     n:
         Number of pixels to draw, ``1 <= n <= n_pixels``.
     seed:
-        Seed of the pixel sample, ``0 <= seed < 2**63``.
+        Seed of the pixel subsample, ``0 <= seed < 2**63``.
     digest:
         :func:`roi_digest` of ``spectra``, if already computed.
     """
@@ -60,7 +60,7 @@ def draw_pixels(spectra: np.ndarray, n: int, seed: int, *,
 
 
 def sample_checksum(drawn: Iterable[tuple[bytes, np.ndarray]]) -> str:
-    """SHA-256 (hex) of the pixel sample: per ROI in sample-set order, its digest and indices."""
+    """SHA-256 (hex) of the pixel subsample: per ROI in sample-set order, its digest and indices."""
     hasher = hashlib.sha256()
     for digest, indices in drawn:
         hasher.update(digest)

@@ -325,6 +325,12 @@ def training_diagnostics(fitted: Any, X: np.ndarray, y: np.ndarray, kept: np.nda
         return float(components * (n - 1) / (n - components) * f.ppf(level, components,
                                                                       n - components))
 
+    # Undefined limits and distances are NaN, never left out (project-schema
+    # contract, Core and display data).
+    nan = float("nan")
+    diagnostics.update(t2_crit_095=nan, t2_crit_099=nan, t2_crit_2_095=nan, t2_crit_2_099=nan,
+                       dcrit_099=nan, dmodx=np.full(X.shape[0], np.nan, dtype=np.float32))
+    projection_fields.update(t2_crit_099=nan, s0=nan, dcrit_099=nan)
     if n - a >= 1:
         diagnostics["t2_crit_095"] = t2_crit(a, 0.95)
         diagnostics["t2_crit_099"] = t2_crit(a, 0.99)
@@ -343,14 +349,14 @@ def training_diagnostics(fitted: Any, X: np.ndarray, y: np.ndarray, kept: np.nda
 
     n_rois = int(roi_index.max()) + 1
     counts = np.bincount(roi_index, minlength=n_rois)
-    if "dmodx" in diagnostics:
-        above = diagnostics["dmodx"] > diagnostics["dcrit_099"]
-        diagnostics["roi_share_above_dcrit"] = (
-            np.bincount(roi_index, weights=above, minlength=n_rois) / counts).astype(np.float32)
-    if "t2_crit_099" in diagnostics:
-        above = t2 > diagnostics["t2_crit_099"]
-        diagnostics["roi_share_above_t2crit"] = (
-            np.bincount(roi_index, weights=above, minlength=n_rois) / counts).astype(np.float32)
+    for key, values, limit in (("roi_share_above_dcrit", diagnostics["dmodx"], "dcrit_099"),
+                               ("roi_share_above_t2crit", t2, "t2_crit_099")):
+        if np.isfinite(diagnostics[limit]):
+            above = values > diagnostics[limit]
+            diagnostics[key] = (np.bincount(roi_index, weights=above, minlength=n_rois)
+                                / counts).astype(np.float32)
+        else:
+            diagnostics[key] = np.full(n_rois, np.nan, dtype=np.float32)
     # ROI scores of the score plot: mean over each ROI's fitted pixels (§7.5).
     fitted_counts = np.bincount(roi_index[kept], minlength=n_rois)
     sums = np.stack([np.bincount(roi_index[kept], weights=projection.scores[kept, c],
@@ -366,7 +372,8 @@ def training_diagnostics(fitted: Any, X: np.ndarray, y: np.ndarray, kept: np.nda
 
     fitted_values = np.asarray(fitted.predict(X), dtype=np.float64).reshape(X.shape[0])
     y = np.asarray(y, dtype=np.float64)
-    metrics: dict[str, Any] = {}
+    metrics: dict[str, Any] = {key: float("nan") for key in
+                               ("pixel_rmsee", "pixel_r2_adj", "rmsee", "r2_adj")}
     rss = float(((fitted_values[kept] - y[kept]) ** 2).sum())
     tss = float(((y[kept] - y[kept].mean()) ** 2).sum())
     if n - 1 - a >= 1:
