@@ -23,8 +23,11 @@ from typing import Any
 import numpy as np
 
 from enginir._checks import check_choice, check_integer, check_real, log_and_raise
+from enginir._logging import get_logger
 
 from ._fit_spec import FitSpec
+
+logger = get_logger(__name__)
 
 SIGNAL_UNITS = ("DN", "Reflectance", "Absorbance")
 CALIBRATION_MODES = ("raw_dn", "dark_white_reference", "precalibrated_import")
@@ -57,24 +60,33 @@ def _text(value: Any, name: str, *, required: bool = True) -> str:
 
 
 def _timestamp(value: Any, name: str) -> str:
-    """Return an ISO 8601 timestamp as given; anything ``datetime`` cannot parse is an error."""
+    """Return an ISO 8601 timestamp with a UTC offset as given.
+
+    A timestamp that does not parse or has no offset is an error (project-schema
+    contract, Object identity rules §1).
+    """
     text = _text(value, name)
     try:
-        datetime.fromisoformat(text)
+        parsed = datetime.fromisoformat(text)
     except ValueError:
         log_and_raise("{} must be an ISO 8601 timestamp, got {!r}", name, text, depth=2)
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        log_and_raise("{} must state its UTC offset (e.g. +00:00), got {!r}", name, text,
+                      depth=2)
     return text
 
 
-def validate_project_meta(meta: Any, *, schema_version: str) -> dict[str, str]:
-    """Return validated project metadata: id, the current schema version and timestamps."""
+def validate_project_meta(meta: Any, *, file_schema_version: str) -> dict[str, str]:
+    """Return validated project metadata: id, file format, creator, writer and timestamps."""
     meta = _mapping(meta, "project_meta")
-    if meta.get("schema_version") != schema_version:
-        log_and_raise("project_meta schema_version must be {!r}, got {!r}", schema_version,
-                      meta.get("schema_version"))
+    if meta.get("FileSchemaVersion") != file_schema_version:
+        log_and_raise("project_meta FileSchemaVersion must be {!r}, got {!r}",
+                      file_schema_version, meta.get("FileSchemaVersion"))
     return {
         "project_id": _text(meta.get("project_id"), "project_id"),
-        "schema_version": schema_version,
+        "FileSchemaVersion": file_schema_version,
+        "FileCreator": _text(meta.get("FileCreator"), "FileCreator"),
+        "FileWriter": _text(meta.get("FileWriter"), "FileWriter"),
         "created_at": _timestamp(meta.get("created_at"), "project created_at"),
         "updated_at": _timestamp(meta.get("updated_at"), "project updated_at"),
     }
@@ -831,8 +843,17 @@ class ModelRun(SerializableModel):
         self.sample_set_id = _text(self.sample_set_id, "sample_set_id")
         self.signal_domain_id = _text(self.signal_domain_id, "signal_domain_id")
         self.model_type = _choice(self.model_type, "model_type", MODEL_TYPES)
-        for name in ("hyperparameters", "cv_spec", "metrics", "artifact_refs"):
+        for name in ("hyperparameters", "artifact_refs"):
             setattr(self, name, _mapping(getattr(self, name), name))
+        # Display data (project-schema contract, Core and display data): a
+        # missing or malformed value is logged and shown as "–", never refused.
+        for name in ("cv_spec", "metrics"):
+            value = getattr(self, name)
+            if not isinstance(value, dict):
+                logger.warning("Model run '{}' has no readable {} (got {}); it is shown as "
+                               "not available", self.model_run_id, name, type(value).__name__)
+                value = {}
+            setattr(self, name, value)
         self.created_at = _timestamp(self.created_at, "created_at")
 
     @property

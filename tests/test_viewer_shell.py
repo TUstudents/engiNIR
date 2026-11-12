@@ -170,6 +170,7 @@ def _create_reopenable_model_project(path: str, wavelengths: np.ndarray) -> None
             "metrics": {"rmsecv": 0.55, "r2": 0.9, "bias": 0.05},
             "artifact_refs": {
                 "prediction_model": {
+                    "n_components": 1,
                     "model_type": "PLSRegression",
                     "wavelengths": wavelengths.astype(np.float32),
                     "target_names": ["moisture"],

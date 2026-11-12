@@ -204,9 +204,9 @@ def test_the_library_removes_values_and_checks_batches_first(project):
     a2, api = project_obj.roi("A2").roi_id, project_obj.target("API").target_id
     with pytest.raises(ValueError, match="finite"):
         project_obj.save_assignments([
-            TargetAssignment(roi_id=a2, target_id=api, value=1.0, assigned_at="2026-11-03T00:00:00"),
+            TargetAssignment(roi_id=a2, target_id=api, value=1.0, assigned_at="2026-11-03T00:00:00+00:00"),
             TargetAssignment(roi_id=a2, target_id=api, value=float("nan"),
-                             assigned_at="2026-11-03T00:00:00")])
+                             assigned_at="2026-11-03T00:00:00+00:00")])
     assert _stored(project_obj.path, "A2", "API") is None
 
 

@@ -7,6 +7,17 @@ read against the code.
 
 ### Breaking
 
+- **New project file format `enginir-1.5`; projects written by earlier
+  versions do not open** (no migration, no repair; create them again).
+  `/project_meta` stores `FileSchemaVersion = "enginir-1.5"`, `FileCreator`
+  and `FileWriter` (`"engiNIR <version>"`) instead of `schema_version`;
+  every write updates `FileWriter` and `updated_at`, and every timestamp
+  must state its UTC offset. `enginir.io.PROJECT_SCHEMA_VERSION` is now
+  `FILE_SCHEMA_VERSION`.
+- The reader refuses a project whose core is incomplete, now including a
+  model without its executable model or without the MSC/EMSC state its
+  recipe needs; missing display data (a model's metrics or CV
+  specification) no longer stops a project from opening.
 - New PCR models are named in principal components (`"PCR 5 PC, SNV"`);
   PLS keeps `LV`. Stored names are labels and do not change.
 - Exported CSV columns: the Model plots name the measured value

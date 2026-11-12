@@ -1,4 +1,4 @@
-"""Reading and writing engiNIR project files (schema ``viewer-v3``).
+"""Reading and writing engiNIR project files (format ``enginir-1.5``).
 
 A project file is an HDF5 file holding the scientific workspace: datasets and
 their calibrations, ROIs with their spectra, targets and target assignments,
@@ -9,7 +9,7 @@ collection, keyed by its stable id:
 ====================================================  =========================
 Group                                                 Object
 ====================================================  =========================
-``/project_meta`` (attributes)                        project id, schema version
+``/project_meta`` (attributes)                        project id, file format, writers
 ``/datasets/{dataset_id}``                            dataset reference
 ``/datasets/{dataset_id}/calibrations/{id}``          calibration
 ``/targets/{target_id}``                              target definition
@@ -66,7 +66,10 @@ from ._hdf5_groups import (
 
 logger = get_logger(__name__)
 
-PROJECT_SCHEMA_VERSION = "viewer-v3"
+#: The project file format (``/project_meta/@FileSchemaVersion``). engiNIR
+#: reads and writes only this format; it changes only when a field becomes
+#: required, is removed or changes meaning (project-schema contract).
+FILE_SCHEMA_VERSION = "enginir-1.5"
 PROJECT_TOP_LEVEL_GROUPS = (
     "project_meta",
     "datasets",
@@ -100,12 +103,20 @@ PathLike = str | os.PathLike[str]
 
 
 def is_project_file(handle: h5py.File) -> bool:
-    """Return ``True`` if the open HDF5 file is an engiNIR v3 project."""
+    """Return ``True`` if the open HDF5 file is an engiNIR project in the current format."""
     project_meta = handle.get("project_meta")
     return (
         isinstance(project_meta, h5py.Group)
-        and decode(project_meta.attrs.get("schema_version", "")) == PROJECT_SCHEMA_VERSION
+        and decode(project_meta.attrs.get("FileSchemaVersion", "")) == FILE_SCHEMA_VERSION
     )
+
+
+def file_writer_label() -> str:
+    """``"engiNIR <version>"`` of the running package, for ``FileCreator`` and ``FileWriter``."""
+    # Imported here: the package metadata is read once per call, never typed in.
+    from enginir import __version__
+
+    return f"engiNIR {__version__}"
 
 
 def create_project(path: PathLike, *, project_id: str | None = None) -> None:
@@ -119,11 +130,14 @@ def create_project(path: PathLike, *, project_id: str | None = None) -> None:
         Stable project id; a random UUID by default.
     """
     now = _now_iso()
+    writer = file_writer_label()
     with h5py.File(path, "w") as f:
         project_meta = f.create_group("project_meta")
         project_meta.attrs.update(
             project_id=project_id or str(uuid.uuid4()),
-            schema_version=PROJECT_SCHEMA_VERSION,
+            FileSchemaVersion=FILE_SCHEMA_VERSION,
+            FileCreator=writer,
+            FileWriter=writer,
             created_at=now,
             updated_at=now,
         )
@@ -926,20 +940,22 @@ def _validate_payload(label: str, location: str, payload: dict[str, Any],
 
 @contextmanager
 def _open_project(path: PathLike, *, writable: bool = False) -> Iterator[h5py.File]:
-    """Open and validate a project; after a successful write, update ``updated_at``."""
+    """Open and validate a project; after a successful write, set ``FileWriter`` and ``updated_at``.
+
+    Both change together and only after the write succeeded; reading changes nothing.
+    """
     with h5py.File(path, "r+" if writable else "r") as f:
         _check_project_file(f, path)
         yield f
         if writable:
+            f["project_meta"].attrs["FileWriter"] = file_writer_label()
             f["project_meta"].attrs["updated_at"] = _now_iso()
 
 
 def _check_project_file(f: h5py.File, path: PathLike) -> None:
+    """Refuse any file that is not in the current format, before anything else is read."""
     if not is_project_file(f):
-        version = decode(f["project_meta"].attrs.get("schema_version", "")) \
-            if "project_meta" in f else None
-        log_and_raise("{} is not an engiNIR {} project file (schema_version={!r})", path,
-                      PROJECT_SCHEMA_VERSION, version, depth=3)
+        log_and_raise("{}", format_refusal(f, path), depth=3)
     missing = [name for name in PROJECT_TOP_LEVEL_GROUPS if name not in f]
     if missing:
         log_and_raise("Project {} is missing top-level group(s) {}", path, missing, depth=3)
@@ -1080,12 +1096,30 @@ def _chunk_shape(shape: tuple[int, ...]) -> tuple[int, ...] | None:
     return (min(max(shape[0], 1), 32), *shape[1:])
 
 
+def format_refusal(f: h5py.File, path: PathLike) -> str:
+    """The one message for a file that is not an ``enginir-1.5`` project.
+
+    It names the file's format (and its writer, when it records one); earlier
+    files stored ``schema_version``, which is read here for the message only.
+    """
+    meta = f.get("project_meta")
+    if not isinstance(meta, h5py.Group):
+        return f"{path} is not an engiNIR project file (no /project_meta)"
+    attrs = meta.attrs
+    found = decode(attrs.get("FileSchemaVersion", attrs.get("schema_version", ""))) or "unknown"
+    writer = decode(attrs.get("FileWriter", ""))
+    by = f", written by {writer}" if writer else ""
+    return (f"{path} is an engiNIR project in format {found!r}{by}; this engiNIR reads only "
+            f"{FILE_SCHEMA_VERSION!r} projects, so the project must be created again")
+
+
 def _now_iso() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat()
+    """Now, in UTC with an explicit offset and microseconds (project-schema contract)."""
+    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
 
 
 __all__ = [
-    "PROJECT_SCHEMA_VERSION",
+    "FILE_SCHEMA_VERSION",
     "PROJECT_TOP_LEVEL_GROUPS",
     "PredictionArtifactWriter",
     "as_roi_storage_array",

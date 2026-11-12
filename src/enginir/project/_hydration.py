@@ -6,7 +6,7 @@ from dataclasses import dataclass, fields
 from typing import Any, TypeVar
 
 from enginir._checks import log_and_raise
-from enginir.io.project_store import PROJECT_SCHEMA_VERSION, PROJECT_TOP_LEVEL_GROUPS
+from enginir.io.project_store import FILE_SCHEMA_VERSION, PROJECT_TOP_LEVEL_GROUPS
 from enginir._logging import get_logger
 from enginir.preprocessing import PreprocessingRecipe
 
@@ -27,7 +27,9 @@ from ._validation import validate_project_relationships
 logger = get_logger(__name__)
 
 _Model = TypeVar("_Model")
-_PROJECT_META_FIELDS = ("project_id", "schema_version", "created_at", "updated_at")
+_PROJECT_META_FIELDS = ("project_id", "FileSchemaVersion", "FileCreator", "FileWriter",
+                        "created_at", "updated_at")
+_MODEL_DISPLAY_FIELDS = ("cv_spec", "metrics")
 _CALIBRATION_REFERENCE_FIELDS = ("dark_ref_source", "white_ref_source", "dark_ref_data",
                                  "white_ref_data", "black_level", "white_level")
 
@@ -39,7 +41,8 @@ class ProjectWorkspace:
     Attributes
     ----------
     project_meta : dict
-        ``project_id``, ``schema_version``, ``created_at`` and ``updated_at``.
+        ``project_id``, ``FileSchemaVersion``, ``FileCreator``, ``FileWriter``,
+        ``created_at`` and ``updated_at``.
     datasets, calibrations, rois, targets, signal_domains, sample_sets, model_runs,
     predictions : dict
         Typed objects keyed by their id.
@@ -101,7 +104,7 @@ def hydrate_project_store(
     project_meta = validate_project_meta(
         _known_fields(store.get("project_meta", {}), _PROJECT_META_FIELDS,
                       location="/project_meta", required=_PROJECT_META_FIELDS),
-        schema_version=PROJECT_SCHEMA_VERSION,
+        file_schema_version=FILE_SCHEMA_VERSION,
     )
 
     datasets: dict[str, DatasetRef] = {}
@@ -153,10 +156,13 @@ def hydrate_project_store(
     }
     signal_domains = _build_all(SignalDomainContract, "signal_domains", "signal_domain_id", store)
     sample_sets = _build_all(SampleSet, "sample_sets", "sample_set_id", store)
+    # cv_spec and metrics are display data: tolerated when missing
+    # (project-schema contract, Core and display data).
     model_runs = _build_all(ModelRun, "model_runs", "model_run_id", store,
-                            optional=("name", "fit_spec"))
+                            optional=("name", "fit_spec") + _MODEL_DISPLAY_FIELDS)
     predictions = _build_all(PredictionRun, "predictions", "prediction_run_id", store)
 
+    _check_executable_models(model_runs, sample_sets, recipes)
     validate_project_relationships(
         datasets=datasets,
         calibrations=calibrations,
@@ -187,6 +193,29 @@ def hydrate_project_store(
         model_runs=model_runs,
         predictions=predictions,
     )
+
+
+def _check_executable_models(model_runs: dict[str, ModelRun], sample_sets: dict[str, SampleSet],
+                             recipes: dict[str, dict[str, Any]]) -> None:
+    """Every model has its executable model, with the MSC/EMSC state its recipe needs.
+
+    Core of the format (project-schema contract, Core and display data). The
+    arrays are read lazily; prediction preflight checks them when they load.
+    """
+    for run_id, run in model_runs.items():
+        location = f"/model_runs/{run_id}/artifact_refs/prediction_model"
+        model = run.artifact_refs.get("prediction_model")
+        if not isinstance(model, dict):
+            log_and_raise("{} is missing: the model cannot be used", location)
+        missing = [key for key in ("model_type", "n_components") if key not in model]
+        if missing:
+            log_and_raise("{} is missing required field(s): {}", location, missing)
+        sample_set = sample_sets.get(run.sample_set_id)
+        recipe = None if sample_set is None else recipes.get(sample_set.preprocessing_recipe_id)
+        if recipe and (recipe.get("msc") or recipe.get("emsc")) \
+                and not isinstance(model.get("preprocessing_state"), dict):
+            log_and_raise("{} has no preprocessing_state, which its MSC/EMSC recipe needs",
+                          location)
 
 
 def _build_all(

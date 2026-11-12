@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
@@ -32,6 +33,14 @@ _FITTED_ON = {"pixel": "pixels", "roi_mean": "ROI means"}
 _CORRECTION_MODES = {"raw_dn": "none (raw counts)",
                      "dark_white_reference": "dark/white references or detector levels",
                      "precalibrated_import": "already corrected"}
+
+
+def _local_time(value: Any) -> str:
+    """A stored UTC timestamp in local time, to the second; "–" when it cannot be read."""
+    try:
+        return datetime.fromisoformat(str(value)).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return "–"
 
 
 def fit_summary(model_run: ModelRun, roi_names: dict[str, str],
@@ -129,8 +138,21 @@ class ProjectInspector(QWidget):
         layout.addWidget(scroll)
 
     def show_default(self) -> None:
-        self.title_label.setText("Inspector")
-        self.body_label.setText("Select a project object to inspect details.")
+        """The project's file format and software, or a hint when no project is open."""
+        meta = self.project_state.project_meta
+        if self.project_state.project_path is None or not meta:
+            self.title_label.setText("Inspector")
+            self.body_label.setText("Select a project object to inspect details.")
+            return
+        self.title_label.setText(f"Project {Path(self.project_state.project_path).name}")
+        self.body_label.setText("\n".join([
+            f"File format: {meta.get('FileSchemaVersion', '–')}",
+            f"Created by: {meta.get('FileCreator', '–')}, {_local_time(meta.get('created_at'))}",
+            f"Last written by: {meta.get('FileWriter', '–')}, "
+            f"{_local_time(meta.get('updated_at'))}",
+            "",
+            "Select a project object to inspect details.",
+        ]))
 
     def show_workspace_summary(self, title: str, lines: list[str]) -> None:
         self.title_label.setText(title)

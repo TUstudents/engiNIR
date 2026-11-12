@@ -215,6 +215,7 @@ def test_v3_project_store_round_trip_and_skip_flags(project_path, rng, wavelengt
             "metrics": {"rmsecv": 1.23},
             "artifact_refs": {
                 "prediction_model": {
+                    "n_components": 1,
                     "model_type": "PLSRegression",
                     "coef_": np.ones(50, dtype=np.float32),
                     "intercept_": 0.0,
@@ -259,7 +260,10 @@ def test_v3_project_store_round_trip_and_skip_flags(project_path, rng, wavelengt
     )
     trimmed_store = load_project_store(project_path)
 
-    assert full_store["project_meta"]["schema_version"] == "viewer-v3"
+    meta = full_store["project_meta"]
+    assert meta["FileSchemaVersion"] == "enginir-1.5"
+    assert meta["FileCreator"].startswith("engiNIR ") and meta["FileWriter"].startswith("engiNIR ")
+    assert "schema_version" not in meta
     assert full_store["datasets"]["dataset_1"]["active_calibration_id"] == "cal_1"
     assert full_store["targets"]["target_moisture"]["name"] == "moisture"
     assert full_store["recipes"]["recipe_1"]["filter"] == "sg_d1"
@@ -536,20 +540,32 @@ def test_roi_storage_batch_loading(project_path, rng, wavelengths):
         assert handle["rois/A/spectra"].dtype == np.uint16
 
 
-def test_load_project_store_rejects_wrong_schema_version(tmp_path):
-    path = str(tmp_path / "bad_schema.h5")
+def test_a_project_of_an_earlier_format_is_refused_with_one_message(tmp_path):
+    # Projects written before 1.5 store schema_version = "viewer-v3" and no
+    # FileSchemaVersion; they are refused up front, naming their format.
+    path = str(tmp_path / "earlier.h5")
     with h5py.File(path, "w") as handle:
         meta = handle.create_group("project_meta")
-        meta.attrs["schema_version"] = "viewer-v2"
+        meta.attrs["schema_version"] = "viewer-v3"
 
-    with pytest.raises(ValueError, match="schema_version"):
+    with pytest.raises(ValueError, match="format 'viewer-v3'.*'enginir-1.5'.*created again"):
+        load_project_store(path)
+
+
+def test_a_project_of_a_later_format_names_its_writer(tmp_path):
+    path = str(tmp_path / "later.h5")
+    with h5py.File(path, "w") as handle:
+        meta = handle.create_group("project_meta")
+        meta.attrs.update(FileSchemaVersion="enginir-9.0", FileWriter="engiNIR 9.0.0")
+
+    with pytest.raises(ValueError, match="format 'enginir-9.0', written by engiNIR 9.0.0"):
         load_project_store(path)
 
 
 def test_save_recipe_enforces_current_schema_and_discards_extras(tmp_path):
     path = str(tmp_path / "recipe_schema.h5")
     create_project(path)
-    payload = recipe_payload(snv=True, created_at="2026-01-01T00:00:00")
+    payload = recipe_payload(snv=True, created_at="2026-01-01T00:00:00+00:00")
     messages: list[str] = []
     sink_id = logger.add(lambda message: messages.append(str(message)), level="WARNING")
     try:
@@ -815,6 +831,7 @@ def test_load_model_run_prediction_artifact_reads_only_lightweight_payload(proje
             "metrics": {},
             "artifact_refs": {
                 "prediction_model": {
+                    "n_components": 1,
                     "model_type": "PLSRegression",
                     "coef_": np.ones_like(wavelengths),
                     "intercept_": 0.0,
@@ -842,7 +859,7 @@ def test_resaving_unchanged_objects_is_a_no_op(tmp_path, wavelengths):
     project_path = str(tmp_path / "resave.h5")
     create_project(project_path)
     target = {"name": "T", "unit": "g", "value_type": "float",
-              "missing_value_policy": "allowed", "created_at": "2026-01-01T00:00:00"}
+              "missing_value_policy": "allowed", "created_at": "2026-01-01T00:00:00+00:00"}
     save_target_definition(project_path, "target_1", target)
     save_target_definition(project_path, "target_1", target)
     save_target_definition(project_path, "target_1", {**target, "name": "renamed"})
@@ -850,18 +867,18 @@ def test_resaving_unchanged_objects_is_a_no_op(tmp_path, wavelengths):
     dataset = {"source_path": "/data/a.eiff", "source_format": "eiff",
                "source_modality": "nir_hsi", "cube_shape": np.array([20, 15, 50]),
                "n_bands": 50, "wavelengths": wavelengths, "loader_metadata": {},
-               "import_timestamp": "2026-01-01T00:00:00"}
+               "import_timestamp": "2026-01-01T00:00:00+00:00"}
     save_dataset_ref(project_path, "dataset_1", dataset)
     save_calibration_spec(project_path, "dataset_1", "cal_1", {
         "mode": "dark_white_reference", "black_level": 100.0, "white_level": 3000.0,
-        "output_signal_unit": "Reflectance", "created_at": "2026-01-01T00:00:00"})
+        "output_signal_unit": "Reflectance", "created_at": "2026-01-01T00:00:00+00:00"})
     save_dataset_ref(project_path, "dataset_1", dataset)
 
     # NaN is stored content like any other value: an unchanged re-save stays a no-op
     run = {"sample_set_id": "s", "signal_domain_id": "d", "model_type": "PLS",
            "hyperparameters": {"n_components": 1}, "cv_spec": {"type": "KFold"},
            "metrics": {"rmsecv": np.nan}, "artifact_refs": {},
-           "created_at": "2026-01-01T00:00:00"}
+           "created_at": "2026-01-01T00:00:00+00:00"}
     save_model_run(project_path, "run_1", run)
     save_model_run(project_path, "run_1", run)
     with pytest.raises(ValueError, match="Refusing to overwrite"):
@@ -928,7 +945,7 @@ def test_writers_refuse_payloads_that_hydration_would_reject(project_path, chang
     """G03: direct writes are validated by the typed models before anything is stored."""
     create_project(project_path)
     target = {"name": "moisture", "unit": "%", "value_type": "float",
-              "missing_value_policy": "allowed", "created_at": "2026-01-01T00:00:00"}
+              "missing_value_policy": "allowed", "created_at": "2026-01-01T00:00:00+00:00"}
 
     with pytest.raises(ValueError, match=message):
         save_target_definition(project_path, "target_1", {**target, **change})
@@ -945,7 +962,7 @@ def test_child_object_writers_validate_too(project_path, wavelengths):
     with pytest.raises(ValueError, match="mode"):
         save_calibration_spec(project_path, "dataset_1", "cal_x", {
             "mode": "guess", "output_signal_unit": "Reflectance",
-            "created_at": "2026-01-01T00:00:00"})
+            "created_at": "2026-01-01T00:00:00+00:00"})
     with pytest.raises(ValueError, match="assigned_at"):
         save_target_assignment(project_path, "target_1", "roi_1",
                                {"value": 1.0, "assigned_at": "now"})

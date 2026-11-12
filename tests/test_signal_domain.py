@@ -209,7 +209,7 @@ def test_signal_domain_rejects_a_unit_its_calibration_mode_cannot_produce():
             required_signal_unit="DN", required_calibration_mode="dark_white_reference",
             requires_dark_ref=True, requires_white_ref=True, calibrated_input_allowed=False,
             n_bands=4, wavelengths=wavelengths, wavelength_tolerance_nm=0.0,
-            band_mapping_policy="exact", output_dtype="float32", created_at="2026-01-01T00:00:00",
+            band_mapping_policy="exact", output_dtype="float32", created_at="2026-01-01T00:00:00+00:00",
         )
 
 

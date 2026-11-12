@@ -216,7 +216,7 @@ def test_open_project_rejects_invalid_non_v3_file(
     viewer._open_project_btn_clicked_with_path(invalid_path)
 
     assert len(warnings) == 1
-    assert "is not an engiNIR viewer-v3 project file" in warnings[0]
+    assert "is not an engiNIR project file" in warnings[0]
     assert viewer.project_state.project_path is None
 
 

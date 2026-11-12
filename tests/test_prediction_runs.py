@@ -684,11 +684,26 @@ def test_reopened_stateful_preprocessing_replays_persisted_training_state(tmp_pa
     )
 
 
+def test_a_model_without_its_msc_state_is_refused_when_the_project_is_read(tmp_path, qapp):
+    # The MSC/EMSC state is core (project-schema contract, Core and display
+    # data): the reader refuses the project, before any prediction.
+    project_path = str(tmp_path / "phase6_missing_msc_state.h5")
+    _create_phase6_model_project(project_path)
+    _fit_phase6_model_with_recipe(
+        project_path, recipe_id="recipe_msc", model_run_id="model_run_msc"
+    )
+    with h5py.File(project_path, "a") as handle:
+        del handle["model_runs/model_run_msc/artifact_refs/prediction_model/preprocessing_state"]
+
+    with pytest.raises(ValueError, match="no preprocessing_state"):
+        ProjectState().open_project(project_path)
+
+
 @pytest.mark.parametrize(
     ("damage", "match"),
-    [("delete", "missing its fitted state"), ("wrong_length", "has 4 bands, the recipe needs 3")],
+    [("wrong_length", "has 4 bands, the recipe needs 3")],
 )
-def test_reopened_stateful_preprocessing_rejects_missing_or_malformed_training_state(
+def test_reopened_stateful_preprocessing_rejects_malformed_training_state(
     tmp_path, qapp, damage, match
 ):
     project_path = str(tmp_path / "phase6_predict_missing_msc_state.h5")

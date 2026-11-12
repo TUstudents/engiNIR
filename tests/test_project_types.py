@@ -684,7 +684,7 @@ def test_sample_set_and_model_run_contract_validation():
 
 
 def _minimal_store(wavelengths):
-    from enginir.io.project_store import PROJECT_SCHEMA_VERSION
+    from enginir.io.project_store import FILE_SCHEMA_VERSION
 
     dataset = {
         "source_path": "/data/a.eiff",
@@ -707,8 +707,10 @@ def _minimal_store(wavelengths):
         },
     }
     return {
-        "project_meta": {"project_id": "p", "schema_version": PROJECT_SCHEMA_VERSION,
-                         "created_at": "2026-01-01T00:00:00", "updated_at": "2026-01-01T00:00:00"},
+        "project_meta": {"project_id": "p", "FileSchemaVersion": FILE_SCHEMA_VERSION,
+                         "FileCreator": "engiNIR 1.5.1", "FileWriter": "engiNIR 1.5.1",
+                         "created_at": "2026-01-01T00:00:00.000000+00:00",
+                         "updated_at": "2026-01-01T00:00:00.000000+00:00"},
         "datasets": {"dataset_1": dataset},
         "targets": {}, "target_assignments": {}, "recipes": {}, "signal_domains": {},
         "rois": {}, "sample_sets": {}, "model_runs": {}, "predictions": {},
@@ -829,8 +831,8 @@ def test_calibration_content_identity_ignores_ids_and_timestamps():
                              mode="dark_white_reference", dark_ref_source=None,
                              white_ref_source=None, dark_ref_data=None, white_ref_data=None,
                              black_level=100.0, white_level=3000.0,
-                             output_signal_unit="Reflectance", created_at="2026-01-01T00:00:00")
-    assert levels.same_content_as(replace(levels, calibration_id="cal_2", created_at="2026-01-02T00:00:00"))
+                             output_signal_unit="Reflectance", created_at="2026-01-01T00:00:00+00:00")
+    assert levels.same_content_as(replace(levels, calibration_id="cal_2", created_at="2026-01-02T00:00:00+00:00"))
     assert not levels.same_content_as(replace(levels, white_level=3001.0))
     assert not levels.same_content_as(replace(levels, dataset_id="dataset_2"))
     assert not levels.same_content_as(replace(levels, output_signal_unit="Absorbance"))
@@ -848,8 +850,10 @@ def test_calibration_content_identity_ignores_ids_and_timestamps():
     ("field", "value", "message"),
     [
         ("project_id", "", "project_id"),
-        ("schema_version", "viewer-v2", "schema_version must be"),
+        ("FileSchemaVersion", "viewer-v3", "FileSchemaVersion must be"),
+        ("FileWriter", "", "FileWriter"),
         ("created_at", "yesterday", "ISO 8601"),
+        ("created_at", "2026-01-01T00:00:00", "UTC offset"),
         ("updated_at", "2026-13-01", "ISO 8601"),
     ],
 )
