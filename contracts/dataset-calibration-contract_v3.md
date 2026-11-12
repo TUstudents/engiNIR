@@ -3,7 +3,8 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.0; v3 is the default and only supported project schema
+- Status: active contract for engiNIR 1.5; the file format `enginir-1.5` is the
+  only format engiNIR reads and writes (`project-schema-contract_v3.md`)
 - Scope: raw `.eiff` import, reference correction ownership, input-contract compatibility, prediction-time reuse
 
 ## Goal
@@ -117,8 +118,8 @@ Required invariants:
 - a lowercase file-format key inferred from the source extension; known values
   are `eiff`, `hdf5`, `envi`, and `csv`; unknown extensions persist as their
   bare lowercase suffix
-- compatibility comparisons normalize case and whitespace and treat legacy
-  `eiff_raw` as `eiff`
+- compatibility comparisons normalize case and whitespace; there are no
+  aliases for earlier values
 
 `source_modality` vocabulary in v3:
 
@@ -257,21 +258,19 @@ Required fields:
 - `output_dtype`
 - `created_at`
 
-Allowed `band_mapping_policy` values in v3:
+Allowed `band_mapping_policy` value in v3:
 
 - `exact`
-- `reject`
 
 v3 band-mapping rule:
 
 - no interpolation, regridding, or automatic band remapping is supported
-- both `exact` and `reject` assume band count and band order are already aligned
-  by the import/modeling workflow
+- `exact` assumes band count and band order are already aligned by the
+  import/modeling workflow
 - `band_mapping_policy` is a strict compatibility declaration in v3, not an
   executable interpolation strategy
-- `exact` and `reject` have identical runtime behavior in v3; current writers
-  emit `exact`, readers accept both, and the distinction between the two
-  values is reserved for a future remapping contract
+- the field is kept, with its one value, for a future remapping contract
+  (calibration transfer); any other value is refused on read
 - defer interpolation/regridding to a later contract version
 
 Required invariants:

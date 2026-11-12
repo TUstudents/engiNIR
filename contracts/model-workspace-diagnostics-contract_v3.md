@@ -3,7 +3,8 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.0; v3 is the default and only supported project schema
+- Status: active contract for engiNIR 1.5; the file format `enginir-1.5` is the
+  only format engiNIR reads and writes (`project-schema-contract_v3.md`)
 - Scope: `Model` workspace visual hierarchy, required diagnostics, PLS/PCR plot contract, persistence expectations for reopening saved models
 
 ## Goal
@@ -97,28 +98,26 @@ Required v3 pages, in this order:
    - `Residuals`
    - target distribution
    - latent scores, with the Hotelling T² ellipses at 0.95 and 0.99 of the
-     first two components (engiNIR 1.3 and later): of the calibration pixels
+     first two components: of the calibration pixels
      (the pixels the model is fitted on), and of the ROIs (computed from their
      mean scores: centered on their mean, shaped by their
      covariance, limit `2(n−1)/(n−2)·F(level; 2, n−2)` for `n` ROIs, at
      least 4), with a legend naming both
 2. `Spectral`
    - regression coefficients
-   - scaled coefficients (CoeffCS, 1.3 and later)
+   - scaled coefficients (CoeffCS)
    - loadings of the first (up to) three components
-   - VIP (PLS; engiNIR 1.4 and later, and PLS runs from before 1.4 from
-     their stored weights): VIP over
+   - VIP (PLS): VIP over
      wavelength with lines at 1.0 and 0.8 and the model's mean spectrum
      shaded behind it, and VIP sorted from the largest value (bands as bars)
-   - selectivity ratio (PLS and PCR; 1.4 and later) over wavelength with
+   - selectivity ratio (PLS and PCR) over wavelength with
      the mean spectrum behind it
-   Runs without the stored selectivity ratio show a "refit" placeholder;
-   plots over wavelength leave a gap where a band selection leaves out
+   Plots over wavelength leave a gap where a band selection leaves out
    bands
-3. `Components` (1.3 and later; `sample-set-model-run-contract_v3.md` §7.4),
+3. `Components` (`sample-set-model-run-contract_v3.md` §7.4),
    2 × 2, every plot naming its level:
-   - **RMSECV (per ROI)** with its standard error, RMSEE (per ROI) (1.4 and
-     later) as a second line, the model's number marked, and every rule's
+   - **RMSECV (per ROI)** with its standard error, RMSEE (per ROI) as a
+     second line, the model's number marked, and every rule's
      suggestion listed with its reason (e.g. "Q² limit: 1 (Q²₂ = −0.02 ≤
      0.05)"); with the noise guard, the rule's number and the guarded
      number both
@@ -128,13 +127,11 @@ Required v3 pages, in this order:
      fit made on pixels)
    - **per component**: Q²ₐ (bars, per ROI, with the R1 limit *L* as a
      line), ΔR²X (bars, per pixel) and the Durbin–Watson value of the
-     weights (1.4 and later, line on its own axis); the legend names the
+     weights (line on its own axis); the legend names the
      level of each; noise components drawn gray
    - **per pixel**: R²X(cum) and R²Y(cum) over the drawn pixels, with a note
      that single pixels are noisy, so R²Y per pixel stays below the ROI value
-   Runs from before 1.4 show what they store (no RMSEE (per ROI) line, no
-   Durbin–Watson, no noise flags)
-4. `Distance` (1.3 and later; §7.5)
+4. `Distance` (`sample-set-model-run-contract_v3.md` §7.5)
    - the calibration pixels' normalized DModX with DCrit (0.99) and the share
      above it next to the 1 % a 0.99 limit expects; bins up to the 99.5th
      percentile and the pixels above it as one overflow bar (count and
@@ -144,8 +141,9 @@ Required v3 pages, in this order:
      by target value) and above T²Crit (markers), sorted from the largest
      DModX share, with the expected 1 % as a line; a bar selects its ROI
 
-Runs fitted before engiNIR 1.3 show "refit" placeholders on the new pages.
-The fit summary shows RMSEE (per ROI) and R²adj, per ROI, when the run has them.
+Every model has every diagnostic of these pages (the `enginir-1.5` format
+requires them); there are no "refit" placeholders. The fit summary shows
+RMSEE (per ROI) and R²adj, per ROI, when they are defined (R − 1 − A ≥ 1).
 
 The `Fit` page is shown after a fit and when a saved run is opened. The page
 labels are not contract-frozen; their order and content are. New diagnostics
@@ -306,9 +304,8 @@ Required behavior:
   with DModX exclusion), computed and stored by the fit (`diagnostics/
   roi_scores`, sample-set-model-run contract §7.5); the viewer never
   reconstructs it from pixel counts
-- a run without stored ROI scores (fitted before this rule) shows an
-  explicit placeholder asking to fit the model again; an ROI without fitted
-  pixels has no point, and the plot says how many ROIs that are
+- an ROI without fitted pixels has no point, and the plot says how many
+  ROIs that are
 - ROI selection should be possible or at least inspectable
 - the plot must label the scores as calibration scores, so that they are not
   mistaken for cross-validated scores
@@ -320,8 +317,7 @@ Required v3 spectral diagnostic families:
 - regression coefficients
 - loadings
 
-Optional but recommended in v3, stored by runs of engiNIR 1.4 and later
-(`sample-set-model-run-contract_v3.md` §7.5):
+Stored by every model (`sample-set-model-run-contract_v3.md` §7.5):
 
 - VIP (PLS)
 - selectivity ratio (PLS and PCR)
@@ -406,9 +402,8 @@ Required when supported by the fitted backend artifact:
 - coefficients
 - loadings
 
-Optional in v3:
-
-- VIP, if computable from persisted state without refit
+Required as well (stored by every model): VIP (PLS), the selectivity
+ratio, the component curve and the calibration distances.
 
 Forbidden behavior:
 

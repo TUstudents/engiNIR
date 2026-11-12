@@ -3,7 +3,8 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.0; v3 is the default and only supported project schema
+- Status: active contract for engiNIR 1.5; the file format `enginir-1.5` is the
+  only format engiNIR reads and writes (`project-schema-contract_v3.md`)
 - Scope: persisted calibration ROIs, target definitions, target assignments, ROI provenance, modeling selection semantics
 
 ## Goal
@@ -81,24 +82,19 @@ Required fields:
 - `created_at`
 - `calibration_id`
 - `provenance`
+- `job`: `calibration` or `prediction` (`terminology_v3.md`, Calibration
+  and Prediction). A `prediction` ROI marks a sample to be predicted (e.g. a
+  tablet of a production tray): it never enters a calibration set, whatever
+  target values it has; a value it has serves only the residual and RMSEP (per ROI) of
+  a prediction (`prediction-runtime-contract_v3.md`, Prediction ROIs). Any
+  other stored value, and a missing `job`, is refused on read with a logged
+  error
 
 Optional fields:
 
 - `sample`: label of the physical sample the ROI was taken from (e.g. the
   blend or tablet), a non-empty string; absent when the ROI is its own
   sample
-- `use`: `calibration` or `prediction` (`terminology_v3.md`, Calibration
-  and Prediction), stored explicitly since engiNIR 1.5. A missing `use`
-  (ROIs stored before 1.4) and `training` (the name in 1.4) read as
-  `calibration`. A `prediction` ROI marks a sample to be predicted (e.g. a
-  tablet of a production tray): it never enters a calibration set, whatever
-  target values it has; a value it has serves only the residual and RMSEP (per ROI) of
-  a prediction (`prediction-runtime-contract_v3.md`, Prediction ROIs). Any
-  other stored value is rejected on read with a logged error. Callers pass
-  `calibration` or `prediction`; `training` is refused with the rename.
-  engiNIR 1.4 refuses `calibration` (an unknown value), so a project with
-  ROIs stored by 1.5 needs engiNIR 1.5; engiNIR 1.3 and earlier ignore the
-  attribute (an unknown extra) and would use prediction ROIs for fitting
 
 Required invariants:
 
@@ -126,9 +122,9 @@ v3 rule:
   fold groups it used, so later label edits do not change how it refits.
   Only `save_roi_sample` sets, changes or removes the label; re-saving an
   ROI never changes it
-- `use` is set when the ROI is created (the ROI and ROI grid dialogs,
-  `Dataset.add_roi`); afterwards it is mutable like `sample`: only
-  `save_roi_use` changes it, in place;
+- `job` is set when the ROI is created (the ROI and ROI grid dialogs,
+  `Dataset.add_roi(..., job=...)`); afterwards it is mutable like `sample`:
+  only `save_roi_job` changes it, in place;
   it never changes the ROI's identity, spectra or other fields. Switching an
   ROI to `prediction` leaves stored calibration sets and models that contain
   it unchanged (they refit as they were fitted); new calibration sets leave it
@@ -350,7 +346,7 @@ When a model is created:
 
 1. choose one `TargetDefinition`
 2. choose included ROIs
-3. filter to ROIs that have an assignment for that target and whose `use`
+3. filter to ROIs that have an assignment for that target and whose `job`
    is `calibration`
 4. build `X` from pixel-level raw ROI spectra
 5. build `Y` by repeating the selected ROI-level target assignment across those ROI pixels
@@ -370,7 +366,7 @@ The viewer edits target values in an ROI table:
 
 - one row per ROI, showing its dataset, name and pixel count
 - a "Set" column, Calibration or Prediction chosen from a drop-down, switched in
-  place (`save_roi_use`)
+  place (`save_roi_job`)
 - a "Sample" column with the ROI's sample label; typing a label sets it
   when the cell is left, clearing the cell removes it, and pasting a column
   fills consecutive rows (labels are text, so any text is accepted;

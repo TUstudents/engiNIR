@@ -182,13 +182,8 @@ same quantity), and the words it replaces.
   RMSEP comes from prediction ROIs that have target values. Shown in the ROI
   table's column "Set"; in text always "calibration ROI(s)" or "prediction
   ROI(s)".
-: Stored as `use = calibration` or `use = prediction`. New calibration ROIs
-  store `calibration` (a project with them does not open in engiNIR 1.4,
-  which refuses unknown values). A missing `use` and the value `training`
-  (no 1.4 file has it) read as `calibration`; for the identity rule
-  (`project-schema-contract_v3.md` §5) a missing `use`, `training` and
-  `calibration` are the same content, so re-saving an older ROI is not a
-  change.
+: Stored as the ROI field `job` = `calibration` or `prediction`, required
+  (`roi-target-contract_v3.md`).
 : Elsewhere: SIMCA *prediction set* for prediction ROIs; prediction ROIs
   with target values form an external *test set* (they give the RMSEP).
 : Replaces: "training" in every user-visible meaning ("training range" →
@@ -309,6 +304,7 @@ for:
 | `SignalDomainContract`, `signal_domain_id` | Input contract |
 | `SampleSet`, `sample_set_id`, `sample-set-model-run-contract_v3.md` | Calibration set |
 | `ModelRun`, `model_run_id` | Model |
+| `job` (ROI field), `TrainingROI.job` | Calibration and Prediction (ROI set) |
 | `PreprocessingRecipe`, `recipe_id` | Preprocessing recipe |
 | `raw_dn` (signal unit) | Raw counts (DN) |
 | `pixel_*` metric keys | Metrics per pixel |
@@ -321,6 +317,11 @@ Renamed in 1.5.0:
 
 - ROI `use`: calibration ROIs store `calibration` (see Calibration and
   Prediction).
+
+Renamed in 1.5.x (format `enginir-1.5`, no reading of earlier files):
+
+- ROI `use` → `job` (`TrainingROI.job`, `add_roi(job=...)`, `set_job`,
+  `save_roi_job`).
 - `Prediction.uncertainty_map(level)` → `Prediction.interval_map(level)`
   (breaking: the old name is removed).
 
@@ -371,9 +372,8 @@ Renamed in 1.5.0:
   case (the same scan, for strings passed to buttons, actions and titles),
   with an allow-list of abbreviations (ROI, PLS, PCR, LV, PC, SNV, MSC,
   EMSC, SG, DModX, DCrit, T², RMSE…).
-- New calibration ROIs store `use = calibration`; a missing `use` and
-  `training` read as calibration; re-saving an ROI stored without `use` is
-  not refused as a content change.
+- Every ROI stores `job` = `calibration` or `prediction`; a missing `job`
+  or any other value is refused on read.
 - `Prediction.interval_map(level)` returns what `uncertainty_map` returned;
   `uncertainty_map` no longer exists.
 - The glossary has an entry for every term of this contract.

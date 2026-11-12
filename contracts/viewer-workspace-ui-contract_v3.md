@@ -3,7 +3,8 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.0; v3 is the default and only supported project schema
+- Status: active contract for engiNIR 1.5; the file format `enginir-1.5` is the
+  only format engiNIR reads and writes (`project-schema-contract_v3.md`)
 - Scope: viewer workspace structure, phase-specific panels and controls, global status/progress behavior, project-only vs dataset-attached behavior
 
 ## Goal
@@ -168,6 +169,12 @@ Minimum required object groups:
 Minimum required behavior:
 
 - selecting an object updates the current inspector/context view
+- the project itself shows its file format and software: `FileSchemaVersion`,
+  `FileCreator`, `FileWriter`, `created_at` and `updated_at` in local time
+- opening a file of another format shows one message naming its format (and
+  `FileWriter`, when present) and saying that the project must be created
+  again with this version; the file is not changed and stays in the recent
+  list
 - the browser works in project-only mode
 - the browser does not itself create scientific objects implicitly
 
@@ -316,7 +323,7 @@ Required controls:
 - axis controls
 - ROI creation, single and as a grid (the grid dialog opens with the Options
   defaults and shows the cells on the image, outside cells in red); both dialogs have a **Prediction only**
-  checkbox that sets the ROIs' `use` and remembers the last choice per dataset (user settings); prediction ROIs are marked in the ROI table (the Set
+  checkbox that sets the ROIs' `job` and remembers the last choice per dataset (user settings); prediction ROIs are marked in the ROI table (the Set
   column), the browser, the mosaic (dashed outline) and the ROI spectra
   (dashed lines, still colored by value); counts of ROIs with a value name
   calibration and prediction ROIs separately
@@ -446,7 +453,8 @@ Required controls:
   ranges. The proposal is not stored
 - the inspector shows how a model was fitted: folds and fold groups,
   pixel subsample, scaling, exclusion settings, excluded pixels per ROI,
-  flagged ROIs and DCrit
+  flagged ROIs and DCrit, and the software versions of the fit
+  (`software`)
 
 Required browser emphasis:
 

@@ -3,7 +3,8 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.0; v3 is the default and only supported project schema
+- Status: active contract for engiNIR 1.5; the file format `enginir-1.5` is the
+  only format engiNIR reads and writes (`project-schema-contract_v3.md`)
 - Scope: prediction execution, progress reporting, memory behavior, artifact
   persistence, and interactive map handoff
 
@@ -157,8 +158,8 @@ v3 dtype rule:
 v3 band-mapping rule:
 
 - no interpolation, regridding, or automatic band remapping is supported
-- `exact` and `reject` both mean the band count and band order are accepted as
-  already aligned by the import/modeling workflow
+- `exact` means the band count and band order are accepted as already
+  aligned by the import/modeling workflow
 - the scan's band count is compared with the input contract (the recipe's
   input); the saved model's coefficients and projection data are compared
   with the recipe's output band count (fewer bands with `sg_edges = drop` or
@@ -346,9 +347,10 @@ Forbidden behavior:
 
 ## Applicability diagnostics
 
-For models that store projection data (`prediction_model`: `x_mean`,
-`x_std`, `rotations`, `loadings`, `score_variances`, `s0`, `n_train`,
-`n_components`; runs of engiNIR 1.3 and later), every predicted pixel also
+Every PLS and PCR model stores projection data (`prediction_model`:
+`x_mean`, `x_std`, `rotations`, `loadings`, `score_variances`, `s0`,
+`n_train`, `n_components`; `sample-set-model-run-contract_v3.md` §7.5), so
+every predicted pixel also
 gets, from its preprocessed spectrum x (K bands after preprocessing, A
 components, N kept calibration pixels, i.e. after DModX exclusion):
 
@@ -381,8 +383,7 @@ components, N kept calibration pixels, i.e. after DModX exclusion):
 - the arithmetic is `float64` per row block; results are `float32`, and
   tests compare with an independent `float64` computation at rtol `1e-5`
 
-A run without projection data predicts as before and has no diagnostics
-(the viewer says to refit; the summary has the prediction statistics only). Nothing of the diagnostics depends on the whole
+Nothing of the diagnostics depends on the whole
 image, so they are computed in the single chunked pass.
 
 ## Prediction intervals
@@ -472,7 +473,7 @@ diagonal term scaled by (N − 1)/(R − 1)).
 
 ## Prediction ROIs
 
-ROIs whose `use` is `prediction` (`roi-target-contract_v3.md`) mark the
+ROIs whose `job` is `prediction` (`roi-target-contract_v3.md`) mark the
 samples to predict (tablets on a tray). A prediction of them reads only the
 project file: each ROI's stored pixels are converted with the ROI's own
 reference correction and stored references by `roi_to_signal_domain` (as model
@@ -519,9 +520,7 @@ Diagnostics. The default comes from the run's fit specification: on at
 `exclusion/level` when `exclusion/method = dmodx`, off otherwise; its
 `formula`, `rounds` and `max_fraction` do not carry over (no cap per ROI).
 Changing the exclusion recalculates from the predicted pixels without
-predicting again. A model without projection data (fitted before 1.3) has
-no DModXPS: the statistics without them are reported, the shares and the
-exclusion are unavailable ("–") and said so.
+predicting again.
 
 For comparison, the 10th, 50th and 90th percentiles of the calibration ROIs'
 stored shares of pixels above DCrit (`roi_share_above_dcrit`, §7.5 of the
@@ -578,13 +577,15 @@ Required behavior:
   dataset or reference correction is missing makes the project fail to open
   (relationship validation)
 
-- initialize artifact datasets before chunk writes
-- write prediction chunks directly to their final HDF5 datasets
+- stage the run under `/staging/{prediction_run_id}/`
+  (`project-schema-contract_v3.md` §7): initialize its artifact datasets
+  before chunk writes, and write chunks directly into them
 - store enough artifact metadata to interpret shape, dtype, target, and spatial
   orientation without loading the arrays
 - for multi-output predictions, store output-axis metadata sufficient to select
   one target/output without guessing
-- finalize metadata only after all required artifact writes succeed
+- finalize metadata only after all required artifact writes succeed, then
+  move the group to `/predictions/{prediction_run_id}/`
 - failed prediction runs must not masquerade as completed predictions
 
 Multi-output provenance in v3:
@@ -620,46 +621,35 @@ Recommended artifact metadata:
 Allowed artifact datasets:
 
 - `/predictions/{prediction_run_id}/artifact_refs/y_pred`
-- `/predictions/{prediction_run_id}/artifact_refs/spatial_map`
 - derived preview datasets such as `preview_map` when full maps are too large
   for immediate UI rendering
 
-`y_pred` is the canonical v3 prediction array. For image datasets,
-`spatial_map_shape` defines its logical spatial reshape; implementations should
-not persist a second full `spatial_map` copy unless it contains genuinely
-different data. Readers accept files containing both.
+`y_pred` is the prediction array. For image datasets, `spatial_map_shape`
+defines its spatial reshape; no second full `spatial_map` copy is stored.
 
 Forbidden behavior:
 
 - requiring complete prediction output to return to the UI thread before it can
   be saved
 
-## Lifecycle status contract
+## Staged writes
 
-The staged artifact write path must make run completeness explicit on disk via
-`artifact_refs/@artifact_write_status`, as defined by
-`project-schema-contract_v3.md`.
+The staged artifact write path follows `project-schema-contract_v3.md` §7:
 
-Required behavior:
-
-- artifact initialization persists `artifact_write_status = writing` before the
-  first chunk write
-- finalization sets `artifact_write_status = complete` only after all required
-  artifact writes and metadata updates succeed
-- a failure or cancellation between initialization and finalization must
-  discard the staged prediction group; discard removes the group rather than
-  persisting a failed run
-- readers must reject `writing` and unknown status values with a logged error;
-  an absent status attribute on a directly persisted complete run means
-  `complete`
+- the run is written under `/staging/{prediction_run_id}/` and moved to
+  `/predictions/{prediction_run_id}/` only after all required artifact
+  writes and metadata succeeded; a run in `/predictions` is complete by
+  construction, so there is no status attribute
+- a failure or cancellation between initialization and finalization deletes
+  the staging group
+- a staging group left by a crash never stops the project from opening; the
+  reader logs one warning per stale group, and the next staged write or
+  `discard_staged_predictions(path)` deletes it
 
 Forbidden behavior:
 
-- persisting a `failed`, `cancelled`, or any other status value not defined by
-  the schema contract
-- leaving a staged `writing` run behind after the job's failure or cancellation
-  path has completed
-- interpreting an unknown status value as complete
+- persisting a failed or canceled run in `/predictions`
+- reading anything from `/staging/` outside the staging writers
 
 ## Interactive map handoff
 
@@ -733,14 +723,14 @@ Runtime tests must cover:
   datasets, reference corrections or prediction runs, and writes one log entry
 - DModXPS and T²PS equal their formulas; chunked equals unchunked; an odd
   pixel exceeds DCrit
-- a model fitted in the same viewer session gets the maps; a run without
-  projection data has no diagnostics layer
+- a model fitted in the same viewer session gets the maps
 - prediction finalization leaves no completed `PredictionRun` after a chunk
   write failure
-- a prediction run marked `writing` and a run with an unknown
-  `artifact_write_status` value are both rejected on project open
-- a canceled staged prediction run is discarded and leaves no prediction group
-  behind
+- a write interrupted between staging and finalizing leaves a project that
+  opens, with one warning and no run in `/predictions`; the next staged
+  write or `discard_staged_predictions` removes the stale group
+- a canceled staged prediction run is discarded and leaves no staging or
+  prediction group behind
 - full-sensor dark/white references are applied chunk-locally without tiling
   across the full prediction cube
 - interactive map payload reports row/frame orientation and value lookup

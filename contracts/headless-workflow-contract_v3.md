@@ -3,7 +3,8 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.0; v3 is the default and only supported project schema
+- Status: active contract for engiNIR 1.5; the file format `enginir-1.5` is the
+  only format engiNIR reads and writes (`project-schema-contract_v3.md`)
 - Scope: the Qt-free public API surface for project-backed scientific
   workflows — creation, persistence, hydration, calibration-set building, model
   fitting, and prediction from scripts and Jupyter notebooks
@@ -68,6 +69,7 @@ and writes nothing they would reject.
 - `load_project_store` is the canonical metadata-first reader
 - object writers persist first-class objects (`save_dataset_ref`,
   `save_calibration_spec`, `save_training_roi`, `save_roi_sample`,
+  `save_roi_job`,
   `save_target_definition`,
   `save_target_assignment`, `save_preprocessing_recipe`,
   `save_signal_domain_contract`, `save_sample_set`, `save_model_run`,
@@ -79,7 +81,9 @@ and writes nothing they would reject.
   `load_prediction_spatial_map_preview`)
 - staged prediction artifact writes (`initialize_prediction_run_artifacts`,
   `open_prediction_run_artifact_writer`,
-  `finalize_prediction_run_artifacts`, `discard_prediction_run_artifacts`)
+  `finalize_prediction_run_artifacts`, `discard_prediction_run_artifacts`,
+  and `discard_staged_predictions` for staging groups left by a crash;
+  `project-schema-contract_v3.md` §7)
 - spectral file loading (`load_spectra` and the per-format loaders)
 
 ### 2. Typed domain (`enginir.project`)
@@ -135,8 +139,8 @@ and writes nothing they would reject.
 - `project.fit(..., n_components="auto")` chooses the number of components
   from the component curve with `fit_spec={"components": {"rule": ...,
   "max": ...}}` (default rule `one_se`); every PLS/PCR model has the curve
-  (`model.component_curve`: a dict of arrays and the suggestions, or `None`
-  for a model fitted before 1.3) and the calibration diagnostics
+  (`model.component_curve`: a dict of arrays and the suggestions) and the
+  calibration diagnostics
   (`sample-set-model-run-contract_v3.md` §7.4, §7.5)
 - `project.set_sample(roi, label)` sets the sample label of an ROI (name or
   object); `None` or an empty or blank text removes it
@@ -163,8 +167,9 @@ and writes nothing they would reject.
   ROIs), each with its mean interval's half-width at 0.95 (`interval`);
   `exclude_dmodx` a level, `False` for none, `None` the model's own
   setting. `roi_prediction_statistics(...)` recalculates them for another
-  exclusion without predicting again. `project.set_use(roi, use)` marks an
-  ROI; `scan.add_roi(..., use="prediction")` creates one
+  exclusion without predicting again. `project.set_job(roi, job)` marks an
+  ROI (by id: `project.save_roi_job(roi_id, job)`);
+  `scan.add_roi(..., job="prediction")` creates one
 - read access: `project.datasets`, `project.rois`, `project.targets`,
   `project.models`, `project.predictions`, keyed by name (datasets by path,
   predictions by id; `project.predictions` lists only predictions persisted
@@ -250,10 +255,9 @@ and writes nothing they would reject.
   viewer do not check names (`viewer-workspace-ui-contract_v3.md`,
   Identity in the viewer)
 - the name-based calls released in 1.0 stay supported
-- `recipe` is a `PreprocessingRecipe` or a mapping; a mapping is the
-  persisted form (`project-schema-contract_v3.md` §4), where an absent
-  `sg_edges` means `interp`, an absent `asls` means no AsLS and absent
-  `bands_keep`/`bands_exclude` select every band
+- `recipe` is a `PreprocessingRecipe` (whose constructor has defaults for
+  every field) or a mapping; a mapping is the persisted form
+  (`project-schema-contract_v3.md` §4) and must have every field
 - `fit` names a model `"{model} {n} LV, {recipe summary}"` for PLS and
   `"{model} {n} PC, {recipe summary}"` for PCR (e.g.
   `"PLS 2 LV, SNV"`; the summary names AsLS, marks a Savitzky-Golay

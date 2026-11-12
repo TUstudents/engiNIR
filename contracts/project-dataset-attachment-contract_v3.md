@@ -3,7 +3,8 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.0; v3 is the default and only supported project schema
+- Status: active contract for engiNIR 1.5; the file format `enginir-1.5` is the
+  only format engiNIR reads and writes (`project-schema-contract_v3.md`)
 - Scope: viewer/project workflow states, dataset attachment, datasets of a project, project-only behavior, mismatch validation, eager-write semantics
 
 ## Goal
@@ -181,7 +182,9 @@ Creating a project file must create an empty scientific workspace only.
 Required behavior:
 
 - create all top-level v3 groups
-- write `project_meta`
+- write `project_meta` with `FileSchemaVersion = "enginir-1.5"`,
+  `FileCreator`, `FileWriter` and the timestamps
+  (`project-schema-contract_v3.md`, Object identity rules §1)
 - do not create any dataset implicitly
 - do not create any reference correction implicitly
 - do not create any ROI implicitly

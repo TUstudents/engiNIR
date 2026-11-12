@@ -3,7 +3,8 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.0; v3 is the default and only supported project schema
+- Status: active contract for engiNIR 1.5; the file format `enginir-1.5` is the
+  only format engiNIR reads and writes (Compatibility policy)
 - Scope: project-level persistence structure, object ids, relationships, required HDF5 groups, v3 compatibility rules
 
 ## Goal
@@ -122,16 +123,39 @@ Required invariant:
 
 ### 1. Project identity
 
-Required fields:
+Required fields of `/project_meta`:
 
-- `project_id`
-- `schema_version`
-- `created_at`
-- `updated_at`
+| Field | Value | Written |
+|---|---|---|
+| `project_id` | the project's stable id | once, at creation |
+| `FileSchemaVersion` | `enginir-1.5`, the file format | once, at creation |
+| `FileCreator` | `engiNIR <version>`, the software that created the file | once, at creation |
+| `FileWriter` | `engiNIR <version>`, the software that last wrote the file | by every write |
+| `created_at` | timestamp of creation | once, at creation |
+| `updated_at` | timestamp of the last write | by every write |
 
-Required invariant:
+Required invariants:
 
-- every project file declares exactly one schema version
+- every project file declares exactly one `FileSchemaVersion`; the reader
+  requires the value `enginir-1.5` (Compatibility policy)
+- `FileSchemaVersion` names the format, not the software: it changes only
+  when a field becomes required, is removed or changes meaning. A new
+  optional field does not change it (Schema validation and extra-field
+  policy)
+- `<version>` is the installed package version (`enginir.__version__`),
+  never typed in; a development build is written as it is (e.g.
+  `1.5.1.dev3+g1234abc`). `FileCreator` and `FileWriter` are informational:
+  they are shown and logged, and never decide whether a file is read
+- `FileWriter` and `updated_at` are set together after every successful
+  write; a failed write changes neither, and reading changes nothing
+- every stored timestamp (`created_at`, `updated_at`, the objects'
+  `created_at`, `import_timestamp` and `assigned_at`) is ISO 8601 in UTC
+  with an explicit offset and microseconds
+  (`2026-11-12T09:56:05.852000+00:00`); the reader refuses a timestamp
+  that does not parse or has no offset
+
+The three CamelCase names are deliberate (decided 2026-11-12); every other
+stored name is snake_case.
 
 ### 2. Stable ids
 
@@ -188,55 +212,46 @@ All eight fields are required even when a switch is false or `filter` is
 `none`. Python defaults are construction conveniences, not missing-field
 defaults for persisted projects.
 
-Two groups of optional fields were added by the release that introduced
-SIMCA preprocessing (planned 1.3). They are written only when they change
-what the recipe executes, so every recipe stored before keeps its content
-and its id:
+The recipe also has these fields, all required as well. A field that has
+no effect is normalized to its default before the id is computed, so equal
+recipes have equal content and ids:
 
 - `sg_edges`: `drop` or `interp`, how a Savitzky-Golay filter treats the
   first and last ⌊`sg_window`/2⌋ bands. `drop` removes them (the spectra get
   K − 2⌊`sg_window`/2⌋ bands, as in SIMCA); `interp` keeps them, extrapolated
-  by the polynomial of the first and last window. Written only when `filter`
-  is a Savitzky-Golay filter and the value is `drop`; a stored recipe without
-  the field means `interp`. New recipe objects default to `drop`; a recipe
-  given as a mapping is the persisted form, where an absent field means
-  `interp`. Without a Savitzky-Golay filter the field has no effect: it is
-  normalized to `drop` (the default) and not written, so `from_dict` yields
-  `interp` only for a Savitzky-Golay recipe without the field.
+  by the polynomial of the first and last window. New recipe objects
+  default to `drop`. Without a Savitzky-Golay filter the field has no
+  effect and is normalized to `drop`.
 - `asls` (boolean), `asls_lambda` (positive real), `asls_p` (real,
   0 < p < 0.5), `asls_iterations` (integer ≥ 1): asymmetric least-squares
-  baseline correction. Written, all four, only when `asls` is true; a stored
-  recipe without them means `asls = false`. With `asls` false the other
-  three have no effect and are normalized to their defaults (10000, 0.001,
-  10). `asls_lambda` and `asls_p` are finite and normalized to float
-  (float64 attributes), `asls_iterations` to int, before the id is computed,
-  so `10000` and `10000.0` give the same recipe and id.
-
-A third group was added by engiNIR 1.4 (band selection), again written
-only when set:
-
+  baseline correction. With `asls` false the other three have no effect and
+  are normalized to their defaults (10000, 0.001, 10). `asls_lambda` and
+  `asls_p` are finite and normalized to float (float64 attributes),
+  `asls_iterations` to int, before the id is computed, so `10000` and
+  `10000.0` give the same recipe and id.
 - `bands_keep`, `bands_exclude`: lists of inclusive `[low, high]` ranges on
   the recipe's axis after the Savitzky-Golay step (wavelengths in nm; for
   data without wavelengths, the band numbers of the dataset, i.e. the
   input index 0 … K − 1, so dropping edges does not renumber). A band is
-  selected when it lies in a keep range (or no keep list is given) and in
-  no exclude range. λ is the axis value as stored (float32 for an input contract) converted to float64; a band lies in a range when
+  selected when it lies in a keep range (or the keep list is empty) and in
+  no exclude range. λ is the axis value as stored (float32 for an input
+  contract) converted to float64; a band lies in a range when
   low − τ ≤ λ ≤ high + τ, with τ = 10⁻³ times the smallest band spacing of
   the axis (10⁻⁶ for a single band), so a typed bound equal to a stored
   float32 wavelength matches it. Normalized before the id is computed,
   independent of any axis: each pair ordered (low ≤ high), the ranges
   sorted by low, a range merged with the previous one when its low ≤ the
   previous high (exact float64 comparison; ranges one band apart stay
-  separate), values finite and float; an empty list is the same as an
-  absent field and is not written. Stored as float64 datasets of shape
-  (n, 2). A recipe without them selects every band.
+  separate), values finite and float. Stored as float64 datasets of shape
+  (n, 2); an empty list is a dataset of shape (0, 2). Empty lists select
+  every band.
 
-Reading: an explicit `sg_edges = interp` equals an absent field; `sg_edges`
-without a Savitzky-Golay filter and AsLS parameters with `asls = false` are
-accepted and normalized; an `sg_edges` value other than `drop` or `interp`
-is rejected; `asls = true` with any of the three parameters missing is a
-missing-field error, never filled from defaults. "The same content" below
-compares the normalized stored recipe with the normalized new one.
+Reading: a recipe missing any field is refused with a logged error; an
+`sg_edges` value other than `drop` or `interp` is refused; a field that has
+no effect but differs from its normalized default is accepted and
+normalized. "The same content" below compares the normalized stored recipe
+with the normalized new one. A recipe given to the API as a mapping is
+the persisted form and must have every field.
 
 The execution order is AsLS, Savitzky-Golay, SNV, MSC, EMSC, detrending,
 then band selection for the enabled steps. AsLS fits, for every spectrum z, the
@@ -278,12 +293,6 @@ formulas (as SIMCA's K = 86 of 100 bands for a 15-point window),
 preprocessed ROI spectrum summaries and plots, and prediction use the
 output axis after band selection; the input contract keeps the input bands.
 
-Projects with these fields need the release that introduced them or later:
-an older version would discard them as unknown fields and replay a
-different recipe (with `drop` its band check fails; the band ranges are
-datasets, which 1.3 skips without a message, but its band check fails;
-without, AsLS would be skipped silently).
-
 Recipe timestamps and other additional recipe parameters are not part of
 the v3 recipe schema. They follow the project extra-field policy: warn and
 discard. A future executable parameter requires a new explicit contract rather
@@ -309,12 +318,9 @@ scientific content. Writers enforce, per object:
   removed only by its own writer (`save_roi_sample`), in place; re-saving an
   ROI never changes or removes it (a re-save whose `sample` differs from the
   stored one is changed content)
-- `TrainingROI.use` (`calibration` | `prediction`; a missing `use` and
-  `training` read `calibration`) is set when the ROI is created; afterwards
-  only `save_roi_use` changes it, in place; a re-save whose `use` differs
-  from the stored one is changed content, where a missing `use`, `training`
-  and `calibration` count as the same content (an older ROI re-saves
-  unchanged)
+- `TrainingROI.job` (`calibration` | `prediction`) is set when the ROI is
+  created; afterwards only `save_roi_job` changes it, in place; a re-save
+  whose `job` differs from the stored one is changed content
 - changed scientific content requires a new id
 
 Explicit exceptions, each already governed by its own contract rule:
@@ -324,8 +330,8 @@ Explicit exceptions, each already governed by its own contract rule:
 - `TargetAssignment`: updating the value of an existing `(roi_id, target_id)`
   pair is the documented editing model (`roi-target-contract_v3.md`)
 - prediction staging: `initialize`/`write`/`finalize`/`discard` mutate the
-  staged prediction group as part of the lifecycle status contract; the
-  one-shot prediction writer is immutable like other objects
+  staged group under `/staging/` (§7); a finalized run in `/predictions` and
+  the one-shot prediction writer are immutable like other objects
 - `DatasetRef.source_path`: the path is a location, not identity. It may be
   updated after `Locate File...` has verified the file against the dataset
   and against the stored raw pixels of its ROIs
@@ -420,9 +426,12 @@ v3 requires these top-level groups:
   predictions/
 ```
 
-Required invariant:
+Required invariants:
 
-- all top-level groups exist even if some are empty
+- all top-level groups exist even if some are empty; `/predictions` stays
+  empty unless a script stores a prediction (Open questions §1)
+- one optional top-level group, `/staging/`, holds staged prediction writes
+  that are not finalized yet (§7); it is not an extra field
 
 ## Hydration and memory rules
 
@@ -448,7 +457,6 @@ Examples of heavy arrays that may remain disk-backed until explicitly needed:
 - model CV outputs
 - fitted model numeric arrays
 - prediction `y_pred`
-- prediction `spatial_map`
 - prediction `preview_map` or other display-oriented map pyramids
 
 Required invariant:
@@ -475,7 +483,9 @@ project.h5
 |
 +-- /project_meta/
 |   +-- @project_id
-|   +-- @schema_version
+|   +-- @FileSchemaVersion   "enginir-1.5"
+|   +-- @FileCreator         "engiNIR <version>"
+|   +-- @FileWriter          "engiNIR <version>"
 |   +-- @created_at
 |   +-- @updated_at
 |
@@ -504,6 +514,7 @@ project.h5
 |   +-- @calibration_id
 |   +-- @name
 |   +-- @sample              optional sample label (mutable)
+|   +-- @job                 calibration | prediction (mutable, save_roi_job)
 |   +-- @source_file
 |   +-- @n_pixels
 |   +-- @created_at
@@ -535,8 +546,8 @@ project.h5
 |   +-- @emsc
 |   +-- @detrend
 |   +-- @detrend_order
-|   +-- @sg_edges, @asls, @asls_lambda, @asls_p, @asls_iterations (optional, §4)
-|   +-- bands_keep, bands_exclude (optional float64 (n, 2) datasets, §4)
+|   +-- @sg_edges, @asls, @asls_lambda, @asls_p, @asls_iterations (§4)
+|   +-- bands_keep, bands_exclude (float64 (n, 2) datasets, n ≥ 0, §4)
 |
 +-- /signal_domains/{signal_domain_id}/
 |   +-- input-contract fields / attrs
@@ -562,7 +573,8 @@ project.h5
 |   +-- @name                optional display name
 |   +-- hyperparameters
 |   +-- cv_spec
-|   +-- fit_spec            absent only for runs before engiNIR 1.2
+|   +-- fit_spec
+|   +-- software            engiNIR, numpy, scipy, scikit-learn versions of the fit
 |   +-- metrics
 |   +-- fitted artifacts
 |   +-- @created_at
@@ -575,7 +587,6 @@ project.h5
     +-- @preprocessing_recipe_id
     +-- @created_at
     +-- /artifact_refs/
-        +-- @artifact_write_status (absent or `complete`; `writing` only while staged)
         +-- @source_path
         +-- @output_dtype
         +-- @prediction_shape
@@ -590,8 +601,9 @@ project.h5
         +-- @clip_low_count
         +-- @clip_high_count
         +-- y_pred
-        +-- spatial_map (optional legacy/materialized view)
         +-- preview_map (optional)
+
+/staging/{prediction_run_id}/  (optional; a staged prediction write, §7)
 ```
 
 Prediction runtime metadata (source path, dtype, shapes, output-axis
@@ -601,10 +613,8 @@ selection, chunking counters, clipping telemetry) is persisted as attributes on
 `docs/hdf5_format.md`; the attributes shown above are the representative
 required set.
 
-`y_pred` is the canonical prediction data array. `spatial_map_shape` supplies
-the lossless spatial interpretation. A separate full `spatial_map` dataset is
-not required when it would only duplicate `y_pred`; readers must accept both
-the canonical single-array layout and existing dual-array files.
+`y_pred` is the prediction data array; `spatial_map_shape` gives its
+spatial interpretation. No second `spatial_map` copy is stored.
 
 ## Required schema semantics
 
@@ -613,10 +623,10 @@ the canonical single-array layout and existing dual-array files.
 `/project_meta/` must store:
 
 - project identity
-- schema version
+- `FileSchemaVersion`, `FileCreator` and `FileWriter`
 - timestamps
 
-This is mandatory.
+This is mandatory (Object identity rules §1).
 
 ### 2. Dataset-local reference correction storage
 
@@ -669,7 +679,7 @@ v3 requirement:
   - input contract
   - preprocessing recipe
 - reading a prediction run for navigation or summary display must not require
-  eager hydration of `y_pred` or `spatial_map`
+  eager hydration of `y_pred`
 - a completed prediction run must store runtime/artifact metadata sufficient to
   interpret output shape, dtype, target/unit, source path, and chunking strategy
   without reading the output datasets
@@ -682,30 +692,23 @@ v3 requirement:
 - failed or partial prediction output must not be indistinguishable from a
   finalized prediction run
 
-### 7. Prediction lifecycle status
+### 7. Staged prediction writes
 
-The staged prediction write path persists an explicit lifecycle marker at
-`/predictions/{prediction_run_id}/artifact_refs/@artifact_write_status`.
+A stored prediction (low-level persistence only, Open questions §1) is
+either written in one operation or staged:
 
-Allowed values:
-
-- `writing` — artifact datasets are initialized and chunk writes are in
-  progress; the run is not a valid finalized project state
-- `complete` — finalization succeeded after all required artifact writes
-
-Required semantics:
-
-- an absent `artifact_write_status` attribute means `complete`; writers that
-  persist an already-complete prediction run in one operation may omit it
-- the staged write path sets `writing` at artifact initialization and sets
-  `complete` only during finalization
-- a failed or canceled staged run is discarded by deleting the prediction
-  group; v3 persists no `failed` or `cancelled` status value
-- the reader must reject a project containing a prediction run marked
-  `writing` with a logged error
-- the reader must reject unknown `artifact_write_status` values with a logged
-  error; unknown status values are not extras to warn about, because they
-  change whether the run may be interpreted as finalized
+- the staged write path creates `/staging/{prediction_run_id}/`, writes the
+  artifact datasets and chunks there, and finalizes by moving the group to
+  `/predictions/{prediction_run_id}/` (a rename inside the file) after all
+  required artifact writes and metadata succeeded
+- `/predictions` therefore only ever holds complete runs; there is no
+  lifecycle status attribute
+- a failed or canceled staged write deletes its staging group
+- a staging group left by a crash or power loss does not stop the project
+  from opening: the reader ignores `/staging/` apart from one logged warning
+  per stale group, and the next staged write or
+  `discard_staged_predictions(path)` deletes stale groups
+- nothing outside the staging writers reads `/staging/`
 
 ## Required serialization rules
 
@@ -754,13 +757,13 @@ v3 requirement:
 
 ## Schema validation and extra-field policy
 
-The reader always interprets a project using the newest schema implemented by
-the running engiNIR version.
+The reader reads only the format `enginir-1.5` (Compatibility policy).
 
 Required read behavior:
 
 1. scan the project structure before hydrating scientific objects
-2. require the current `schema_version`
+2. require `FileSchemaVersion = "enginir-1.5"`; refuse any other value, or
+   its absence, before reading anything else
 3. require every current top-level group and required object field
 4. validate current enum, shape, dtype, identity, and relationship invariants
 5. log and raise for a missing, malformed, or incompatible required field
@@ -770,7 +773,8 @@ Required read behavior:
 
 The scan applies at each schema object boundary: the root, project metadata,
 and every identified dataset, reference correction, ROI, target, assignment, recipe,
-input contract, calibration set, model, and prediction run. A field that
+input contract, calibration set, model, and prediction run. `/staging/` is
+not scanned (§7). A field that
 the current object schema does not declare is an extra at that boundary.
 
 Declared structured fields are values, not additional object-schema
@@ -779,14 +783,13 @@ permits it. Examples include `loader_metadata`, `hyperparameters`, `cv_spec`,
 `metrics`, `artifact_refs`, and ROI provenance preview details. Their contents
 must not be promoted to fields on the owning object.
 
-Extra-field tolerance is not a migration mechanism. In particular:
+Extra-field tolerance covers additions, never older files. In particular:
 
-- an old file is accepted only when it already satisfies the complete newest
-  schema and merely contains additional fields
-- old field names are not aliases for current field names
-- missing current fields are not inferred from legacy fields or defaults
-- legacy objects are not transformed into current objects during project open
-- current writes emit only the newest schema and do not preserve unknown extras
+- a file with another `FileSchemaVersion` is refused, whatever it contains
+- there are no aliases for earlier field names or values
+- a missing required field is refused; it is never filled from a default
+- objects are never transformed during project open
+- writes emit only the current format and do not preserve unknown extras
 - warning messages identify the project location and extra field names; repeated
   validation of the same location should be coalesced to avoid log flooding
 
@@ -807,7 +810,8 @@ comparison but must not make a stored hash authoritative over that content.
 
 ## Required invariants
 
-- schema version is explicit
+- `FileSchemaVersion` is `enginir-1.5`, and `FileCreator`, `FileWriter` and
+  the timestamps follow §1
 - every persisted id is unique within its object namespace
 - all inter-object references resolve to an existing object
 - every ROI references an existing dataset and reference correction
@@ -817,9 +821,8 @@ comparison but must not make a stored hash authoritative over that content.
 - every prediction run references an existing dataset, reference correction, model, input contract, and recipe
 - every completed prediction run with multiple outputs stores explicit
   output-axis metadata
-- every persisted prediction run carries an `artifact_write_status` that is
-  absent or `complete`; a `writing` marker or an unknown status value is
-  rejected on read
+- `/predictions` holds only complete runs; a staged write lives under
+  `/staging/` until it is finalized (§7)
 - wavelength metadata differences do not invalidate an otherwise completed
   prediction run
 
@@ -854,17 +857,19 @@ Resolved for v3:
   (`RoundRobinGroups`, `GroupKFold` or `LeaveOneGroupOut`), the requested
   strategy, the fold and group counts, and the frozen
   grouping/validation/reporting semantics
-- `/predictions/{prediction_run_id}/` is written only by the low-level
-  writers when a script asks for it; the facade and the viewer do not store
-  predictions or register predicted scans as datasets
+- `/predictions/{prediction_run_id}/` is optional: it is written only by the
+  low-level writers when a script asks for it; the facade and the viewer do
+  not store predictions or register predicted scans as datasets
   (`prediction-runtime-contract_v3.md`, Result handling)
 - `fit_spec` persists what was requested: fold rule and fold groups (with
   the group index of every ROI as used), pixel subsample (count, seed,
   checksum) and DModX exclusion
-  (`sample-set-model-run-contract_v3.md` §7); a run without it is a legacy
-  run with the defined legacy specification
+  (`sample-set-model-run-contract_v3.md` §7); every model has it
 - scaling of X and Y is a constructor argument of the backend and lives in
-  `hyperparameters` (`x_scaling`, `y_scaling`; legacy runs: `scale`)
+  `hyperparameters` (`x_scaling`, and `y_scaling` for PLS)
+- `software` persists the versions of engiNIR, numpy, scipy and
+  scikit-learn that fitted the model (`sample-set-model-run-contract_v3.md`
+  §7)
 - `metrics` persists ROI-aggregated primary metrics and `pixel_*`-prefixed
   secondary per-pixel diagnostics
 - the concrete key tables are documented in `docs/hdf5_format.md` and must be
@@ -877,8 +882,9 @@ Resolved for v3:
 - updates follow the content-immutability rule in Object identity rules §5:
   idempotent re-saves and label-only changes overwrite in place; changed
   scientific content requires a new id
-- reference correction replacement, target-assignment value updates, and prediction
-  staging are the documented overwrite-in-place exceptions
+- reference correction replacement, target-assignment value updates, the
+  ROI `job` and `sample` labels, and prediction staging are the documented
+  in-place exceptions
 - an ROI's `sample` label is a label-only change: it is set, changed or
   removed in place by `save_roi_sample`, never the ROI's other content
 - no object is append-only in v3; history/version timelines remain out of
@@ -886,29 +892,24 @@ Resolved for v3:
 
 ### 3. Compatibility policy
 
-Resolved for v3:
+Decided for engiNIR 1.5 (2026-11-12): no backward compatibility.
 
-- no runtime compatibility layer is part of the project reader
-- pre-v3 project shapes fail loudly with explicit errors
-- an otherwise valid newest-schema project may contain extra fields; the reader
-  warns and ignores them rather than interpreting or merging them
-- `fit_spec` is added within v3 without a schema-version change: an
-  engiNIR before 1.2 ignores it with a warning; such a reader still predicts
-  correctly with the stored model artifacts, but refitting a run with a
-  `fit_spec` is not supported there (it fails on the unknown `x_scaling`
-  and `y_scaling` hyperparameters, or ignores the fit specification), and it
-  cannot rename such a run: it would save the run without its `fit_spec`,
-  which the content-immutability rule (§5) refuses as changed content
-- the ROI `sample` attribute is added within v3 without a schema-version
-  change: an engiNIR before 1.2 ignores it with a warning (its folds are
-  per ROI); re-saving such an ROI there is refused as changed content, as
-  above
+- engiNIR 1.5 reads and writes only the format `enginir-1.5`
+  (`FileSchemaVersion`); a file with any other value, or without the field,
+  is refused before anything else is read, with one logged message naming
+  the file's format and, when present, its `FileWriter`, and saying that
+  the project must be created again
+- there is no migration, conversion or repair of earlier project files,
+  and no reading rule for fields of earlier formats
+- an `enginir-1.5` project may contain extra fields; the reader warns and
+  ignores them (Schema validation and extra-field policy)
 
 ## Acceptance criteria
 
 This contract is implemented correctly when:
 
-- the project file declares a schema version explicitly
+- the project file declares `FileSchemaVersion = "enginir-1.5"`, `FileCreator`
+  and `FileWriter`, and older files are refused up front
 - dataset identity and reference correction live inside the project file
 - persisted ROIs are keyed by stable `roi_id`
 - targets and target assignments are first-class persisted objects
