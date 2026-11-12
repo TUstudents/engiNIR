@@ -20,7 +20,7 @@ from tests.test_workflow import _labelled_project
 
 #: Core fields of the format, as HDF5 paths: ``group@attribute`` or a
 #: dataset/group path. Placeholders are filled with the ids of the project.
-#: Phases 3c–3d of plans/release-1.5x.md add ``fit_spec`` and ``software``.
+#: Phase 3d of plans/release-1.5x.md adds ``software``.
 CORE_FIELDS = (
     "project_meta@project_id",
     "project_meta@FileSchemaVersion",
@@ -64,6 +64,7 @@ CORE_FIELDS = (
     *(f"model_runs/{{model}}@{name}" for name in (
         "sample_set_id", "signal_domain_id", "model_type", "created_at")),
     "model_runs/{model}/hyperparameters",
+    "model_runs/{model}/fit_spec",
     "model_runs/{model}/artifact_refs",
     "model_runs/{model}/artifact_refs/prediction_model",
     "model_runs/{model}/artifact_refs/prediction_model@model_type",
@@ -186,3 +187,59 @@ def test_the_inspector_shows_the_file_format_and_its_writers(complete_project, q
     text = inspector.body_label.text()
     assert "File format: enginir-1.5" in text
     assert "Created by: engiNIR " in text and "Last written by: engiNIR " in text
+
+
+def test_undefined_values_are_written_not_left_out(complete_project):
+    """Writers write every field; what is not defined is NaN or empty (Core and display data)."""
+    import numpy as np
+
+    path, ids = complete_project
+    with h5py.File(path, "r") as f:
+        exclusion = f[f"model_runs/{ids['model']}/artifact_refs/exclusion"]
+        assert np.isnan(exclusion.attrs["dcrit"]), "no DModX exclusion: dcrit not defined"
+        assert np.size(exclusion.get("counts", exclusion.attrs.get("counts"))) == 0
+        assert f[f"rois/{ids['roi']}"].attrs["sample"] == "", "no sample label: empty"
+        metrics = f[f"model_runs/{ids['model']}/metrics"].attrs
+        for key in ("rmsee", "pixel_rmsee", "interval_coverage_roi", "interval_coverage_pixel"):
+            assert key in metrics, f"{key} is written even when it is not defined"
+
+
+@pytest.mark.parametrize(("field", "value", "match"), [
+    ("signal_domains/{signal_domain}@band_mapping_policy", "reject", "band_mapping_policy"),
+    ("datasets/{dataset}@source_format", "eiff_raw", "format"),
+])
+def test_values_of_earlier_formats_are_refused(complete_project, tmp_path, field, value, match):
+    path, ids = complete_project
+    copy = tmp_path / "copy.h5"
+    shutil.copy(path, copy)
+    group, attribute = field.format(**ids).split("@")
+    with h5py.File(copy, "r+") as f:
+        f[group].attrs[attribute] = value
+    project = None
+    try:
+        project = Project.open(copy)
+    except ValueError as exc:
+        assert match in str(exc)
+        return
+    # eiff_raw is no alias any more: the dataset no longer matches its model.
+    assert project is not None and value == "eiff_raw"
+    from enginir.project import check_signal_domain_compatibility
+
+    ws = project.workspace
+    domain = next(iter(ws.signal_domains.values()))
+    with pytest.raises(ValueError, match="source_format"):
+        check_signal_domain_compatibility(dataset=next(iter(ws.datasets.values())),
+                                          calibration=next(iter(ws.calibrations.values())),
+                                          signal_domain=domain)
+
+
+def test_a_metric_that_is_not_defined_is_stored_as_nan(tmp_path):
+    """RMSEE (per ROI) needs R - 1 - A >= 1; with 6 ROIs and 5 components it is NaN, written."""
+    import numpy as np
+
+    project, _scan = _labelled_project(tmp_path)
+    model = project.fit("API", recipe=PreprocessingRecipe(), n_components=5)
+    with h5py.File(project.path, "r") as f:
+        metrics = f[f"model_runs/{model.ref.model_run_id}/metrics"].attrs
+        assert "rmsee" in metrics and np.isnan(metrics["rmsee"])
+        assert "r2_adj" in metrics and np.isnan(metrics["r2_adj"])

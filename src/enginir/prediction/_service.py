@@ -663,7 +663,7 @@ def _iter_input_chunks(
             data_path, chunk_size=chunk_size, frames=loader_kwargs.get("frames"),
             spectra_key=str(loader_kwargs.get("spectra_key", "spectra")),
         )
-    elif source_format in ("eiff", "eiff_raw"):
+    elif source_format == "eiff":
         blocks = iter_eiff_frame_chunks(data_path, chunk_size=chunk_size,
                                         frames=loader_kwargs.get("frames"))
     elif source_format == "envi":

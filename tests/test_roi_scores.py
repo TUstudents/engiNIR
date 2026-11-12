@@ -52,8 +52,8 @@ def test_roi_scores_with_a_pixel_sample_and_exclusion(tmp_path):
         np.testing.assert_array_equal(model.diagnostics["roi_score_pixels"], counts)
 
 
-def test_the_viewer_shows_a_placeholder_without_stored_roi_scores():
+def test_the_viewer_shows_missing_roi_scores_as_not_available():
     payload = _roi_score_payload({"x_scores_": np.ones((10, 2))})
-    assert "scores_roi" not in payload and "fit it again" in payload["scores_message"]
+    assert "scores_roi" not in payload and "not available" in payload["scores_message"]
     nan_row = np.array([[1.0, 2.0], [np.nan, np.nan]], dtype=np.float32)
     assert _roi_score_payload({"roi_scores": nan_row})["scores_without_pixels"] == 1

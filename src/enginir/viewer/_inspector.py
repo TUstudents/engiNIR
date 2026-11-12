@@ -23,7 +23,7 @@ __all__ = ["ProjectInspector", "fit_summary"]
 logger = get_logger(__name__)
 
 _FOLD_RULES = {"round_robin": "round-robin, {n} folds", "leave_one_group_out": "leave one out",
-               "group_kfold": "GroupKFold, {n} folds (before 1.2)"}
+               "group_kfold": "GroupKFold, {n} folds"}
 _GROUPS = {"roi": "each ROI", "sample": "ROIs with the same Sample label",
            "target": "ROIs with the same target value"}
 _SCALINGS = {"center": "center", "uv": "unit variance", "pareto": "Pareto"}
@@ -56,12 +56,9 @@ def fit_summary(model_run: ModelRun, roi_names: dict[str, str],
     lines.append("Pixels: all" if spec.pixels_per_roi is None
                  else f"Pixels: {spec.pixels_per_roi} per ROI (seed {spec.seed})")
     hyper = model_run.hyperparameters
-    if "x_scaling" in hyper:
-        scaling = f"X {_SCALINGS.get(str(hyper['x_scaling']), hyper['x_scaling'])}"
-        if "y_scaling" in hyper:
-            scaling += f", Y {_SCALINGS.get(str(hyper['y_scaling']), hyper['y_scaling'])}"
-    else:
-        scaling = "unit variance (before 1.2)" if hyper.get("scale", True) else "center"
+    scaling = f"X {_SCALINGS.get(str(hyper.get('x_scaling')), hyper.get('x_scaling', '–'))}"
+    if "y_scaling" in hyper:
+        scaling += f", Y {_SCALINGS.get(str(hyper['y_scaling']), hyper['y_scaling'])}"
     lines.append(f"Scaling: {scaling}")
     if spec.exclusion == "none":
         lines.append("Pixel exclusion: none")
@@ -402,7 +399,7 @@ class ProjectInspector(QWidget):
             lines.append(f"Above DCrit: {100 * float(summary.get('share_above_dcrit', 0)):.2g} % | "
                          f"above T²Crit: {100 * float(summary.get('share_above_t2crit', 0)):.2g} %")
         else:
-            lines.append("No DModX/T² maps (refit the model to get them)")
+            lines.append("DModXPS and T²PS: not available")
         self.title_label.setText("Prediction")
         self.body_label.setText("\n".join(lines))
 

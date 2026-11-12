@@ -564,7 +564,7 @@ def fit_model_run(
     # How often the held-out predictions fall inside their 0.95 intervals (§5).
     intervals = interval_inputs({**fit_metrics, "n_rois": int(roi_ids.size)}, projection,
                                 training.get("roi_scores"))
-    coverage = ({} if intervals is None else interval_coverage(
+    coverage = (_NO_COVERAGE if intervals is None else interval_coverage(
         intervals, pixel_y_true=data.y, pixel_y_cv=pixel_y_pred,
         pixel_t2=training.get("t2"), pixel_dmodx=training.get("dmodx"),
         roi_y_true=roi_y_true, roi_y_cv=roi_y_pred, roi_scores=training.get("roi_scores")))
@@ -616,8 +616,8 @@ def fit_model_run(
             "component_curve": curve,
             "cv_outputs": {"roi_ids": roi_ids, "y_true_roi": roi_y_true,
                            "y_pred_roi": roi_y_pred},
-            **({} if exclusion is None else
-               {"exclusion": _exclusion_artifact(exclusion, data, roi_ids_present)}),
+            "exclusion": (_NO_EXCLUSION if exclusion is None
+                          else _exclusion_artifact(exclusion, data, roi_ids_present)),
         },
         created_at=created_at or now_iso(),
         fit_spec=spec.to_dict(),
@@ -859,6 +859,19 @@ def _excluding(model: Any, spec: FitSpec, roi_index: np.ndarray) -> DModXExclusi
                           formula=spec.exclusion_formula)
 
 
+#: The coverage metrics of a run without interval inputs: not defined (contract §5).
+_NO_COVERAGE: dict[str, Any] = {"interval_coverage_pixel": float("nan"),
+                                "interval_coverage_pixel_n": 0,
+                                "interval_coverage_roi": float("nan"),
+                                "interval_coverage_roi_n": 0}
+#: ``artifact_refs/exclusion`` without DModX exclusion: empty, always written.
+_NO_EXCLUSION: dict[str, Any] = {"roi_ids": np.array([], dtype=object),
+                                 "counts": np.array([], dtype=np.int32),
+                                 "pixel_indices": np.empty(0, dtype=np.uint32),
+                                 "flagged_roi_ids": np.array([], dtype=object),
+                                 "dcrit": float("nan")}
+
+
 def _exclusion_artifact(exclusion: DModXExclusion, data: SampleSetData,
                         roi_ids_present: np.ndarray) -> dict[str, Any]:
     """The excluded pixels of the final model per ROI, as indices into its stored spectra."""
@@ -889,18 +902,15 @@ def _exclusion_artifact(exclusion: DModXExclusion, data: SampleSetData,
 
 
 def _with_default_scaling(model_type: str, hyperparameters: dict[str, Any]) -> dict[str, Any]:
-    """Add the scaling defaults of new runs (contract §7) unless a scaling is given.
+    """Every run stores its scaling (contract §7): the defaults fill what is not given.
 
-    Centred X, and for PLS unit-variance Y, the usual setting for spectra.
-    Hyperparameters with ``scale`` (runs before engiNIR 1.2, refitted) are
-    left as they are.
+    Centered X, and for PLS unit-variance Y, the usual setting for spectra.
     """
-    keys = ("scale", "x_scaling", "y_scaling") if model_type == "PLS" else ("scale", "x_scaling")
-    if any(key in hyperparameters for key in keys):
-        return hyperparameters
+    if "scale" in hyperparameters:
+        log_and_raise("The scale switch was removed; give x_scaling (and y_scaling for PLS)")
     defaults = {"x_scaling": "center", "y_scaling": "uv"} if model_type == "PLS" \
         else {"x_scaling": "center"}
-    return {**hyperparameters, **defaults}
+    return {**defaults, **hyperparameters}
 
 
 def fold_groups(group_by: str, sample_set: SampleSet, rois: dict[str, TrainingROI],
@@ -973,7 +983,7 @@ def _splitter(spec: FitSpec, n_groups: int) -> Any:
         return RoundRobinGroups(spec.n_folds)
     if spec.fold_rule == "leave_one_group_out" or n_groups < spec.n_folds:
         return "logo"
-    return GroupKFold(n_splits=spec.n_folds)  # legacy runs (contract §7.3)
+    return GroupKFold(n_splits=spec.n_folds)  # the optional group_kfold rule (contract §4)
 
 
 def _pixel_sample(data: SampleSetData, spec: FitSpec, project_path: str,

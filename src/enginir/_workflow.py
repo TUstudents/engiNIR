@@ -1003,9 +1003,8 @@ class Model:
         """Fit this model again on exactly what it was fitted on, and store the new run.
 
         Uses the stored sample set (its ``roi_ids`` and preprocessing recipe),
-        signal domain, model type, hyperparameters and fit specification
-        (for a model stored without one, its legacy specification), not the
-        ROIs that have values now. Folds depend only on the sample set and
+        signal domain, model type, hyperparameters and fit specification, not
+        the ROIs that have values now. Folds depend only on the sample set and
         the pixel subsample only on the seed and the ROI spectra, so unchanged
         data give the same metrics; reference values changed since the fit
         and a different pixel subsample are reported. Refused when an ROI of the
@@ -1035,9 +1034,6 @@ class Model:
         spec = self.ref.fit_specification
         self._warn_on_group_drift(spec, sample_set)
         hyperparameters = dict(self.ref.hyperparameters)
-        if self.ref.fit_spec is None and not any(
-                key in hyperparameters for key in ("scale", "x_scaling", "y_scaling")):
-            hyperparameters["scale"] = True  # runs before 1.2: absent means True (§7.3)
         result = fit_model_run(
             project_path=project.path, sample_set=sample_set, datasets=ws.datasets,
             calibrations=ws.calibrations, rois=ws.rois,

@@ -131,8 +131,7 @@ _MAP_PREVIEW_PIXELS = 512 * 512
 MAP_LAYERS = ("Prediction", "DModXPS", "T²PS", "Prediction interval")
 _LAYER_LIMITS = {"DModXPS": ("dcrit_099", "n_above_dcrit", "share_above_dcrit", "DCrit"),
                  "T²PS": ("t2_crit_099", "n_above_t2crit", "share_above_t2crit", "T²Crit")}
-_NO_DIAGNOSTICS = ("No {} map: this model has no projection data (fitted before engiNIR 1.3). "
-                   "Refit it to get the DModXPS and T²PS maps.")
+_NO_DIAGNOSTICS = "No {} map: this model's projection data is not available."
 _NO_INTERVAL = ("No prediction interval map: this model has no prediction-interval inputs "
                 "(a PLS or PCR model with one target, its RMSEE (per pixel) and at least "
                 "A + 2 calibration ROIs).")
@@ -1157,8 +1156,7 @@ class PredictionView(QWidget):
         self._exclusion_check.setEnabled(has_projection)
         self._exclusion_check.setToolTip(
             self._exclusion_check.toolTip() if has_projection
-            else "This model has no projection data (fitted before 1.3): refit it to exclude "
-                 "pixels by DModXPS")
+            else "Not available: this model's projection data is missing")
         for widget in (self._exclusion_check, self._exclusion_level):
             widget.blockSignals(False)
         self._recompute_roi_results()
@@ -1678,7 +1676,7 @@ class PredictionView(QWidget):
         """Shares above the 0.99 limits and the mean prediction within and outside them."""
         summary = result.diagnostics
         if not summary:
-            return "none (refit the model to get DModXPS and T²PS maps)"
+            return "not available"
         parts = []
         for key, share, name in (("dcrit_099", "share_above_dcrit", "DCrit"),
                                  ("t2_crit_099", "share_above_t2crit", "T²Crit")):

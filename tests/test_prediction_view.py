@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from enginir.project import FitSpec
+
 import time
 from pathlib import Path
 import types
@@ -43,7 +45,7 @@ def project_state(tmp_path):
 
 
 def _seed_model_run(project_state):
-    project_state.model_runs["model_1"] = ModelRun(
+    project_state.model_runs["model_1"] = ModelRun(fit_spec=FitSpec().to_dict(), 
         model_run_id="model_1",
         sample_set_id="sample_set_1",
         signal_domain_id="signal_domain_1",
@@ -290,7 +292,7 @@ def test_prediction_summary_reports_run_metadata_and_applicability(qapp, project
     assert text["dataset"] == "scan.h5" and "not stored" in text["status"]
 
     project_state.add_prediction(_session_result("old", grid))
-    assert "refit" in view.workspace_summary()["diagnostics"]
+    assert view.workspace_summary()["diagnostics"] == "not available"
 
 
 def test_the_layer_selector_shows_the_diagnostics_and_marks_pixels_above_the_limit(qapp):
@@ -323,7 +325,7 @@ def test_the_layer_selector_shows_the_diagnostics_and_marks_pixels_above_the_lim
     assert not any(model.item(i).isEnabled() for i in (1, 2, 3))
     assert widget._current_display_map is None
     texts = " ".join(text.get_text() for text in widget._ax.texts)
-    assert "Refit" in texts
+    assert "not available" in texts
 
 
 # -- Predict ROIs and Predict map on a real project (viewer contract §3) ---------------------

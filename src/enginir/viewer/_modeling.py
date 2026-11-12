@@ -839,8 +839,6 @@ def _component_payload(model_run: ModelRun, artifact: dict[str, Any]) -> dict[st
         if values is not None and np.ndim(np.squeeze(values)) == 1:
             payload[key] = np.asarray(values, dtype=np.float32).reshape(-1)
     vip = artifact.get("vip")
-    if vip is None:
-        vip = _vip_from_weights(artifact)  # PLS runs from before 1.4 (contract §7.5)
     if vip is not None and np.ndim(np.squeeze(vip)) == 1:
         payload["vip"] = np.asarray(vip, dtype=np.float32).reshape(-1)
     scores = artifact.get("x_scores_", artifact.get("scores_"))
@@ -860,37 +858,18 @@ def _component_payload(model_run: ModelRun, artifact: dict[str, Any]) -> dict[st
     return payload
 
 
-def _vip_from_weights(artifact: dict[str, Any]) -> np.ndarray | None:
-    """VIP from a stored PLS run's X weights, X scores and Y loadings (no refit)."""
-    try:
-        weights = np.asarray(artifact["x_weights_"], dtype=np.float64)
-        scores = np.asarray(artifact["x_scores_"], dtype=np.float64)
-        y_loadings = np.asarray(artifact["y_loadings_"], dtype=np.float64)
-    except KeyError:
-        return None
-    if weights.ndim != 2 or scores.ndim != 2 or y_loadings.ndim != 2:
-        return None
-    if not weights.shape[1] == scores.shape[1] == y_loadings.shape[1]:
-        return None
-    explained = np.sum(scores ** 2, axis=0) * np.sum(y_loadings ** 2, axis=0)
-    norms = np.linalg.norm(weights, axis=0)
-    if explained.sum() <= 0 or np.any(norms <= 0):
-        return None
-    return np.sqrt(weights.shape[0] * ((weights / norms) ** 2 @ explained) / explained.sum())
-
-
 def _roi_score_payload(artifact: dict[str, Any] | None) -> dict[str, Any]:
     """The ROI scores the fit stored (model-workspace-diagnostics contract §2).
 
     The viewer never rebuilds them from pixel counts: a run without stored
-    ROI scores gets a placeholder message.
+    ROI scores shows them as not available.
     """
     scores = None if artifact is None else artifact.get("roi_scores")
     if scores is None:
-        return {"scores_message": "ROI scores are not stored for this model; fit it again."}
+        return {"scores_message": "ROI scores are not available for this model."}
     matrix = np.asarray(scores, dtype=np.float32)
     if matrix.ndim != 2:
-        return {"scores_message": "ROI scores of this model are malformed; fit it again."}
+        return {"scores_message": "ROI scores of this model cannot be read (not shown)."}
     return {"scores_roi": matrix,
             "scores_without_pixels": int(np.sum(~np.isfinite(matrix).all(axis=1)))}
 

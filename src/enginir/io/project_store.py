@@ -374,6 +374,8 @@ def save_training_roi(
         log_and_raise("ROI wavelengths shape {} does not match {} bands",
                       np.shape(declared_wavelengths), n_bands)
     payload = {**roi_dict, "spectra": spectra}
+    if payload.get("sample") is None:  # no label: an empty string, never left out
+        payload["sample"] = ""
     if (dark_ref_spectra is None) != (white_ref_spectra is None):
         log_and_raise("ROI references need both dark_ref_spectra and white_ref_spectra")
     if dark_ref_spectra is not None and white_ref_spectra is not None:
@@ -388,7 +390,7 @@ def save_training_roi(
 
 
 def save_roi_sample(path: PathLike, roi_id: str, sample: str | None) -> None:
-    """Set the sample label of a stored ROI in place; ``None`` removes it.
+    """Set the sample label of a stored ROI in place; ``None`` clears it (an empty string).
 
     The label is the only field written: the ROI's identity, spectra and
     other fields are never touched (roi-target contract, ``sample``).
@@ -401,11 +403,7 @@ def save_roi_sample(path: PathLike, roi_id: str, sample: str | None) -> None:
         group = f["rois"].get(roi_id)
         if not isinstance(group, h5py.Group):
             log_and_raise("No ROI '{}' in {}", roi_id, path, error=KeyError)
-        if sample is None:
-            if "sample" in group.attrs:
-                del group.attrs["sample"]
-        else:
-            group.attrs["sample"] = sample
+        group.attrs["sample"] = "" if sample is None else sample
     logger.info("Set the sample label of ROI '{}' to {!r} in {}", roi_id, sample, path)
 
 
@@ -439,6 +437,8 @@ def save_model_run(
 
     Its ``name`` may change.
     """
+    if model_run_dict.get("name") is None:  # no name: an empty string, never left out
+        model_run_dict = {**model_run_dict, "name": ""}
     _save_object(path, "model_runs", model_run_id, model_run_dict, "ModelRun", compression,
                  mutable_fields=frozenset({"name"}))
 

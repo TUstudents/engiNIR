@@ -398,8 +398,7 @@ prediction interval with the pixels outside the model, which have none,
 marked; see :ref:`prediction-intervals`), the output selector (models with several targets), **Pan**,
 **Zoom** and **Reset View**. Large maps are shown as a preview that keeps
 every n-th frame and row; the axes, hover readout and CSV give the true
-frame and row. Models fitted before engiNIR 1.3 have no DModX and T²: fit
-them again to get the layers and the pixel removal.
+frame and row. A value a model does not have is shown as "not available".
 
 The **Prediction Distribution** histogram shows the pixels behind the per-ROI
 numbers: the kept pixels of the prediction ROIs, one outline per model, and

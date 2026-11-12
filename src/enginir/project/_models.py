@@ -590,7 +590,7 @@ class SignalDomainContract(SerializableModel):
     wavelength_tolerance_nm : float
         Allowed wavelength difference, ``>= 0``.
     band_mapping_policy : str
-        ``"exact"`` or ``"reject"``.
+        ``"exact"`` (the only value; reserved for a future remapping contract).
     output_dtype : str
         ``"float32"``.
     created_at : str
@@ -643,7 +643,7 @@ class SignalDomainContract(SerializableModel):
             log_and_raise("wavelength_tolerance_nm must be >= 0, got {}",
                           self.wavelength_tolerance_nm)
         self.band_mapping_policy = _choice(self.band_mapping_policy, "band_mapping_policy",
-                                           ("exact", "reject"))
+                                           ("exact",))
         self.output_dtype = _choice(self.output_dtype, "output_dtype", ("float32",))
         self.created_at = _timestamp(self.created_at, "created_at")
 
@@ -785,10 +785,9 @@ class ModelRun(SerializableModel):
     name : str or None
         Display name (a label that may change); ``None`` for runs saved
         without one.
-    fit_spec : dict or None
+    fit_spec : dict
         The fit specification (:meth:`FitSpec.to_dict
-        <enginir.project.FitSpec.to_dict>`); ``None`` for legacy runs, see
-        :attr:`fit_specification`.
+        <enginir.project.FitSpec.to_dict>`), complete; required.
     """
 
     model_run_id: str
@@ -805,10 +804,12 @@ class ModelRun(SerializableModel):
 
     def __post_init__(self) -> None:
         self.model_run_id = _text(self.model_run_id, "model_run_id")
-        if self.fit_spec is not None:
-            self.fit_spec = FitSpec.from_dict(self.fit_spec).to_dict()
-        if self.name is not None:
-            self.name = _text(self.name, "name")
+        if self.fit_spec is None:
+            log_and_raise("Model run '{}' has no fit_spec; every model stores its fit "
+                          "specification", self.model_run_id)
+        self.fit_spec = FitSpec.from_dict(self.fit_spec, stored=True).to_dict()
+        if self.name is not None:  # an empty stored name means no name
+            self.name = _text(self.name, "name", required=False) or None
         self.sample_set_id = _text(self.sample_set_id, "sample_set_id")
         self.signal_domain_id = _text(self.signal_domain_id, "signal_domain_id")
         self.model_type = _choice(self.model_type, "model_type", MODEL_TYPES)
@@ -827,10 +828,8 @@ class ModelRun(SerializableModel):
 
     @property
     def fit_specification(self) -> FitSpec:
-        """How the run was fitted: its stored specification, or the legacy one."""
-        if self.fit_spec is not None:
-            return FitSpec.from_dict(self.fit_spec)
-        return FitSpec.legacy(self.cv_spec.get("requested", "auto"))
+        """How the run was fitted: its stored specification."""
+        return FitSpec.from_dict(self.fit_spec or {}, stored=True)
 
 
 @dataclass(slots=True, eq=False)

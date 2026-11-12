@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from enginir.project import FitSpec
+
 import dataclasses
 
 import h5py
@@ -256,7 +258,7 @@ def test_preflight_prediction_uses_memory_budgeted_default_frame_chunks(tmp_path
             output_dtype="float32",
             created_at="2026-04-02T11:09:50+00:00",
         )
-        model_run = ModelRun(
+        model_run = ModelRun(fit_spec=FitSpec().to_dict(), 
             model_run_id="model_large",
             sample_set_id="sample_large",
             signal_domain_id=signal_domain.signal_domain_id,
@@ -331,7 +333,7 @@ def test_preflight_prediction_rejects_invalid_chunk_size(tmp_path):
         output_dtype="float32",
         created_at="2026-04-02T11:09:50+00:00",
     )
-    model_run = ModelRun(
+    model_run = ModelRun(fit_spec=FitSpec().to_dict(), 
         model_run_id="model_chunk",
         sample_set_id="sample_chunk",
         signal_domain_id=signal_domain.signal_domain_id,

@@ -109,7 +109,7 @@ def _create_model_project(path: str, *, seed_rois: bool = True) -> None:
         path,
         "signal_domain_1",
         {
-            "input_format": "eiff_raw",
+            "input_format": "eiff",
             "source_modality": "nir_hsi",
             "required_signal_unit": "Absorbance",
             "required_calibration_mode": "dark_white_reference",

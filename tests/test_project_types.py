@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from enginir.project import FitSpec
+
 import copy
 from dataclasses import fields
 
@@ -118,7 +120,7 @@ def valid_project_graph(wavelengths):
         "signal_domains": {
             "signal_domain_1": SignalDomainContract(
                 signal_domain_id="signal_domain_1",
-                input_format="eiff_raw",
+                input_format="eiff",
                 source_modality="nir_hsi",
                 required_signal_unit="Absorbance",
                 required_calibration_mode="dark_white_reference",
@@ -151,7 +153,7 @@ def valid_project_graph(wavelengths):
             )
         },
         "model_runs": {
-            "model_run_1": ModelRun(
+            "model_run_1": ModelRun(fit_spec=FitSpec(groups=(0,)).to_dict(), 
                 model_run_id="model_run_1",
                 sample_set_id="sample_set_1",
                 signal_domain_id="signal_domain_1",
@@ -218,7 +220,7 @@ def test_project_models_round_trip_representative_instances(wavelengths):
         ),
         SignalDomainContract(
             signal_domain_id="signal_domain_1",
-            input_format="eiff_raw",
+            input_format="eiff",
             source_modality="nir_hsi",
             required_signal_unit="Absorbance",
             required_calibration_mode="dark_white_reference",
@@ -599,7 +601,7 @@ def test_target_and_signal_domain_contract_validation(wavelengths):
 
     base_signal = {
         "signal_domain_id": "signal_domain_1",
-        "input_format": "eiff_raw",
+        "input_format": "eiff",
         "source_modality": "nir_hsi",
         "required_signal_unit": "Absorbance",
         "required_calibration_mode": "dark_white_reference",
@@ -666,7 +668,7 @@ def test_sample_set_and_model_run_contract_validation():
             SampleSet(**payload)
 
     with pytest.raises(ValueError, match="model_type must be one of"):
-        ModelRun(
+        ModelRun(fit_spec=FitSpec(groups=(0,)).to_dict(), 
             model_run_id="model_run_1",
             sample_set_id="sample_set_1",
             signal_domain_id="signal_domain_1",

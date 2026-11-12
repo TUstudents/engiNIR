@@ -24,6 +24,18 @@ read against the code.
 - Recipes store every field, also those without effect; a recipe given as a
   mapping must have every field (`PreprocessingRecipe(...).to_dict()` gives
   one). Recipe ids change.
+- `PLSRegression` and `PCR` no longer take `scale`; scaling is `x_scaling`
+  (and `y_scaling` for PLS) only. Their defaults are now X centered and Y
+  unit variance (as for model runs); before, `scale=True` autoscaled X too.
+- A stored model must have its fit specification; models fitted before 1.2
+  are not read. GroupKFold remains an optional fold rule. The legacy reading
+  rules (`eiff_raw`, `band_mapping_policy = reject`, absent noise guard) are
+  removed, and a request that names `components` without `noise_guard`
+  now gets the default (on with `"auto"`).
+- Undefined values are written as NaN, empty strings or empty arrays instead
+  of being left out (e.g. RMSEE (per ROI) when R - 1 - A < 1; an ROI without a
+  sample label; `artifact_refs/exclusion` without DModX exclusion). The viewer
+  shows a missing value as "not available" instead of asking to refit.
 - New PCR models are named in principal components (`"PCR 5 PC, SNV"`);
   PLS keeps `LV`. Stored names are labels and do not change.
 - Exported CSV columns: the Model plots name the measured value

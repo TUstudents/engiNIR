@@ -386,7 +386,7 @@ _RULE_LABELS = (("suggested_one_se", "one SE"), ("suggested_min_rmsecv", "lowest
 _RULE_KEYS = {"one_se": "suggested_one_se", "min_rmsecv": "suggested_min_rmsecv",
               "q2_limit": "suggested_q2_limit", "f_test": "suggested_f_test",
               "q2_lookahead": "suggested_q2_lookahead"}
-_NO_CURVE = "No component curve (refit a model from before 1.3)."
+_NO_CURVE = "No component curve available for this model."
 
 
 def _n_groups(payload: Mapping[str, Any]) -> int:
@@ -736,7 +736,7 @@ def _render_selectivity(fig: Figure, payload: Any, colors: Mapping[str, str]) ->
     ax = _axes(fig, colors)
     spectrum = _spectrum(payload, "selectivity_ratio")
     if spectrum is None:
-        draw_placeholder(ax, "No selectivity ratio (refit a model from before 1.4).", colors)
+        draw_placeholder(ax, "No selectivity ratio available for this model.", colors)
         return
     x, y, xlabel = spectrum
     _mean_behind(ax, payload, x, colors)
@@ -787,7 +787,7 @@ def _distance_spec(key: str, limit_key: str, plot_id: str, title: str, xlabel: s
         ax = _axes(fig, colors)
         values = payload.get(f"{key}_pixels")
         if values is None:
-            draw_placeholder(ax, "No calibration distances (refit a model from before 1.3).",
+            draw_placeholder(ax, "No calibration distances available for this model.",
                              colors)
             return
         counts, edges, overflow, largest = _histogram(values)
@@ -866,7 +866,7 @@ def _render_roi_distance(fig: Figure, payload: Any, colors: Mapping[str, str]
     ax = _axes(fig, colors)
     shares = _roi_shares(payload)
     if shares is None:
-        draw_placeholder(ax, "No per-ROI distance shares (refit a model from before 1.3).",
+        draw_placeholder(ax, "No per-ROI distance shares available for this model.",
                          colors)
         return None
     dmodx, t2, reference, ids = shares
@@ -929,7 +929,7 @@ _SPECS = (
     PlotSpec("model.loadings", "Latent loadings (LV1-LV3)", _render_loadings, _table_loadings,
              empty_text=_EMPTY),
     _spectral_spec("coef_cs", "model.coef_cs", "Scaled coefficients (CoeffCS)", "CoeffCS",
-                   "No scaled coefficients (refit a model from before 1.3)."),
+                   "No scaled coefficients available for this model."),
     PlotSpec("model.vip", "VIP", _render_vip, _table_vip, empty_text=_EMPTY),
     PlotSpec("model.vip_sorted", "VIP, sorted", _render_vip_sorted, _table_vip_sorted,
              empty_text=_EMPTY),

@@ -182,10 +182,11 @@ variance (``x_scaling="center"``, ``y_scaling="uv"``), as usual for spectra
 and in SIMCA. ``"uv"`` divides by the standard deviation (N − 1),
 ``"pareto"`` by its square root. Centering and scaling are learnt inside
 every fold. For one target, the Y scaling does not change the predictions.
-Models stored before engiNIR 1.2 keep their ``scale`` setting when refitted.
+``PLSRegression`` and ``PCR`` take the same defaults when used on arrays
+(X centered, Y unit variance).
 
-Excluding outlying pixels
--------------------------
+Excluding pixels above DCrit
+----------------------------
 
 DModX is the distance of a spectrum to the model: the size of the part the
 model cannot describe, relative to the typical residual of the calibration

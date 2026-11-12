@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from enginir.project import FitSpec
+
 import time
 import types
 
@@ -193,7 +195,7 @@ def _fake_fit(captured: list[dict[str, object]], *, fail: bool = False):
         if fail:
             raise RuntimeError("fit exploded")
         return types.SimpleNamespace(
-            model_run=ModelRun(
+            model_run=ModelRun(fit_spec=FitSpec(groups=tuple(range(len(kwargs["sample_set"].roi_ids)))).to_dict(), 
                 model_run_id=f"model_{len(captured)}",
                 sample_set_id=kwargs["sample_set"].sample_set_id,
                 signal_domain_id=kwargs["signal_domain_id"],

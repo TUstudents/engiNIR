@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from enginir.project import FitSpec
+
 import h5py
 
 from enginir.preprocessing import PreprocessingRecipe
@@ -155,7 +157,7 @@ def test_v3_project_store_round_trip_and_skip_flags(project_path, rng, wavelengt
         project_path,
         "signal_domain_1",
         {
-            "input_format": "eiff_raw",
+            "input_format": "eiff",
             "source_modality": "nir_hsi",
             "required_signal_unit": "Absorbance",
             "required_calibration_mode": "dark_white_reference",
@@ -213,6 +215,7 @@ def test_v3_project_store_round_trip_and_skip_flags(project_path, rng, wavelengt
             "sample_set_id": "sample_set_1",
             "signal_domain_id": "signal_domain_1",
             "model_type": "PLS",
+            "fit_spec": FitSpec(groups=(0,)).to_dict(),
             "hyperparameters": {"n_components": 3},
             "cv_spec": {"type": "GroupKFold", "n_splits": 5},
             "metrics": {"rmsecv": 1.23},
@@ -833,6 +836,7 @@ def test_load_model_run_prediction_artifact_reads_only_lightweight_payload(proje
             "sample_set_id": "sample_set_1",
             "signal_domain_id": "signal_domain_1",
             "model_type": "PLS",
+            "fit_spec": FitSpec(groups=(0,)).to_dict(),
             "hyperparameters": {},
             "cv_spec": {},
             "metrics": {},
@@ -885,7 +889,7 @@ def test_resaving_unchanged_objects_is_a_no_op(tmp_path, wavelengths):
     run = {"sample_set_id": "s", "signal_domain_id": "d", "model_type": "PLS",
            "hyperparameters": {"n_components": 1}, "cv_spec": {"type": "KFold"},
            "metrics": {"rmsecv": np.nan}, "artifact_refs": {},
-           "created_at": "2026-01-01T00:00:00+00:00"}
+           "fit_spec": FitSpec().to_dict(), "created_at": "2026-01-01T00:00:00+00:00"}
     save_model_run(project_path, "run_1", run)
     save_model_run(project_path, "run_1", run)
     with pytest.raises(ValueError, match="Refusing to overwrite"):

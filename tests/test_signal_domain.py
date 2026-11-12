@@ -102,15 +102,17 @@ NO_REFS = {"requires_dark_ref": False, "requires_white_ref": False}
         # wavelength values are metadata, not a gate, whatever the declared tolerance
         ({"wavelengths": np.array([900.0, 950.0, 1000.0], np.float32)}, REFS,
          {"wavelength_tolerance_nm": 0.001}, None),
-        # formats compare case-insensitively, with legacy "eiff_raw" meaning "eiff"
-        ({"source_format": "EIFF"}, REFS, {"input_format": "eiff_raw"}, None),
+        # formats compare case-insensitively; the earlier "eiff_raw" is no alias any more
+        ({"source_format": "EIFF"}, REFS, {"input_format": "eiff"}, None),
+        ({"source_format": "eiff"}, REFS, {"input_format": "eiff_raw"}, "source_format"),
         ({"source_format": "eiff"}, REFS, {"input_format": "hdf5"}, "source_format"),
         ({"source_modality": "swir_line_scan"}, REFS, {}, "source_modality"),
         ({"wavelengths": WL[:2]}, {}, {}, "n_bands"),
         ({}, PRECALIBRATED, {"calibrated_input_allowed": True, **NO_REFS}, None),
         ({}, PRECALIBRATED, {"calibrated_input_allowed": False}, "required_calibration_mode"),
     ],
-    ids=["match", "wavelength-values", "format-alias-and-case", "format", "modality", "band-count",
+    ids=["match", "wavelength-values", "format-case", "no-eiff_raw-alias", "format", "modality",
+         "band-count",
          "precalibrated-allowed", "precalibrated-refused"],
 )
 def test_signal_domain_compatibility(dataset, calibration, domain, error):

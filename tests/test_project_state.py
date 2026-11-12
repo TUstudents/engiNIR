@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from enginir.project import FitSpec
+
 import os
 from unittest.mock import patch
 
@@ -142,7 +144,7 @@ def project_store_path(tmp_path, wl, sample_provenance):
         path,
         "signal_domain_1",
         {
-            "input_format": "eiff_raw",
+            "input_format": "eiff",
             "source_modality": "nir_hsi",
             "required_signal_unit": "Absorbance",
             "required_calibration_mode": "dark_white_reference",
@@ -214,6 +216,7 @@ def project_store_path(tmp_path, wl, sample_provenance):
             "sample_set_id": "sample_set_1",
             "signal_domain_id": "signal_domain_1",
             "model_type": "PLS",
+            "fit_spec": FitSpec(groups=(0,)).to_dict(),
             "hyperparameters": {"n_components": 3},
             "cv_spec": {"type": "GroupKFold", "n_splits": 5},
             "metrics": {"rmsecv": 1.23},
@@ -792,7 +795,7 @@ class TestProjectState:
             dataset_ids=["dataset_fast"],
             created_at="2026-04-02T10:03:00+00:00",
         )
-        model_run = ModelRun(
+        model_run = ModelRun(fit_spec=FitSpec(groups=(0,)).to_dict(), 
             model_run_id="model_fast",
             sample_set_id="sample_fast",
             signal_domain_id="signal_fast",
@@ -985,7 +988,7 @@ class TestProjectState:
             )
         )
 
-        model_run = ModelRun(
+        model_run = ModelRun(fit_spec=FitSpec(groups=(0,)).to_dict(), 
             model_run_id="model_fast",
             sample_set_id="sample_fast",
             signal_domain_id="signal_missing",
@@ -1209,7 +1212,7 @@ class TestProjectState:
             )
         )
         ps.register_model_run(
-            ModelRun(
+            ModelRun(fit_spec=FitSpec(groups=(0,)).to_dict(), 
                 model_run_id="model_fast",
                 sample_set_id="sample_fast",
                 signal_domain_id="signal_fast",

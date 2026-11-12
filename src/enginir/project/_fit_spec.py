@@ -2,8 +2,8 @@
 
 A :class:`FitSpec` records how a model was fitted: the fold rule, the pixel
 sample and the DModX exclusion. Every new model run stores its complete
-specification as the nested mapping of :meth:`FitSpec.to_dict`; a run without
-one is a legacy run (:meth:`FitSpec.legacy`).
+specification as the nested mapping of :meth:`FitSpec.to_dict`; every stored
+run has one (format enginir-1.5).
 """
 
 from __future__ import annotations
@@ -47,7 +47,9 @@ class FitSpec:
     fold_rule : str
         ``"round_robin"`` (the fold group at position *j* is held out in fold
         *j* mod *k*, *k* = min(``n_folds``, number of groups)),
-        ``"leave_one_group_out"``, or ``"group_kfold"`` (legacy runs only).
+        ``"leave_one_group_out"``, or ``"group_kfold"`` (scikit-learn's
+        ``GroupKFold`` over ROIs labeled by position; an optional rule,
+        requested explicitly, only with ``group_by="roi"``).
     n_folds : int
         Requested number of folds *F*, at least 2.
     group_by : str
@@ -169,24 +171,12 @@ class FitSpec:
         log_and_raise("cv must be 'auto', 'logo' or a number of folds, got {!r}", cv)
 
     @classmethod
-    def legacy(cls, requested: Any) -> FitSpec:
-        """The specification of a run stored without one (contract §7.3).
+    def from_dict(cls, payload: Mapping[str, Any], *, stored: bool = False) -> FitSpec:
+        """Read the nested mapping of :meth:`to_dict`.
 
-        ``requested`` is its ``cv_spec/requested`` value.
+        In a request, left-out keys take their defaults. A ``stored``
+        specification (a model in a project) must have every key (contract §7).
         """
-        if isinstance(requested, bytes):
-            requested = requested.decode()
-        if requested is None or requested == "auto":
-            return cls(fold_rule="group_kfold")
-        if requested == "logo":
-            return cls(fold_rule="leave_one_group_out")
-        if isinstance(requested, (int, np.integer)) and not isinstance(requested, bool):
-            return cls(fold_rule="group_kfold", n_folds=int(requested))
-        log_and_raise("A legacy model has an unknown cv_spec/requested value {!r}", requested)
-
-    @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> FitSpec:
-        """Read the nested mapping of :meth:`to_dict`; left-out keys take their defaults."""
         if not isinstance(payload, Mapping):
             log_and_raise("fit_spec must be a mapping, got {}", type(payload).__name__)
         unknown = sorted(set(payload) - set(_KEYS))
@@ -200,13 +190,14 @@ class FitSpec:
             extra = sorted(set(group) - set(keys))
             if extra:
                 log_and_raise("fit_spec/{} has unknown key(s): {}", part, extra)
+            missing = [key for key in keys if key not in group]
+            if stored and missing:
+                log_and_raise("fit_spec/{} is missing required key(s): {}", part, missing)
             for key in keys:
                 if key in group:
                     values[_FIELD[part, key]] = _decoded(group[key])
         if values.get("components_max") == 0:  # "not set" in the stored form
             values["components_max"] = None
-        if "components" in payload and "components_noise_guard" not in values:
-            values["components_noise_guard"] = "off"  # stored before 1.4 (contract §7.4)
         per_roi = values.get("pixels_per_roi")
         if per_roi == ALL_PIXELS:
             values["pixels_per_roi"] = None

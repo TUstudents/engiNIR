@@ -111,31 +111,35 @@ def test_exclusion_without_residual_degrees_of_freedom_blocks_the_fit(tmp_path):
     assert project.models == {}
 
 
-# -- legacy runs ---------------------------------------------------------------------
+# -- GroupKFold and the stored fit specification ------------------------------------
 
 
 @pytest.mark.parametrize("requested", ["auto", 3])
-def test_a_legacy_run_refits_with_group_kfold(tmp_path, requested):
-    """§7.3: a run without fit_spec keeps GroupKFold; round-robin would give other folds."""
+def test_group_kfold_is_an_optional_rule_that_refits_identically(tmp_path, requested):
+    """§4: GroupKFold is requested explicitly; it gives other folds than round-robin, and a
+    refit keeps them."""
     project = _uneven_project(tmp_path)
     n_folds = 7 if requested == "auto" else requested
-    legacy = project.fit("API", n_components=2, name="legacy", scale=True,
+    chosen = project.fit("API", n_components=2, name="group k-fold",
                          fit_spec={"folds": {"rule": "group_kfold", "n_folds": n_folds}})
-    round_robin = project.fit("API", n_components=2, cv=n_folds, scale=True)
-    assert legacy.metrics["rmsecv"] != pytest.approx(round_robin.metrics["rmsecv"], rel=1e-6)
-    with h5py.File(project.path, "a") as f:  # what a run written before 1.2 looks like
-        group = f[f"/model_runs/{legacy.ref.model_run_id}"]
-        del group["fit_spec"]
-        del group["hyperparameters"].attrs["scale"]  # absent means True (§7.3)
-        group["cv_spec"].attrs["requested"] = requested
-    old = Project.open(project.path).model(model_run_id=legacy.ref.model_run_id)
-    assert old.ref.fit_spec is None
-    assert old.ref.fit_specification.fold_rule == "group_kfold"
+    round_robin = project.fit("API", n_components=2, cv=n_folds)
+    assert chosen.metrics["rmsecv"] != pytest.approx(round_robin.metrics["rmsecv"], rel=1e-6)
+    assert chosen.ref.cv_spec["type"] == "GroupKFold"
 
-    refitted, warnings = _warnings_during(old.refit)
+    refitted, warnings = _warnings_during(chosen.refit)
     assert refitted.ref.cv_spec["type"] == "GroupKFold"
-    assert refitted.metrics["rmsecv"] == pytest.approx(legacy.metrics["rmsecv"], rel=1e-9)
-    assert refitted.ref.fit_spec is not None and not warnings
+    assert refitted.metrics["rmsecv"] == pytest.approx(chosen.metrics["rmsecv"], rel=1e-9)
+    assert not warnings
+
+
+def test_a_model_without_its_fit_specification_is_refused(tmp_path):
+    """enginir-1.5: every model stores its fit specification; earlier runs are not read."""
+    project = _uneven_project(tmp_path)
+    model = project.fit("API", n_components=2)
+    with h5py.File(project.path, "a") as f:
+        del f[f"/model_runs/{model.ref.model_run_id}/fit_spec"]
+    with pytest.raises(ValueError, match="fit_spec"):
+        Project.open(project.path)
 
 
 # -- round-robin folds -----------------------------------------------------------------
@@ -250,7 +254,7 @@ def test_a_refit_reports_a_different_pixel_sample(tmp_path):
 # -- scaling of X and Y ------------------------------------------------------------------
 
 
-def test_new_runs_store_centred_x_and_uv_y_unless_a_scaling_is_given(tmp_path):
+def test_runs_store_their_scaling_with_the_defaults_filled_in(tmp_path):
     """§7: defaults x_scaling center, y_scaling uv (PCR: x only); an explicit choice is kept."""
     project = _uneven_project(tmp_path)
     assert project.fit("API", n_components=2).ref.hyperparameters == {
@@ -258,9 +262,6 @@ def test_new_runs_store_centred_x_and_uv_y_unless_a_scaling_is_given(tmp_path):
     assert project.fit("API", model="PCR", n_components=2).ref.hyperparameters == {
         "n_components": 2, "x_scaling": "center"}
     assert project.fit("API", n_components=2, x_scaling="pareto").ref.hyperparameters == {
-        "n_components": 2, "x_scaling": "pareto"}
-    autoscaled = project.fit("API", n_components=2, scale=True)
-    assert autoscaled.ref.hyperparameters == {"n_components": 2, "scale": True}
-    reopened = Project.open(project.path).model(model_run_id=autoscaled.ref.model_run_id)
-    assert reopened.refit().metrics["rmsecv"] == pytest.approx(autoscaled.metrics["rmsecv"],
-                                                               rel=1e-9)
+        "n_components": 2, "x_scaling": "pareto", "y_scaling": "uv"}
+    with pytest.raises(ValueError, match="scale switch was removed"):
+        project.fit("API", n_components=2, scale=True)

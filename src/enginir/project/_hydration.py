@@ -159,7 +159,7 @@ def hydrate_project_store(
     # cv_spec and metrics are display data: tolerated when missing
     # (project-schema contract, Core and display data).
     model_runs = _build_all(ModelRun, "model_runs", "model_run_id", store,
-                            optional=("name", "fit_spec") + _MODEL_DISPLAY_FIELDS)
+                            optional=("name",) + _MODEL_DISPLAY_FIELDS)
     predictions = _build_all(PredictionRun, "predictions", "prediction_run_id", store)
 
     _check_executable_models(model_runs, sample_sets, recipes)
@@ -302,7 +302,7 @@ _WRITE_OPTIONS: dict[str, dict[str, Any]] = {
     "DatasetRef": {"ignored": {"calibrations", "active_calibration_id"}},
     "CalibrationSpec": {"optional": _CALIBRATION_REFERENCE_FIELDS},
     "TrainingROI": {"ignored": {"spectra", "calibration_refs"}, "optional": ("sample",)},
-    "ModelRun": {"optional": ("name", "fit_spec")},
+    "ModelRun": {"optional": ("name",)},
 }
 
 
