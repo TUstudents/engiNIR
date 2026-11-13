@@ -2,8 +2,14 @@
 
 ## Unreleased
 
-The terminology contract applied where 1.5.0 missed it, and the contracts
-read against the code.
+## 1.5.1 (2026-11-13)
+
+A minimum, strict project format, the bug fixes of the 1.5.x review and
+demo project, projects that move between Windows and Linux, and a kernel
+engine that fits PLS and PCR about ten times faster with a quarter of the
+memory. **Projects written by 1.5.0 do not open** (create them again): see
+Breaking. Also: the terminology contract applied where 1.5.0 missed it,
+and the contracts read against the code.
 
 ### Breaking
 

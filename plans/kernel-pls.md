@@ -93,14 +93,16 @@ partition-based cross-validation (arXiv 2401.13185); a 2026 follow-up
   script may ask for `nipals`; Fit Again and a refit use the stored value.
   A model without the key (every model of a 1.5 project) reads `nipals`,
   so its refit reproduces it exactly. This is the one compatibility rule
-  between 1.5 and 1.6. NIPALS is removed in 2.0.
+  between models fitted before and after the engine (released in 1.5.1,
+  user, 2026-11-13). NIPALS is removed in 2.0.
 - **D3. Equivalence, not bitwise identity.** Kernel and NIPALS give the
   same model in exact arithmetic. Tests require agreement to 10⁻⁸ relative
   on coefficients, weights, loadings, scores and every stored metric. Rule
   ties that differ by floating-point noise may fall differently; contract
   §7.4 already says a refit reports that.
 - **D4. Release.** Speed and memory only, no new results: a 1.x release
-  (1.6). OPLS, EPO and OSC go to 2.0 with their own plan.
+  (released as 1.5.1 with the 1.5.x fixes, user 2026-11-13). OPLS, EPO and
+  OSC go to 2.0 with their own plan.
 - **D5. PCR from XᵀX, with a conditioning guard (2026-11-11).** PCR
   `hyperparameters` gain `algorithm`: `svd` or `gram`; a model without the
   key reads `svd`. A new fit uses `gram` when σ_Amax/σ₁ ≥ 10⁻⁶ (A_max the
@@ -317,7 +319,7 @@ Tests:
   lines show the algorithm; Fit Again keeps it; the fit's progress names
   the phase.
 - User guide: a short "Fitting speed" section; API reference for
-  `algorithm`; `docs/hdf5_format.md`; CHANGELOG (1.6) with times measured
+  `algorithm`; `docs/hdf5_format.md`; CHANGELOG (1.5.1) with times measured
   on an idle machine.
 - Four gates.
 
