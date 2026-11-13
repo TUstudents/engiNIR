@@ -68,6 +68,26 @@ def _configure_qt_platform() -> None:
     )
 
 
+#: The Windows taskbar groups windows by this id, not by python.exe, and shows
+#: the window icon for it (otherwise Python's icon, or none).
+WINDOWS_APP_ID = "TUstudents.engiNIR.viewer"
+
+
+def _set_windows_app_id() -> None:
+    """Give the process its own taskbar identity on Windows (no-op elsewhere)."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        result = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(WINDOWS_APP_ID)
+    except (AttributeError, OSError) as exc:
+        logger.debug("Windows app id not set: {}", exc)
+        return
+    if result != 0:
+        logger.debug("Windows app id not set (HRESULT {})", result)
+
+
 def app_icon() -> QIcon:
     """The engiNIR window icon (empty when the bundled file is unavailable)."""
     try:
@@ -214,6 +234,7 @@ def ensure_app() -> QApplication:
             return existing
         return apply_qt_theme(existing, dark=dark)
     _configure_qt_platform()
+    _set_windows_app_id()  # before the first window, so the taskbar uses our icon
     _app = QApplication([])
     _app.setWindowIcon(app_icon())
     _install_dialog_centering(_app)

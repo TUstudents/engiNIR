@@ -75,6 +75,8 @@ read against the code.
 
 ### Fixed
 
+- Windows: the taskbar shows the engiNIR icon; the viewer sets its own app id
+  instead of being grouped under python.exe.
 - A project of an earlier format (for example `viewer-v3`) is refused with the
   message naming its format, in the viewer and in `load_spectra`; it was read
   as a dataset and failed with "has no dataset 'spectra'".
