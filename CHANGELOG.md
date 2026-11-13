@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 1.5.2 (2026-11-13)
+
+The viewer on Windows for users without Python knowledge: one PowerShell
+line installs it, and it starts from the Start menu like any desktop
+program. CI now tests every change on Windows, including the install on a
+clean machine. Also a fix of the 1.5.1 kernel engine (NaN Y scores).
+
 ### Added
 
 - **The viewer on Windows like a desktop program.** `enginir-viewer` is now a
@@ -18,6 +25,12 @@
   on the `PATH` and adds the Start menu shortcut; no administrator rights.
   The installation guide starts with it.
 - CI runs the tests on Windows as well.
+
+### Changed
+
+- On Windows, `enginir-viewer` typed in a terminal returns at once and
+  prints nothing (it is a GUI program now); use `enginir-viewer-console` to
+  see messages in the terminal. Linux and macOS are unchanged.
 
 ### Fixed
 

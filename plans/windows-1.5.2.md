@@ -7,7 +7,9 @@ Phase 3 done (403bdff). Phase 4 done (installer script, with `-Wheel`,
 `-Version`, `-NoShortcut`, `-NoPathChange` for testing; dry run on Windows,
 e4f3d15). Phase 5 written: CI job `windows-install`, without setup-uv, so the
 script installs uv itself; the wheel is built with the runner's pip; the
-checks were tried locally in temp folders.
+checks were tried locally in temp folders; 7d69109, all checks passed on
+GitHub (uv installed by the script, 1.5 min). Phase 6: release 1.5.2
+(user, 2026-11-13).
 Branch `windows-1.5.2` from main (1.5.1, 561983b); one commit per phase,
 one PR, then release 1.5.2.
 
