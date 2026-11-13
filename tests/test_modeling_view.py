@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from enginir.project import FitSpec
 
 import time
@@ -371,15 +373,20 @@ def test_the_inspector_summarises_how_a_run_was_fitted(tmp_path):
     assert lines[0] == "Folds: round-robin, 7 folds; held out together: each ROI"
     assert lines[1] == "Pixels: 10 per ROI (seed 3)"
     assert lines[2] == "Scaling: X center, Y unit variance"
-    assert lines[3].startswith("Software: enginir ") and "scikit-learn " in lines[3]
-    assert lines[4].startswith("Pixel exclusion: DModX (weighted), level 0.51, 1 round(s), "
+    assert lines[3] == "Algorithm: kernel PLS (from XᵀX)"
+    assert lines[4].startswith("Software: enginir ") and "scikit-learn " in lines[4]
+    assert lines[5].startswith("Pixel exclusion: DModX (weighted), level 0.51, 1 round(s), "
                                "at most 10% per ROI;")
     excluded = model.excluded_pixels
-    assert lines[5] == "Excluded per ROI: " + ", ".join(
+    assert lines[6] == "Excluded per ROI: " + ", ".join(
         f"{names[r]} {len(v)}" for r, v in excluded.items())
     assert any(line.startswith("Flagged ROIs") for line in lines)
-    assert fit_summary(project.fit("API", n_components=2).ref, names)[4] \
+    assert fit_summary(project.fit("API", n_components=2).ref, names)[5] \
         == "Pixel exclusion: none"
+    # A 1.5 model (no stored algorithm) was fitted by NIPALS (contract §7).
+    old = replace(model.ref, hyperparameters={
+        k: v for k, v in model.ref.hyperparameters.items() if k != "algorithm"})
+    assert fit_summary(old, names, exclusion)[3] == "Algorithm: NIPALS"
 
 
 def test_a_failed_fit_stores_nothing(qapp, state_and_project, monkeypatch):
@@ -537,8 +544,13 @@ def test_fit_again_presets_the_dialog_from_the_selected_model(tmp_path):
     dialog.apply_model_run(model.ref)
     assert dialog.n_components == 3 and dialog.model_type == "PLS"
     assert dialog.hyperparameters == {"n_components": 3, "x_scaling": "pareto",
-                                      "y_scaling": "uv"}
+                                      "y_scaling": "uv", "algorithm": "kernel"}
     assert dialog.cv == "logo"
+    # A 1.5 model has no stored algorithm: it was fitted, and is fitted again, by NIPALS.
+    old = replace(model.ref, hyperparameters={
+        k: v for k, v in model.ref.hyperparameters.items() if k != "algorithm"})
+    dialog.apply_model_run(old)
+    assert dialog.hyperparameters["algorithm"] == "nipals"
 
     excluded = project.fit("API", n_components=2, fit_spec={
         "pixels": {"per_roi": 6, "seed": 4}, "exclusion": {"method": "dmodx", "rounds": 2}})

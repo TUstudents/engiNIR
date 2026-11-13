@@ -447,7 +447,13 @@ Scaling of X and Y:
 ```text
 @x_scaling               center | uv | pareto   (default center)
 @y_scaling               center | uv | pareto   (PLS only, default uv)
+@algorithm               PLS: kernel | nipals   (new fits: kernel)
+                         PCR: gram | svd        (new fits: chosen by the conditioning guard)
 ```
+
+A model without `@algorithm` (written by 1.5) reads `nipals` (PLS) or `svd`
+(PCR); a refit uses the stored algorithm
+(`sample-set-model-run-contract_v3.md` §7).
 
 #### `cv_spec/`
 

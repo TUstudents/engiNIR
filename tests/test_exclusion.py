@@ -8,7 +8,7 @@ import pytest
 
 from enginir import Project
 from enginir.io import save_hdf5
-from enginir.modeling import _exclusion, _service
+from enginir.modeling import _exclusion, _gram_fit, _service
 from enginir.validation import dmodx, dmodx_limit, modelling_power
 from tests.test_fit_spec import _warnings_during
 
@@ -141,11 +141,40 @@ def test_the_exclusion_sees_only_the_training_pixels_of_each_fold(tmp_path, monk
 
     monkeypatch.setattr(_service, "cross_validate", recording_cv)
     monkeypatch.setattr(_exclusion.DModXExclusion, "fit", recording_fit)
-    project.fit("API", n_components=2, fit_spec=EXCLUSION)
+    project.fit("API", n_components=2, fit_spec=EXCLUSION, algorithm="nipals")  # pipeline path
     assert len(seen) == len(folds) + 1  # every fold, then the final model on all pixels
     for (train, test), rows in zip(folds, seen):
         assert np.array_equal(np.sort(rows), np.sort(train))
         assert not np.intersect1d(rows, test).size
+
+
+def test_on_statistics_the_exclusion_sees_only_the_training_blocks_of_each_fold(tmp_path,
+                                                                                monkeypatch):
+    """The same leakage rule for fits on statistics: each fold excludes within its own blocks."""
+    project = _project_with_an_odd_pixel(tmp_path)
+    folds: list[_gram_fit.Fold] = []
+    seen: list[np.ndarray | None] = []
+    real_folds, real_exclude = _gram_fit.folds, _gram_fit.exclude
+
+    def recording_folds(*args, **kwargs):
+        result = real_folds(*args, **kwargs)
+        folds.extend(result[0])
+        return result
+
+    def recording_exclude(make, n, stats, X, y, lay, blocks, **kwargs):
+        seen.append(None if blocks is None else np.asarray(blocks))
+        result = real_exclude(make, n, stats, X, y, lay, blocks, **kwargs)
+        if blocks is not None:
+            excluded_rows = np.flatnonzero(result.excluded_)
+            assert np.all(np.isin(lay.block_of_row[excluded_rows], blocks)), "a held-out pixel"
+        return result
+
+    monkeypatch.setattr(_gram_fit, "folds", recording_folds)
+    monkeypatch.setattr(_gram_fit, "exclude", recording_exclude)
+    project.fit("API", n_components=2, fit_spec=EXCLUSION)
+    assert len(seen) == len(folds) + 1 and seen[-1] is None  # every fold, then all pixels
+    for fold, blocks in zip(folds, seen):
+        assert blocks is not None and np.array_equal(blocks, fold.train_blocks)
 
 
 def test_a_refit_repeats_the_exclusion_and_reports_a_different_one(tmp_path):
@@ -172,9 +201,11 @@ def test_the_formula_of_the_specification_is_used_and_stored(tmp_path, monkeypat
     """dmodx-2 weights by the modelling power (computed in every round), dmodx-1 does not."""
     project = _project_with_an_odd_pixel(tmp_path)
     calls: list[int] = []
-    real = _exclusion.modelling_power
+    real, real_gram = _exclusion.modelling_power, _gram_fit._modelling_power
     monkeypatch.setattr(_exclusion, "modelling_power",
                         lambda *args, **kwargs: calls.append(1) or real(*args, **kwargs))
+    monkeypatch.setattr(_gram_fit, "_modelling_power",
+                        lambda *args, **kwargs: calls.append(1) or real_gram(*args, **kwargs))
     model = project.fit("API", n_components=2,
                         fit_spec={"exclusion": {"method": "dmodx", "formula": formula}})
     assert model.ref.fit_specification.exclusion_formula == formula

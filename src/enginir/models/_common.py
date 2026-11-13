@@ -49,6 +49,13 @@ def max_components(X: np.ndarray) -> int:
     return min(X.shape[0] - 1, X.shape[1])
 
 
+def max_components_of(n_samples: float, n_features: int) -> int:
+    """:func:`max_components` from the row and column counts (fits on statistics)."""
+    if n_samples < 2:
+        log_and_raise("at least 2 samples are required, got {}", int(n_samples), depth=2)
+    return int(min(n_samples - 1, n_features))
+
+
 def check_n_components(value: Any, name: str, *, maximum: int | None = None) -> int:
     """Return ``value`` as an int in ``[1, maximum]`` (no upper bound if ``None``) or raise."""
     value = check_integer(value, name, minimum=1)

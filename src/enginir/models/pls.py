@@ -15,9 +15,14 @@ from ._common import (
     as_target_array,
     check_n_components,
     max_components,
+    max_components_of,
     resolve_scalings,
     scaling_statistics,
 )
+from ._gram import CHUNK_ROWS, GramStats, PLSFactors, blas_threads, kernel_pls
+
+#: The algorithms of :class:`PLSRegression` (sample-set-model-run contract §7).
+PLS_ALGORITHMS = ("kernel", "nipals")
 
 logger = get_logger(__name__)
 
@@ -25,9 +30,11 @@ logger = get_logger(__name__)
 class PLSRegression(RegressorMixin, EnginirEstimator):
     """Partial Least Squares regression for one (PLS1) or several (PLS2) targets.
 
-    The model is fitted with the NIPALS algorithm of
-    :class:`sklearn.cross_decomposition.PLSRegression` and exposes the results
-    in chemometric conventions: regression coefficients ``B`` with one row per
+    The model is fitted by improved kernel PLS on XᵀX (``algorithm="kernel"``,
+    Dayal and MacGregor 1997) or by the NIPALS algorithm of
+    :class:`sklearn.cross_decomposition.PLSRegression` (``"nipals"``); both
+    give the same model to floating-point precision. The results follow
+    chemometric conventions: regression coefficients ``B`` with one row per
     wavelength, an intercept in raw data units, and VIP scores.
 
     Parameters
@@ -47,6 +54,10 @@ class PLSRegression(RegressorMixin, EnginirEstimator):
         PLS2). Default ``500``.
     tol:
         NIPALS convergence tolerance (only used for PLS2). Default ``1e-6``.
+    algorithm:
+        ``"kernel"`` (default) or ``"nipals"`` (kept until 2.0). The kernel
+        fit builds XᵀX in one chunked pass (float64 sums of float32 rows) and
+        makes no full copy of X.
 
     Attributes
     ----------
@@ -73,6 +84,8 @@ class PLSRegression(RegressorMixin, EnginirEstimator):
     x_rotations_ : numpy.ndarray, shape (n_wavelengths, n_components)
         Projection ``W (P^T W)^-1`` that maps scaled spectra to scores, used
         by :meth:`transform`.
+    x_score_ss_ : numpy.ndarray, shape (n_components,)
+        Sum of squares of every column of the training X scores, ``t_a^T t_a``.
     n_features_in_ : int
         Number of wavelengths seen during :meth:`fit`.
 
@@ -100,12 +113,14 @@ class PLSRegression(RegressorMixin, EnginirEstimator):
         tol: float = 1e-6,
         x_scaling: str = "center",
         y_scaling: str = "uv",
+        algorithm: str = "kernel",
     ) -> None:
         self.n_components = n_components
         self.max_iter = max_iter
         self.tol = tol
         self.x_scaling = x_scaling
         self.y_scaling = y_scaling
+        self.algorithm = algorithm
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> PLSRegression:
         """Fit the PLS model.
@@ -125,6 +140,11 @@ class PLSRegression(RegressorMixin, EnginirEstimator):
         """
         X = as_float_matrix(X, "X")
         y = as_target_array(y, n_samples=X.shape[0])
+        if self._algorithm() == "kernel":
+            self.fit_stats(GramStats.from_rows(X, y), single_target=y.ndim == 1)
+            self.x_scores_ = self._scores(X, np.float64)  # float64, as NIPALS stores them
+            self.y_scores_ = self._y_scores(y)
+            return self
         n_components = check_n_components(self.n_components, "n_components",
                                           maximum=max_components(X))
         x_scaling, y_scaling = resolve_scalings(self.x_scaling, self.y_scaling)
@@ -165,10 +185,64 @@ class PLSRegression(RegressorMixin, EnginirEstimator):
         self.x_scores_ = backend.x_scores_
         self.y_scores_ = backend.y_scores_
         self.x_rotations_ = backend.x_rotations_
+        self.x_score_ss_ = np.sum(np.asarray(backend.x_scores_) ** 2, axis=0)
         self.n_features_in_ = X.shape[1]
-        logger.info("PLSRegression fitted: n_components={}, X={}, y={}", n_components, X.shape,
-                    y.shape)
+        logger.info("PLSRegression fitted (NIPALS): n_components={}, X={}, y={}", n_components,
+                    X.shape, y.shape)
         return self
+
+    def _algorithm(self) -> str:
+        if self.algorithm not in PLS_ALGORITHMS:
+            log_and_raise("algorithm must be one of {}, got {!r}", list(PLS_ALGORITHMS),
+                          self.algorithm)
+        return str(self.algorithm)
+
+    def fit_stats(self, stats: GramStats, blocks: np.ndarray | None = None, *,
+                  single_target: bool | None = None,
+                  columns: np.ndarray | None = None) -> PLSRegression:
+        """Fit by kernel PLS from sufficient statistics (:class:`~enginir.models._gram.GramStats`).
+
+        ``blocks`` selects the blocks to fit on (default all), e.g. the
+        calibration part of a fold; ``columns`` the bands (default all, e.g.
+        a candidate of the band proposal). The training scores are not computed
+        (no rows are seen): ``x_scores_`` and ``y_scores_`` are not set,
+        ``x_score_ss_`` is.
+        """
+        moments = stats.moments(blocks, columns)
+        maximum = max_components_of(moments.n, int(moments.x_mean.shape[0]))
+        n_components = check_n_components(self.n_components, "n_components", maximum=maximum)
+        x_scaling, y_scaling = resolve_scalings(self.x_scaling, self.y_scaling)
+        self._set_factors(kernel_pls(moments, n_components, x_scaling=x_scaling,
+                                     y_scaling=y_scaling),
+                          single_target=(stats.n_targets == 1 if single_target is None
+                                         else single_target))
+        self.x_scaling_, self.y_scaling_ = x_scaling, y_scaling
+        logger.debug("PLSRegression fitted (kernel): n_components={}, {} rows, {} bands",
+                     n_components, int(moments.n), int(moments.x_mean.shape[0]))
+        return self
+
+    def _set_factors(self, factors: PLSFactors, *, single_target: bool) -> None:
+        coef, intercept = factors.coefficients()
+        self.coef_ = coef[:, 0] if single_target else coef
+        self.intercept_ = float(intercept[0]) if single_target else intercept
+        self.x_mean_, self.x_std_ = factors.x_mean, factors.x_std
+        self.y_mean_, self.y_std_ = factors.y_mean, factors.y_std
+        self.x_weights_ = factors.weights
+        self.x_loadings_ = factors.loadings
+        self.y_loadings_ = factors.y_loadings
+        self.x_rotations_ = factors.rotations
+        self.x_score_ss_ = factors.score_ss
+        self.n_features_in_ = int(factors.x_mean.shape[0])
+
+    def _y_scores(self, y: np.ndarray) -> np.ndarray:
+        """Training Y scores U as scikit-learn's NIPALS defines them (regression mode)."""
+        ys = (np.asarray(y, dtype=np.float64).reshape(len(y), -1) - self.y_mean_) / self.y_std_
+        t, q = np.asarray(self.x_scores_), np.asarray(self.y_loadings_)
+        u = np.empty_like(t)
+        for a in range(t.shape[1]):
+            residual = ys - t[:, :a] @ q[:, :a].T
+            u[:, a] = residual @ q[:, a] / float(q[:, a] @ q[:, a])
+        return u
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Predict reference values.
@@ -204,9 +278,20 @@ class PLSRegression(RegressorMixin, EnginirEstimator):
         check_is_fitted(self, "coef_")
         X = as_float_matrix(X, "X")
         check_n_features(X, self.n_features_in_, "PLSRegression")
-        scaled = X - self.x_mean_.astype(X.dtype)  # the one working copy, scaled in place
-        scaled /= self.x_std_.astype(X.dtype)
-        return scaled @ self.x_rotations_.astype(X.dtype)
+        return self._scores(X, X.dtype)
+
+    def _scores(self, X: np.ndarray, dtype: np.dtype | type) -> np.ndarray:
+        """Scores of ``X`` in ``dtype``, chunk by chunk (no full working copy of X)."""
+        mean, std = self.x_mean_.astype(dtype), self.x_std_.astype(dtype)
+        rotations = np.asarray(self.x_rotations_).astype(dtype)
+        n_components = int(np.shape(rotations)[-1])
+        scores = np.empty((X.shape[0], n_components), dtype=dtype)
+        with blas_threads(X.size):
+            for lo in range(0, X.shape[0], CHUNK_ROWS):
+                block = np.asarray(X[lo:lo + CHUNK_ROWS], dtype=dtype) - mean
+                block /= std
+                scores[lo:lo + CHUNK_ROWS] = block @ rotations
+        return scores
 
     def predict_components(self, X: np.ndarray, n_components: int | None = None) -> np.ndarray:
         """Predictions of the models with 1, 2, ... ``n_components`` components, from this fit.
@@ -270,7 +355,7 @@ class PLSRegression(RegressorMixin, EnginirEstimator):
         """
         check_is_fitted(self, "x_weights_")
         weights = self.x_weights_ / np.linalg.norm(self.x_weights_, axis=0)
-        explained = np.sum(self.x_scores_**2, axis=0) * np.sum(self.y_loadings_**2, axis=0)
+        explained = np.asarray(self.x_score_ss_) * np.sum(self.y_loadings_**2, axis=0)
         total = explained.sum()
         if total <= 0.0:
             log_and_raise("VIP is undefined: the PLS components explain no Y variance")
@@ -278,4 +363,4 @@ class PLSRegression(RegressorMixin, EnginirEstimator):
         return np.sqrt(n_wavelengths * (weights**2 @ explained) / total)
 
 
-__all__ = ["PLSRegression"]
+__all__ = ["PLS_ALGORITHMS", "PLSRegression"]

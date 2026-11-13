@@ -61,6 +61,24 @@ read against the code.
 
 ### Added
 
+- Kernel engine for PLS and PCR (plan `plans/kernel-pls.md`): fits on sums
+  (XᵀX per fold group, built in one chunked pass), kernel PLS (Dayal and
+  MacGregor) and PCA from XᵀX. A fit in a project with a recipe without
+  MSC/EMSC computes the cross-validation, the component curve and the final
+  model from the sums, and one more pass the per-pixel diagnostics; the band
+  proposal works on the same sums. On 396 000 pixels × 176 bands (SNV, 7
+  folds, curve to 15) a fit took 43 s and 1.7 GB with NIPALS and takes 4.5 s
+  and 0.45 GB. Results equal NIPALS and the full SVD within floating-point
+  precision (tested to 1e-8 on the model and its diagnostics).
+- `hyperparameters/algorithm`: `kernel` or `nipals` (PLS), `gram` or `svd`
+  (PCR, chosen by a conditioning guard). Refits and Fit Again use the stored
+  algorithm; a 1.5 model without one reads `nipals` or `svd`
+  (`stored_hyperparameters`). The Inspector shows it. NIPALS and the full
+  SVD are kept until 2.0.
+- `ENGINIR_BLAS_THREADS` sets the BLAS threads of the engine's passes (by
+  default half the logical CPUs: OpenBLAS with every thread can collapse on
+  these products when other work shares the machine).
+
 - A project moves between computers and platforms: a dataset's data file
   is looked for next to the project (new dataset field `relative_path`), at
   its stored path, and through the Windows ↔ WSL drive mapping (`Z:\…` ↔
@@ -145,6 +163,13 @@ independently. US English throughout.
   exported CSVs by column title must be updated.
 - Library log and error messages use the new terms; scripts that match
   message texts must be updated.
+- `PLSRegression` fits by kernel PLS and `PCR` by PCA from XᵀX by default
+  (`algorithm="nipals"` or `"svd"` for the earlier fits). The models agree
+  to floating-point precision, not bit for bit.
+- `fit_model_run`: with a recipe without MSC/EMSC, the result's
+  `sample_set_data.X` has no columns (the raw spectra are released after the
+  reference correction and stay in the project file; `pixel_indices` tells
+  the drawn pixels), and the recipe is applied ROI by ROI.
 
 ### Added
 

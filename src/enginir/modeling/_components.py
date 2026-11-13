@@ -159,14 +159,7 @@ def component_curve(model: Any, X: np.ndarray, y: np.ndarray, *, splitter: Any,
                       oof.shape)
     n_rois = int(roi_index.max()) + 1
     y_roi = _roi_means(np.asarray(y, dtype=np.float64), roi_index, n_rois)
-    ss = float(((y_roi - y_roi.mean()) ** 2).sum())
     errors = _roi_means(oof, roi_index, n_rois) - y_roi[:, np.newaxis]   # (R, A)
-    press = (errors ** 2).sum(axis=0)
-    rmsecv = np.sqrt(press / n_rois)
-    spread = np.std(errors ** 2, axis=0, ddof=1) if n_rois > 1 else np.zeros_like(press)
-    se = np.zeros_like(rmsecv)
-    ok = rmsecv >= _EPS
-    se[ok] = spread[ok] / (2.0 * rmsecv[ok] * np.sqrt(n_rois))
 
     full: Any = clone(model)
     full.fit(X, y)
@@ -175,10 +168,33 @@ def component_curve(model: Any, X: np.ndarray, y: np.ndarray, *, splitter: Any,
     y_pixels = np.asarray(y, dtype=np.float64)
     ss_pixels = float(((y_pixels - y_pixels.mean()) ** 2).sum())
     rss_pixels = ((fitted - y_pixels[:, np.newaxis]) ** 2).sum(axis=0)
-    previous = np.concatenate([[ss], rss_roi[:-1]])
     projection = project(full, X)
+    curve = curve_from(errors=errors, y_roi=y_roi, rss_roi=rss_roi, rss_pixels=rss_pixels,
+                       ss_pixels=ss_pixels, cumulative_rss=projection.cumulative_rss,
+                       total_ss=projection.total_ss, full=full, n_samples=n_samples)
+    return curve, oof, cv["cv_scheme"]
+
+
+def curve_from(*, errors: np.ndarray, y_roi: np.ndarray, rss_roi: np.ndarray,
+               rss_pixels: np.ndarray, ss_pixels: float, cumulative_rss: np.ndarray,
+               total_ss: float, full: Any, n_samples: int) -> dict[str, Any]:
+    """The component curve from its sums (contract §7.4), for every fit path.
+
+    ``errors`` are the held-out ROI errors (R, A); ``rss_roi`` and
+    ``rss_pixels`` the residual sums of the full model per component count;
+    ``cumulative_rss`` and ``total_ss`` the X residuals of the full model.
+    """
+    n_rois = int(errors.shape[0])
+    ss = float(((y_roi - y_roi.mean()) ** 2).sum())
+    press = (errors ** 2).sum(axis=0)
+    rmsecv = np.sqrt(press / n_rois)
+    spread = np.std(errors ** 2, axis=0, ddof=1) if n_rois > 1 else np.zeros_like(press)
+    se = np.zeros_like(rmsecv)
+    ok = rmsecv >= _EPS
+    se[ok] = spread[ok] / (2.0 * rmsecv[ok] * np.sqrt(n_rois))
+    previous = np.concatenate([[ss], rss_roi[:-1]])
     curve: dict[str, Any] = {
-        "n_components": np.arange(1, oof.shape[1] + 1, dtype=np.int64),
+        "n_components": np.arange(1, errors.shape[1] + 1, dtype=np.int64),
         "rmsecv": rmsecv,
         "rmsecv_se": se,
         "q2": 1.0 - _ratio(press, previous, "RSS of the previous component count"),
@@ -186,8 +202,7 @@ def component_curve(model: Any, X: np.ndarray, y: np.ndarray, *, splitter: Any,
         "r2y_cum": 1.0 - _ratio(rss_pixels, np.full_like(rss_pixels, ss_pixels),
                                 "the pixel reference spread"),
         "r2y_cum_roi": 1.0 - _ratio(rss_roi, np.full_like(rss_roi, ss), "the reference spread"),
-        "r2x_cum": 1.0 - _ratio(projection.cumulative_rss,
-                                np.full_like(projection.cumulative_rss, projection.total_ss),
+        "r2x_cum": 1.0 - _ratio(cumulative_rss, np.full_like(cumulative_rss, total_ss),
                                 "the spectral spread"),
     }
     dof = n_rois - curve["n_components"] - 1  # RMSEE degrees of freedom (§7.5), per ROI
@@ -198,7 +213,7 @@ def component_curve(model: Any, X: np.ndarray, y: np.ndarray, *, splitter: Any,
     curve["structure_ceiling"] = structure_ceiling(curve)
     for rule in COMPONENT_CHOICE_RULES:
         curve[f"suggested_{rule}"] = choose_components(curve, rule, n_samples=n_samples)
-    return curve, oof, cv["cv_scheme"]
+    return curve
 
 
 def weight_roughness(fitted: Any) -> np.ndarray:
@@ -299,14 +314,15 @@ def band_importance(fitted: Any, X: np.ndarray, kept: np.ndarray) -> dict[str, n
 
 
 def training_diagnostics(fitted: Any, X: np.ndarray, y: np.ndarray, kept: np.ndarray,
-                         roi_index: np.ndarray, *, y_divisor: float) -> tuple[
-                             dict[str, Any], dict[str, Any], dict[str, Any]]:
+                         roi_index: np.ndarray, *, y_divisor: float,
+                         with_scores: bool = False) -> Any:
     """Fit statistics (metrics), per-pixel diagnostics and projection data (§5, §7.5).
 
     ``kept`` marks the pixels the model was fitted on (all, unless DModX
     excluded some); excluded pixels get the same formulas. The projection
     data let predictions compute DModXPS and T²PS (prediction-runtime
-    contract, Applicability diagnostics).
+    contract, Applicability diagnostics). With ``with_scores`` the scores
+    of every pixel (N, A) are returned as a fourth element.
     """
     model: Any = fitted[-1] if isinstance(fitted, Pipeline) else fitted
     projection = project(fitted, X)
@@ -389,6 +405,8 @@ def training_diagnostics(fitted: Any, X: np.ndarray, y: np.ndarray, kept: np.nda
         metrics["rmsee"] = float(np.sqrt(rss_roi / (n_rois - 1 - a)))
         if tss_roi >= _EPS:
             metrics["r2_adj"] = float(1 - (rss_roi / (n_rois - 1 - a)) / (tss_roi / (n_rois - 1)))
+    if with_scores:
+        return metrics, diagnostics, projection_fields, projection.scores
     return metrics, diagnostics, projection_fields
 
 

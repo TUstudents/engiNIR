@@ -36,7 +36,7 @@ from .._checks import log_and_raise
 from .._logging import get_logger
 from ..io.project_store import load_model_run_artifact_refs
 from .._workflow import recipe_id_for, resolve_sample_set, resolve_signal_domain
-from ..modeling import fold_warning_text
+from ..modeling import fold_warning_text, stored_hyperparameters
 from ..preprocessing import PreprocessingRecipe
 from ..preprocessing.recipe import format_ranges, parse_ranges
 from ..project import check_signal_domain_compatibility
@@ -329,6 +329,8 @@ class FitModelRunDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Fit model")
+        #: (model type, algorithm) of the run "Fit again..." preset; kept for that type.
+        self._preset_algorithm: tuple[str, str] | None = None
         self._readiness = readiness
         self._fold_warner = fold_warner
         self._smallest_roi = smallest_roi
@@ -587,7 +589,9 @@ class FitModelRunDialog(QDialog):
             index = self._signal_unit_combo.findData(signal_unit)
             if index >= 0:
                 self._signal_unit_combo.setCurrentIndex(index)
-        hyper = model_run.hyperparameters
+        hyper = stored_hyperparameters(model_run.model_type, model_run.hyperparameters)
+        if "algorithm" in hyper:  # Fit again runs the stored algorithm (contract §7)
+            self._preset_algorithm = (model_run.model_type, str(hyper["algorithm"]))
         self._components_spin.setValue(int(hyper.get("n_components", 6)))
         self._auto_check.setChecked(False)
         for combo, key in ((self._x_scaling_combo, "x_scaling"),
@@ -807,6 +811,8 @@ class FitModelRunDialog(QDialog):
                                   "x_scaling": str(self._x_scaling_combo.currentData())}
         if self.model_type == "PLS":
             values["y_scaling"] = str(self._y_scaling_combo.currentData())
+        if self._preset_algorithm is not None and self._preset_algorithm[0] == self.model_type:
+            values["algorithm"] = self._preset_algorithm[1]
         return values
 
     @property

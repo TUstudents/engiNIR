@@ -494,6 +494,34 @@ earlier versions is removed).
 Centering and scaling are learnt from the calibration pixels of each fold, like
 every other fitted step; standard deviations use N − 1.
 
+The numerical algorithm is a model setting too, stored in `hyperparameters`
+as `algorithm` (plan `plans/kernel-pls.md`, decided 2026-11-13):
+
+- PLS: `kernel` (improved kernel PLS on the cross-product matrix XᵀX,
+  Dayal and MacGregor 1997) or `nipals` (scikit-learn's NIPALS). New fits
+  use `kernel`; a script may request `nipals`.
+- PCR: `gram` (a symmetric eigendecomposition of the centered, scaled XᵀX)
+  or `svd` (a full SVD of X). A new fit requests `auto`, which uses `gram`
+  when σ_Amax / σ₁ ≥ 10⁻⁶ (σ the singular values of the centered, scaled X
+  of the whole calibration set, *A*max the largest number of components the
+  fit computes) and `svd` otherwise, with the reason logged; the run stores
+  the algorithm it used, never `auto`.
+- A stored model without `algorithm` (models of 1.5 projects) reads
+  `nipals` (PLS) or `svd` (PCR). This is the one compatibility rule of the
+  key; `nipals` and `svd` are removed in 2.0.
+- A refit and "Fit Again" use the stored algorithm, so a refit reproduces
+  the model exactly.
+
+The algorithm does not change what a model means: the definitions of §5,
+§7.2, §7.4 and §7.5 hold for every algorithm, and two algorithms give the
+same model within floating-point precision (tested to 10⁻⁸ relative on
+coefficients, weights, loadings, scores and every stored metric). Rule
+choices that differ only by that noise may fall differently; a refit
+reports that as any other difference (§7.4). The weights and loadings of
+every algorithm follow scikit-learn's sign convention (PLS: the largest
+absolute element of each X weight vector is positive; PCR: that of each
+loading vector), so stored plots do not flip between algorithms.
+
 The short `cv` argument of the facade maps to the fold rule: `"auto"` →
 `round_robin` with *F* = 7, an integer *F* → `round_robin` with that *F*,
 `"logo"` → `leave_one_group_out`, each with `group_by = roi`. An integer *F*
@@ -773,9 +801,11 @@ it was fitted on):
   its sum of squares (at least 10⁻¹⁰), or with zero variance, gets NaN with
   a warning. Both are computed from the final model without a refit
 
-PCR computes its principal components with a deterministic full SVD, so a
-fit is reproducible and its first *a* components are those of an
-*a*-component fit.
+PCR computes its principal components deterministically, with the full SVD
+of X (`svd`) or the symmetric eigendecomposition of XᵀX (`gram`), so a fit
+is reproducible and its first *a* components are those of an *a*-component
+fit, for both algorithms. Likewise the first *a* components of a PLS fit
+are the *a*-component PLS model for both `kernel` and `nipals`.
 
 The final model's `prediction_model` artifact also stores its projection
 data (`x_mean`, `x_std`, `rotations`, `loadings`, `score_variances`, `s0`,

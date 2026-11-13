@@ -154,3 +154,45 @@ def test_the_viewer_proposes_through_the_project_and_fills_the_fit_dialog(tmp_pa
     assert cancelled.proposal is None and "Canceled" in cancelled._status.text()
     cancelled.close()
     view.close()
+
+
+@pytest.mark.parametrize(("model", "recipe", "kwargs"), [
+    ("PLS", PreprocessingRecipe(), {}),
+    ("PLS", PreprocessingRecipe(snv=True), {"n_components": 3}),
+    ("PCR", PreprocessingRecipe(), {}),
+], ids=["pls-auto", "pls-snv-fixed", "pcr-auto"])
+def test_the_proposal_on_statistics_equals_the_pipeline(tmp_path, monkeypatch, model, recipe,
+                                                        kwargs):
+    """Plan kernel-pls, Phase 3: same ranges, steps and component counts; RMSECVs to 1e-5
+    (the pipeline predicts held-out pixels in float32, the statistics path ROI means). The
+    SVD reference gets float64 spectra: scikit-learn's PCA computes float32 in float32."""
+    import time
+
+    import enginir.models.pcr as pcr
+
+    tol = 1e-5
+
+    project = _project(tmp_path, informative=True, seed=3)
+    reference_algorithm = "nipals" if model == "PLS" else "svd"
+    start = time.perf_counter()
+    ours = project.propose_bands("API", model=model, recipe=recipe, n_intervals=8, **kwargs)
+    fast = time.perf_counter() - start
+    real_fit = pcr.PCA.fit
+    monkeypatch.setattr(pcr.PCA, "fit",
+                        lambda self, X, y=None: real_fit(self, np.asarray(X, dtype=np.float64)))
+    start = time.perf_counter()
+    reference = project.propose_bands("API", model=model, recipe=recipe, n_intervals=8,
+                                      algorithm=reference_algorithm, **kwargs)
+    slow = time.perf_counter() - start
+    assert ours.ranges == reference.ranges
+    assert [(s.intervals, s.n_components) for s in ours.steps] == \
+        [(s.intervals, s.n_components) for s in reference.steps]
+    for a, b in zip(ours.steps, reference.steps, strict=True):
+        assert a.rmsecv == pytest.approx(b.rmsecv, rel=tol)
+        assert a.rmsecv_se == pytest.approx(b.rmsecv_se, rel=10 * tol, abs=1e-9)
+    # Nested: the pipeline predicts held-out pixels (about 5 %) in float32 and the errors are
+    # about 0.02, so its rounding of 1e-7 grows to some 1e-5 in RMSECV.
+    assert ours.nested_rmsecv == pytest.approx(reference.nested_rmsecv, rel=1e-4)
+    assert ours.all_bands_rmsecv == pytest.approx(reference.all_bands_rmsecv, rel=tol)
+    assert ours.n_components == reference.n_components
+    print(f"band proposal on statistics {fast:.2f} s, pipeline {slow:.2f} s")
