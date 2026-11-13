@@ -114,7 +114,9 @@ def enable_logging(
     ----------
     level:
         Minimum level of engiNIR messages printed to stderr, e.g. ``"DEBUG"``,
-        ``"INFO"`` or ``"WARNING"`` (default).
+        ``"INFO"`` or ``"WARNING"`` (default). A process without a console
+        (``sys.stderr`` is ``None``, e.g. the viewer started from a Windows
+        shortcut) prints nothing; the log file still records everything.
     file:
         ``False`` (default) for no log file, ``True`` for the first writable
         location of :func:`default_log_files`, or a path. The file rotates at 10 MB and
@@ -146,15 +148,16 @@ def enable_logging(
     try:
         logger.enable(_PACKAGE)
         _reroute_default_handler()
-        _state.sink_ids.append(
-            logger.add(
-                sys.stderr,
-                level=level,
-                format=_STDERR_FORMAT,
-                filter=_is_enginir_console_record,
-                diagnose=False,
+        if sys.stderr is not None:  # None in a process without a console (pythonw)
+            _state.sink_ids.append(
+                logger.add(
+                    sys.stderr,
+                    level=level,
+                    format=_STDERR_FORMAT,
+                    filter=_is_enginir_console_record,
+                    diagnose=False,
+                )
             )
-        )
         if file is True:
             for candidate in default_log_files():
                 if _add_file_sink(candidate, file_level):
@@ -215,7 +218,8 @@ def _reroute_default_handler() -> None:
         logger.remove(0)
     except ValueError:
         return  # The application already configured Loguru itself.
-    logger.add(sys.stderr, filter=lambda record: not _is_enginir_record(record))
+    if sys.stderr is not None:
+        logger.add(sys.stderr, filter=lambda record: not _is_enginir_record(record))
 
 
 def _add_file_sink(path: Path, level: str) -> bool:

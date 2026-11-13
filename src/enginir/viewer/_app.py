@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import QApplication, QComboBox, QDialog, QWidget
 
 from .._logging import enable_logging, get_logger, logging_enabled
 from ._theme import apply_qt_theme, load_preference, theme_applied
+from ._windows_shell import WINDOWS_APP_ID
 
 __all__ = ["enable_viewer_logging", "ensure_app", "run"]
 
@@ -66,11 +67,6 @@ def _configure_qt_platform() -> None:
         os.environ.get("DISPLAY"),
         platform,
     )
-
-
-#: The Windows taskbar groups windows by this id, not by python.exe, and shows
-#: the window icon for it (otherwise Python's icon, or none).
-WINDOWS_APP_ID = "TUstudents.engiNIR.viewer"
 
 
 def _set_windows_app_id() -> None:

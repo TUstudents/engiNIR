@@ -63,7 +63,9 @@ Enabling log output
 ``enable_logging`` arguments:
 
 ``level``
-    Minimum level printed to stderr (default ``"WARNING"``).
+    Minimum level printed to stderr (default ``"WARNING"``). Without a
+    console (the viewer started from a Windows shortcut) nothing is printed;
+    use the log file.
 ``file``
     ``False`` (default), ``True`` for the default log file, or a path. The
     default log file is the first writable of ``$ENGINIR_LOG_FILE`` (if that

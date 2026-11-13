@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Added
+
+- **The viewer on Windows like a desktop program.** `enginir-viewer` is now a
+  GUI script: on Windows it starts without a console window, and its
+  messages (`--help`, the new `--version`, a failed start) appear in a
+  message box. `enginir-viewer-console` is the same launcher with a console.
+  `enginir-viewer --install-shortcut [--desktop]` adds "engiNIR Viewer" with
+  the engiNIR icon to the Start menu (and the desktop), with the viewer's
+  taskbar id, so a pinned window starts engiNIR; `--remove-shortcut` removes
+  them.
+- CI runs the tests on Windows as well.
+
+### Fixed
+
+- Kernel PLS gave NaN Y scores (and a `RuntimeWarning`) for components the
+  data no longer support; they are zero, as with NIPALS (1.5.1 regression).
+- The default log file falls back to the system temporary folder when the
+  home folder is not writable (it was a hard-coded `/tmp`, `C:\tmp` on
+  Windows).
+- Logging works in a process without a console (`sys.stderr` is `None`):
+  the log file records everything, nothing is printed.
+
 ## 1.5.1 (2026-11-13)
 
 A minimum, strict project format, the bug fixes of the 1.5.x review and

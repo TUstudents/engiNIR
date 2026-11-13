@@ -19,6 +19,21 @@ them read from ``ViewerState`` (the open scan, cursor and processing) and
 ``ProjectState`` (the project). To script the workflow, use
 :class:`enginir.Project` instead (:doc:`/api/workflow`).
 
+Launcher and Windows shortcuts
+------------------------------
+
+``enginir-viewer`` (a GUI script: no console window on Windows) and
+``enginir-viewer-console`` run ``enginir.viewer.__main__.main``. Without a
+console, ``--help``, ``--version``, usage errors and a failed start are
+shown in a message box. ``--install-shortcut`` (``--desktop``) and
+``--remove-shortcut`` call the functions below.
+
+.. autofunction:: enginir.viewer._windows_shell.install_shortcuts
+.. autofunction:: enginir.viewer._windows_shell.remove_shortcuts
+.. autofunction:: enginir.viewer._windows_shell.write_shortcut
+.. autofunction:: enginir.viewer._windows_shell.read_shortcut
+.. autofunction:: enginir.viewer._windows_shell.launcher_path
+
 WelcomeWindow
 -------------
 
