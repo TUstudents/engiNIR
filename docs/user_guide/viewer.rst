@@ -18,6 +18,23 @@ Starting
    enginir-viewer scan.eiff --dark dark.eiff --white white.eiff
    enginir-viewer scan.eiff --project project.h5      # scan and project together
    enginir-viewer project.h5                          # a project on its own
+   enginir-viewer --version
+
+On Windows, ``enginir-viewer`` starts without a console window; its
+messages (``--help``, ``--version``, errors at start) appear in a message
+box, and the log file records the rest (:doc:`logging`).
+``enginir-viewer-console`` is the same program with a console, for
+diagnosis. A Start menu entry with the engiNIR icon:
+
+.. code-block:: bash
+
+   enginir-viewer-console --install-shortcut            # Start menu
+   enginir-viewer-console --install-shortcut --desktop  # also on the desktop
+   enginir-viewer-console --remove-shortcut             # remove both
+
+The shortcut starts the installed viewer and carries the viewer's taskbar
+id, so a viewer window pinned to the taskbar starts engiNIR again. Remove
+the shortcuts before uninstalling engiNIR.
 
 From Python:
 

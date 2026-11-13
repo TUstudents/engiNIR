@@ -47,7 +47,7 @@ def test_viewer_writes_projects_only_through_project():
     viewer = Path(__file__).parents[1] / "src" / "enginir" / "viewer"
     found: dict[str, set[str]] = {}
     for path in viewer.glob("*.py"):
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.ImportFrom) and node.module and "project_store" in node.module:
                 used = {alias.name for alias in node.names} & writers
                 if used:
@@ -55,7 +55,7 @@ def test_viewer_writes_projects_only_through_project():
 
     assert found == {}
     for path in viewer.glob("*.py"):
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         assert "persist_artifacts" not in text and "save_prediction_run" not in text, path.name
 
 
@@ -80,7 +80,7 @@ def test_the_viewer_never_addresses_objects_by_name():
     viewer = Path(__file__).parents[1] / "src" / "enginir" / "viewer"
     found = [f"{path.name}:{node.lineno} .{node.attr}"
              for path in sorted(viewer.glob("*.py"))
-             for node in ast.walk(ast.parse(path.read_text()))
+             for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
              if isinstance(node, ast.Attribute) and node.attr in by_name
              and is_facade(node.value)]
     assert found == []

@@ -98,7 +98,7 @@ def test_invalid_text_is_refused_and_nothing_changes(table, project, monkeypatch
 
 
 def test_enter_stores_and_moves_to_the_next_row(qapp, table, project):
-    from PyQt6.QtCore import Qt
+    from PyQt6.QtCore import QDeadlineTimer, Qt
     from PyQt6.QtTest import QTest
     from PyQt6.QtWidgets import QAbstractItemView
 
@@ -107,7 +107,16 @@ def test_enter_stores_and_moves_to_the_next_row(qapp, table, project):
     view.edit(view.currentIndex())
     QTest.keyClicks(view.focusWidget() or view, "7.25")
     QTest.keyClick(view.focusWidget() or view, Qt.Key.Key_Return)
+    # The next editor opens from a 0 ms timer; on Windows the key itself is
+    # handled one event round later, so wait for the editor (at most 1 s).
+    deadline = QDeadlineTimer(1000)
+    def next_editor_open() -> bool:
+        return (view.currentIndex().row() == 2
+                and view.state() == QAbstractItemView.State.EditingState)
+
     qapp.processEvents()
+    while not next_editor_open() and not deadline.hasExpired():
+        qapp.processEvents()
     assert _stored(project[0].path, "A2", "fat") == 7.25
     assert view.currentIndex().row() == 2 and view.currentIndex().column() == 6
     assert view.state() == QAbstractItemView.State.EditingState

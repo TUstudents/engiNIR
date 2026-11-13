@@ -8,7 +8,14 @@ Usage
     enginir-viewer --project project.h5      # project-only startup
     enginir-viewer data.eiff --project p.h5  # dataset-first + project
     enginir-viewer file.eiff --dark d.eiff --white w.eiff
+    enginir-viewer --version
+    enginir-viewer --install-shortcut [--desktop]  # Windows: Start menu (desktop)
+    enginir-viewer --remove-shortcut               # Windows: remove both
     uv run python -m enginir.viewer file.eiff
+
+``enginir-viewer`` is a GUI script: on Windows it starts without a console
+window, so its messages (``--help``, ``--version``, errors) appear in a
+message box. ``enginir-viewer-console`` is the same launcher with a console.
 """
 
 from __future__ import annotations
@@ -17,8 +24,9 @@ import argparse
 import sys
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, NoReturn
 
+from .. import __version__
 from .._logging import get_logger, log_file_path
 
 logger = get_logger(__name__)
@@ -32,7 +40,7 @@ def _main(argv: list[str] | None = None) -> int:
     logger.info("enginir-viewer started")
     logger.info("Log file: {}", log_file_path())
 
-    parser = argparse.ArgumentParser(
+    parser = _Parser(
         prog="enginir-viewer",
         description="Open the engiNIR interactive HSI viewer.",
     )
@@ -50,7 +58,21 @@ def _main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--dark", default=None, metavar="FILE", help="Dark-reference file")
     parser.add_argument("--white", default=None, metavar="FILE", help="White-reference file")
+    parser.add_argument("--version", action="version", version=f"engiNIR {__version__}")
+    shortcuts = parser.add_argument_group("Windows shortcuts")
+    shortcuts.add_argument("--install-shortcut", action="store_true",
+                           help="Add 'engiNIR Viewer' to the Start menu and exit")
+    shortcuts.add_argument("--desktop", action="store_true",
+                           help="With --install-shortcut: also add it to the desktop")
+    shortcuts.add_argument("--remove-shortcut", action="store_true",
+                           help="Remove the Start menu and desktop shortcuts and exit")
     args = parser.parse_args(argv)
+    if args.desktop and not args.install_shortcut:
+        parser.error("--desktop needs --install-shortcut")
+    if args.install_shortcut and args.remove_shortcut:
+        parser.error("--install-shortcut and --remove-shortcut exclude each other")
+    if args.install_shortcut or args.remove_shortcut:
+        return _shortcuts(install=args.install_shortcut, desktop=args.desktop)
 
     from ._app import ensure_app, run
     from . import open_project, open_viewer
@@ -309,11 +331,65 @@ def _main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def _shortcuts(*, install: bool, desktop: bool) -> int:
+    from ._windows_shell import install_shortcuts, remove_shortcuts
+
+    try:
+        paths = install_shortcuts(desktop=desktop) if install else remove_shortcuts()
+    except (OSError, ValueError) as exc:  # logged (and on a console printed) where raised
+        if sys.stderr is None:
+            _message_box("engiNIR Viewer", str(exc), error=True)
+        return 1
+    if install:
+        _tell("".join(f"Shortcut added: {path}\n" for path in paths), error=False)
+    else:
+        _tell("".join(f"Shortcut removed: {path}\n" for path in paths)
+              or "No engiNIR shortcut found.\n", error=False)
+    return 0
+
+
+class _Parser(argparse.ArgumentParser):
+    """``--help``, ``--version`` and usage errors also reach a user without a console."""
+
+    def _print_message(self, message: str, file: Any = None) -> None:
+        if message:
+            _tell(message, error=file is not None and file is sys.stderr)
+
+    def error(self, message: str) -> NoReturn:
+        _tell(f"{self.format_usage()}{self.prog}: error: {message}\n", error=True)
+        sys.exit(2)
+
+
+def _tell(text: str, *, error: bool) -> None:
+    """Print ``text``, or show it in a message box when there is no console (pythonw)."""
+    stream = sys.stderr if error else sys.stdout
+    if stream is not None:
+        stream.write(text)
+        stream.flush()
+        return
+    _message_box("engiNIR Viewer", text.strip(), error=error)
+
+
+def _message_box(title: str, text: str, *, error: bool) -> None:
+    try:
+        from PyQt6.QtWidgets import QApplication, QMessageBox
+
+        _app = QApplication.instance() or QApplication([])
+        show = QMessageBox.critical if error else QMessageBox.information
+        show(None, title, text)
+    except Exception as exc:  # nothing else can reach the user
+        logger.error("Cannot show the message box ({}): {}", exc, text)
+
+
 def main(argv: list[str] | None = None) -> None:
     try:
         sys.exit(_main(argv))
-    except Exception:
+    except Exception as exc:
         logger.exception("Launcher crashed")
+        if sys.stderr is None:  # started without a console: the user would see nothing
+            _message_box("engiNIR Viewer could not start",
+                         f"{exc}\n\nDetails are in the log file:\n{log_file_path()}",
+                         error=True)
         sys.exit(1)
 
 

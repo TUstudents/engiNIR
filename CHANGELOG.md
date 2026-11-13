@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+## 1.5.2 (2026-11-13)
+
+The viewer on Windows for users without Python knowledge: one PowerShell
+line installs it, and it starts from the Start menu like any desktop
+program. CI now tests every change on Windows, including the install on a
+clean machine. Also a fix of the 1.5.1 kernel engine (NaN Y scores).
+
+### Added
+
+- **The viewer on Windows like a desktop program.** `enginir-viewer` is now a
+  GUI script: on Windows it starts without a console window, and its
+  messages (`--help`, the new `--version`, a failed start) appear in a
+  message box. `enginir-viewer-console` is the same launcher with a console.
+  `enginir-viewer --install-shortcut [--desktop]` adds "engiNIR Viewer" with
+  the engiNIR icon to the Start menu (and the desktop), with the viewer's
+  taskbar id, so a pinned window starts engiNIR; `--remove-shortcut` removes
+  them.
+- **One-line install on Windows** for users without Python knowledge:
+  `install-enginir-for-windows.ps1`, attached to each release, installs uv
+  if needed, installs engiNIR as a uv tool on its own Python 3.13, puts it
+  on the `PATH` and adds the Start menu shortcut; no administrator rights.
+  The installation guide starts with it.
+- CI runs the tests on Windows as well.
+
+### Changed
+
+- On Windows, `enginir-viewer` typed in a terminal returns at once and
+  prints nothing (it is a GUI program now); use `enginir-viewer-console` to
+  see messages in the terminal. Linux and macOS are unchanged.
+
+### Fixed
+
+- Kernel PLS gave NaN Y scores (and a `RuntimeWarning`) for components the
+  data no longer support; they are zero, as with NIPALS (1.5.1 regression).
+- The default log file falls back to the system temporary folder when the
+  home folder is not writable (it was a hard-coded `/tmp`, `C:\tmp` on
+  Windows).
+- Logging works in a process without a console (`sys.stderr` is `None`):
+  the log file records everything, nothing is printed.
+
 ## 1.5.1 (2026-11-13)
 
 A minimum, strict project format, the bug fixes of the 1.5.x review and

@@ -9,8 +9,9 @@ Developer reference for the `src/enginir/viewer/` module.
 | File | Responsibility |
 |------|----------------|
 | `__init__.py` | Public API: `open_viewer()`, `open_project()` |
-| `__main__.py` | CLI entry point `enginir-viewer` |
-| `_app.py` | QApplication singleton, platform choice (Wayland on WSLg, X11 on other mixed sessions), application icon (on Windows with its own taskbar app id, `WINDOWS_APP_ID`, so the taskbar shows the engiNIR icon instead of grouping the window under python.exe), the application-wide event filter (dialog centering; on WSLg Wayland, combo popups release their native window after hiding, because WSLg keeps an unmapped popup on screen, microsoft/wslg#1522) |
+| `__main__.py` | Launcher `main` of `enginir-viewer` (GUI script: no console on Windows) and `enginir-viewer-console`; without a console, its messages and a failed start go to a message box; `--install-shortcut` / `--remove-shortcut` |
+| `_windows_shell.py` | Windows Start menu and desktop shortcuts through the shell's COM interfaces with `ctypes` (no Qt, no extra package): target the windowless launcher, the engiNIR icon and the taskbar id `WINDOWS_APP_ID`, which the running viewer also sets |
+| `_app.py` | QApplication singleton, platform choice (Wayland on WSLg, X11 on other mixed sessions), application icon (on Windows with its own taskbar app id, `WINDOWS_APP_ID` from `_windows_shell`, so the taskbar shows the engiNIR icon instead of grouping the window under python.exe), the application-wide event filter (dialog centering; on WSLg Wayland, combo popups release their native window after hiding, because WSLg keeps an unmapped popup on screen, microsoft/wslg#1522) |
 | `_theme.py` | Shared Qt stylesheet (Fusion + light palette) |
 | `_state.py` | `ViewerState` (UI) + `ProjectState` (Qt adapter over `enginir.Project`) |
 | `_canvas.py` | `FalseColourCanvas` (pyqtgraph image surface, crosshair, ROI draw/selection) |
@@ -50,7 +51,8 @@ Arrows show import direction (A → B means A imports from B).
 
 ```
 __init__  → _app, _viewer, _attachment, _recent, io
-__main__  → _app, __init__, _welcome, _loading, io.project_store
+__main__  → _app, __init__, _welcome, _loading, _windows_shell, io.project_store
+_app      → _theme, _windows_shell
 _viewer   → _canvas, _panels, _eda, _modeling, _prediction, _state,
             _browser, _inspector, _model_diagnostics, _attachment, _loading, _theme
 _eda      → _state, _modeling (NewROIDialog), _attachment, _loading, io

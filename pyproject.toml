@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "enginir"
-version = "1.5.1"
+version = "1.5.2"
 description = "engiNIR: chemometric tools and project-backed workflows for NIR spectra and hyperspectral imaging"
 readme = "README.md"
 authors = [{ name = "Johannes Poms" }]
@@ -45,6 +45,11 @@ Repository = "https://github.com/TUstudents/engiNIR"
 DOI = "https://doi.org/10.5281/zenodo.23235907"
 
 [project.scripts]
+# The same launcher with a console window (messages, --help, diagnosis).
+enginir-viewer-console = "enginir.viewer.__main__:main"
+
+[project.gui-scripts]
+# On Windows a launcher without a console window; elsewhere a normal script.
 enginir-viewer = "enginir.viewer.__main__:main"
 
 [tool.uv-build]

@@ -173,3 +173,16 @@ def test_an_unknown_algorithm_is_refused():
         PLSRegression(algorithm="svd").fit(X, y)
     with pytest.raises(ValueError, match="algorithm"):
         PCR(algorithm="kernel").fit(X, y)
+
+
+def test_exhausted_components_have_zero_y_scores_as_with_nipals():
+    """SNV-like rank loss: more components than the data support (1.5.1 gave NaN)."""
+    rng = np.random.default_rng(3)
+    X = rng.standard_normal((50, 3)) @ rng.standard_normal((3, 20))
+    y = X[:, 0] + 0.1 * rng.standard_normal(50)
+    with np.errstate(all="raise"):
+        kernel = PLSRegression(n_components=6, algorithm="kernel").fit(X, y)
+    nipals = PLSRegression(n_components=6, algorithm="nipals").fit(X, y)
+    assert np.isfinite(kernel.y_scores_).all()
+    assert np.allclose(kernel.y_scores_[:, 3:], 0.0)
+    assert np.allclose(kernel.y_scores_, nipals.y_scores_, atol=1e-8)

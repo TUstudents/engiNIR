@@ -60,6 +60,14 @@ uv add enginir
 
 To work on engiNIR itself, clone the repository and run `uv sync --all-extras`.
 
+**The viewer on Windows, without Python knowledge:** paste this line into
+PowerShell, then start *engiNIR Viewer* from the Start menu (details in the
+[installation guide](https://enginir.readthedocs.io/en/stable/user_guide/installation.html)):
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/TUstudents/engiNIR/releases/latest/download/install-enginir-for-windows.ps1 | iex"
+```
+
 ### Viewer
 
 The desktop viewer runs the whole workflow interactively:

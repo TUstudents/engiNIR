@@ -63,12 +63,15 @@ Enabling log output
 ``enable_logging`` arguments:
 
 ``level``
-    Minimum level printed to stderr (default ``"WARNING"``).
+    Minimum level printed to stderr (default ``"WARNING"``). Without a
+    console (the viewer started from a Windows shortcut) nothing is printed;
+    use the log file.
 ``file``
     ``False`` (default), ``True`` for the default log file, or a path. The
     default log file is the first writable of ``$ENGINIR_LOG_FILE`` (if that
     environment variable is set), ``~/.enginir/enginir.log`` and
-    ``/tmp/enginir/enginir.log``. Files rotate at 10 MB; three old
+    ``enginir/enginir.log`` in the system temporary folder (``/tmp`` on
+    Linux and macOS, ``%TEMP%`` on Windows). Files rotate at 10 MB; three old
     files are kept.
 ``file_level``
     Minimum level written to the file (default ``"INFO"``).
