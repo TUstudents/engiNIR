@@ -65,11 +65,12 @@ def _open(qapp, project, target="API"):
 
 
 def test_the_scan_layout_keeps_positions_and_stacks_data_files(trays):
+    from enginir.project._data_paths import stored_path
     from enginir.viewer._project_rois import SCAN, mosaic_layout
 
     project, _paths = trays
     rois = list(project.workspace.rois.values())
-    names = {d: ref.source_path.split("/")[-1] for d, ref in project.workspace.datasets.items()}
+    names = {d: stored_path(ref.source_path).name for d, ref in project.workspace.datasets.items()}
     layout = mosaic_layout(rois, names, SCAN)
     places = layout.places
     a1, a2, b1 = (project.roi(n).roi_id for n in ("tray_a-A1", "tray_a-A2", "tray_b-B1"))

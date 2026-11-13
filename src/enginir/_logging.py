@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -88,9 +89,12 @@ def default_log_files() -> list[Path]:
     """Return the default log file locations in order of preference.
 
     ``$ENGINIR_LOG_FILE`` (if set), ``~/.enginir/enginir.log`` and
-    ``/tmp/enginir/enginir.log``; the first writable one is used.
+    ``enginir/enginir.log`` in the system temporary folder
+    (:func:`tempfile.gettempdir`: usually ``/tmp`` on Linux and macOS,
+    ``%TEMP%`` on Windows); the first writable one is used.
     """
-    candidates = [Path.home() / ".enginir" / "enginir.log", Path("/tmp/enginir/enginir.log")]
+    candidates = [Path.home() / ".enginir" / "enginir.log",
+                  Path(tempfile.gettempdir()) / "enginir" / "enginir.log"]
     configured = os.environ.get("ENGINIR_LOG_FILE")
     return [Path(configured), *candidates] if configured else candidates
 

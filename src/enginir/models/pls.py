@@ -12,6 +12,7 @@ from enginir._checks import as_float_matrix, check_n_features, log_and_raise
 from enginir._logging import get_logger
 
 from ._common import (
+    _EPS,
     as_target_array,
     check_n_components,
     max_components,
@@ -238,10 +239,18 @@ class PLSRegression(RegressorMixin, EnginirEstimator):
         """Training Y scores U as scikit-learn's NIPALS defines them (regression mode)."""
         ys = (np.asarray(y, dtype=np.float64).reshape(len(y), -1) - self.y_mean_) / self.y_std_
         t, q = np.asarray(self.x_scores_), np.asarray(self.y_loadings_)
-        u = np.empty_like(t)
+        u = np.zeros_like(t)
+        exhausted = []
         for a in range(t.shape[1]):
+            qq = float(q[:, a] @ q[:, a])
+            if qq < _EPS:  # a component the data no longer support (zero-filled)
+                exhausted.append(a + 1)
+                continue
             residual = ys - t[:, :a] @ q[:, :a].T
-            u[:, a] = residual @ q[:, a] / float(q[:, a] @ q[:, a])
+            u[:, a] = residual @ q[:, a] / qq
+        if exhausted:
+            logger.warning("PLS: Y loadings of component(s) {} are zero; their Y scores are "
+                           "set to zero", exhausted)
         return u
 
     def predict(self, X: np.ndarray) -> np.ndarray:

@@ -766,7 +766,7 @@ def test_current_project_ignores_legacy_extras_at_root_and_roi(tmp_path, wavelen
 
     assert "roi_1" in workspace.rois
     assert not hasattr(workspace.rois["roi_1"], "y_value")
-    assert any("/" in message and "calibration" in message for message in messages)
+    assert any("top-level" in message and "calibration" in message for message in messages)
     assert any("/rois/roi_1" in message and "y_value" in message for message in messages)
 
 

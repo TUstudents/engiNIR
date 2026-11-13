@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import textwrap
 from pathlib import Path
 
@@ -86,7 +87,7 @@ def test_enable_logging_routes_enginir_records_once_and_keeps_host_output(tmp_pa
     assert result.stderr.count("warning probe") == 1
     assert "info probe" not in result.stderr
     assert result.stderr.count("host message") == 1
-    written = log_file.read_text()
+    written = log_file.read_text(encoding="utf-8")
     assert "info probe" in written and "warning probe" in written
     assert "host message" not in written
 
@@ -104,7 +105,7 @@ def test_catch_uncaught_logs_to_file_without_duplicating_the_traceback(tmp_path)
     )
     assert result.returncode == 1
     assert result.stderr.count("Traceback (most recent call last)") == 1
-    written = log_file.read_text()
+    written = log_file.read_text(encoding="utf-8")
     assert "Uncaught exception" in written and "sentinel-crash" in written
 
 
@@ -223,12 +224,17 @@ def test_a_canceled_background_job_is_reported_but_not_logged_as_a_failure(qapp,
     assert records[0]["exception"] is None
 
 
-def test_default_log_file_falls_back_to_tmp_when_home_is_unwritable(monkeypatch):
+def test_default_log_file_falls_back_to_the_temp_folder_when_home_is_unwritable(
+        monkeypatch, tmp_path):
+    home = tmp_path / "home_is_a_file"
+    home.write_text("")
+    temp = tmp_path / "temp"
+    temp.mkdir()
     monkeypatch.delenv("ENGINIR_LOG_FILE", raising=False)
-    monkeypatch.setattr(enginir._logging.Path, "home",
-                        lambda: Path("/nonexistent_home_xyz_abc_does_not_exist"))
+    monkeypatch.setattr(enginir._logging.Path, "home", lambda: home)
+    monkeypatch.setattr(tempfile, "tempdir", str(temp))
     try:
-        assert enginir.enable_logging("CRITICAL", file=True) == Path("/tmp/enginir/enginir.log")
+        assert enginir.enable_logging("CRITICAL", file=True) == temp / "enginir" / "enginir.log"
     finally:
         enginir.disable_logging()
 
@@ -272,4 +278,4 @@ def test_thread_exit_is_not_logged_and_later_hooks_survive_disable(tmp_path):
     finally:
         enginir.disable_logging()
         sys.excepthook = original_hook
-    assert "Uncaught exception" not in log_file.read_text()
+    assert "Uncaught exception" not in log_file.read_text(encoding="utf-8")
