@@ -757,11 +757,9 @@ class HSIViewer(QMainWindow):
         meta = self.project_state.project_meta
         provenance = {"project_id": str(meta.get("project_id", "none")),
                       "data_file": self._cube_path or "none"}
-        for dataset in self.project_state.datasets.values():
-            if self._cube_path and os.path.abspath(dataset.source_path) == os.path.abspath(
-                    self._cube_path):
-                provenance["dataset_id"] = dataset.dataset_id
-                break
+        dataset_id = self.project_state.dataset_id_of(self._cube_path)
+        if dataset_id is not None:
+            provenance["dataset_id"] = dataset_id
         return provenance
 
     def _toggle_dock_maximized(self, dock: QDockWidget) -> None:
@@ -1096,7 +1094,7 @@ class HSIViewer(QMainWindow):
         dataset_id = None if not project_id else load_last_data_file(str(project_id))
         dataset = self.project_state.datasets.get(dataset_id or "")
         if dataset_id is not None and dataset is not None \
-                and os.path.exists(dataset.source_path):
+                and self.project_state.data_file(dataset_id) is not None:
             self.show_data_file(dataset_id)
 
     def show_roi_table(self) -> None:
@@ -1647,10 +1645,11 @@ class HSIViewer(QMainWindow):
         dataset = self.project_state.datasets.get(dataset_id)
         if dataset is None:
             log_and_raise("Unknown dataset '{}'", dataset_id, error=KeyError)
-        path = dataset.source_path
-        if not os.path.exists(path):
+        path = self.project_state.data_file(dataset_id)
+        if path is None:
             box = QMessageBox(QMessageBox.Icon.Warning, "Dataset file not found",
-                              f"{path} does not exist. Its ROIs, values and models stay "
+                              f"{dataset.source_path} was not found, also not next to the "
+                              "project or on the mapped drive. Its ROIs, values and models stay "
                               "usable; the image cannot be shown.\n\nIf the file was moved or "
                               "renamed, locate it: it is accepted if its pixels equal the "
                               "stored ROI pixels.", parent=self)
@@ -1685,10 +1684,14 @@ class HSIViewer(QMainWindow):
         dataset = self.project_state.datasets.get(dataset_id)
         if dataset is None:
             log_and_raise("Unknown dataset '{}'", dataset_id, error=KeyError)
+        old_path = dataset.source_path
         if path is None:
-            name = os.path.basename(dataset.source_path)
+            name = os.path.basename(old_path)
+            folder = os.path.dirname(old_path)
+            if not os.path.isdir(folder):  # e.g. a path of the other platform
+                folder = os.path.dirname(str(self.project_state.project_path or ""))
             path, _ = QFileDialog.getOpenFileName(
-                self, f"Locate {name}", os.path.dirname(dataset.source_path),
+                self, f"Locate {name}", folder,
                 f"{name} (*{os.path.splitext(name)[1]});;All files (*)")
             if not path:
                 return False
@@ -1701,8 +1704,38 @@ class HSIViewer(QMainWindow):
             return False
         finally:
             QApplication.restoreOverrideCursor()
+        self._locate_moved_data_files(old_path, path)
         self.show_data_file(dataset_id)
         return True
+
+    def _locate_moved_data_files(self, old_path: str, new_path: str) -> None:
+        """Offer the folder change of one Locate for the other data files not found."""
+        moved = self.project_state.moved_data_files(old_path, new_path)
+        if not moved:
+            return
+        answer = QMessageBox.question(
+            self, "Locate other dataset files",
+            f"{len(moved)} more dataset file(s) that were not found are in the same new place "
+            f"(for example {next(iter(moved.values()))}).\n\nLocate them too? Each file is "
+            "checked against its stored ROI pixels.")
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        failed: list[str] = []
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            for dataset_id, candidate in moved.items():
+                try:
+                    self.project_state.locate_data_file(dataset_id, candidate)
+                except (OSError, ValueError, KeyError) as exc:
+                    logger.warning("Dataset file not located at {}: {}", candidate, exc)
+                    failed.append(f"{self.project_state.data_file_label(dataset_id)}: {exc}")
+        finally:
+            QApplication.restoreOverrideCursor()
+        if failed:
+            QMessageBox.warning(
+                self, "Some dataset files not located",
+                f"{len(moved) - len(failed)} of {len(moved)} located. Not located:\n"
+                + "\n".join(failed))
 
     def _data_file_failed(self, message: str) -> None:
         logger.error("Cannot load dataset: {}", message)
@@ -1718,7 +1751,9 @@ class HSIViewer(QMainWindow):
             time.sleep(0.005)
 
     def _apply_data_file(self, dataset_id: str, data: Any) -> None:
-        dataset = self.project_state.datasets[dataset_id]
+        # Where the file was found this session (possibly not its stored path).
+        path = self.project_state.data_file(dataset_id) or \
+            self.project_state.datasets[dataset_id].source_path
         X = np.asarray(data.X)
         if X.ndim == 2:
             X = X[:, np.newaxis, :]
@@ -1726,15 +1761,15 @@ class HSIViewer(QMainWindow):
             self,
             project_path=str(self.project_state.project_path),
             project_state=self.project_state,
-            dataset_path=dataset.source_path,
-            source_format=file_format(dataset.source_path),
+            dataset_path=path,
+            source_format=file_format(path),
             source_modality=str(data.meta.get("source_modality") or DEFAULT_SOURCE_MODALITY),
             cube_shape=(int(X.shape[0]), int(X.shape[1]), int(X.shape[2])),
             wavelengths=np.asarray(data.wavelengths, dtype=np.float64),
         ):
             return
         self.state.load_dataset(X, data.wavelengths, data.meta)
-        self._cube_path = os.path.abspath(dataset.source_path)
+        self._cube_path = os.path.abspath(path)
         self.apply_shown_calibration()
         self._refresh_canvas_image()
         self._eda_view.refresh_roi_overlays()
@@ -1748,11 +1783,11 @@ class HSIViewer(QMainWindow):
             self._on_canvas_roi_selected(pending)
         from ._recent import add as _recent_add
 
-        _recent_add(dataset.source_path)
+        _recent_add(path)
         project_id = self.project_state.project_meta.get("project_id")
         if project_id:
             save_last_data_file(str(project_id), dataset_id)
-        logger.info("Showing dataset {} ({})", dataset.source_path, self.state.y_unit)
+        logger.info("Showing dataset {} ({})", path, self.state.y_unit)
 
     def apply_shown_calibration(self) -> None:
         """Convert the shown data file with its stored calibration (references or levels).
@@ -1775,9 +1810,7 @@ class HSIViewer(QMainWindow):
         self._eda_view.set_signal_choices(allowed)
 
     def _registered_dataset_id(self, path: str) -> str | None:
-        target = os.path.normcase(os.path.abspath(path))
-        return next((dataset_id for dataset_id, dataset in self.project_state.datasets.items()
-                     if os.path.normcase(os.path.abspath(dataset.source_path)) == target), None)
+        return self.project_state.dataset_id_of(path)
 
     def _refresh_data_file_choices(self, *_args) -> None:
         combo = self._data_file_combo
@@ -1789,11 +1822,15 @@ class HSIViewer(QMainWindow):
                           key=lambda item: state.data_file_label(item[0]).lower())
         for dataset_id, dataset in datasets:
             name = state.data_file_label(dataset_id)
-            if not os.path.exists(dataset.source_path):
+            # The tooltip is the path the file is read from; how it was found is logged only.
+            found = state.find_data_file(dataset_id)
+            if found is None:
                 name += " (not found)"
+                tooltip = f"{dataset.source_path} (not found)"
+            else:
+                tooltip = found.path
             combo.addItem(name, dataset_id)
-            combo.setItemData(combo.count() - 1, dataset.source_path,
-                              Qt.ItemDataRole.ToolTipRole)
+            combo.setItemData(combo.count() - 1, tooltip, Qt.ItemDataRole.ToolTipRole)
         if shown is None:
             label = ("Dataset: none" if not self._cube_path
                      else f"{os.path.basename(self._cube_path)} (not in project)")

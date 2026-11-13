@@ -277,10 +277,10 @@ or opening it on either tab is kept for that tab.
 
 - One row per ROI (dataset, name, pixel count, **Set**, sample) and one
   column per target. **Set** is Calibration or Prediction; a prediction ROI
-  is a tablet to predict and is never used to fit a model. The dataset and
-  ROI columns stay in view when the table scrolls sideways (with model
-  result columns, for example); a long dataset name is shortened in the
-  middle, and its tooltip shows it in full.
+  is a tablet to predict and is never used to fit a model. The dataset
+  column shows the data file's name without its folder (the ROI name tells
+  the sample); its tooltip shows the folder. Rows stay grouped by data file,
+  also when several files share one name.
 - **Sample** names the physical sample an ROI was taken from. Give the same
   label to ROIs from one sample (for example three regions of one tablet),
   so that a fit can hold them out together. Labels are text; surrounding
@@ -451,12 +451,18 @@ floating-point values are taken as already corrected.
 
 The dataset list in the Spatial Image header switches between the
 project's files, as does a double-click on a file in the browser. Each file
-is shown with its own reference correction and its own ROIs. A file that was moved or
-deleted is listed as "(not found)"; its ROIs, values and models stay usable.
-Choosing it offers **Locate file...**: the file you pick is accepted only if
-it is the same dataset, with the same shape and wavelengths and, for every
-ROI, the same pixels as stored in the project. Only the project's path to the
-file changes; a different file is refused and nothing changes.
+is shown with its own reference correction and its own ROIs. A project opened
+on another computer or platform finds its files by itself when they lie in
+the same place relative to the project file, or on the same drive (``Z:\``
+on Windows is ``/mnt/z`` in WSL); the tooltip of the dataset list shows the
+path it is read from. This changes nothing in the project. A file that is not found is listed as
+"(not found)"; its ROIs, values and models stay usable. Choosing it offers
+**Locate file...**: the file you pick is accepted only if it is the same
+dataset, with the same shape and wavelengths and, for every ROI, the same
+pixels as stored in the project. Only the project's path to the file
+changes; a different file is refused and nothing changes. When other files
+are missing too and lie in the same new place, the viewer offers to locate
+them as well; each is checked the same way.
 
 A project with ROIs opens on the **Project ROIs** tab without loading any
 dataset. The **Dataset** tab then loads the file you showed last for this

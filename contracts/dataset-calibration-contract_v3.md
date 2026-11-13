@@ -104,6 +104,14 @@ Required fields:
 - `loader_metadata`
 - `import_timestamp`
 
+Display field:
+
+- `relative_path`: the data file's path relative to the folder of the
+  project file, with `/` separators; empty when it cannot be computed (on
+  Windows, a data file on another drive than the project). Written with
+  the dataset and by `Locate File...`; used to find a moved data file
+  (`project-dataset-attachment-contract_v3.md`, Missing and moved files)
+
 Required invariants:
 
 - one imported raw dataset maps to one dataset id

@@ -105,6 +105,16 @@ PathLike = str | os.PathLike[str]
 # ---------------------------------------------------------------------------
 
 
+def has_project_meta(handle: h5py.File) -> bool:
+    """Return ``True`` if the open HDF5 file is an engiNIR project of any format.
+
+    Every engiNIR project has ``/project_meta``; whether its format can be read is
+    :func:`is_project_file`. A project in an earlier format is refused as a project
+    (:func:`format_refusal`), never read as a dataset.
+    """
+    return isinstance(handle.get("project_meta"), h5py.Group)
+
+
 def is_project_file(handle: h5py.File) -> bool:
     """Return ``True`` if the open HDF5 file is an engiNIR project in the current format."""
     project_meta = handle.get("project_meta")
@@ -134,7 +144,12 @@ def create_project(path: PathLike, *, project_id: str | None = None) -> None:
     """
     now = _now_iso()
     writer = file_writer_label()
-    with h5py.File(path, "w") as f:
+    try:
+        handle = h5py.File(path, "w")
+    except OSError as exc:
+        reason = os.strerror(exc.errno) if exc.errno else str(exc)
+        log_and_raise("Cannot create project {}: {}", path, reason, error=type(exc), cause=exc)
+    with handle as f:
         project_meta = f.create_group("project_meta")
         project_meta.attrs.update(
             project_id=project_id or str(uuid.uuid4()),
@@ -459,10 +474,12 @@ def save_prediction_run(
                  compression)
 
 
-def relocate_dataset_ref(path: PathLike, dataset_id: str, source_path: str) -> None:
+def relocate_dataset_ref(path: PathLike, dataset_id: str, source_path: str,
+                         relative_path: str = "") -> None:
     """Point a stored dataset at the new location of its data file.
 
-    Only ``source_path`` changes: the path is a location, not identity
+    Only ``source_path`` and ``relative_path`` (to the project file's folder,
+    ``""`` when not computable) change: the path is a location, not identity
     (``project-schema-contract_v3.md`` §5). The caller verifies the file first
     (:func:`enginir._workflow.check_data_file_location`).
     """
@@ -474,6 +491,7 @@ def relocate_dataset_ref(path: PathLike, dataset_id: str, source_path: str) -> N
             log_and_raise("Unknown dataset '{}' in {}", dataset_id, path, error=KeyError)
         previous = group.attrs.get("source_path")
         group.attrs["source_path"] = str(source_path)
+        group.attrs["relative_path"] = str(relative_path)
     logger.info("Dataset '{}' moved from {} to {} in {}", dataset_id, previous, source_path, path)
 
 
@@ -1102,6 +1120,7 @@ def _now_iso() -> str:
 
 __all__ = [
     "FILE_SCHEMA_VERSION",
+    "has_project_meta",
     "PROJECT_TOP_LEVEL_GROUPS",
     "PredictionArtifactWriter",
     "as_roi_storage_array",

@@ -72,8 +72,11 @@ def test_the_viewer_tells_repeated_file_names_apart(qapp, tmp_path):
         window.show_roi_table()
         model = window._roi_table.model
         window._roi_table.show_data_file(None)
+        # The table cell is the file name only; its tooltip tells the files apart.
         files = sorted(str(model.data(model.index(r, 0))) for r in range(model.rowCount()))
-        assert files == ["stream_hsi.h5 (run1)", "stream_hsi.h5 (run2)"]
+        assert files == ["stream_hsi.h5", "stream_hsi.h5"]
+        tips = sorted(str(model.data(model.index(r, 0), 3)) for r in range(model.rowCount()))
+        assert tips == ["stream_hsi.h5 (run1)", "stream_hsi.h5 (run2)"]
         readiness, _ok = window._modeling_view.fit_readiness(project.target("API").target_id)
         assert "stream_hsi.h5 (run1): 1 of 1 ROIs have a value" in readiness
         assert "stream_hsi.h5 (run2): 1 of 1 ROIs have a value" in readiness

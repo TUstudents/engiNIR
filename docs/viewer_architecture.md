@@ -115,7 +115,10 @@ Runtime collections include:
 **Key methods:**
 - `new_project(path)`, `open_project(path)` — create/load HDF5 project
 - `reload()` — re-read the project; every write (`_written`) schedules it in the other `ProjectState`s of the process on the same project file, so several windows stay in step
-- `locate_data_file(dataset_id, path)` — `Dataset.locate`: accept a moved file only if its pixels equal the stored ROI pixels, then update `source_path`
+- `locate_data_file(dataset_id, path)` — `Dataset.locate`: accept a moved file only if its pixels equal the stored ROI pixels, then update `source_path` and `relative_path`
+- `find_data_file(dataset_id)`, `data_file(dataset_id)` — `Project.find_data_file`: where a data file is this session (next to the project, stored path, drive mapping), never written; the viewer opens, predicts and marks "(not found)" through it
+- `dataset_id_of(path)` — the dataset a path belongs to at any of its candidate paths (`is_data_file_of`)
+- `moved_data_files(old, new)` — missing data files that exist after the folder change of one Locate (`moved_path`), for `HSIViewer._locate_moved_data_files`
 - `register_dataset(...)`, `set_active_calibration(...)`, `add_roi(...)`, `define_target(...)`, `assign_target_to_roi(...)` — store through `Project` + emit
 - `build_sample_set(...)`, `fit_model_run(...)` — high-level workflows
 - `predict_dataset(...)`, `add_prediction(result)` — predict in memory (`prefer_saved_model=True`, so a model fitted in the session gets the DModXPS and T²PS maps) and keep the result for the session; nothing is written

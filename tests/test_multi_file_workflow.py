@@ -550,12 +550,12 @@ def test_two_trays_with_the_same_file_name_work_by_id(qapp, tmp_path, monkeypatc
         rois = sorted(state.rois.values(), key=lambda r: (r.dataset_id, r.name))
         assert [r.name for r in rois].count("stream_hsi-A01") == 2 and len(rois) == 4
 
-        # The table tells them apart by data file and writes by id.
+        # The table tells them apart by data file (the Dataset tooltip) and writes by id.
         window.show_roi_table()
         table = window._roi_table
         table.show_data_file(None)
         model = table.model
-        rows = {(str(model.data(model.index(r, 0))), str(model.data(model.index(r, 1)))): r
+        rows = {(str(model.data(model.index(r, 0), 3)), str(model.data(model.index(r, 1)))): r
                 for r in range(model.rowCount())}
         assert set(rows) == {(f"stream_hsi.h5 ({run})", f"stream_hsi-A0{n}")
                              for run in ("run1", "run2") for n in (1, 2)}

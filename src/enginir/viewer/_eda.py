@@ -431,7 +431,12 @@ class EDAView(QWidget):
         path = ask_save_path(self, "New Project", PROJECT_SAVE_FILTER, ".h5", (".hdf5",))
         if not path:
             return
-        self.project_state.new_project(path)
+        try:
+            self.project_state.new_project(path)
+        except OSError as exc:
+            # The store logged the reason; the open project, if any, stays active.
+            QMessageBox.warning(self, "Cannot create project", str(exc))
+            return
         self._set_project_active()
 
     def open_project_btn_clicked(self) -> None:
@@ -446,7 +451,7 @@ class EDAView(QWidget):
         busy.begin()
         try:
             store = load_project_store(path)
-        except ValueError as exc:
+        except (ValueError, OSError) as exc:
             busy.end()
             logger.error("Invalid project file '{}': {}", path, exc)
             QMessageBox.warning(self, "Invalid project file", str(exc))
@@ -535,11 +540,7 @@ class EDAView(QWidget):
         cube_path = self._cube_path_provider()
         if not cube_path or not self._dataset_attached_provider():
             return None
-        shown = os.path.abspath(cube_path)
-        for dataset in self.project_state.datasets.values():
-            if dataset.source_path and os.path.abspath(dataset.source_path) == shown:
-                return dataset.dataset_id
-        return None
+        return self.project_state.dataset_id_of(cube_path)
 
     def _on_add_roi_toggled(self, enabled: bool) -> None:
         if enabled:
@@ -720,7 +721,8 @@ class EDAView(QWidget):
             log_and_raise("A real dataset must be attached before creating project-backed ROIs.")
         state, project_state = self.state, self.project_state
         dataset, is_new = resolve_dataset(
-            project_state.datasets, cube_path, SpectralData(state.cube, state.wavelengths, state.meta))
+            project_state.datasets, cube_path, SpectralData(state.cube, state.wavelengths, state.meta),
+            project_path=project_state.project_path)
         active = None if is_new else project_state.active_calibration(dataset.dataset_id)
         if active is not None and _shows_calibration(state, active):
             # The image shows the data file's own calibration (restored when it was

@@ -59,7 +59,32 @@ read against the code.
 - Cancellation errors say "canceled" (US spelling); scripts that match the
   message must be updated.
 
+### Added
+
+- A project moves between computers and platforms: a dataset's data file
+  is looked for next to the project (new dataset field `relative_path`), at
+  its stored path, and through the Windows ↔ WSL drive mapping (`Z:\…` ↔
+  `/mnt/z/…`, root from `/etc/wsl.conf`). A file found elsewhere is checked
+  (format, shape, wavelengths, the pixels of the smallest ROI) and the
+  project is not changed; the viewer reads it from there
+  (`Project.find_data_file`, `Project.data_file`). After one **Locate
+  file...**, the viewer offers the same folder change for the other missing
+  files.
+- Stored paths are read by their own syntax: a Windows path read on Linux
+  no longer turns into a path inside the current folder.
+
 ### Fixed
+
+- A project of an earlier format (for example `viewer-v3`) is refused with the
+  message naming its format, in the viewer and in `load_spectra`; it was read
+  as a dataset and failed with "has no dataset 'spectra'".
+- A project that cannot be created (for example in a folder you cannot write
+  to) is reported in a dialog with the reason; the viewer logged a traceback
+  and showed nothing.
+- Refusals for a target without values name the target, not its id
+  (`plan_sample_set` and `resolve_sample_set` take an optional `target_name`).
+- A canceled band proposal or prediction is logged as info; the log said the
+  job failed and showed a traceback.
 
 - Wording: the fit dialog's groups are "Smoothing and derivatives" and
   "Scatter correction" (were "Filter", "Normalization", "Norm"); "fitted"
@@ -78,8 +103,9 @@ read against the code.
 - The pixel-subsample seed field took only 32-bit values; a stored seed
   above 2³¹ − 1 was cut down silently and a refit drew other pixels.
 - The ROI table lost its ROI names off the left edge after Predict ROIs
-  added result columns; the Dataset and ROI columns now stay in view, and a
-  long dataset label is elided in the middle with a tooltip.
+  added result columns: the Dataset column now shows the data file's name
+  without its folder (full label as tooltip), so it stays narrow and the ROI
+  names next to it stay in view; rows stay grouped by data file.
 - The Model summary kept the previous model's fold warnings when the next
   model's metrics looked the same, and cut off long values such as the
   validation scheme; it now updates the warnings and wraps.

@@ -32,7 +32,7 @@ from enginir._logging import get_logger
 from ._common import base_meta, require_file
 from ._hdf5_groups import read_mapping, write_mapping
 from ._types import SpectralData
-from .project_store import is_project_file
+from .project_store import format_refusal, has_project_meta, is_project_file
 
 logger = get_logger(__name__)
 
@@ -219,6 +219,8 @@ def _spectral_dataset(f: h5py.File, path: Path, spectra_key: str) -> tuple[h5py.
     if is_project_file(f):
         log_and_raise("{} is an engiNIR project file; open it with the project API", path,
                       depth=2)
+    if has_project_meta(f):
+        log_and_raise("{}", format_refusal(f, path), depth=2)
     if spectra_key in f:
         key, schema = spectra_key, _SCHEMA_SIMPLE if spectra_key == "spectra" else _SCHEMA_CUSTOM
     elif spectra_key == "spectra" and isinstance(f.get("data"), h5py.Dataset):

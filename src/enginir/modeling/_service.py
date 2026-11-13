@@ -163,6 +163,7 @@ def plan_sample_set(
     roi_ids: list[str] | None = None,
     sample_set_id: str | None = None,
     created_at: str | None = None,
+    target_name: str | None = None,
 ) -> SampleSet:
     """The sample set of the labelled ROIs of a target, without reading any spectra.
 
@@ -174,8 +175,10 @@ def plan_sample_set(
     ------
     ValueError
         If an ROI id is unknown or repeated, no selected ROI has a target
-        value, or the ROIs have different wavelength axes.
+        value, or the ROIs have different wavelength axes. Messages name the
+        target by ``target_name`` when it is given, else by its id.
     """
+    target_label = target_name or target_id
     explicit = roi_ids is not None
     selected = ([roi_id for roi_id, roi in rois.items() if roi.job != "prediction"]
                 if roi_ids is None else [str(roi_id) for roi_id in roi_ids])
@@ -185,7 +188,7 @@ def plan_sample_set(
     if not selected:
         if left_out:
             log_and_raise("No calibration ROI has a value for target '{}' ({} prediction ROI(s) "
-                          "with a value left out)", target_id, left_out)
+                          "with a value left out)", target_label, left_out)
         if not explicit and rois:
             log_and_raise("Every ROI is a prediction ROI; a model needs calibration ROIs")
         log_and_raise("No ROIs selected for the calibration set")
@@ -204,8 +207,8 @@ def plan_sample_set(
     if not labelled:
         if left_out:
             log_and_raise("No calibration ROI has a value for target '{}' ({} prediction ROI(s) "
-                          "with a value left out)", target_id, left_out)
-        log_and_raise("No selected ROI has a value for target '{}'", target_id)
+                          "with a value left out)", target_label, left_out)
+        log_and_raise("No selected ROI has a value for target '{}'", target_label)
     switched = [roi.name for roi in labelled if roi.job == "prediction"]
     if explicit and switched:  # a stored sample set keeps its ROIs (sample-set contract §1)
         logger.warning("ROI(s) of the stored selection are now prediction ROIs and are used "
