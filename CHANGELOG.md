@@ -12,6 +12,11 @@
   the engiNIR icon to the Start menu (and the desktop), with the viewer's
   taskbar id, so a pinned window starts engiNIR; `--remove-shortcut` removes
   them.
+- **One-line install on Windows** for users without Python knowledge:
+  `install-enginir-for-windows.ps1`, attached to each release, installs uv
+  if needed, installs engiNIR as a uv tool on its own Python 3.13, puts it
+  on the `PATH` and adds the Start menu shortcut; no administrator rights.
+  The installation guide starts with it.
 - CI runs the tests on Windows as well.
 
 ### Fixed

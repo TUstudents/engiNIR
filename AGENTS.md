@@ -136,7 +136,9 @@ These are contract decisions; do not change them without a contract change.
   docs read it from the package metadata.
 - Release `X.Y.Z`: set the version in `pyproject.toml`, add the
   `CHANGELOG.md` entry, run all four gates, commit, tag `vX.Y.Z`, push the
-  tag, wait for CI on the tag, and publish a GitHub release from it (Zenodo
+  tag, wait for CI on the tag, and publish a GitHub release from it with
+  `scripts/install-enginir-for-windows.ps1` attached as an asset (the
+  Windows install command downloads it from the latest release; Zenodo
   archives it and mints the version DOI; `.github/workflows/publish.yml`
   uploads it to PyPI with Trusted Publishing, after checking that the tag
   matches the version, the pre-release flag matches the version and CI
