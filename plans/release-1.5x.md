@@ -6,7 +6,9 @@ decisions F2, F3 and F5 confirmed by the user. Branch `1.5x`; Phase 1 done
 06c5cf6, c8254d6, f038094); Phase 4 done (6794057); Phase 5 done (8e87228);
 merged to main as PR #11. Checkpoint done (2026-11-13), its fixes on branch
 `fix/1.5-open-and-create`; Phase 5b (data files across platforms, decided
-2026-11-13) done on the same branch; next is Phase 6.
+2026-11-13) done on the same branch; merged as PR #12. Released as 1.5.1
+(user, 2026-11-13) from main, with the kernel engine (PR #13); Phase 6 (GUI
+polish) moves to the next release.
 
 ## Goal
 
@@ -437,7 +439,8 @@ project. The 1.5.0 plan and the review of 2026-11-11 list the candidates:
 
 ### Phase 7: release
 
-Version number at release (1.5.1 or later, per the user). CHANGELOG: one
+Released as 1.5.1 from main (user, 2026-11-13), with the kernel engine of
+`kernel-pls.md` and without Phase 6. CHANGELOG: one
 section with a prominent **Breaking** list: the new project format with
 older files refused, the CSV columns, the layer names, the PCR names,
 "canceled", the `scale` parameter of `PLSRegression` and `PCR`
