@@ -333,9 +333,9 @@ Explicit exceptions, each already governed by its own contract rule:
 - prediction staging: `initialize`/`write`/`finalize`/`discard` mutate the
   staged group under `/staging/` (§7); a finalized run in `/predictions` and
   the one-shot prediction writer are immutable like other objects
-- `DatasetRef.source_path`: the path is a location, not identity. It may be
-  updated after `Locate File...` has verified the file against the dataset
-  and against the stored raw pixels of its ROIs
+- `DatasetRef.source_path` and `relative_path`: the path is a location, not
+  identity. Both may be updated after `Locate File...` has verified the
+  file against the dataset and against the stored raw pixels of its ROIs
   (`project-dataset-attachment-contract_v3.md`, Missing and moved files)
 - `TargetAssignment` removal: deleting the assignment of a `(roi_id,
   target_id)` pair returns it to "no value" (`roi-target-contract_v3.md`)
@@ -492,6 +492,7 @@ project.h5
 |
 +-- /datasets/{dataset_id}/
 |   +-- @source_path
+|   +-- @relative_path       (display data; "" when not computable)
 |   +-- @source_format
 |   +-- @source_modality
 |   +-- @cube_shape
@@ -816,7 +817,7 @@ malformed:
 
 **Display data:** metrics, the component curve, the calibration
 diagnostics, shares above the limits, coverage, `cv_spec` and `cv_outputs`,
-and the telemetry of stored predictions. A missing or malformed display
+the telemetry of stored predictions, and a dataset's `relative_path`. A missing or malformed display
 value never stops a project from opening: the reader logs it, and the
 viewer shows "–" (or "not available") in its place and never fails on it.
 

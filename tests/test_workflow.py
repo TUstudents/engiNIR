@@ -42,6 +42,14 @@ def _counts(project):
     return {key: len(value) for key, value in stored.items() if key != "project_meta"}
 
 
+@pytest.mark.parametrize("action", ["fit", "propose_bands"])
+def test_a_target_without_values_is_refused_by_its_name(tmp_path, action):
+    project, _scan = _labelled_project(tmp_path)
+    project.add_target("Moisture", unit="%")
+    with pytest.raises(ValueError, match="No selected ROI has a value for target 'Moisture'$"):
+        getattr(project, action)("Moisture", recipe=PreprocessingRecipe(snv=True))
+
+
 def test_workflow_fits_predicts_and_reopens_identically(tmp_path):
     project, scan = _labelled_project(tmp_path)
     model = project.fit("API", recipe=PreprocessingRecipe(snv=True), n_components=2)

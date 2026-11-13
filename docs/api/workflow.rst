@@ -65,6 +65,8 @@ in the viewer follow the same rules.
 
 .. autofunction:: enginir._workflow.check_data_file_location
 
+.. autofunction:: enginir._workflow.is_data_file_of
+
 .. autofunction:: enginir._workflow.data_file_labels
 
 .. autofunction:: enginir._workflow.read_header
@@ -75,6 +77,27 @@ in the viewer follow the same rules.
 
 .. autoclass:: enginir._workflow.GridCell
    :no-members:
+
+Data files across platforms
+---------------------------
+
+.. automodule:: enginir.project._data_paths
+   :no-members:
+
+.. autoclass:: enginir.project._data_paths.DataFileCandidate
+   :no-members:
+
+.. autofunction:: enginir.project._data_paths.data_file_candidates
+
+.. autofunction:: enginir.project._data_paths.stored_path
+
+.. autofunction:: enginir.project._data_paths.drive_mapped
+
+.. autofunction:: enginir.project._data_paths.wsl_mount_root
+
+.. autofunction:: enginir.project._data_paths.relative_data_path
+
+.. autofunction:: enginir.project._data_paths.moved_path
 
 Reference correction defaults
 -----------------------------

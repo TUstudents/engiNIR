@@ -301,12 +301,40 @@ Required behavior:
 
 ### Missing and moved files
 
-A dataset whose `source_path` does not exist is a normal state, not an
-error.
+A dataset whose data file is not found is a normal state, not an error.
+
+A project moves between computers and platforms (the same share is
+`/mnt/z/…` in WSL and `Z:\…` on Windows). The data file is therefore
+looked for, in this order, at:
+
+1. its `relative_path`, joined to the folder of the project file
+2. its stored `source_path`
+3. its stored `source_path` mapped between a Windows drive and its WSL
+   mount: `<X>:\rest` ↔ `<root><x>/rest`, where `<root>` is the WSL
+   automount root (`[automount] root` in `/etc/wsl.conf`, default `/mnt/`)
+
+A stored path is read by its own syntax, whatever the platform reading it:
+a drive letter or a `\\` prefix makes it a Windows path, a leading `/` a
+POSIX path.
 
 Required behavior:
 
-- it is marked as not found
+- the first candidate that exists and is this dataset's data file is used
+  for the session; a candidate that is the stored `source_path` itself is
+  used as before, without a further check
+- any other candidate must have the dataset's format, shape, modality (if
+  the file states one) and wavelength axis, and the pixels of the dataset's
+  smallest ROI must equal its stored raw pixels; a candidate that fails is
+  skipped and logged, and the next one is tried
+- finding a file never writes the project: `source_path` and
+  `relative_path` stay as stored, and only `Locate File...` changes them
+- a registered dataset is recognized from any of its candidate paths (a
+  file opened at `Z:\…` is the dataset registered at `/mnt/z/…`), so it is
+  never registered twice
+- the viewer shows the path the file is read from (the tooltip of the
+  dataset list); how it was found ("next to the project", "via drive Z:")
+  and the stored path are recorded in the log at info level only
+- when no candidate is found, it is marked as not found
 - its ROIs, their target assignments, calibration sets and models remain fully
   usable, because they need only the project file
 - `Locate File...` accepts a new path only if:
@@ -314,8 +342,12 @@ Required behavior:
     axis), and
   - for every ROI of that dataset, the stored raw pixels equal the file's
     pixels at the ROI's `spatial_bounds`
-- an accepted path updates `DatasetRef.source_path` (an identity exception
-  of `project-schema-contract_v3.md` §5) and is logged
+- an accepted path updates `DatasetRef.source_path` and its
+  `relative_path` (an identity exception of `project-schema-contract_v3.md`
+  §5) and is logged
+- after a successful `Locate File...`, the viewer offers the same folder
+  change for the other data files that are not found; each is checked as
+  above and written only if it passes
 
 ### Reopening a project
 

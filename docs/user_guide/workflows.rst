@@ -103,6 +103,21 @@ otherwise nothing changes:
 
    project.dataset("tray1.eiff").locate("archive/2026-11/tray1.eiff")
 
+A project also moves between computers and platforms without ``locate``.
+The data file of a dataset is looked for, in this order, next to the
+project (its path relative to the project file, stored with the dataset),
+at its stored path, and through the drive mapping between Windows and WSL
+(``Z:\data\x.h5`` is ``/mnt/z/data/x.h5`` and the other way round; the WSL
+mount root is read from ``/etc/wsl.conf``). A file found anywhere but at its
+stored path must be the same scan (format, shape, wavelengths and the pixels
+of the smallest ROI). Finding a file never changes the project:
+
+.. code-block:: python
+
+   project = Project.open("Z:/NonKF/demo.h5")   # written on Linux under /mnt/z
+   found = project.find_data_file(dataset_id)   # e.g. "via drive Z:" or "next to the project"
+   print(found.path, found.how)
+
 Reference corrections, calibration sets, input contracts and provenance are created for you,
 reused when identical, and validated before anything is written. Cross-
 validation keeps the pixels of one ROI together; metrics are per ROI.

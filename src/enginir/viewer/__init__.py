@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any, Callable
 import numpy as np
 
 from ..io import file_format, load_spectra
-from ..io.project_store import is_project_file, load_project_store
+from ..io.project_store import has_project_meta, load_project_store
 from .._checks import log_and_raise
 from .._logging import get_logger
 from ._attachment import confirm_project_dataset_binding
@@ -407,7 +407,11 @@ def _load_project_store_into_viewer(
 
 
 def _is_project_file(path: str | Path | None) -> bool:
-    """Return True when *path* is a v3 project file."""
+    """Return True when *path* is an engiNIR project file of any format.
+
+    A project in an earlier format goes to the project path, which refuses it
+    with a message naming its format; it is never opened as a dataset.
+    """
     if path is None:
         return False
     candidate = Path(path)
@@ -417,7 +421,7 @@ def _is_project_file(path: str | Path | None) -> bool:
         import h5py
 
         with h5py.File(candidate, "r") as handle:
-            return is_project_file(handle)
+            return has_project_meta(handle)
     except OSError:
         return False
 

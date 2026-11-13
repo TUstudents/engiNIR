@@ -47,7 +47,9 @@ def test_a_moved_file_is_accepted_and_only_its_path_changes(moved):
     (ref,) = after.datasets.values()
     assert ref.source_path == str(new_path.resolve())
     (old_ref,) = before.datasets.values()
-    assert values_equal(replace(old_ref, source_path=ref.source_path).to_dict(), ref.to_dict())
+    assert ref.relative_path == "moved/tray.h5", "the relative path follows the new location"
+    assert values_equal(replace(old_ref, source_path=ref.source_path,
+                                relative_path=ref.relative_path).to_dict(), ref.to_dict())
     assert after.rois.keys() == before.rois.keys()
     # New ROIs read the file at its new location.
     Project.open(project.path).dataset(new_path).add_roi("A3", frames=(6, 7), rows=(0, 1))

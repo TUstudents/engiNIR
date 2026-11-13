@@ -3,7 +3,10 @@
 Status: decided (2026-11-12): direction, decisions 1–11 and format
 decisions F2, F3 and F5 confirmed by the user. Branch `1.5x`; Phase 1 done
 (d406d04, b9974a4); Phase 2 done (c38e5ef, 88eface); Phase 3 done (7d41ee5,
-06c5cf6, c8254d6, f038094); Phase 4 done (6794057); Phase 5 done; next is the demo-project checkpoint.
+06c5cf6, c8254d6, f038094); Phase 4 done (6794057); Phase 5 done (8e87228);
+merged to main as PR #11. Checkpoint done (2026-11-13), its fixes on branch
+`fix/1.5-open-and-create`; Phase 5b (data files across platforms, decided
+2026-11-13) done on the same branch; next is Phase 6.
 
 ## Goal
 
@@ -283,13 +286,10 @@ and half-written projects) are no longer bugs: they are refused by design.
    - The seed field accepts 0 ≤ seed < 2⁶³.
    - Test: seed 2⁴⁰ is preset unchanged and refits with the same checksum.
 3. **ROI names stay visible (B5).**
-   - The Dataset column is capped and elided in the middle, with the full
-     label as tooltip.
-   - Names are elided on the right.
-   - The Dataset and ROI columns stay visible when the table scrolls
-     sideways.
-   - Offscreen test: after Predict ROIs with the view scrolled to the
-     right, the ROI column is visible.
+   - The Dataset column shows the file name without its folder, with the
+     full label as tooltip; rows stay grouped by data file.
+   - No column is pinned (user decision 2026-11-13; the pinned Dataset and
+     ROI columns of Phase 4 were removed).
 4. **Fold warnings in the fit summary (B6).**
    - The summary shows the run's fold warnings in words, which every 1.5
      run has.
@@ -329,6 +329,95 @@ The user builds a new demo project with the branch (several datasets, ROI
 grids, calibration and prediction ROIs, a model) and checks it in the
 viewer: Fit Again, the ROI table after Predict ROIs, the fit summary. Before
 going on, the findings go into this plan.
+
+Findings (2026-11-13), fixed on branch `fix/1.5-open-and-create`:
+
+- a project of an earlier format was read as a dataset ("has no dataset
+  'spectra'"); it is now refused as a project, naming its format
+- creating a project in a folder the user cannot write to showed nothing
+  (traceback in the log); it is now reported in a dialog
+- a target without values was refused by its id; now by its name
+- a canceled band proposal or prediction was logged as a failed job with a
+  traceback; now as info
+- ROI table: no column is pinned (the pinned Dataset and ROI columns of
+  Phase 4 were removed); the Dataset column shows the file name without its
+  folder, the full label as tooltip, rows grouped by data file
+
+Not fixed: a Qt `commitData` warning while editing the ROI table (no lost
+edit seen); one full test run crashed once and did not recur in three runs.
+
+### Phase 5b: data files across platforms
+
+The project is used from Linux (WSL, data under `/mnt/z/…`) and Windows
+(the same data under `Z:\…`). The project opens on both, since the ROI
+spectra are stored in it, but every data file is "missing" on the other
+platform: one Locate per dataset, and each Locate rewrites `source_path`,
+so switching platforms rewrites the paths back and forth.
+
+Decisions (user, 2026-11-13):
+
+- **Find the data file at open time; never rewrite the project for it.**
+  When the stored path does not exist, candidates are tried in a fixed
+  order; the first that exists and passes the identity check is used for
+  this session. Only `Locate File…` writes a path.
+- **A. Relative first.** Order: path relative to the project file →
+  stored absolute `source_path` → drive mapping. A project folder copied
+  with its data opens the copy next to it, not the originals on the share.
+- **B. The relative path is always stored when it can be computed.** It
+  also covers `projects/demo.h5` next to `Imaging_data/…`
+  (`../Imaging_data/…`). On Windows there is no relative path between
+  drives: it is then stored empty (undefined value). A relative path that
+  crosses mounts on Linux is stored too; on the other platform it is not
+  found and the next candidate is tried.
+- **C. The drive mapping always applies** (not only in WSL): `/mnt/<x>/…`
+  ↔ `<X>:\…`, with the WSL mount root read from `/etc/wsl.conf`
+  (`[automount] root`, default `/mnt/`). A miss costs one `exists()`.
+- Path mappings in the user settings (`\\172.16.0.61\z` → `/mnt/z`, macOS
+  `/Volumes/…`) are not part of this phase.
+
+Work:
+
+1. **Contracts.**
+   - `project-dataset-attachment-contract_v3.md`, Missing and moved files:
+     the candidates and their order, the identity check, nothing written on
+     open; the viewer's tooltip shows only the path the file is read from
+     (user, 2026-11-13: how it was found and the stored path are too much
+     for the user), how it was found is logged at info.
+   - `project-schema-contract_v3.md` and `docs/hdf5_format.md`: dataset
+     attribute `relative_path` (POSIX separators, relative to the project
+     file's folder; display data: tolerated when missing, empty when not
+     computable). Written by `add_dataset` and `Locate`, never on open.
+2. **Stored paths are parsed by their own syntax.** Today
+   `_native_path` (`_workflow.py`) swaps separators and calls `abspath`, so
+   `Z:\NonKF\x.h5` read on Linux becomes a path inside the current folder.
+   A drive letter or UNC prefix means a Windows path, a leading `/` a POSIX
+   path; only then are they mapped. Fixed and tested on its own.
+3. **One resolver in the library**, e.g. `resolve_data_file(project_path,
+   dataset) -> (path, how) | None`, used everywhere a stored data-file path
+   is opened or compared: `Project.dataset(path)` and `Project.datasets`
+   (`_workflow.py`, matched by `_same_path`), showing a dataset, the
+   missing-file marks of the data file selector, the reopen binding check
+   (`_viewer.py`). Headless and viewer behave the same.
+4. **Identity check.** Done as: a candidate other than the stored path
+   must have the format, shape, modality and wavelengths and the pixels of
+   the dataset's smallest ROI (a few frames, cheap over the share); the
+   stored path itself is used as before. Locate keeps the full check of
+   every ROI. (Changed from the proposal of a full check at first show:
+   the smallest ROI already tells two `stream_hsi.h5` files apart.)
+5. **Batch Locate.** After one successful Locate, offer the same folder
+   change for the other missing data files ("4 more files found under the
+   new folder"); each is checked, and each accepted one writes its paths.
+6. **Tests**, each fault-injected: a project written with `/mnt/z/…` paths
+   opened with the data under another root (relative), a Windows path read
+   on Linux (parsing), the drive mapping both ways (pure path functions, no
+   real drives), a candidate that exists but is another file (refused), an
+   open that writes nothing (`updated_at` unchanged), batch Locate.
+7. Docs: user guide (moving projects between Windows and Linux), API
+   reference for the resolver, coverage map (new rule, tests).
+
+Not affected: dark and white references are stored as arrays (their
+`*_ref_source` is provenance only, never read again); prediction records
+keep their `data_path` as a record.
 
 ### Phase 6: GUI polish
 

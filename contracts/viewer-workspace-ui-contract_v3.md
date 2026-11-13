@@ -331,9 +331,9 @@ Required controls:
   prediction results, read-only columns per model: mean, SD, % excluded,
   % above DCrit, residual, never stored; a header click sorts the rows,
   numbers by value, empty cells last, and an edit never moves its row; the
-  Dataset and ROI columns stay in view when the table scrolls sideways, and
-  a long dataset label is elided in the middle with the full label as
-  tooltip)
+  Dataset column shows the data file's name without its folder, with the
+  full label as tooltip, and the rows stay grouped by data file even when
+  file names repeat; no column is pinned)
 - ROI export
 
 Required behavior:

@@ -1338,13 +1338,18 @@ class ModelingView(QWidget):
         try:
             sample_set, _new = resolve_sample_set(
                 rois=state.rois, target_assignments=state.target_assignments,
-                target_id=target_id, recipe_id="recipe_preview", sample_sets={})
+                target_id=target_id, recipe_id="recipe_preview", sample_sets={},
+                target_name=self._target_name(target_id))
         except ValueError as exc:
             lines.append(f"Cannot fit: {exc}")
             return "\n".join(lines), False
         lines.append(f"The model uses {len(sample_set.roi_ids)} ROIs from "
                      f"{len(sample_set.dataset_ids)} dataset(s).")
         return "\n".join(lines), True
+
+    def _target_name(self, target_id: str) -> str | None:
+        target = self.project_state.targets.get(target_id)
+        return target.name if target is not None else None
 
     def _data_file_name(self, dataset_id: str) -> str:
         return self.project_state.data_file_label(dataset_id)
@@ -1357,7 +1362,7 @@ class ModelingView(QWidget):
             sample_set, is_new = resolve_sample_set(
                 rois=state.rois, target_assignments=state.target_assignments,
                 target_id=target_id, recipe_id=recipe_id_for(recipe),
-                sample_sets=state.sample_sets)
+                sample_sets=state.sample_sets, target_name=self._target_name(target_id))
         except ValueError as exc:
             logger.error("No calibration set for the fit: {}", exc)
             QMessageBox.warning(self, "Fit model failed", str(exc))

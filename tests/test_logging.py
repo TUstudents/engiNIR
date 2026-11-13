@@ -197,6 +197,32 @@ def test_background_job_failures_are_logged_with_traceback(qapp):
     assert "job exploded" in str(records[0]["exception"].value)
 
 
+@pytest.mark.parametrize("cancelled", ["band proposal", "prediction"])
+def test_a_canceled_background_job_is_reported_but_not_logged_as_a_failure(qapp, cancelled):
+    """Cancel is the user's choice: the caller hears of it, the log has no error or traceback."""
+    from enginir.modeling import BandProposalCancelledError
+    from enginir.prediction import PredictionCancelledError
+    from enginir.viewer._jobs import BackgroundWorker
+
+    error = BandProposalCancelledError if cancelled == "band proposal" else PredictionCancelledError
+
+    def canceled_job():
+        raise error(f"{cancelled} canceled")
+
+    records: list = []
+    reported: list[str] = []
+    sink_id = logger.add(lambda msg: records.append(msg.record), level="INFO", filter="enginir")
+    try:
+        worker = BackgroundWorker(canceled_job)
+        worker.failed.connect(reported.append)
+        worker.run()
+    finally:
+        logger.remove(sink_id)
+    assert reported == [f"{cancelled} canceled"]
+    assert [r["level"].name for r in records] == ["INFO"]
+    assert records[0]["exception"] is None
+
+
 def test_default_log_file_falls_back_to_tmp_when_home_is_unwritable(monkeypatch):
     monkeypatch.delenv("ENGINIR_LOG_FILE", raising=False)
     monkeypatch.setattr(enginir._logging.Path, "home",

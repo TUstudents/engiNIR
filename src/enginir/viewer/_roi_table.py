@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import math
 import re
+from pathlib import PureWindowsPath
 from typing import Any
 
 from PyQt6.QtCore import (
@@ -39,7 +40,6 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMessageBox,
     QStyledItemDelegate,
-    QFrame,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -134,7 +134,7 @@ class RoiTableModel(QAbstractTableModel):
         if self._missing_target is not None:
             rois = [roi for roi in rois
                     if (roi.roi_id, self._missing_target) not in state.target_assignments]
-        rois.sort(key=lambda roi: (_natural_key(self._file_name(roi.dataset_id)),
+        rois.sort(key=lambda roi: (_natural_key(self._file_key(roi.dataset_id)),
                                    _natural_key(roi.name or roi.roi_id)))
         roi_ids = [roi.roi_id for roi in rois]
         self._results = {(summary.model_run_id, row.roi_id): row
@@ -179,6 +179,8 @@ class RoiTableModel(QAbstractTableModel):
         roi = self.project_state.rois[roi_id]
         if column == _SET_COLUMN:
             return SET_LABELS[roi.job]
+        if column == 0:
+            return _natural_key(self._file_key(roi.dataset_id))
         if column == 2:
             return float(roi.n_pixels)
         number = self._number(roi_id, column)
@@ -225,7 +227,15 @@ class RoiTableModel(QAbstractTableModel):
                 if target_id in self._target_ids else None)
 
     def _file_name(self, dataset_id: str) -> str:
-        return self.project_state.data_file_label(dataset_id)
+        """The data file's name without its folder; the ROI name tells the sample."""
+        label = self.project_state.data_file_full_label(dataset_id)
+        ref = self.project_state.datasets.get(dataset_id)
+        path = ref.source_path if ref is not None and ref.source_path else ""
+        return PureWindowsPath(path).name if path else label
+
+    def _file_key(self, dataset_id: str) -> str:
+        """Orders the rows by data file, also when file names repeat in different folders."""
+        return self.project_state.data_file_full_label(dataset_id)
 
     # -- Qt model -----------------------------------------------------------
 
@@ -278,7 +288,7 @@ class RoiTableModel(QAbstractTableModel):
             fmt = next(f for key, _h, f in _RESULT_COLUMNS if key == result[2])
             return "" if number is None else format(number, fmt)
         if role == Qt.ItemDataRole.ToolTipRole and column in (0, 1):
-            # The frozen columns are narrow: the full dataset label and the ROI's id.
+            # The Dataset column shows the file name only: the full label; the ROI's id.
             return (state.data_file_full_label(roi.dataset_id) if column == 0
                     else f"{roi.name} ({roi.roi_id})")
         if role not in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole,
@@ -388,19 +398,8 @@ class _SetDelegate(QStyledItemDelegate):
             model.setData(index, editor.currentData(), Qt.ItemDataRole.EditRole)
 
 
-#: Width of the Dataset column; longer labels are elided in the middle.
-_DATASET_WIDTH = 160
-#: The Dataset and ROI columns stay in view when the table scrolls sideways.
-_FROZEN_COLUMNS = 2
-
-
 class _RoiTableView(QTableView):
-    """Enter stores the value and edits the row below; Ctrl+V pastes a column.
-
-    The Dataset and ROI columns are frozen: a second view over the left edge
-    shows them while the table scrolls sideways (viewer-workspace-ui contract,
-    ROI table), so each row's ROI stays readable next to model result columns.
-    """
+    """Enter stores the value and edits the row below; Ctrl+V pastes a column."""
 
     paste_requested = pyqtSignal()
 
@@ -410,100 +409,6 @@ class _RoiTableView(QTableView):
         self._edit_timer = QTimer(self)
         self._edit_timer.setSingleShot(True)
         self._edit_timer.timeout.connect(self._edit_next)
-        self.frozen = QTableView(self)
-        self.frozen.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.frozen.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.frozen.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.frozen.setTextElideMode(Qt.TextElideMode.ElideMiddle)
-        self.frozen.setSortingEnabled(True)
-        # No frame or border of its own: it must lie exactly over the main columns.
-        self.frozen.setFrameShape(QFrame.Shape.NoFrame)
-        self.frozen.setStyleSheet(
-            "QTableView { border: none; border-radius: 0px; padding: 0px; margin: 0px; }")
-        vertical = self.frozen.verticalHeader()
-        if vertical is not None:
-            vertical.hide()
-
-    def setModel(self, model: Any) -> None:  # noqa: N802 (Qt API)
-        super().setModel(model)
-        self.frozen.setModel(model)
-        self.frozen.setSelectionModel(self.selectionModel())
-        main_bar, frozen_bar = self.verticalScrollBar(), self.frozen.verticalScrollBar()
-        if main_bar is not None and frozen_bar is not None:
-            main_bar.valueChanged.connect(frozen_bar.setValue)
-            frozen_bar.valueChanged.connect(main_bar.setValue)
-        header = self.horizontalHeader()
-        if header is not None:
-            header.sectionResized.connect(self._on_section_resized)
-            header.sortIndicatorChanged.connect(self._sync_sort_indicator)
-        frozen_header = self.frozen.horizontalHeader()
-        if frozen_header is not None:
-            frozen_header.sortIndicatorChanged.connect(
-                lambda column, order: self.sortByColumn(column, order))
-        if model is not None:
-            model.columnsInserted.connect(self._update_frozen)
-            model.columnsRemoved.connect(self._update_frozen)
-            model.modelReset.connect(self._update_frozen)
-            model.layoutChanged.connect(self._update_frozen)
-        self._update_frozen()
-
-    def _update_frozen(self, *_args: Any) -> None:
-        model = self.model()
-        if model is None:
-            return
-        for column in range(model.columnCount()):
-            self.frozen.setColumnHidden(column, column >= _FROZEN_COLUMNS)
-        if model.columnCount() > 1:
-            # The ROI column fits its names as the overlay draws them (its style
-            # can be a little wider than the main view's).
-            header = self.horizontalHeader()
-            if header is not None:
-                header.resizeSection(1, max(self.sizeHintForColumn(1),
-                                            self.frozen.sizeHintForColumn(1),
-                                            header.sectionSizeHint(1)))
-        for column in range(min(_FROZEN_COLUMNS, model.columnCount())):
-            self.frozen.setColumnWidth(column, self.columnWidth(column))
-        self._place_frozen()
-
-    def _on_section_resized(self, column: int, _old: int, new: int) -> None:
-        if column < _FROZEN_COLUMNS:
-            self.frozen.setColumnWidth(column, new)
-            self._place_frozen()
-
-    def _sync_sort_indicator(self, column: int, order: Qt.SortOrder) -> None:
-        frozen_header = self.frozen.horizontalHeader()
-        if frozen_header is not None:
-            frozen_header.blockSignals(True)
-            frozen_header.setSortIndicator(column, order)
-            frozen_header.blockSignals(False)
-
-    def _place_frozen(self) -> None:
-        """Lay the frozen view over the left edge, below nothing and above the main columns."""
-        model, viewport, header = self.model(), self.viewport(), self.horizontalHeader()
-        if model is None or viewport is None or header is None or model.columnCount() == 0:
-            self.frozen.hide()
-            return
-        width = sum(self.columnWidth(c) for c in range(min(_FROZEN_COLUMNS,
-                                                            model.columnCount())))
-        vertical = self.verticalHeader()
-        left = vertical.width() if vertical is not None and vertical.isVisible() else 0
-        frozen_header, frozen_rows = self.frozen.horizontalHeader(), self.frozen.verticalHeader()
-        if frozen_header is not None:
-            frozen_header.setFixedHeight(header.height())
-        if frozen_rows is not None and vertical is not None:
-            frozen_rows.setDefaultSectionSize(vertical.defaultSectionSize())
-        top = viewport.y() - header.height()
-        self.frozen.setGeometry(viewport.x() if left == 0 else self.frameWidth() + left, top,
-                                width, viewport.height() + header.height())
-        self.frozen.show()
-
-    def resizeEvent(self, e: Any) -> None:  # noqa: N802 (Qt API)
-        super().resizeEvent(e)
-        self._place_frozen()
-
-    def frozen_columns_visible(self) -> bool:
-        """``True`` when the ROI names are in view, whatever the horizontal scroll."""
-        return self.frozen.isVisible() and not self.frozen.isColumnHidden(1)
 
     def keyPressEvent(self, e: QKeyEvent | None) -> None:  # noqa: N802 (Qt API)
         if e is None:
@@ -564,12 +469,6 @@ class RoiTableWidget(QWidget):
         header = self.view.horizontalHeader()
         if header is not None:
             header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-            # The dataset label can be long: a capped width, elided in the middle
-            # (full label as tooltip), so the ROI names stay in view.
-            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
-            header.resizeSection(0, _DATASET_WIDTH)
-            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)  # sized by the view
-        self.view.setTextElideMode(Qt.TextElideMode.ElideMiddle)
         # A header click sorts (numbers by value); the indicator starts unset, so the rows
         # keep their data file and name order until then.
         if header is not None:

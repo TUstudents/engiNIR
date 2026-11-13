@@ -30,6 +30,8 @@ _Model = TypeVar("_Model")
 _PROJECT_META_FIELDS = ("project_id", "FileSchemaVersion", "FileCreator", "FileWriter",
                         "created_at", "updated_at")
 _MODEL_DISPLAY_FIELDS = ("cv_spec", "metrics")
+#: Display data of a dataset: tolerated when missing or malformed (schema contract).
+_DATASET_DISPLAY_FIELDS = ("relative_path",)
 _CALIBRATION_REFERENCE_FIELDS = ("dark_ref_source", "white_ref_source", "dark_ref_data",
                                  "white_ref_data", "black_level", "white_level")
 
@@ -112,8 +114,7 @@ def hydrate_project_store(
     active_calibration_ids: dict[str, str] = {}
     for dataset_id, payload in store.get("datasets", {}).items():
         location = f"/datasets/{dataset_id}"
-        datasets[dataset_id] = _build(DatasetRef, location, payload, {"dataset_id": dataset_id},
-                                      ignored={"calibrations", "active_calibration_id"})
+        datasets[dataset_id] = _dataset_ref(location, payload, dataset_id)
         stored_calibrations = payload.get("calibrations", {})
         for calibration_id, calibration_payload in stored_calibrations.items():
             if calibration_id in calibrations:
@@ -218,6 +219,16 @@ def _check_executable_models(model_runs: dict[str, ModelRun], sample_sets: dict[
                           location)
 
 
+def _dataset_ref(location: str, payload: dict[str, Any], dataset_id: str) -> DatasetRef:
+    """A dataset; its ``relative_path`` is display data: missing or malformed reads as ``""``."""
+    relative = payload.get("relative_path", "")
+    if not isinstance(relative, str):
+        logger.warning("{}: relative_path {!r} is not text; it is ignored", location, relative)
+        relative = ""
+    return _build(DatasetRef, location, {**payload, "relative_path": relative},
+                  {"dataset_id": dataset_id}, ignored={"calibrations", "active_calibration_id"})
+
+
 def _build_all(
     cls: type[_Model], collection: str, id_field: str, store: dict[str, Any],
     *, optional: tuple[str, ...] = (),
@@ -299,7 +310,8 @@ _WRITABLE_MODELS: dict[str, type] = {
     "PredictionRun": PredictionRun,
 }
 _WRITE_OPTIONS: dict[str, dict[str, Any]] = {
-    "DatasetRef": {"ignored": {"calibrations", "active_calibration_id"}},
+    "DatasetRef": {"ignored": {"calibrations", "active_calibration_id"},
+                   "optional": _DATASET_DISPLAY_FIELDS},
     "CalibrationSpec": {"optional": _CALIBRATION_REFERENCE_FIELDS},
     "TrainingROI": {"ignored": {"spectra", "calibration_refs"}, "optional": ("sample",)},
     "ModelRun": {"optional": ("name",)},

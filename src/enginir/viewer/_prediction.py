@@ -1340,7 +1340,7 @@ class PredictionView(QWidget):
         calibration = state.active_calibration(dataset_id)
         if dataset is None or calibration is None:
             return "the dataset has no reference correction in the project"
-        if not Path(dataset.source_path).exists():
+        if state.data_file(dataset_id) is None:
             return f"{dataset.source_path} was not found (Locate file... in Explore)"
         try:
             context = state.build_prediction_job_context(model_run_id=model_run_id)
@@ -1386,6 +1386,8 @@ class PredictionView(QWidget):
             QMessageBox.warning(self, "Prediction failed", str(exc))
             return
         dataset = state.datasets[dataset_id]
+        # Where the data file is this session (next to the project, via a drive mapping).
+        data_path = state.data_file(dataset_id) or dataset.source_path
         calibration = state.active_calibration(dataset_id)
         if calibration is None:
             QMessageBox.warning(self, "Prediction failed", "The dataset has no reference correction.")
@@ -1407,12 +1409,12 @@ class PredictionView(QWidget):
 
         def job() -> tuple[PredictionResult, RoiPrediction | None]:
             # Nothing is written: the prediction stays in memory (Result handling).
-            spectral_data = load_spectra(dataset.source_path)
+            spectral_data = load_spectra(data_path)
             result = predict_with_model_run(
                 project_path=context.project_path, model_run=context.model_run,
                 signal_domain=context.signal_domain, recipe=context.recipe, dataset=dataset,
                 calibration=calibration, model_registry=context.model_registry,
-                data_path=dataset.source_path, spectral_data=spectral_data,
+                data_path=data_path, spectral_data=spectral_data,
                 preprocessing_recipe_id=context.preprocessing_recipe_id,
                 progress_callback=emit_progress, cancel_callback=cancel_event.is_set,
                 prefer_saved_model=True)

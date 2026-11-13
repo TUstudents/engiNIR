@@ -235,6 +235,26 @@ def test_values_of_earlier_formats_are_refused(complete_project, tmp_path, field
                                           signal_domain=domain)
 
 
+def test_a_project_of_an_earlier_format_is_refused_as_a_project_not_read_as_data(
+        complete_project, tmp_path, qapp):
+    """An earlier project goes to the project path and is refused naming its format."""
+    from enginir.io import load_spectra
+    from enginir.viewer import _is_project_file
+
+    path, _ids = complete_project
+    old = tmp_path / "old.h5"
+    shutil.copy(path, old)
+    with h5py.File(old, "r+") as f:
+        meta = f["project_meta"].attrs
+        for name in ("FileSchemaVersion", "FileCreator", "FileWriter"):
+            del meta[name]
+        meta["schema_version"] = "viewer-v3"
+    assert _is_project_file(old), "the viewer opens it as a project, which refuses it"
+    for read in (load_project_store, load_spectra):
+        with pytest.raises(ValueError, match="format 'viewer-v3'.*created again"):
+            read(old)
+
+
 def test_a_metric_that_is_not_defined_is_stored_as_nan(tmp_path):
     """RMSEE (per ROI) needs R - 1 - A >= 1; with 6 ROIs and 5 components it is NaN, written."""
     import numpy as np

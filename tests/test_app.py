@@ -189,3 +189,26 @@ def test_combo_popups_release_their_surface_on_wslg_wayland(qapp, monkeypatch):
     finally:
         qapp.removeEventFilter(fix)
         combo.close()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="the taskbar app id is a Windows feature")
+def test_the_viewer_has_its_own_taskbar_identity_on_windows():
+    """Without its own app id, Windows groups the viewer under python.exe and shows no
+    engiNIR icon in the taskbar. Checked in a fresh process: the id must be set before
+    the first window."""
+    import subprocess
+    import sys
+    import textwrap
+
+    script = textwrap.dedent("""
+        import ctypes
+        from ctypes import wintypes
+        from enginir.viewer._app import WINDOWS_APP_ID, ensure_app
+        ensure_app()
+        value = wintypes.LPWSTR()
+        ctypes.windll.shell32.GetCurrentProcessExplicitAppUserModelID(ctypes.byref(value))
+        print(value.value == WINDOWS_APP_ID, value.value)
+    """)
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
+                            env={**os.environ, "QT_QPA_PLATFORM": "offscreen"}, timeout=60)
+    assert result.stdout.startswith("True"), result.stdout + result.stderr

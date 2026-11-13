@@ -44,6 +44,13 @@ from .project import (
     hydrate_project_store,
     validate_project_relationships,
 )
+from .project._data_paths import (
+    STORED,
+    DataFileCandidate,
+    data_file_candidates,
+    relative_data_path,
+    stored_path,
+)
 from .project._ids import new_id, now_iso
 from .project._models import check_roi_job, sample_label
 from .prediction._rois import (
@@ -57,6 +64,7 @@ logger = get_logger(__name__)
 
 __all__ = ["DEFAULT_BLACK_LEVEL", "DEFAULT_WHITE_LEVEL", "Dataset", "GridCell", "Model",
            "Prediction", "Project", "StoredPrediction", "check_data_file_location", "data_file_labels",
+           "is_data_file_of",
            "make_calibration", "make_roi", "read_frames", "read_header",
            "recipe_id_for", "resolve_calibration", "resolve_dataset",
            "resolve_prediction_calibration", "resolve_sample_set", "resolve_signal_domain",
@@ -97,6 +105,8 @@ class Project:
     def __init__(self, path: str | os.PathLike[str], *,
                  store_contents: dict[str, Any] | None = None) -> None:
         self.path = os.path.abspath(os.fspath(path))
+        #: Where each dataset's data file was found this session (None: not found).
+        self._found: dict[str, DataFileCandidate | None] = {}
         self._reload(store_contents)
 
     @classmethod
@@ -365,7 +375,8 @@ class Project:
         recipes = {**ws.recipes, recipe_id: recipe_obj.to_dict()}
         sample_set, _new = resolve_sample_set(
             rois=ws.rois, target_assignments=ws.target_assignments,
-            target_id=target_ref.target_id, recipe_id=recipe_id, sample_sets=ws.sample_sets)
+            target_id=target_ref.target_id, recipe_id=recipe_id, sample_sets=ws.sample_sets,
+            target_name=target_ref.name)
         domain = resolve_signal_domain(self._training_signal_domain(sample_set),
                                        ws.signal_domains)
         return propose_bands(
@@ -437,7 +448,8 @@ class Project:
         # The fit reads the spectra; the sample set itself needs none.
         sample_set, _new = resolve_sample_set(
             rois=ws.rois, target_assignments=ws.target_assignments,
-            target_id=target_ref.target_id, recipe_id=recipe_id, sample_sets=ws.sample_sets)
+            target_id=target_ref.target_id, recipe_id=recipe_id, sample_sets=ws.sample_sets,
+            target_name=target_ref.name)
         domain = resolve_signal_domain(self._training_signal_domain(sample_set),
                                        ws.signal_domains)
         result = fit_model_run(
@@ -475,7 +487,15 @@ class Project:
     # and rereads the project. The viewer stores everything through these.
 
     def save_dataset(self, dataset: DatasetRef) -> None:
-        """Store a dataset reference."""
+        """Store a dataset reference.
+
+        A new dataset gets its ``relative_path`` to the project file here, so
+        a moved project still finds it (attachment contract, Missing and
+        moved files).
+        """
+        if dataset.dataset_id not in self.workspace.datasets and not dataset.relative_path:
+            dataset = replace(dataset, relative_path=relative_data_path(self.path,
+                                                                        dataset.source_path))
         store.save_dataset_ref(self.path, dataset.dataset_id, dataset.to_dict())
         self.workspace.datasets[dataset.dataset_id] = dataset
 
@@ -677,7 +697,51 @@ class Project:
 
     def _dataset_ref(self, abs_path: str) -> DatasetRef | None:
         return next((ref for ref in self.workspace.datasets.values()
-                     if _same_path(ref.source_path, abs_path)), None)
+                     if is_data_file_of(self.path, ref, abs_path)), None)
+
+    def find_data_file(self, dataset_id: str) -> DataFileCandidate | None:
+        """Where the data file of a dataset is this session, and how it was found; or ``None``.
+
+        Tried in order: ``relative_path`` next to the project file, the stored
+        ``source_path``, the stored path mapped between a Windows drive and
+        its WSL mount. The stored path is used as it is; any other candidate
+        must pass :func:`check_data_file_location` on the dataset's smallest
+        ROI. The answer is kept for the session; nothing is written
+        (attachment contract, Missing and moved files).
+        """
+        if dataset_id in self._found:
+            return self._found[dataset_id]
+        ref = self.workspace.datasets.get(dataset_id)
+        if ref is None:
+            log_and_raise("Unknown dataset '{}'", dataset_id, error=KeyError)
+        rois = [roi for roi in self.workspace.rois.values() if roi.dataset_id == dataset_id]
+        smallest = [min(rois, key=lambda roi: (roi.n_pixels, roi.roi_id))] if rois else []
+        stored = stored_path(ref.source_path)
+        found = None
+        for candidate in data_file_candidates(self.path, ref.source_path, ref.relative_path):
+            if not os.path.isfile(candidate.path):
+                continue
+            if _same_path(candidate.path, str(stored)):
+                found = DataFileCandidate(candidate.path, STORED)
+                break
+            mismatch = _data_file_mismatch(self.path, ref, smallest, candidate.path)
+            if mismatch is None:
+                found = candidate
+                logger.info("File of dataset '{}' found {}: {} (stored: {})", dataset_id,
+                            candidate.how, candidate.path, ref.source_path)
+                break
+            logger.warning("{} is not the file of dataset '{}': {}", candidate.path,
+                           dataset_id, mismatch)
+        if found is None:
+            logger.info("File of dataset '{}' not found (stored: {})", dataset_id,
+                        ref.source_path)
+        self._found[dataset_id] = found
+        return found
+
+    def data_file(self, dataset_id: str) -> str | None:
+        """The path of a dataset's data file this session (:meth:`find_data_file`), or ``None``."""
+        found = self.find_data_file(dataset_id)
+        return None if found is None else found.path
 
     def _resolve_dataset(self, path, *, dark, white, unit, dark_frames=None, white_frames=None,
                          references_from=None, black_level=None, white_level=None):
@@ -690,7 +754,7 @@ class Project:
                           "black_level/white_level with dark/white references")
         abs_path = _native_path(path)
         data = read_header(abs_path)
-        dataset, new_dataset = resolve_dataset(ws.datasets, path, data)
+        dataset, new_dataset = resolve_dataset(ws.datasets, path, data, project_path=self.path)
         sensor = dataset.cube_shape[1:]
         if references_from is not None:
             if any(value is not None for value in (dark, white, dark_frames, white_frames)):
@@ -806,7 +870,8 @@ class Dataset:
 
     @property
     def path(self) -> str:
-        return self.ref.source_path
+        """Where the data file is this session (:meth:`Project.data_file`), else the stored path."""
+        return self.project.data_file(self.ref.dataset_id) or self.ref.source_path
 
     @property
     def calibration(self) -> CalibrationSpec:
@@ -887,9 +952,11 @@ class Dataset:
                           abs_path)
         rois = [roi for roi in ws.rois.values() if roi.dataset_id == self.ref.dataset_id]
         check_data_file_location(project.path, self.ref, rois, abs_path)
-        store.relocate_dataset_ref(project.path, self.ref.dataset_id, abs_path)
-        self.ref = replace(self.ref, source_path=abs_path)
+        relative = relative_data_path(project.path, abs_path)
+        store.relocate_dataset_ref(project.path, self.ref.dataset_id, abs_path, relative)
+        self.ref = replace(self.ref, source_path=abs_path, relative_path=relative)
         ws.datasets[self.ref.dataset_id] = self.ref
+        project._found[self.ref.dataset_id] = DataFileCandidate(abs_path, STORED)
         return self
 
     def add_rois(self, cells: Sequence[GridCell]) -> list[TrainingROI]:
@@ -1203,7 +1270,8 @@ class Model:
                       model_registry={})
         preflight_prediction(**common)
         result: PredictionResult = predict_with_model_run(
-            **common, data_path=dataset.source_path, preprocessing_recipe_id=recipe_id,
+            # The file the caller named (a registered dataset may be found there, e.g. at Z:).
+            **common, data_path=_native_path(path), preprocessing_recipe_id=recipe_id,
             checksum=checksum)
         return Prediction(self, result)
 
@@ -1352,7 +1420,8 @@ def data_file_labels(datasets: Mapping[str, DatasetRef], *,
     keeps them whole, for lists with room). Labels are for display only;
     datasets are identified by id.
     """
-    paths = {dataset_id: _native_path(ref.source_path).replace("\\", "/").split("/")
+    # Each stored path by its own syntax: a Windows path read on Linux keeps its folders.
+    paths = {dataset_id: list(stored_path(ref.source_path).parts)
              if ref.source_path else [dataset_id] for dataset_id, ref in datasets.items()}
     by_name: dict[str, list[str]] = {}
     for dataset_id, parts in paths.items():
@@ -1397,29 +1466,43 @@ def check_data_file_location(
     project. Reads only the frames the ROIs cover; writes nothing.
     """
     abs_path = _native_path(path)
+    mismatch = _data_file_mismatch(project_path, dataset, rois, abs_path)
+    if mismatch is not None:
+        log_and_raise("{}", mismatch)
+
+
+def _data_file_mismatch(project_path: str | os.PathLike[str], dataset: DatasetRef,
+                        rois: Iterable[TrainingROI], abs_path: str) -> str | None:
+    """Why the file at ``abs_path`` is not the data file of ``dataset``, or ``None`` if it is."""
     if not os.path.isfile(abs_path):
-        log_and_raise("{} does not exist", abs_path)
-    header = read_header(abs_path)
+        return f"{abs_path} does not exist"
+    try:
+        header = read_header(abs_path)
+    except (OSError, ValueError, KeyError) as exc:
+        return f"{abs_path} cannot be read: {exc}"
     checks = [("format", file_format(abs_path), dataset.source_format),
               ("shape", tuple(int(n) for n in header.cube_shape), tuple(dataset.cube_shape))]
     if header.meta.get("source_modality"):
         checks.append(("modality", header.meta["source_modality"], dataset.source_modality))
     for label, now, then in checks:
         if now != then:
-            log_and_raise("{} is not this dataset: it has {} {!r}, the dataset has {!r}",
-                          abs_path, label, now, then)
+            return (f"{abs_path} is not this dataset: it has {label} {now!r}, the dataset "
+                    f"has {then!r}")
     wavelengths = np.asarray(header.wavelengths, dtype=np.float32)
     if wavelengths.shape != np.shape(dataset.wavelengths) or not np.allclose(
             wavelengths, np.asarray(dataset.wavelengths, dtype=np.float32), atol=1e-6, rtol=0.0):
-        log_and_raise("{} is not this dataset: its wavelengths differ", abs_path)
+        return f"{abs_path} is not this dataset: its wavelengths differ"
     rois = list(rois)
     if not rois:
         logger.warning("Dataset {} has no ROIs; only its format, shape and wavelengths "
                        "were compared", abs_path)
-        return
+        return None
     first = min(roi.spatial_bounds[0] for roi in rois)
     last = max(roi.spatial_bounds[1] for roi in rois)
-    pixels = read_frames(abs_path, first, last)
+    try:
+        pixels = read_frames(abs_path, first, last)
+    except (OSError, ValueError, KeyError) as exc:
+        return f"{abs_path} cannot be read: {exc}"
     n_bands = dataset.cube_shape[2]
     for roi in rois:
         f0, f1, r0, r1 = roi.spatial_bounds
@@ -1427,10 +1510,11 @@ def check_data_file_location(
             pixels[f0 - first:f1 - first + 1, r0:r1 + 1].reshape(-1, n_bands))
         stored = store.load_roi_spectra(project_path, f"/rois/{roi.roi_id}/spectra")
         if found.shape != stored.shape or not np.array_equal(found, stored):
-            log_and_raise("{} is not this dataset: the pixels of ROI '{}' differ from the "
-                          "stored ones", abs_path, roi.name)
+            return (f"{abs_path} is not this dataset: the pixels of ROI '{roi.name}' differ "
+                    "from the stored ones")
     logger.info("{} matches dataset '{}' ({} ROIs compared)", abs_path, dataset.dataset_id,
                 len(rois))
+    return None
 
 
 @dataclass(frozen=True)
@@ -1579,6 +1663,7 @@ def resolve_sample_set(
     target_id: str,
     recipe_id: str,
     sample_sets: Mapping[str, SampleSet],
+    target_name: str | None = None,
 ) -> tuple[SampleSet, bool]:
     """The sample set of every ROI with a value for ``target_id``, and whether it is new.
 
@@ -1592,7 +1677,8 @@ def resolve_sample_set(
         different wavelength axes (see :func:`enginir.modeling.plan_sample_set`).
     """
     planned = plan_sample_set(rois=dict(rois), target_assignments=dict(target_assignments),
-                              target_id=target_id, preprocessing_recipe_id=recipe_id)
+                              target_id=target_id, preprocessing_recipe_id=recipe_id,
+                              target_name=target_name)
     stored = _existing(sample_sets.values(), planned, _same_sample_set)
     return stored, stored is planned
 
@@ -1604,8 +1690,13 @@ def resolve_dataset(
     *,
     dataset_id: str | None = None,
     created_at: str | None = None,
+    project_path: str | os.PathLike[str] | None = None,
 ) -> tuple[DatasetRef, bool]:
     """Return the registered dataset of ``path``, or a new one; and whether it is new.
+
+    With ``project_path``, a registered dataset is also recognized at its other
+    candidate paths (:func:`is_data_file_of`), so moving between platforms
+    never registers a data file twice.
 
     ``data`` is the file's :class:`~enginir.io.SpectralData` (a header-only
     load is enough). A registered file must still have its registered format,
@@ -1616,12 +1707,12 @@ def resolve_dataset(
     registered = None
     if dataset_id is not None and dataset_id in datasets:
         registered = datasets[dataset_id]
-        if not _same_path(registered.source_path, abs_path):
+        if not is_data_file_of(project_path, registered, abs_path):
             log_and_raise("Dataset '{}' is registered for {}, not {}", dataset_id,
                           registered.source_path, abs_path)
     else:
         registered = next((ref for ref in datasets.values()
-                           if _same_path(ref.source_path, abs_path)), None)
+                           if is_data_file_of(project_path, ref, abs_path)), None)
     if registered is None:
         return build_dataset_ref_from_spectral_data(
             data_path=abs_path, spectral_data=data, dataset_id=dataset_id,
@@ -1782,6 +1873,24 @@ def _native_path(path: str | os.PathLike[str]) -> str:
 
 def _same_path(left: str, right: str) -> bool:
     return os.path.normcase(_native_path(left)) == os.path.normcase(_native_path(right))
+
+
+def is_data_file_of(project_path: str | os.PathLike[str] | None, dataset: DatasetRef,
+                    path: str | os.PathLike[str]) -> bool:
+    """Whether ``path`` names the data file of ``dataset`` at any of its candidate paths.
+
+    A file opened at ``Z:\\…`` is the dataset registered at ``/mnt/z/…`` (and the
+    other way round), and a path next to the project is its ``relative_path``.
+    Compares paths only; no file is opened. Without ``project_path`` only the
+    stored path is compared.
+    """
+    abs_path = _native_path(path)
+    if _same_path(dataset.source_path, abs_path):
+        return True
+    if project_path is None:
+        return False
+    return any(_same_path(candidate.path, abs_path) for candidate in data_file_candidates(
+        project_path, dataset.source_path, dataset.relative_path))
 
 
 def _source(reference) -> str | None:

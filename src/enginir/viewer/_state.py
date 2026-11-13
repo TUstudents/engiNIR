@@ -21,6 +21,7 @@ from .._workflow import (
     Dataset,
     Project,
     data_file_labels,
+    is_data_file_of,
     resolve_dataset,
     resolve_prediction_calibration,
 )
@@ -40,6 +41,7 @@ from ..prediction import PredictionResult, RoiPredictionSummary, predict_with_mo
 from .._checks import log_and_raise
 from .._logging import get_logger
 from ..io.project_store import as_roi_storage_array
+from ..project._data_paths import DataFileCandidate, moved_path
 from ..project._ids import now_iso
 
 logger = get_logger(__name__)
@@ -262,6 +264,37 @@ class ProjectState(QObject):
         self._written()
         self.datasets_changed.emit()
         self.saved.emit(f"Dataset file '{os.path.basename(path)}' located")
+
+    def moved_data_files(self, old_path: str, new_path: str) -> dict[str, str]:
+        """Data files not found this session that exist where ``old_path`` → ``new_path`` puts them.
+
+        For the batch offer after one Locate (attachment contract, Missing and
+        moved files); the files are not checked here, :meth:`locate_data_file` does.
+        """
+        moved: dict[str, str] = {}
+        for dataset_id, ref in self.datasets.items():
+            if self.find_data_file(dataset_id) is not None:
+                continue
+            candidate = moved_path(old_path, new_path, ref.source_path)
+            if candidate is not None and os.path.isfile(candidate):
+                moved[dataset_id] = candidate
+        return moved
+
+    def find_data_file(self, dataset_id: str) -> DataFileCandidate | None:
+        """Where a dataset's data file is this session (:meth:`enginir.Project.find_data_file`)."""
+        return None if self.project is None else self.project.find_data_file(dataset_id)
+
+    def data_file(self, dataset_id: str) -> str | None:
+        """The path of a dataset's data file this session, or ``None`` if it is not found."""
+        found = self.find_data_file(dataset_id)
+        return None if found is None else found.path
+
+    def dataset_id_of(self, path: str | None) -> str | None:
+        """The dataset whose data file ``path`` is (at any of its candidate paths), or ``None``."""
+        if not path:
+            return None
+        return next((dataset_id for dataset_id, ref in self.datasets.items()
+                     if is_data_file_of(self.project_path, ref, path)), None)
 
     def data_file_label(self, dataset_id: str) -> str:
         """How a data file is shown: its file name, with the folder when file names repeat."""
@@ -579,7 +612,8 @@ class ProjectState(QObject):
         context = self.build_prediction_job_context(model_run_id=model_run_id)
         spectral_data = _load_prediction_metadata(data_path, loader_kwargs=loader_kwargs)
         dataset, _ = resolve_dataset(context.datasets, data_path, spectral_data,
-                                     dataset_id=dataset_id, created_at=created_at)
+                                     dataset_id=dataset_id, created_at=created_at,
+                                     project_path=context.project_path)
         resolved_calibration, _ = resolve_prediction_calibration(
             dataset, context.calibrations, context.active_calibration_ids, calibration)
         result = predict_with_model_run(

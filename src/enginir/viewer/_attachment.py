@@ -10,6 +10,7 @@ import numpy as np
 from PyQt6.QtWidgets import QMessageBox, QWidget
 
 from .._logging import get_logger
+from .._workflow import is_data_file_of
 from ..io.project_store import load_project_store
 from ..project import hydrate_project_store
 from ._data_helpers import wavelength_axes_match
@@ -96,9 +97,10 @@ def _collect_binding_mismatches(
         rois, datasets = workspace.rois, workspace.datasets
 
     attached_path = os.path.abspath(dataset_path)
+    # Recognized at any of its candidate paths (attachment contract, Missing and moved files).
     dataset = next((dataset for dataset in datasets.values()
                     if dataset.source_path
-                    and os.path.abspath(dataset.source_path) == attached_path), None)
+                    and is_data_file_of(project_path, dataset, attached_path)), None)
     if dataset is None:
         return []  # a new data file of the project
     mismatches: list[str] = []

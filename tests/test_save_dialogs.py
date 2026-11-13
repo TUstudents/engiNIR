@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
@@ -65,3 +67,31 @@ def test_a_new_project_from_explore_gets_the_extension(tmp_path, typed):
     assert view.project_state.project_path == str(tmp_path / "trial.h5")
     assert (tmp_path / "trial.h5").exists() and not (tmp_path / "trial").exists()
 
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0,
+                    reason="needs a folder the user cannot write to")
+def test_a_project_that_cannot_be_written_is_reported_and_nothing_changes(
+        tmp_path, typed, monkeypatch):
+    import numpy as np
+
+    from enginir.viewer._state import ProjectState, ViewerState
+    from tests.test_eda_view import _make_view
+
+    ensure_app()
+    state = ViewerState(np.zeros((2, 2, 4), dtype=np.uint16), np.linspace(1000, 1300, 4))
+    view, _canvas = _make_view(state, ProjectState(), str(tmp_path / "cube.eiff"),
+                               dataset_attached=False)
+    warnings: list[str] = []
+    monkeypatch.setattr(QMessageBox, "warning",
+                        staticmethod(lambda _parent, title, text, *a: warnings.append(text)))
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o500)
+    try:
+        typed.name = str(locked / "trial.h5")
+        view.new_project_btn_clicked()
+    finally:
+        locked.chmod(0o700)
+    assert view.project_state.project_path is None
+    assert len(warnings) == 1 and "Permission denied" in warnings[0]
