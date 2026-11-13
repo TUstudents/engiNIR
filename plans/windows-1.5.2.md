@@ -2,7 +2,8 @@
 
 Status: approved (user, 2026-11-13) with W1–W5 as recommended; the script
 is named `install-enginir-for-windows.ps1`. Phase 1 done (suite green on
-Linux and Windows; not committed yet).
+Linux and Windows; 35c1d46). Phase 2 written (Windows CI job); it runs
+first on the PR.
 Branch `windows-1.5.2` from main (1.5.1, 561983b); one commit per phase,
 one PR, then release 1.5.2.
 

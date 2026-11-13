@@ -104,7 +104,10 @@ These are contract decisions; do not change them without a contract change.
 - Python 3.12 and newer, src layout (`src/enginir/`); ruff target `py312`
   and pyright `pythonVersion = "3.12"` (so APIs newer than 3.12 are
   reported). CI runs the gates on 3.12, 3.13 and 3.14; add each new
-  Python release to the matrix.
+  Python release to the matrix. A second CI job runs the tests on Windows
+  (Python 3.13, the installer's Python); it must pass too, since a release
+  needs the whole CI run green. Tests must not assume POSIX paths or the
+  platform's default text encoding (read and write text as UTF-8).
 
 ## Tests
 

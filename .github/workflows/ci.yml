@@ -38,3 +38,20 @@ jobs:
         run: uv run pyright src/enginir
       - name: Docs
         run: uv run python -m sphinx -W -E -b html docs docs/_build/html
+
+  windows:
+    # The viewer is installed on Windows by PAT users (plan windows-1.5.2); the
+    # suite runs there on the Python the installer uses. Lint, types and docs
+    # give the same result everywhere and run only on Linux.
+    runs-on: windows-latest
+    timeout-minutes: 30  # also covers a hang outside a test (no GNU timeout here)
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.13"
+      - run: uv sync --all-extras
+      - name: Tests
+        run: uv run python -X faulthandler -m pytest -q
