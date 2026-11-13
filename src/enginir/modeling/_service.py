@@ -28,6 +28,7 @@ from ..io.project_store import (
     load_roi_spectra_matrix,
 )
 from ..models import PCR, PLSRegression
+from ..models._gram import GRAM_CONDITION_LIMIT, GramStats, Moments, gram_condition
 from ..prediction._uncertainty import interval_coverage, interval_inputs
 from ..preprocessing import PreprocessingRecipe
 from ..preprocessing._pipeline import (
@@ -49,6 +50,7 @@ from ..project import (
     transform_spectra_to_signal_domain,
 )
 from ..project._fit_spec import FitSpec, fold_groups_problem
+from . import _gram_fit
 from ._components import component_curve, default_max, rank_limit, training_diagnostics
 from ._exclusion import DModXExclusion
 from ..project._ids import new_id, now_iso
@@ -328,11 +330,16 @@ def _training_data(
     signal_domain_id: str,
     cv: int | str | None,
     fit_spec: FitSpec | Mapping[str, Any] | None,
+    recipe: PreprocessingRecipe | None = None,
 ) -> _TrainingData:
     """Resolve the fit specification and build the signal-domain matrix and folds.
 
     Shared by :func:`fit_model_run` and the band proposal, so both see the same
-    pixels, signal domain and fold groups.
+    pixels, signal domain and fold groups. With a stateless ``recipe``, every
+    ROI is converted and preprocessed in turn into one float32 matrix
+    (``X_signal`` then holds the preprocessed spectra), and the raw matrix is
+    released afterwards: ``data.X`` keeps its rows but no columns (plan
+    ``plans/kernel-pls.md``, D7).
     """
     spec, requested = resolve_fit_spec(cv, fit_spec)
     if sample_set.preprocessing_recipe_id not in recipes:
@@ -372,8 +379,17 @@ def _training_data(
                       signal_domain_id, sample_set.sample_set_id)
     data, checksum = _pixel_sample(data, spec, project_path, rois)
     spec = spec.with_checksum(checksum)
+    preprocess = None
+    if recipe is not None and not recipe.requires_fitting:
+        wavelengths, unit = data.wavelengths, signal_domain.required_signal_unit
+        preprocess = (recipe.output_wavelengths(wavelengths).size,
+                      lambda rows: apply_preprocessing_recipe(rows, recipe=recipe,
+                                                              wavelengths=wavelengths,
+                                                              signal_unit=unit))
     X_signal = _signal_domain_matrix(project_path, data, datasets, calibrations, rois,
-                                     signal_domain)
+                                     signal_domain, preprocess=preprocess)
+    if preprocess is not None:  # the raw spectra stay in the project file
+        data = replace(data, X=np.empty((data.X.shape[0], 0), dtype=data.X.dtype))
 
     # ROI ids are random, so the splitter gets each ROI's fold-group index
     # (its position in the sample set with group_by "roi") instead: folds
@@ -461,27 +477,27 @@ def fit_model_run(
         If the inputs are inconsistent, ``cv`` is not ROI-grouped, or the
         model type is unknown.
     """
+    model_type = _model_type(model_type)
+    resolve_fit_spec(cv, fit_spec)  # refuse an unusable cv before reading anything
+    stored_recipe = recipes.get(sample_set.preprocessing_recipe_id)
     prepared = _training_data(
         project_path=project_path, sample_set=sample_set, datasets=datasets,
         calibrations=calibrations, rois=rois, target_assignments=target_assignments,
         recipes=recipes, signal_domains=signal_domains, signal_domain_id=signal_domain_id,
-        cv=cv, fit_spec=fit_spec)
+        cv=cv, fit_spec=fit_spec,
+        recipe=None if stored_recipe is None else PreprocessingRecipe.from_dict(stored_recipe))
     spec, requested, signal_domain = prepared.spec, prepared.requested, prepared.signal_domain
-    data, X_signal, n_fold_groups = prepared.data, prepared.X_signal, prepared.n_fold_groups
+    data, n_fold_groups = prepared.data, prepared.n_fold_groups
     roi_ids_present, roi_index = prepared.roi_ids_present, prepared.roi_index
     cv_groups, splitter = prepared.cv_groups, prepared.splitter
-    model_type = _model_type(model_type)
     recipe = PreprocessingRecipe.from_dict(recipes[sample_set.preprocessing_recipe_id])
     signal_unit = signal_domain.required_signal_unit  # AsLS direction (schema contract §4)
     model_wavelengths = recipe.output_wavelengths(data.wavelengths)
     hyperparameters = _with_default_scaling(model_type, dict(hyperparameters or {}))
-    # Stateless recipes are applied once; MSC/EMSC must be fitted inside each fold.
-    if recipe.requires_fitting:
-        X_cv = X_signal
-    else:
-        X_cv = apply_preprocessing_recipe(X_signal, recipe=recipe, wavelengths=data.wavelengths,
-                                          signal_unit=signal_unit)
-        del X_signal  # only the preprocessed matrix is needed from here on
+    # Stateless recipes were applied ROI by ROI (X_signal holds the preprocessed spectra);
+    # MSC/EMSC must be fitted inside each fold, so X_cv is the signal-domain matrix then.
+    X_cv = prepared.X_signal
+    del prepared
 
     def model_with(params: dict[str, Any]) -> Any:
         estimator = _ESTIMATORS[model_type](**params)
@@ -494,12 +510,42 @@ def fit_model_run(
     spec, hyperparameters, a_max = _components_request(spec, hyperparameters, model_type,
                                                        X_cv, cv_groups, splitter, n_fold_groups,
                                                        n_variables=model_wavelengths.size)
+    lay = _gram_fit.layout(roi_index, cv_groups)
+    stats: GramStats | None = None
+    if model_type == "PCR" and hyperparameters.get("algorithm") == "auto":
+        # The guard is decided once for the run, on the whole calibration set (contract §7).
+        if recipe.requires_fitting:
+            whole = apply_preprocessing_recipe(X_cv, recipe=recipe, wavelengths=data.wavelengths,
+                                               signal_unit=signal_unit)
+            moments = GramStats.from_rows(whole, data.y).moments()
+            del whole
+        else:
+            stats = _gram_fit.build_stats(X_cv, data.y, lay)
+            moments = stats.moments()
+        hyperparameters["algorithm"] = _pcr_algorithm(moments, a_max,
+                                                      str(hyperparameters["x_scaling"]))
+    # Fits on statistics: a recipe fitted per pixel and a kernel or gram model (plan
+    # kernel-pls, Phase 2); MSC/EMSC and NIPALS/SVD take the pipeline path.
+    on_statistics = (not recipe.requires_fitting
+                     and hyperparameters.get("algorithm") in ("kernel", "gram"))
     lowest = int(hyperparameters["n_components"]) if spec.components_rule == "fixed" else 1
     base_params: dict[str, Any] = dict(hyperparameters)
-    curve, curve_predictions, curve_scheme, reached = _curve_up_to(
-        lambda n: model_with({**base_params, "n_components": n}), X_cv, data.y,
-        a_max=a_max, lowest=lowest, splitter=splitter, cv_groups=cv_groups,
-        roi_index=roi_index, n_samples=n_fold_groups)
+    curve_result: _gram_fit.CurveResult | None = None
+    fold_list: list[_gram_fit.Fold] = []
+    curve_predictions = np.empty((0, 0))
+    if on_statistics:
+        if stats is None:
+            stats = _gram_fit.build_stats(X_cv, data.y, lay)
+        fold_list, curve_scheme = _gram_fit.folds(splitter, cv_groups, lay)
+        curve_result = _gram_fit.component_curve(
+            lambda n: _ESTIMATORS[model_type](**{**base_params, "n_components": n}), stats,
+            fold_list, a_max=a_max, n_samples=n_fold_groups)
+        curve, reached = curve_result.curve, a_max
+    else:
+        curve, curve_predictions, curve_scheme, reached = _curve_up_to(
+            lambda n: model_with({**base_params, "n_components": n}), X_cv, data.y,
+            a_max=a_max, lowest=lowest, splitter=splitter, cv_groups=cv_groups,
+            roi_index=roi_index, n_samples=n_fold_groups)
     if reached != a_max:
         spec = replace(spec, components_max=reached)
     hyperparameters, spec = _chosen_components(spec, hyperparameters, curve,
@@ -515,8 +561,30 @@ def fit_model_run(
         logger.warning("Cross-validation of calibration set '{}' is likely optimistic: {}",
                        sample_set.sample_set_id, "; ".join(fold_warning_text(cv_warnings)))
     n_chosen = int(hyperparameters["n_components"])
+    chosen_params = dict(hyperparameters)
 
-    if spec.exclusion == "dmodx":
+    def make_chosen(n: int) -> Any:
+        return _ESTIMATORS[model_type](**{**chosen_params, "n_components": n})
+
+    def excluding_on_statistics(blocks: np.ndarray | None) -> _gram_fit.GramExclusion:
+        sums = stats if stats is not None else _gram_fit.build_stats(X_cv, data.y, lay)
+        return _gram_fit.exclude(make_chosen, n_chosen, sums, X_cv, data.y, lay, blocks,
+                                 level=spec.exclusion_level, rounds=spec.exclusion_rounds,
+                                 max_fraction=spec.exclusion_max_fraction,
+                                 formula=spec.exclusion_formula)
+
+    if on_statistics and curve_result is not None:
+        if spec.exclusion == "dmodx":
+            # Inside every fold, on that fold's training pixels only (contract §7.2).
+            coefficients = [_gram_fit.model_coefficients(
+                excluding_on_statistics(fold.train_blocks).estimator_) for fold in fold_list]
+        else:  # without exclusion the fold models of the curve, cut to A components
+            coefficients = [_gram_fit.model_coefficients(model, n_chosen)
+                            for model in curve_result.fold_models]
+        cv_result = {"y_pred": _gram_fit.held_out_predictions(X_cv, lay, fold_list,
+                                                              coefficients),
+                     "cv_scheme": curve_scheme}
+    elif spec.exclusion == "dmodx":
         # Inside every fold, on that fold's training pixels only (contract §7.2).
         cv_result = cross_validate(_excluding(model_with(hyperparameters), spec, roi_index),
                                    X_cv, data.y, cv=splitter, groups=cv_groups)
@@ -530,10 +598,18 @@ def fit_model_run(
     roi_y_pred = roi_y_pred.astype(_WORKING_DTYPE)
 
     estimator = _ESTIMATORS[model_type](**hyperparameters)
-    exclusion: DModXExclusion | None = None
-    if recipe.requires_fitting:
-        predictor: Any = make_model_pipeline(recipe=recipe, wavelengths=data.wavelengths,
-                                             estimator=estimator, signal_unit=signal_unit)
+    exclusion: Any = None
+    if on_statistics and stats is not None:
+        if spec.exclusion == "dmodx":
+            exclusion = excluding_on_statistics(None)
+            estimator = exclusion.estimator_
+        else:  # from the sums: no pass over the pixels
+            estimator = make_chosen(n_chosen).fit_stats(stats, single_target=True)
+        predictor: Any = _StatelessRecipePredictor(
+            recipe.build_steps(data.wavelengths, signal_unit=signal_unit), estimator)
+    elif recipe.requires_fitting:
+        predictor = make_model_pipeline(recipe=recipe, wavelengths=data.wavelengths,
+                                        estimator=estimator, signal_unit=signal_unit)
         if spec.exclusion == "dmodx":
             exclusion = _excluding(predictor, spec, roi_index).fit(X_cv, data.y)
             predictor = exclusion.estimator_
@@ -554,9 +630,12 @@ def fit_model_run(
     y_divisor = (float(np.asarray(estimator.y_std_).reshape(-1)[0])
                  if isinstance(estimator, PLSRegression)
                  else float(np.std(np.asarray(data.y)[kept], ddof=1)) or 1.0)
-    fit_metrics, training, projection = training_diagnostics(
+    fit_metrics, training, projection, scores = training_diagnostics(
         predictor if recipe.requires_fitting else estimator, X_cv, data.y, kept, roi_index,
-        y_divisor=y_divisor)
+        y_divisor=y_divisor, with_scores=True)
+    if on_statistics:  # the stored training scores: the pass computed them (D7)
+        setattr(estimator, "x_scores_" if isinstance(estimator, PLSRegression) else "scores_",
+                scores[kept])
     # Per-ROI shares follow cv_outputs/roi_ids (they are computed in roi_ids_present order).
     position = {str(roi_id): i for i, roi_id in enumerate(np.asarray(roi_ids_present))}
     order = [position[str(roi_id)] for roi_id in np.asarray(roi_ids)]
@@ -640,6 +719,16 @@ def fit_model_run(
         roi_y_true=roi_y_true,
         roi_y_pred=roi_y_pred,
     )
+
+
+def _pcr_algorithm(moments: Moments, a_max: int, x_scaling: str) -> str:
+    """PCR's ``auto``: ``gram`` when σ_Amax / σ₁ ≥ 10⁻⁶ on the whole calibration set (§7)."""
+    condition = gram_condition(moments, a_max, x_scaling)
+    if condition >= GRAM_CONDITION_LIMIT:
+        return "gram"
+    logger.info("PCR uses the full SVD: σ_{}/σ₁ = {:.2g} is below {:g}", a_max, condition,
+                GRAM_CONDITION_LIMIT)
+    return "svd"
 
 
 def resolve_fit_spec(cv: int | str | None,
@@ -906,15 +995,33 @@ def _exclusion_artifact(exclusion: DModXExclusion, data: SampleSetData,
 
 
 def _with_default_scaling(model_type: str, hyperparameters: dict[str, Any]) -> dict[str, Any]:
-    """Every run stores its scaling (contract §7): the defaults fill what is not given.
+    """Every run stores its scaling and algorithm (contract §7): defaults fill what is not given.
 
-    Centered X, and for PLS unit-variance Y, the usual setting for spectra.
+    Centered X, and for PLS unit-variance Y, the usual setting for spectra;
+    kernel PLS, and for PCR ``auto`` (resolved to ``gram`` or ``svd`` by the fit).
     """
     if "scale" in hyperparameters:
         log_and_raise("The scale switch was removed; give x_scaling (and y_scaling for PLS)")
-    defaults = {"x_scaling": "center", "y_scaling": "uv"} if model_type == "PLS" \
-        else {"x_scaling": "center"}
+    defaults = ({"x_scaling": "center", "y_scaling": "uv", "algorithm": "kernel"}
+                if model_type == "PLS" else {"x_scaling": "center", "algorithm": "auto"})
     return {**defaults, **hyperparameters}
+
+
+#: What a stored model without ``algorithm`` (a 1.5 model) was fitted with (contract §7).
+STORED_ALGORITHM_DEFAULTS = {"PLS": "nipals", "PCR": "svd"}
+
+
+def stored_hyperparameters(model_type: str, hyperparameters: Mapping[str, Any]) -> dict[str, Any]:
+    """A stored model's hyperparameters with its algorithm (missing reads nipals or svd).
+
+    A refit and "Fit Again" use them, so they run the algorithm the model was
+    fitted with (sample-set-model-run contract §7).
+    """
+    values = dict(hyperparameters)
+    default = STORED_ALGORITHM_DEFAULTS.get(_model_type(model_type))
+    if default is not None:
+        values.setdefault("algorithm", default)
+    return values
 
 
 def fold_groups(group_by: str, sample_set: SampleSet, rois: dict[str, TrainingROI],
@@ -1195,13 +1302,17 @@ def _signal_domain_matrix(
     calibrations: dict[str, CalibrationSpec],
     rois: dict[str, TrainingROI],
     signal_domain: SignalDomainContract,
+    preprocess: tuple[int, Callable[[np.ndarray], np.ndarray]] | None = None,
 ) -> np.ndarray:
     """Convert the ROI spectra to the signal domain, each ROI with its own calibration.
 
     Calibrations with per-pixel references use the reference snapshot stored
-    with each ROI (one reference spectrum per ROI pixel).
+    with each ROI (one reference spectrum per ROI pixel). ``preprocess``,
+    ``(output band count, function)``, is applied to every ROI right after its
+    conversion, so only one full float32 matrix exists.
     """
-    X_signal = np.empty(data.X.shape, dtype=_WORKING_DTYPE)
+    n_out = data.X.shape[1] if preprocess is None else preprocess[0]
+    X_signal = np.empty((data.X.shape[0], n_out), dtype=_WORKING_DTYPE)
     stats = CalibrationStats()
     for roi_id, snapshot in iter_roi_calibration_refs(project_path, data.sample_set.roi_ids):
         roi = rois[roi_id]
@@ -1211,10 +1322,11 @@ def _signal_domain_matrix(
         if snapshot is not None and data.pixel_indices is not None:
             picked = data.pixel_indices[roi_id]  # one reference spectrum per drawn pixel
             snapshot = (snapshot[0][picked], snapshot[1][picked])
-        X_signal[rows] = roi_to_signal_domain(
+        converted = roi_to_signal_domain(
             data.X[rows], roi=roi, dataset=datasets[roi.dataset_id],
             calibration=calibrations[roi.calibration_id], snapshot=snapshot,
             signal_domain=signal_domain, stats=stats)
+        X_signal[rows] = converted if preprocess is None else preprocess[1](converted)
     if stats.clip_low_count or stats.clip_high_count or stats.near_zero_denominator_count:
         logger.warning("Conversion of calibration set '{}' clipped reflectance "
                        "values (clip_low={}, clip_high={}, near_zero_denominators={})",
@@ -1233,4 +1345,5 @@ __all__ = [
     "plan_sample_set",
     "roi_spectrum_summaries",
     "roi_to_signal_domain",
+    "stored_hyperparameters",
 ]

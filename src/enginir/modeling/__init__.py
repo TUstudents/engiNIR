@@ -21,6 +21,7 @@ from ._service import (
     predicted_fold_warnings,
     roi_spectrum_summaries,
     roi_to_signal_domain,
+    stored_hyperparameters,
 )
 
 __all__ = [
@@ -40,4 +41,5 @@ __all__ = [
     "propose_bands",
     "roi_spectrum_summaries",
     "roi_to_signal_domain",
+    "stored_hyperparameters",
 ]

@@ -184,9 +184,10 @@ def test_the_fit_draws_the_pixels_of_the_simca_reference_table(tmp_path):
         model_type="PLS", hyperparameters={"n_components": 1},
         fit_spec=model.ref.fit_specification)
     ids, rois, _y, _X = ref.read_table(ref.DATA_DIR / "pixels.csv")
-    data = result.sample_set_data
+    data = result.sample_set_data  # the raw spectra stay in the project file (kernel-pls D7)
+    assert data.pixel_indices is not None
     for name in reference.names:
-        drawn = data.X[data.roi_slices[ref.roi_id(name)]]
+        drawn = reference.raw[name][data.pixel_indices[ref.roi_id(name)]]
         if name in training:
             table = [int(i.split("_p")[1]) for i, roi in zip(ids, rois) if roi == name]
             np.testing.assert_array_equal(drawn, reference.raw[name][table])
@@ -255,13 +256,16 @@ def test_a_refit_reports_a_different_pixel_sample(tmp_path):
 
 
 def test_runs_store_their_scaling_with_the_defaults_filled_in(tmp_path):
-    """§7: defaults x_scaling center, y_scaling uv (PCR: x only); an explicit choice is kept."""
+    """§7: defaults x_scaling center, y_scaling uv (PCR: x only), algorithm kernel (PCR: the
+    one the guard chose, never "auto"); an explicit choice is kept."""
     project = _uneven_project(tmp_path)
     assert project.fit("API", n_components=2).ref.hyperparameters == {
-        "n_components": 2, "x_scaling": "center", "y_scaling": "uv"}
+        "n_components": 2, "x_scaling": "center", "y_scaling": "uv", "algorithm": "kernel"}
     assert project.fit("API", model="PCR", n_components=2).ref.hyperparameters == {
-        "n_components": 2, "x_scaling": "center"}
+        "n_components": 2, "x_scaling": "center", "algorithm": "gram"}
     assert project.fit("API", n_components=2, x_scaling="pareto").ref.hyperparameters == {
-        "n_components": 2, "x_scaling": "pareto", "y_scaling": "uv"}
+        "n_components": 2, "x_scaling": "pareto", "y_scaling": "uv", "algorithm": "kernel"}
+    assert project.fit("API", n_components=2, algorithm="nipals").ref.hyperparameters[
+        "algorithm"] == "nipals"
     with pytest.raises(ValueError, match="scale switch was removed"):
         project.fit("API", n_components=2, scale=True)

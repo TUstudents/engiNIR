@@ -40,8 +40,13 @@ enginir wrapper:
 prediction.
 
 ``predict`` and ``transform`` work in the floating dtype of ``X``: float32
-spectra give float32 predictions and scores without a float64 copy. Fitting
-uses scikit-learn's NIPALS implementation, which works in float64 internally.
+spectra give float32 predictions and scores without a float64 copy.
+
+Fitting uses improved kernel PLS (``algorithm="kernel"``, the default): one
+chunked pass over the rows builds XᵀX in float64, and every component then
+works on that small band × band matrix, with no full copy of X.
+``algorithm="nipals"`` runs scikit-learn's NIPALS instead; both give the same
+model to floating-point precision. NIPALS is kept until engiNIR 2.0.
 
 PCR (principal component regression)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -55,6 +60,12 @@ PCA followed by ordinary least squares on the retained scores.
    model = PCR(n_components=10)
    model.fit(X_train, y_train)
    y_pred = model.predict(X_test)
+
+The principal components come from the eigendecomposition of XᵀX
+(``algorithm="gram"``) or a full SVD of X (``"svd"``, kept until 2.0). The
+default ``"auto"`` uses ``gram`` unless the last component is nearly
+degenerate (σ_A / σ₁ < 10⁻⁶, e.g. close to the rank limit after SNV) and
+tells which it used in ``algorithm_``.
 
 Machine learning models
 -----------------------
@@ -157,6 +168,30 @@ Choosing a model
    * - LDAClassifier
      - Classification
      - Multi-class discrimination; linear decision boundaries
+
+Fitting speed
+-------------
+
+A fit in a project (:meth:`enginir.Project.fit`, or **Fit** in the viewer)
+with a recipe without MSC or EMSC works on sums: one pass over the pixels
+builds XᵀX per fold group, and every fold, every component count of the
+component curve and the final model are fitted from those sums. Held-out
+ROIs are predicted from their mean spectra. One more pass computes what is
+per pixel (T², DModX, every pixel's held-out prediction). The band proposal
+works on the same sums. The results equal the classical fit within
+floating-point precision.
+
+On a calibration set of 20 ROIs and 396 000 pixels × 176 bands (SNV, 7
+folds, component curve to 15), a fit took 43 s and 1.7 GB of memory with
+NIPALS and takes 4.5 s and 0.45 GB with the kernel engine. With MSC or EMSC
+the recipe is fitted inside every fold, so the folds keep their own pass
+over the pixels; they still use the kernel engine.
+
+The model stores its algorithm (``hyperparameters/algorithm``); a refit and
+**Fit Again** use it. Models from engiNIR 1.5 have none and were fitted by
+NIPALS (PLS) or the full SVD (PCR), which is what a refit uses for them.
+On machines that share their cores with other work, the engine's passes
+use half the logical CPUs; set ``ENGINIR_BLAS_THREADS`` to change that.
 
 Models in a project
 -------------------

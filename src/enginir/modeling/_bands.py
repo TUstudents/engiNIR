@@ -30,8 +30,10 @@ from ..project import (
     TrainingROI,
 )
 from ..project._fit_spec import FitSpec
+from ..models._gram import GramStats
 from ..validation import choose_components
-from ._components import default_max, rank_limit
+from . import _gram_fit
+from ._components import component_predictions, default_max, rank_limit
 from ._service import _ESTIMATORS, _model_type, _splitter, _training_data, _with_default_scaling
 
 logger = get_logger(__name__)
@@ -209,7 +211,89 @@ class _Search:
         return float(rmsecv[chosen - 1]), float(se[chosen - 1]), chosen
 
 
-def _forward(search: _Search, intervals: list[np.ndarray], max_steps: int
+def _curve_values_roi(predicted: np.ndarray, y_roi: np.ndarray
+                      ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """:func:`_curve_values` from ROI predictions (R, A) and ROI values (R,)."""
+    errors = predicted - y_roi[:, np.newaxis]
+    n_rois = y_roi.size
+    press = (errors ** 2).sum(axis=0)
+    rmsecv = np.sqrt(press / n_rois)
+    spread = np.std(errors ** 2, axis=0, ddof=1) if n_rois > 1 else np.zeros_like(press)
+    se = np.zeros_like(rmsecv)
+    ok = rmsecv >= _EPS
+    se[ok] = spread[ok] / (2.0 * rmsecv[ok] * np.sqrt(n_rois))
+    return rmsecv, se, press
+
+
+@dataclass
+class _StatsSearch:
+    """:class:`_Search` on sufficient statistics (plan kernel-pls, Phase 3).
+
+    A candidate is a column selection of the block sums; held-out ROIs are
+    predicted from their mean spectra. No pass over the pixels.
+    """
+
+    stats: GramStats
+    blocks: np.ndarray               # the blocks (fold groups) of this search
+    rois: np.ndarray                 # ROI positions of this search
+    folds: list[tuple[np.ndarray, np.ndarray]]   # (training blocks, held-out ROI positions)
+    n_groups: int
+    model_type: str
+    params: dict[str, Any]
+    rule: str
+    a_max: int | None
+    fixed: int | None
+    tick: Callable[[], None]
+
+    def _n(self, blocks: np.ndarray) -> int:
+        return int(self.stats.n[blocks].sum())
+
+    def _mean_y(self, blocks: np.ndarray) -> float:
+        return float(self.stats.sy[blocks, 0].sum() / self.stats.n[blocks].sum()
+                     + self.stats.shift_y[0])
+
+    def _model(self, n_components: int, blocks: np.ndarray, columns: np.ndarray) -> Any:
+        model = _ESTIMATORS[self.model_type](n_components=n_components, **self.params)
+        return model.fit_stats(self.stats, blocks, single_target=True, columns=columns)
+
+    def baseline(self) -> BandStep:
+        _x, y_roi = self.stats.roi_means()
+        predicted = np.empty(self.stats.roi_n.size)
+        for train, test in self.folds:
+            predicted[test] = self._mean_y(train)
+        rmsecv, se, _press = _curve_values_roi(predicted[self.rois, None], y_roi[self.rois, 0])
+        return BandStep((), float(rmsecv[0]), float(se[0]), 0)
+
+    def evaluate(self, columns: np.ndarray) -> tuple[float, float, int]:
+        """RMSECV, SE and number of components of a candidate (its band columns)."""
+        self.tick()
+        sizes = [self._n(train) for train, _test in self.folds] + [self._n(self.blocks)]
+        limit = rank_limit(sizes, columns.size)
+        if self.fixed is not None:
+            a_max = min(self.fixed, limit)
+        else:
+            a_max = min(self.a_max or default_max(0, self.n_groups, limit), limit)
+        roi_x, roi_y = self.stats.roi_means(columns)
+        y_roi = roi_y[self.rois, 0]
+        oof = np.empty((self.stats.roi_n.size, a_max))
+        for train, test in self.folds:
+            oof[test] = component_predictions(self._model(a_max, train, columns), roi_x[test])
+        rmsecv, se, press = _curve_values_roi(oof[self.rois], y_roi)
+        if self.fixed is not None:
+            return float(rmsecv[-1]), float(se[-1]), a_max
+        full = self._model(a_max, self.blocks, columns)
+        fitted = component_predictions(full, roi_x[self.rois])
+        rss_roi = ((fitted - y_roi[:, None]) ** 2).sum(axis=0)
+        ss = float(((y_roi - y_roi.mean()) ** 2).sum())
+        previous = np.concatenate([[ss], rss_roi[:-1]])
+        with np.errstate(divide="ignore", invalid="ignore"):
+            q2 = np.where(previous > _EPS, 1.0 - press / previous, np.nan)
+        chosen = choose_components({"rmsecv": rmsecv, "rmsecv_se": se, "q2": q2}, self.rule,
+                                   n_samples=self.n_groups)
+        return float(rmsecv[chosen - 1]), float(se[chosen - 1]), chosen
+
+
+def _forward(search: Any, intervals: list[np.ndarray], max_steps: int
              ) -> list[BandStep]:
     """Forward selection of intervals, stopped by the one-SE idea (headless contract)."""
     steps = [search.baseline()]
@@ -285,11 +369,20 @@ def propose_bands(
         2 and the band count, or the inputs are inconsistent.
     """
     model_type = _model_type(model_type)
+    params = _with_default_scaling(model_type, dict(hyperparameters or {}))
+    stored_recipe = recipes.get(sample_set.preprocessing_recipe_id)
+    recipe = (None if stored_recipe is None else
+              replace(PreprocessingRecipe.from_dict(stored_recipe), bands_keep=(),
+                      bands_exclude=()))
+    # On statistics (plan kernel-pls, Phase 3): a recipe without MSC/EMSC and a kernel or
+    # gram model; PCR's "auto" fits gram here (the proposal stores nothing).
+    on_statistics = (recipe is not None and not recipe.requires_fitting
+                     and params.get("algorithm") in ("kernel", "gram", "auto"))
     prepared = _training_data(
         project_path=project_path, sample_set=sample_set, datasets=datasets,
         calibrations=calibrations, rois=rois, target_assignments=target_assignments,
         recipes=recipes, signal_domains=signal_domains, signal_domain_id=signal_domain_id,
-        cv=None, fit_spec=fit_spec)
+        cv=None, fit_spec=fit_spec, recipe=recipe if on_statistics else None)
     spec = prepared.spec
     if prepared.n_fold_groups < 3:
         log_and_raise("Proposing bands needs at least 3 fold groups (nested validation), got {}",
@@ -305,7 +398,6 @@ def propose_bands(
     max_steps = n_intervals if max_steps is None else check_integer(max_steps, "max_steps",
                                                                     minimum=1)
     intervals = np.array_split(np.arange(axis.size), n_intervals)
-    params = _with_default_scaling(model_type, dict(hyperparameters or {}))
     requested = params.pop("n_components", "auto")
     fixed = None
     if spec.components_rule == "fixed" and not isinstance(requested, str):
@@ -341,6 +433,45 @@ def propose_bands(
         return _Search(folds, y[rows], sub_roi, n_groups, model_type, params, rule,
                        spec.components_max, fixed, tick)
 
+    if on_statistics:  # X holds the preprocessed spectra (all bands after Savitzky-Golay)
+        lay = _gram_fit.layout(roi_index, groups)
+        stats = _gram_fit.build_stats(X, y, lay)
+
+        def stats_search_on(rows: np.ndarray) -> _StatsSearch:
+            sub_groups = groups[rows]
+            n_groups = int(np.unique(sub_groups).size)
+            folds = [(np.unique(lay.block_of_row[rows[train]]),
+                      np.unique(lay.roi_of_row[rows[test]]))
+                     for train, test in _split(_splitter(spec, n_groups),
+                                               np.empty((rows.size, 0), np.float32),
+                                               sub_groups)]
+            if fixed is not None and not capped[0] and fixed > axis.size:
+                capped[0] = True
+                logger.warning("n_components={} is capped at the band count of each candidate",
+                               fixed)
+            return _StatsSearch(stats, np.unique(lay.block_of_row[rows]),
+                                np.unique(lay.roi_of_row[rows]), folds, n_groups, model_type,
+                                params, rule, spec.components_max, fixed, tick)
+
+        whole = stats_search_on(np.arange(y.size))
+        all_rmsecv, _se, _a = whole.evaluate(np.arange(axis.size))
+        steps = _forward(whole, intervals, max_steps)
+        held_out_roi = np.empty(lay.n_rois)
+        for train, test in outer:
+            last = _forward(stats_search_on(train), intervals, max_steps)[-1]
+            train_blocks = np.unique(lay.block_of_row[train])
+            test_rois = np.unique(lay.roi_of_row[test])
+            if not last.intervals:  # no interval beat the mean: predict the training mean
+                held_out_roi[test_rois] = whole._mean_y(train_blocks)
+                continue
+            columns = np.sort(np.concatenate([intervals[i] for i in last.intervals]))
+            model = whole._model(last.n_components, train_blocks, columns)
+            roi_x, _roi_y = stats.roi_means(columns)
+            held_out_roi[test_rois] = np.asarray(model.predict(roi_x[test_rois])).reshape(-1)
+        nested, _nested_se, _press = _curve_values_roi(held_out_roi[:, None],
+                                                       stats.roi_means()[1][:, 0])
+        return _proposal(sample_set, steps, intervals, axis, nested, all_rmsecv)
+
     everything = search_on(np.arange(y.size))
     all_rmsecv, _se, _a = everything.evaluate(np.arange(axis.size))
     steps = _forward(everything, intervals, max_steps)
@@ -366,7 +497,11 @@ def propose_bands(
                                                                         y[train])
         held_out[test] = np.asarray(model.predict(X_test[:, columns])).reshape(-1)
     nested, _nested_se, _press = _curve_values(held_out[:, None], y, roi_index)
+    return _proposal(sample_set, steps, intervals, axis, nested, all_rmsecv)
 
+
+def _proposal(sample_set: SampleSet, steps: list[BandStep], intervals: list[np.ndarray],
+              axis: np.ndarray, nested: np.ndarray, all_rmsecv: float) -> BandProposal:
     proposal = BandProposal(
         ranges=_ranges(steps[-1].intervals, intervals, axis),
         steps=tuple(steps),
@@ -375,10 +510,10 @@ def propose_bands(
         all_bands_rmsecv=float(all_rmsecv),
         n_components=steps[-1].n_components,
     )
-    logger.info("Band proposal for calibration set '{}': ranges {}, RMSECV (per ROI) {:.4g} after {} step(s), "
-                "nested RMSECV (per ROI) {:.4g}, all bands {:.4g}", sample_set.sample_set_id,
-                list(proposal.ranges), steps[-1].rmsecv, len(steps) - 1,
-                proposal.nested_rmsecv, proposal.all_bands_rmsecv)
+    logger.info("Band proposal for calibration set '{}': ranges {}, RMSECV (per ROI) {:.4g} "
+                "after {} step(s), nested RMSECV (per ROI) {:.4g}, all bands {:.4g}",
+                sample_set.sample_set_id, list(proposal.ranges), steps[-1].rmsecv,
+                len(steps) - 1, proposal.nested_rmsecv, proposal.all_bands_rmsecv)
     return proposal
 
 

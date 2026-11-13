@@ -15,6 +15,7 @@ import numpy as np
 
 from .._logging import get_logger
 from ..io.project_store import load_model_run_artifact_refs
+from ..modeling import stored_hyperparameters
 from ..project import ModelRun
 from ._state import ProjectState
 
@@ -29,6 +30,9 @@ _GROUPS = {"roi": "each ROI", "sample": "ROIs with the same Sample label",
 _SCALINGS = {"center": "center", "uv": "unit variance", "pareto": "Pareto"}
 #: What a calibration set was fitted on (terminology contract, Pixel: "Fitted on: ...").
 _FITTED_ON = {"pixel": "pixels", "roi_mean": "ROI means"}
+#: The stored algorithm of a model (sample-set-model-run contract §7), for people.
+_ALGORITHMS = {"kernel": "kernel PLS (from XᵀX)", "nipals": "NIPALS",
+               "gram": "PCA from XᵀX", "svd": "PCA by full SVD"}
 #: Reference correction modes as people say them (terminology contract, Reference correction).
 _CORRECTION_MODES = {"raw_dn": "none (raw counts)",
                      "dark_white_reference": "dark/white references or detector levels",
@@ -60,6 +64,8 @@ def fit_summary(model_run: ModelRun, roi_names: dict[str, str],
     if "y_scaling" in hyper:
         scaling += f", Y {_SCALINGS.get(str(hyper['y_scaling']), hyper['y_scaling'])}"
     lines.append(f"Scaling: {scaling}")
+    algorithm = stored_hyperparameters(model_run.model_type, hyper).get("algorithm")
+    lines.append(f"Algorithm: {_ALGORITHMS.get(str(algorithm), algorithm or '–')}")
     software = model_run.software or {}
     lines.append("Software: " + (", ".join(f"{package} {version}" for package, version
                                           in software.items()) or "not available"))

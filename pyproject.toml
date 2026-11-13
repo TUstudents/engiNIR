@@ -35,6 +35,7 @@ dev = [
     "mypy",
     "pyright==1.1.410",
     "pytest-timeout>=2.3",
+    "ikpls>=6.3",
 ]
 docs = ["sphinx", "sphinx-rtd-theme", "myst-parser"]
 

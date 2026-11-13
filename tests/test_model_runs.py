@@ -476,7 +476,8 @@ def test_fit_model_run_uses_roi_aggregated_primary_metrics(tmp_path, monkeypatch
         signal_domains=state.signal_domains,
         signal_domain_id="signal_domain_1",
         model_type="PLS",
-        hyperparameters={"n_components": 1},
+        # the pipeline path (its cross_validate is replaced); kernel fits run on sums
+        hyperparameters={"n_components": 1, "algorithm": "nipals"},
         model_run_id="model_run_agg",
     )
 
@@ -528,15 +529,13 @@ def test_fit_model_run_preprocesses_stateless_recipe_once_before_cv(tmp_path, mo
         sample_set_id="sample_set_stateless",
     )
 
-    transformed = (
-        sample_set_data.X + np.linspace(0.0, 0.5, sample_set_data.X.shape[1], dtype=np.float32)
-    ).astype(np.float32)
+    shift = np.linspace(0.0, 0.5, sample_set_data.X.shape[1], dtype=np.float32)
     preprocess_calls: list[np.ndarray] = []
 
     def _fake_apply_preprocessing_recipe(X, *, recipe, wavelengths, signal_unit=None):
         del recipe, wavelengths, signal_unit
         preprocess_calls.append(np.asarray(X))
-        return transformed
+        return (np.asarray(X) + shift).astype(np.float32)
 
     def _fake_cross_validate(estimator, X, y, cv, groups, scoring=None, return_train_score=False):
         del y, scoring, return_train_score
@@ -544,7 +543,7 @@ def test_fit_model_run_preprocesses_stateless_recipe_once_before_cv(tmp_path, mo
         model = estimator.estimator  # the component curve's wrapper around the model
         assert isinstance(model, PLSRegression)
         assert model.n_components == 1  # A_max: 2 ROIs allow no more than the given 1
-        assert X is transformed
+        np.testing.assert_array_equal(X, np.concatenate(preprocess_calls) + shift)
         # One label per ROI: its position in the sample set's roi_ids.
         np.testing.assert_array_equal(groups, [0, 0, 1, 1])
         return {
@@ -569,12 +568,13 @@ def test_fit_model_run_preprocesses_stateless_recipe_once_before_cv(tmp_path, mo
         signal_domains=state.signal_domains,
         signal_domain_id="signal_domain_1",
         model_type="PLS",
-        hyperparameters={"n_components": 1},
+        hyperparameters={"n_components": 1, "algorithm": "nipals"},  # the pipeline path
         model_run_id="model_run_stateless_cv",
     )
 
-    assert len(preprocess_calls) == 1
-    assert preprocess_calls[0].shape == sample_set_data.X.shape
+    # Once per pixel, before the cross-validation: ROI by ROI, right after the conversion,
+    # so the folds never preprocess (plans/kernel-pls.md, D7).
+    assert [call.shape for call in preprocess_calls] == [(2, sample_set_data.X.shape[1])] * 2
 
 
 def test_build_sample_set_loads_all_roi_spectra_with_one_project_open(tmp_path):

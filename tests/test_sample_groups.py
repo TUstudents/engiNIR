@@ -8,7 +8,7 @@ import pytest
 
 from enginir import Project
 from enginir.io import save_hdf5
-from enginir.modeling import _components, _service
+from enginir.modeling import _components, _gram_fit, _service
 from enginir.project import FitSpec
 from tests.test_fit_spec import _warnings_during
 
@@ -51,9 +51,17 @@ def _held_out_folds(project, monkeypatch, **fit_args):
         seen["cv"], seen["groups"] = cv, groups
         return real(estimator, X, y, cv=cv, groups=groups, **kwargs)
 
-    # the folds run in the component curve (and, with exclusion, again in the service)
+    real_folds = _gram_fit.folds
+
+    def recording_folds(splitter, cv_groups, lay):
+        seen["cv"], seen["groups"] = splitter, cv_groups
+        return real_folds(splitter, cv_groups, lay)
+
+    # the folds run in the component curve (and, with exclusion, again in the service);
+    # a fit on statistics takes them from the same splitter and groups
     monkeypatch.setattr(_components, "cross_validate", recording)
     monkeypatch.setattr(_service, "cross_validate", recording)
+    monkeypatch.setattr(_gram_fit, "folds", recording_folds)
     model = project.fit("API", n_components=1, **fit_args)
     run, ws = model.ref, project.workspace
     sample_set = ws.sample_sets[run.sample_set_id]

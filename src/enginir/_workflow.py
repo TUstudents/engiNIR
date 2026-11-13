@@ -21,7 +21,13 @@ from ._checks import log_and_raise
 from ._logging import get_logger
 from .io import file_format, load_spectra
 from .io import project_store as store
-from .modeling import BandProposal, fit_model_run, plan_sample_set, propose_bands
+from .modeling import (
+    BandProposal,
+    fit_model_run,
+    plan_sample_set,
+    propose_bands,
+    stored_hyperparameters,
+)
 from .modeling._service import fold_groups
 from .prediction import (
     PredictionResult,
@@ -1100,7 +1106,9 @@ class Model:
                            len(changed), changed[:5])
         spec = self.ref.fit_specification
         self._warn_on_group_drift(spec, sample_set)
-        hyperparameters = dict(self.ref.hyperparameters)
+        # The stored algorithm (a 1.5 model without one: nipals or svd), so the refit
+        # reproduces the model (sample-set-model-run contract §7).
+        hyperparameters = stored_hyperparameters(self.ref.model_type, self.ref.hyperparameters)
         result = fit_model_run(
             project_path=project.path, sample_set=sample_set, datasets=ws.datasets,
             calibrations=ws.calibrations, rois=ws.rois,
