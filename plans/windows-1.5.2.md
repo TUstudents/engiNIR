@@ -4,7 +4,10 @@ Status: approved (user, 2026-11-13) with W1–W5 as recommended; the script
 is named `install-enginir-for-windows.ps1`. Phase 1 done (35c1d46). Phase 2
 done (4ffd299; the Windows job passed on PR #15: 1052 tests in 2 min).
 Phase 3 done (403bdff). Phase 4 done (installer script, with `-Wheel`,
-`-Version`, `-NoShortcut`, `-NoPathChange` for testing; dry run on Windows).
+`-Version`, `-NoShortcut`, `-NoPathChange` for testing; dry run on Windows,
+e4f3d15). Phase 5 written: CI job `windows-install`, without setup-uv, so the
+script installs uv itself; the wheel is built with the runner's pip; the
+checks were tried locally in temp folders.
 Branch `windows-1.5.2` from main (1.5.1, 561983b); one commit per phase,
 one PR, then release 1.5.2.
 

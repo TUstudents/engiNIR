@@ -55,3 +55,72 @@ jobs:
       - run: uv sync --all-extras
       - name: Tests
         run: uv run python -X faulthandler -m pytest -q
+
+  windows-install:
+    # The install a novice runs (plan windows-1.5.2, Phase 5), on a clean machine
+    # in Windows PowerShell 5.1: no setup-uv, so the script installs uv itself.
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the wheel (runner's Python; uv is not installed yet)
+        run: python -m pip wheel . --no-deps --wheel-dir dist
+      - name: Run the installer script
+        shell: powershell
+        run: |
+          if (Get-Command uv -ErrorAction SilentlyContinue) { throw "uv is already on PATH; the script's uv install would go untested" }
+          $wheel = (Get-ChildItem dist\enginir-*.whl).FullName
+          & .\scripts\install-enginir-for-windows.ps1 -Wheel $wheel -Desktop
+      - name: Check PATH, launchers, shortcuts, start and uninstall
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          function Check($ok, $what) { if (-not $ok) { throw "FAILED: $what" }; Write-Host "ok: $what" }
+
+          # uv and the tool folder, as a new terminal window would see them
+          $uv = "$env:USERPROFILE\.local\bin\uv.exe"
+          Check (Test-Path $uv) "uv installed by Astral's installer at $uv"
+          $bin = (& $uv tool dir --bin).Trim()
+          $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+          Check ($userPath -like "*$bin*") "the user PATH contains $bin"
+
+          # launchers
+          $version = (Select-String -Path pyproject.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          $console = Join-Path $bin "enginir-viewer-console.exe"
+          $said = (& $console --version | Out-String).Trim()
+          Check ($said -eq "engiNIR $version") "enginir-viewer-console --version says 'engiNIR $version' ($said)"
+          $python = Join-Path (& $uv tool dir).Trim() "enginir\Scripts\python.exe"
+          & $python -c @"
+          import struct, sys
+          from pathlib import Path
+          from enginir.viewer._windows_shell import WINDOWS_APP_ID, read_shortcut
+          bin = Path(sys.argv[1])
+          for name, kind in (('enginir-viewer.exe', 2), ('enginir-viewer-console.exe', 3)):
+              data = (bin / name).read_bytes()[:4096]
+              pe = struct.unpack_from('<I', data, 0x3C)[0]
+              assert struct.unpack_from('<H', data, pe + 92)[0] == kind, f'{name}: wrong subsystem'
+          for folder in sys.argv[2:]:
+              link = read_shortcut(Path(folder) / 'engiNIR Viewer.lnk')
+              assert Path(link.target).name == 'enginir-viewer.exe' and Path(link.target).is_file(), link
+              assert Path(link.icon).is_file() and link.app_id == WINDOWS_APP_ID, link
+          print('ok: GUI and console launchers; shortcuts with target, icon and taskbar id')
+          "@ $bin ([Environment]::GetFolderPath("Programs")) ([Environment]::GetFolderPath("Desktop"))
+          Check ($LASTEXITCODE -eq 0) "launchers and shortcuts"
+
+          # the windowless viewer starts and keeps running (offscreen: no display on the runner)
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $viewer = Start-Process (Join-Path $bin "enginir-viewer.exe") -PassThru
+          Start-Sleep -Seconds 20
+          Check (-not $viewer.HasExited) "the viewer is still running after 20 s"
+          Stop-Process -Id $viewer.Id -Force
+          $log = Get-Content -Raw "$env:USERPROFILE\.enginir\enginir.log"
+          Check ($log -match "Showing welcome screen") "the log file records the welcome screen"
+
+          # uninstall, in the documented order
+          & $console --remove-shortcut
+          Check ($LASTEXITCODE -eq 0) "--remove-shortcut"
+          foreach ($folder in @([Environment]::GetFolderPath("Programs"), [Environment]::GetFolderPath("Desktop"))) {
+            Check (-not (Test-Path (Join-Path $folder "engiNIR Viewer.lnk"))) "no shortcut left in $folder"
+          }
+          & $uv tool uninstall enginir
+          Check ($LASTEXITCODE -eq 0 -and -not (Test-Path $console)) "uv tool uninstall enginir"
