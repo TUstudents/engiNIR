@@ -5,6 +5,9 @@ answers to Q1–Q6 are accepted. Branch `gui-1.6`. Phase 1 done (library:
 `enginir._guidance`; the verdict thresholds accepted by the user, Q3).
 Phase 2 done (theme tokens in `viewer/_theme.py`; the icon set moves to
 Phase 3, where the menus need it).
+Phases 3 and 4 done together (4105128), Phase 5 (2948c81), Phase 6 (preferences
+in `preferences.json` in the viewer's settings folder like its other settings,
+not `QSettings`: one place, isolated in tests).
 Input: `plans/gui-review-1.6.md` (22 findings on the 1.5.2 viewer) and the
 mockup (local, not committed: `review/gui-1.6/mockup2.html` and the
 `desk_*.png` screenshots). The mockup shows layout, density and palette;

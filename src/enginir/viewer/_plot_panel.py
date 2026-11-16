@@ -369,7 +369,7 @@ class PlotFrame(QWidget):
         table = self.table()
         return _NO_DATA if table is None or table.is_empty else ""
 
-    def export_image(self, path: str | Path, *, dpi: int = _IMAGE_DPI) -> None:
+    def export_image(self, path: str | Path, *, dpi: int | None = None) -> None:
         """Save the plot as PNG or SVG (by suffix) in the print style."""
         path = Path(path)
         if path.suffix.lower() not in _IMAGE_SUFFIXES:
@@ -377,6 +377,10 @@ class PlotFrame(QWidget):
                           " or ".join(_IMAGE_SUFFIXES), path.suffix)
         self._require_data()
         fig = self.print_figure()
+        if dpi is None:
+            from ._preferences import load
+
+            dpi = load().export_dpi or _IMAGE_DPI
         fig.savefig(path, dpi=dpi, facecolor=fig.get_facecolor())
         logger.info("Saved plot '{}' to {}", self.plot_id, path)
 

@@ -205,7 +205,9 @@ def enable_viewer_logging() -> None:
     PyQt from aborting the process when an exception escapes a Qt slot.
     """
     if not logging_enabled():
-        enable_logging("WARNING", file=True, catch_uncaught=True)
+        from ._preferences import load
+
+        enable_logging("WARNING", file=True, file_level=load().log_level, catch_uncaught=True)
 
 
 def ensure_app() -> QApplication:
@@ -230,6 +232,10 @@ def ensure_app() -> QApplication:
             return existing
         return apply_qt_theme(existing, dark=dark)
     _configure_qt_platform()
+    from ._preferences import apply_environment, load, startup_scale
+
+    startup_scale()  # Qt reads its scale factor when the application starts
+    apply_environment(load())
     _set_windows_app_id()  # before the first window, so the taskbar uses our icon
     _app = QApplication([])
     _app.setWindowIcon(app_icon())

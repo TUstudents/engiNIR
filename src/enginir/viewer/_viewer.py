@@ -57,6 +57,8 @@ from ._roi_table import RoiTableWidget
 from ._bottom_panels import ChecksPanel, GuideBar, ModelsPanel
 from ._icons import icon
 from ._workflow_strip import WorkflowStrip
+from . import _preferences as preferences_store
+from ._preferences import Preferences, PreferencesDialog
 from .._guidance import Check, Fix
 from ._jobs import BusyStatusWidget, start_background_job
 from ._loading import ViewerBusyContext
@@ -1620,6 +1622,11 @@ class HSIViewer(QMainWindow):
         self._populate_edit_menu()
         self._populate_view_menu()
         self._populate_workflow_menus()
+        preferences = _add_required_action(self._menu_options, "Preferences...")
+        preferences.setIcon(icon("settings"))
+        preferences.setShortcut("Ctrl+,")
+        preferences.triggered.connect(self.edit_preferences)
+        self._menu_options.addSeparator()
         grid_defaults = QAction("ROI Grid Defaults...", self)
         grid_defaults.triggered.connect(self.edit_grid_defaults)
         self._menu_options.addAction(grid_defaults)
@@ -1801,6 +1808,7 @@ class HSIViewer(QMainWindow):
         self._modeling_view.view_state_changed.connect(self._refresh_guide)
         self.project_state.active_model_changed.connect(self._refresh_guide)
         self._sync_workflow_step()
+        self.apply_preferences(preferences_store.load(), startup=True)
         self.refresh_checks()
 
     def show_step(self, step: str) -> None:
@@ -1859,8 +1867,13 @@ class HSIViewer(QMainWindow):
             checks = []
         names = {run_id: (run.name or run_id) for run_id, run in
                  self.project_state.model_runs.items()}
+        before = {check.check_id for check in getattr(self, "_checks", []) if check.is_open}
         self._checks_panel.set_checks(checks, names)
         open_count = self._checks_panel.open_count()
+        new_open = {check.check_id for check in checks if check.is_open} - before
+        if new_open and hasattr(self, "_checks") and getattr(
+                self, "_preferences", Preferences()).raise_checks:
+            self.show_checks()
         self._checks_dock.setWindowTitle(f"Checks ({open_count})" if open_count else "Checks")
         states: dict[str, tuple[str, int]] = {}
         for step in ("data", "rois", "values", "model", "predict"):
@@ -1883,6 +1896,61 @@ class HSIViewer(QMainWindow):
         self._refresh_guide()
         self.checks_refreshed.emit()
 
+    # ------------------------------------------------------------------
+    # Preferences (plan gui-1.6, Phase 6)
+    # ------------------------------------------------------------------
+
+    def edit_preferences(self) -> bool:
+        """Tools > Preferences; ``True`` when the user applied new preferences."""
+        shortcuts = [(action.text().replace("&", ""), action.shortcut().toString())
+                     for menu in (self._menu_file, self._menu_edit, self._menu_view,
+                                  self._menu_project, self._menu_roi, self._menu_model,
+                                  self._menu_predict, self._menu_options, self._menu_help)
+                     for action in menu.actions() if not action.shortcut().isEmpty()]
+        dialog = PreferencesDialog(self._preferences, shortcuts=shortcuts, parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+        preferences = dialog.values()
+        preferences_store.save(preferences)
+        self.apply_preferences(preferences)
+        return True
+
+    def apply_preferences(self, preferences: Any, *, startup: bool = False) -> None:
+        """Make ``preferences`` take effect; defaults pre-fill the docks only at startup."""
+        self._preferences = preferences
+        preferences_store.apply_environment(preferences)
+        if not startup:
+            dark = preferences.theme == "dark"
+            if preferences.theme == "system":
+                app = QApplication.instance()
+                hints = app.styleHints() if isinstance(app, QApplication) else None
+                dark = hints is not None and hints.colorScheme() == Qt.ColorScheme.Dark
+            if dark != is_dark():
+                self._set_theme_mode(dark)
+        self._guide_bar_enabled = preferences.guide_bar
+        if not preferences.guide_bar:
+            self._guide_bar.hide()
+        else:
+            self._refresh_guide()
+        for frame in self.findChildren(PlotFrame):
+            button = getattr(frame, "_help_button", None)
+            if button is not None:
+                button.setVisible(preferences.plot_help)
+        if startup:
+            form = self._modeling_view.fit_form
+            if form is not None:
+                form._model_type_combo.setCurrentText(preferences.model_type)
+                form._components_spin.setValue(preferences.n_components)
+                form._auto_check.setChecked(preferences.auto_components)
+                for combo, value in ((form._group_by_combo, preferences.hold_out),
+                                     (form._x_scaling_combo, preferences.x_scaling),
+                                     (form._y_scaling_combo, preferences.y_scaling)):
+                    if combo.findData(value) >= 0:
+                        combo.setCurrentIndex(combo.findData(value))
+            predict = self._prediction_view
+            predict._exclusion_level.setValue(preferences.dmodx_level)
+            predict._exclusion_check.setChecked(preferences.exclude_dmodx)
+
     def show_checks(self) -> None:
         """Bring the Checks tab of the bottom panel to the front."""
         self._checks_dock.show()
@@ -1894,7 +1962,7 @@ class HSIViewer(QMainWindow):
             return
         step = self._workflow.current()
         bar = self._guide_bar
-        if self.project_state.project is None:
+        if self.project_state.project is None or not getattr(self, "_guide_bar_enabled", True):
             bar.hide()
             return
         checks = getattr(self, "_checks", [])
@@ -2101,7 +2169,7 @@ class HSIViewer(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Open data",
-            "",
+            self._preferences.dataset_folder,
             "Hyperspectral files (*.eiff *.hdr *.h5 *.hdf5 *.csv *.spa);;All files (*.*)",
         )
         if path:
@@ -2144,7 +2212,7 @@ class HSIViewer(QMainWindow):
             return None
         if path is None:
             path, _ = QFileDialog.getOpenFileName(
-                self, "Add dataset", "",
+                self, "Add dataset", self._preferences.dataset_folder,
                 "Hyperspectral files (*.eiff *.hdr *.h5 *.hdf5 *.csv *.spa);;All files (*.*)")
             if not path:
                 return None

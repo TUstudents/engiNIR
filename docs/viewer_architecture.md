@@ -16,6 +16,7 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_icons.py` | The line icons (Tabler Icons, MIT, `_resources/icons/`) rendered in a theme colour |
 | `_workflow_strip.py` | `WorkflowStrip`: the steps Data › ROIs › Values › Model › Predict › Report under the menu bar, their state from `Project.checks()`; navigation only |
 | `_bottom_panels.py` | `ChecksPanel` (the library's checks with fix buttons) and `ModelsPanel` (models with figures of merit and the library's verdict), tabs of the bottom panel |
+| `_preferences.py` | `Preferences` (stored per user in `preferences.json`, never in a project), `PreferencesDialog` (Tools > Preferences: Appearance, Data and paths, Fitting defaults, Prediction defaults, Plots and export, Performance, Logging, Keyboard); the interface scale (`QT_SCALE_FACTOR`) and BLAS threads act through the environment |
 | `_state.py` | `ViewerState` (UI) + `ProjectState` (Qt adapter over `enginir.Project`) |
 | `_canvas.py` | `FalseColourCanvas` (pyqtgraph image surface, crosshair, ROI draw/selection) |
 | `_panels.py` | Exploration dock widgets: Histogram, Spatial and Spectrum (matplotlib); RAW and Sensor Frame (pyqtgraph `_ImagePanel`) |
