@@ -33,6 +33,35 @@ def window(qapp, example):
     window.close()
 
 
+@pytest.fixture()
+def edited_window(qapp, tmp_path):
+    """A window on a copy of the example after ``edit(project)``; the example has no open check."""
+    from enginir import Project
+    from enginir.viewer import open_project
+
+    windows = []
+
+    def open_edited(edit):
+        project = Project.open(create_example_project(tmp_path))
+        edit(project)
+        window = open_project(project.path)
+        window.resize(1536, 864)
+        window.show()
+        qapp.processEvents()
+        window.refresh_checks()
+        windows.append(window)
+        return window
+
+    yield open_edited
+    for window in windows:
+        window.close()
+
+
+def _add_roi_without_value(project) -> None:
+    dataset = next(iter(project.workspace.datasets))
+    project.dataset(dataset_id=dataset).add_roi("new", frames=(8, 10), rows=(8, 20))
+
+
 def _wait_until(qapp, predicate, timeout=20.0):
     import time
 
@@ -189,7 +218,8 @@ def test_roi_names_on_the_image_have_a_plate_and_plot_headers_have_icons(qapp, w
     frame.set_maximized(False)
 
 
-def test_the_strip_shows_order_badges_and_names_project_and_model(qapp, window):
+def test_the_strip_shows_order_badges_and_names_project_and_model(qapp, edited_window):
+    window = edited_window(_add_roi_without_value)
     from PyQt6.QtWidgets import QLabel
 
     from enginir.viewer._workflow_strip import STEPS
@@ -202,13 +232,15 @@ def test_the_strip_shows_order_badges_and_names_project_and_model(qapp, window):
     assert len(arrows) == len(STEPS) - 1, "an arrow between the steps: their order"
     assert [strip.button(step.key).text() for step in STEPS] \
         == ["Data", "ROIs", "Values", "Model", "Predict"], "no numbers, no counts"
-    state, count = strip.state("model")
-    button = strip.button("model")
-    assert state == "open" and button.badge_text() == str(count)
+    assert all(strip.state(step.key)[0] != "open" for step in STEPS if step.key != "values"), \
+        "the example itself has no open check"
+    state, count = strip.state("values")
+    button = strip.button("values")
+    assert state == "open" and count and button.badge_text() == str(count)
     assert "open check" in button.toolTip(), "what the number is"
     badge = button.findChild(QLabel)
     assert badge.isVisibleTo(window) and button.rect().contains(badge.geometry())
-    assert strip.context() == "engiNIR example.h5   ·   Model: PLS 2 LV, SNV"
+    assert strip.context() == "engiNIR example.h5   ·   Model: PLS 2 LV"
 
 
 def test_the_roi_table_gets_more_height_while_it_is_in_front(qapp, window):
@@ -239,8 +271,8 @@ def test_the_status_strip_follows_the_step(qapp, window):
     assert "Dataset: " in text and "Frame" not in text, "no cursor on the Project ROIs page"
     window.show_step("model")
     qapp.processEvents()
-    assert window._status_label.text() == ("Project: engiNIR example.h5 | Model: PLS 2 LV, SNV"
-                                           " | Target: Layers | Calibration set: 20 ROIs, SNV")
+    assert window._status_label.text() == ("Project: engiNIR example.h5 | Model: PLS 2 LV"
+                                           " | Target: Layers | Calibration set: 20 ROIs")
 
 
 def test_the_project_tree_counts_and_properties_are_a_table_with_plain_text(qapp, window):
@@ -304,9 +336,16 @@ def test_icons_and_properties_take_the_colours_of_a_new_theme(qapp, window):
         window._set_theme_mode(was_dark)
 
 
-def test_the_fit_form_takes_only_what_changed_in_the_explore_preview(qapp, window):
+def test_the_fit_form_takes_only_what_changed_in_the_explore_preview(qapp, edited_window):
     """Opening a dataset switches the preview's signal unit; that must not replace the
     shown model's preprocessing (SNV) by the preview's (none)."""
+    from enginir.preprocessing import PreprocessingRecipe
+
+    window = edited_window(lambda project: project.fit(
+        "Layers", recipe=PreprocessingRecipe(snv=True), n_components=2, name="SNV model",
+        fit_spec={"folds": {"group_by": "sample"}}))
+    window.show_step("model")
+    qapp.processEvents()
     view = window._modeling_view
     form = view.fit_form
     assert form._snv.isChecked() and not view.fit_settings_changed(), "the model's settings"
@@ -342,3 +381,35 @@ def test_running_jobs_finish_before_the_interpreter_exits(qapp):
     assert wait_for_running_jobs(timeout=10.0), "no event loop runs at exit"
     _wait_until(qapp, lambda: not _RUNNING_JOBS)
     assert done == [None], "the result is still delivered when the loop runs again"
+
+
+@pytest.mark.parametrize("size", [(3.2, 2.4), (5.0, 3.5)])
+def test_the_statistics_of_predicted_vs_target_cover_no_point(size):
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    from enginir.viewer._model_diagnostics import _covered, _render_pred_vs_ref
+    from enginir.viewer._theme import panel_colors
+
+    rng = np.random.default_rng(1)
+    y_true = np.repeat([1.0, 4.0, 7.0, 10.0], 5)
+    y_pred = y_true + rng.normal(0, 1.2, y_true.size)
+    y_pred[:3] = 9.5  # wrong predictions where the block sits by default (top left)
+    fig = Figure(figsize=size, dpi=100)
+    FigureCanvasAgg(fig)
+    _render_pred_vs_ref(fig, {"y_true_roi": y_true, "y_pred_roi": y_pred}, panel_colors())
+    fig.canvas.draw()
+    ax = fig.axes[0]
+    block = next(text for text in ax.texts if "RMSECV" in text.get_text())
+    assert _covered(ax, block, fig.canvas.get_renderer(), y_true, y_pred) == 0
+
+
+def test_the_example_opens_without_open_checks_and_a_good_model(example):
+    """The example shows good practice: values vary within each scan, one sample per tablet."""
+    from enginir import Project
+
+    project = Project.open(example)
+    open_checks = [check.message for check in project.checks()
+                   if check.severity in ("attention", "blocked")]
+    assert open_checks == []
+    assert project.model("PLS 2 LV").verdict().level == "good"

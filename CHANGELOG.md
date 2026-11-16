@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+Changes since 1.6.0rc3.
+
+### Changed
+
+- **Example project:** it opens without open checks. Each calibration scan
+  holds tablets with different numbers of layers (a scan is not a value),
+  each tablet is its own sample, a binder content varies from tablet to
+  tablet, and the model "PLS 2 LV" (no SNV: the synthetic spectra have no
+  scatter) is rated good. An example project of 1.6.0rc3 is created again
+  when it is opened.
+- **Project tree:** items show names, sorted (ROIs by dataset, then name:
+  "T2" before "T10"), instead of names with ids; ids are in the tooltip and
+  in Properties. Reference corrections show their dataset and what they are
+  ("tablets_1.h5: dark/white references").
+- **Predicted vs target value:** the statistics sit in the corner (top left
+  or bottom right) where they cover no point, on a background; the axis
+  grows when no corner is free.
+
 ## 1.6.0rc3 (2026-11-16)
 
 Release candidate of the guided viewer: one window for every step with a

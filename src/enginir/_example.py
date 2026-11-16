@@ -1,11 +1,14 @@
 """The example project: synthetic tablet scans with a finished model (plan gui-1.6, Q1).
 
 Generated on first use, so nothing is downloaded and the package stays
-small: five push-broom scans of five tablets each, one per number of
-printed layers (1, 4, 7, 10, and a scan of 5-layer tablets to predict). Each
-scan carries its own dark and white reference frames. The project has the
-target "Layers", one sample label per tablet, and a PLS model held out by
-sample. The spectra are made up; the numbers mean nothing beyond the demo.
+small: five push-broom scans of five tablets each. Each of the four
+calibration scans holds tablets with different numbers of printed layers
+(every number from 1 to 10 twice in all), so a scan and a value are not the
+same thing; the fifth scan holds tablets to predict. Each scan carries its
+own dark and white reference frames. The project has the target "Layers",
+one sample label per tablet, and a PLS model held out by sample (two
+components: layers and a varying binder). It opens without open checks. The spectra are made up; the numbers mean nothing
+beyond the demo.
 """
 
 from __future__ import annotations
@@ -20,13 +23,17 @@ from ._logging import get_logger
 logger = get_logger(__name__)
 
 EXAMPLE_NAME = "engiNIR example.h5"
-_LAYERS = (1, 4, 7, 10)
-_PREDICT_LAYERS = 5
+#: The scan to predict; its name also tells this example from the one of 1.6.0rc3
+#: (one layer count per scan), which is created again.
+_PREDICT_FILE = "tablets_to_predict.h5"
+#: Layers of the tablets per scan; the last scan is the one to predict.
+_SCANS = ((1, 4, 7, 10, 2), (3, 6, 9, 5, 8), (10, 1, 5, 8, 3), (2, 7, 4, 9, 6),
+          (2, 5, 5, 8, 9))
 _N_BANDS, _HEIGHT, _TABLET_FRAMES, _GAP = 64, 36, 10, 4
 _TABLETS = 5
 
 
-def _scan(path: Path, layers: int, seed: int) -> None:
+def _scan(path: Path, layers: tuple[int, ...], seed: int) -> None:
     """One scan: dark frames, five tablets on a bright tray, white frames."""
     from .io import save_hdf5
 
@@ -41,9 +48,10 @@ def _scan(path: Path, layers: int, seed: int) -> None:
     for tablet in range(_TABLETS):
         first = 2 + _GAP + tablet * (_TABLET_FRAMES + _GAP)
         rows = slice(8, _HEIGHT - 8)
-        thickness = layers * (1.0 + 0.04 * rng.standard_normal())
-        absorbance = 0.08 + 0.025 * thickness * api + 0.15 * binder \
-            + 0.01 * rng.standard_normal(_N_BANDS)
+        thickness = layers[tablet] * (1.0 + 0.04 * rng.standard_normal())
+        binder_share = 0.15 * (1.0 + 0.6 * rng.uniform(-1.0, 1.0))  # an interferent
+        absorbance = 0.08 + 0.025 * thickness * api + binder_share * binder \
+            + 0.006 * rng.standard_normal(_N_BANDS)
         block = 10 ** -(absorbance[None, None, :]
                         + 0.004 * rng.standard_normal((_TABLET_FRAMES, _HEIGHT - 16, _N_BANDS)))
         reflectance[first:first + _TABLET_FRAMES, rows] = block * 0.9
@@ -68,34 +76,38 @@ def create_example_project(folder: str | os.PathLike[str], *, fit: bool = True) 
     if path.is_file():
         try:
             Project.open(path)
-            return path
+            if (folder / _PREDICT_FILE).is_file():
+                return path
+            logger.info("Creating the example project again; {} is an older example", path)
         except (OSError, ValueError) as exc:
             logger.warning("Creating the example project again; {} does not open: {}",
                            path, exc)
-            path.unlink()
+        path.unlink()
     folder.mkdir(parents=True, exist_ok=True)
     project = Project.create(path)
     project.add_target("Layers", unit="1")
     tablet_rows = (8, _HEIGHT - 9)
-    for seed, layers in enumerate((*_LAYERS, _PREDICT_LAYERS)):
-        scan_path = folder / f"tablets_{layers:02d}_layers.h5"
+    for seed, layers in enumerate(_SCANS):
+        predict = seed == len(_SCANS) - 1
+        scan_path = folder / (_PREDICT_FILE if predict else f"tablets_{seed + 1}.h5")
         _scan(scan_path, layers, seed)
         n_frames = 2 + _GAP + _TABLETS * (_TABLET_FRAMES + _GAP) + 2
         dataset = project.add_dataset(scan_path, dark_frames=(0, 1),
                                       white_frames=(n_frames - 2, n_frames - 1),
                                       unit="Absorbance")
-        predict = layers == _PREDICT_LAYERS
         for tablet in range(_TABLETS):
             first = 2 + _GAP + tablet * (_TABLET_FRAMES + _GAP) + 2
+            name = f"{'P' if predict else f'S{seed + 1}'}_T{tablet + 1}"
             roi = dataset.add_roi(
-                f"L{layers:02d}_{tablet + 1:02d}",
-                frames=(first, first + _TABLET_FRAMES - 5), rows=tablet_rows,
-                values=None if predict else {"Layers": float(layers)},
+                name, frames=(first, first + _TABLET_FRAMES - 5), rows=tablet_rows,
+                values=None if predict else {"Layers": float(layers[tablet])},
                 job="prediction" if predict else "calibration")
-            project.set_sample(roi, f"L{layers:02d}_{tablet + 1:02d}")
+            project.set_sample(roi, name)
     if fit:
-        project.fit("Layers", recipe=PreprocessingRecipe(snv=True), n_components=2,
-                    name="PLS 2 LV, SNV",
+        # No SNV: these synthetic spectra have no scatter to remove, and SNV would
+        # bend their linear relation to the layers (thin tablets far from the model).
+        project.fit("Layers", recipe=PreprocessingRecipe(), n_components=2,
+                    name="PLS 2 LV",
                     fit_spec={"folds": {"group_by": "sample"}})
     logger.info("Created the example project {}", path)
     return path

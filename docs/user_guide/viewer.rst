@@ -79,7 +79,8 @@ From top to bottom:
   round badge (the Checks tab lists them).
 - **Left:** the **Project** tree (datasets, reference corrections, ROIs,
   targets, values, models, predictions, each with the number of its objects)
-  above **Properties** of the selected item, as a table.
+  above **Properties** of the selected item, as a table. Items show their
+  names, sorted; the id of an object is in its tooltip and in Properties.
 - **Middle:** the pages of the step. In Model the fit summary starts with
   the **verdict** of the shown model (good, usable with care, not usable);
   its tooltip gives the reason, and the Checks tab lists what to act on.
@@ -112,7 +113,9 @@ their places. **View > Reset Layout** restores the default.
    :width: 80%
 
 **The example project** (first button of the welcome screen, or **File > Open
-Example Project**) has five synthetic tablet scans with a fitted model. It is
+Example Project**) has five synthetic tablet scans with a fitted model and
+opens without open checks: each calibration scan holds tablets with
+different numbers of layers, and each tablet is its own sample. It is
 created on first use in the settings folder; the fastest way to see how
 everything works.
 

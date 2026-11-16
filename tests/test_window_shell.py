@@ -276,6 +276,10 @@ def test_the_example_project_is_created_once_and_opens_with_a_model(qapp, tmp_pa
     stamp = path.stat().st_mtime_ns
     assert create_example_project(tmp_path) == path and path.stat().st_mtime_ns == stamp, \
         "reused, not written again"
+    (tmp_path / "tablets_to_predict.h5").rename(tmp_path / "tablets_05_layers.h5")
+    assert create_example_project(tmp_path) == path and path.stat().st_mtime_ns != stamp, \
+        "the example of 1.6.0rc3 (one layer count per scan) is created again"
+    assert (tmp_path / "tablets_to_predict.h5").is_file()
 
     monkeypatch.setattr(_recent, "config_dir", lambda: tmp_path / "config")
     window = _open(qapp, project)

@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
+from typing import Any
 
 
 from PyQt6.QtCore import QEvent, Qt, QTimer
 from PyQt6.QtWidgets import QFrame, QSizePolicy, QTreeWidget, QTreeWidgetItem, QWidget
 
+from .._guidance import figure_text
+from ..project import CalibrationSpec
 from ._icons import icon
 from ._state import ProjectState, signal_label
+from ._ui_helpers import with_unit
 
 #: The icon of each section of the project tree.
 _SECTION_ICONS = {"datasets": "database", "calibrations": "adjustments-horizontal",
@@ -202,53 +207,71 @@ class ProjectBrowser(QTreeWidget):
             return False
         return candidate_payload.get("id") == requested_id
 
+    # Leaves show names; ids are in the tooltip and in Properties (an id is no name).
+
     def _populate_datasets(self) -> None:
         section = self._sections["datasets"]
-        for dataset_id, dataset in self.project_state.datasets.items():
-            label = f"{self.project_state.data_file_label(dataset_id)} [{dataset_id}]"
-            item = QTreeWidgetItem([label])
-            item.setToolTip(0, dataset.source_path or dataset_id)
+        state = self.project_state
+        for dataset_id in sorted(state.datasets,
+                                 key=lambda d: state.data_file_label(d).casefold()):
+            dataset = state.datasets[dataset_id]
+            item = QTreeWidgetItem([state.data_file_label(dataset_id)])
+            item.setToolTip(0, _with_id(dataset.source_path or "", dataset_id))
             item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "dataset", "id": dataset_id})
             section.addChild(item)
 
     def _populate_calibrations(self) -> None:
         section = self._sections["calibrations"]
-        for calibration_id, calibration in self.project_state.calibrations.items():
-            label = f"{calibration_id} | {calibration.mode}"
-            item = QTreeWidgetItem([label])
+        state = self.project_state
+
+        def file_of(calibration_id: str) -> str:
+            return state.data_file_label(state.calibrations[calibration_id].dataset_id)
+
+        for calibration_id in sorted(state.calibrations, key=lambda c: file_of(c).casefold()):
+            calibration = state.calibrations[calibration_id]
+            item = QTreeWidgetItem([f"{file_of(calibration_id)}: {correction_text(calibration)}"])
+            item.setToolTip(0, _with_id("Reference correction", calibration_id))
             item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "calibration", "id": calibration_id})
             section.addChild(item)
 
     def _populate_rois(self) -> None:
         section = self._sections["rois"]
-        for roi_id, roi in self.project_state.rois.items():
-            label = f"{roi.name} [{roi_id}]" if roi.name else roi_id
-            item = QTreeWidgetItem([label])
-            item.setToolTip(0, self.project_state.data_file_label(roi.dataset_id))
+        state = self.project_state
+        rois = sorted(state.rois.items(), key=lambda pair: (
+            state.data_file_label(pair[1].dataset_id).casefold(),
+            _natural(pair[1].name or pair[0])))
+        for roi_id, roi in rois:
+            item = QTreeWidgetItem([roi.name or roi_id])
+            item.setToolTip(0, _with_id(state.data_file_label(roi.dataset_id), roi_id))
             item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "roi", "id": roi_id})
             section.addChild(item)
 
     def _populate_targets(self) -> None:
         section = self._sections["targets"]
-        for target_id, target in self.project_state.targets.items():
-            label = f"{target.name} [{target_id}]"
-            item = QTreeWidgetItem([label])
+        targets = self.project_state.targets
+        for target_id in sorted(targets, key=lambda t: targets[t].name.casefold()):
+            target = targets[target_id]
+            item = QTreeWidgetItem([with_unit(target.name, target.unit)])
+            item.setToolTip(0, _with_id("Target", target_id))
             item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "target", "id": target_id})
             section.addChild(item)
 
     def _populate_target_assignments(self) -> None:
         section = self._sections["target_assignments"]
-        assignments = sorted(
-            self.project_state.target_assignments.values(),
-            key=lambda assignment: (assignment.target_id, assignment.roi_id),
-        )
+        state = self.project_state
+
+        def names(assignment: Any) -> tuple[str, str]:
+            target = state.targets.get(assignment.target_id)
+            roi = state.rois.get(assignment.roi_id)
+            return (target.name if target is not None else assignment.target_id,
+                    roi.name if roi is not None and roi.name else assignment.roi_id)
+
+        assignments = sorted(state.target_assignments.values(), key=lambda a: (
+            names(a)[0].casefold(), _natural(names(a)[1])))
         for assignment in assignments:
-            target = self.project_state.targets.get(assignment.target_id)
-            roi = self.project_state.rois.get(assignment.roi_id)
-            target_label = target.name if target is not None else assignment.target_id
-            roi_label = roi.name if roi is not None and roi.name else assignment.roi_id
-            label = f"{target_label} -> {roi_label} | {assignment.value:.4g}"
-            item = QTreeWidgetItem([label])
+            target_label, roi_label = names(assignment)
+            item = QTreeWidgetItem([f"{roi_label}: {target_label} = "
+                                    f"{figure_text(assignment.value)}"])
             item.setData(
                 0,
                 Qt.ItemDataRole.UserRole,
@@ -284,9 +307,11 @@ class ProjectBrowser(QTreeWidget):
         state = self.project_state
         used_sets: set[str] = set()
         used_domains: set[str] = set()
-        for model_run_id, model_run in state.model_runs.items():
+        for model_run_id, model_run in sorted(state.model_runs.items(),
+                                              key=lambda pair: str(pair[1].created_at)):
             name = model_run.name or model_run.model_type
-            item = QTreeWidgetItem([f"{name} [{model_run_id}]"])
+            item = QTreeWidgetItem([name])
+            item.setToolTip(0, _with_id("Model", model_run_id))
             item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "model_run", "id": model_run_id})
             if model_run.sample_set_id in state.sample_sets:
                 item.addChild(self._sample_set_item(model_run.sample_set_id))
@@ -311,3 +336,26 @@ class ProjectBrowser(QTreeWidget):
             item = QTreeWidgetItem([label])
             item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "prediction", "id": prediction_id})
             section.addChild(item)
+
+
+def correction_text(calibration: CalibrationSpec) -> str:
+    """A reference correction as people say it (terminology contract, Reference correction)."""
+    if calibration.mode == "dark_white_reference":
+        if calibration.black_level is not None and calibration.white_level is not None:
+            return (f"detector levels {calibration.black_level:g} / "
+                    f"{calibration.white_level:g}")
+        return "dark/white references"
+    if calibration.mode == "precalibrated_import":
+        return "already corrected"
+    return "none (raw counts)"
+
+
+def _with_id(text: str, object_id: str) -> str:
+    """A tooltip: ``text`` and the stable id (for error reports)."""
+    return f"{text}\nid {object_id}" if text else f"id {object_id}"
+
+
+def _natural(text: str) -> tuple[Any, ...]:
+    """Sort key that orders "L2" before "L10"."""
+    return tuple(int(part) if part.isdigit() else part.casefold()
+                 for part in re.split(r"(\d+)", text))

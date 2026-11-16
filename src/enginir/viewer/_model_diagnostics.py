@@ -177,14 +177,62 @@ def _render_pred_vs_ref(fig: Figure, payload: Any, colors: Mapping[str, str]
     extra = "".join(f"\n{label} = {statistics[key]:.4g}{suffix}" for key, label, suffix in
                     (("rmsee", "RMSEE (per ROI)", value_unit), ("r2_adj", "$R^2_{adj}$", ""))
                     if key in statistics)
-    ax.text(0.03, 0.97,
-            f"per ROI\n$Q^2$ (CV $R^2$) = {r2_score(y_true, y_pred):.4g}"
-            f"\nRMSECV (per ROI) = {rmsecv(y_true, y_pred):.4g}"
-            f"{value_unit}\nBias = {bias(y_true, y_pred):.4g}{value_unit}{extra}",
-            transform=ax.transAxes, ha="left", va="top", fontsize=8, color=colors["fg"])
+    _statistics_block(ax, f"per ROI\n$Q^2$ (CV $R^2$) = {r2_score(y_true, y_pred):.4g}"
+                          f"\nRMSECV (per ROI) = {rmsecv(y_true, y_pred):.4g}"
+                          f"{value_unit}\nBias = {bias(y_true, y_pred):.4g}{value_unit}{extra}",
+                      y_true, y_pred, colors)
     _label(ax, f"Target value{_suffix(unit)}", f"Predicted (CV){_suffix(unit)}", colors)
     ids = _roi_ids(payload, y_true.size)
     return None if ids is None else [RoiPoints(ax, y_true, y_pred, ids)]
+
+
+def _covered(ax: Any, text: Any, renderer: Any, x: np.ndarray, y: np.ndarray) -> int:
+    """How many points (with a margin of their marker) lie under ``text``'s box."""
+    box = text.get_window_extent(renderer).expanded(1.0, 1.0).padded(6)
+    points = ax.transData.transform(np.column_stack([x, y]))
+    inside = ((points[:, 0] >= box.x0) & (points[:, 0] <= box.x1)
+              & (points[:, 1] >= box.y0) & (points[:, 1] <= box.y1))
+    return int(np.count_nonzero(inside))
+
+
+def _statistics_block(ax: Any, content: str, x: np.ndarray, y: np.ndarray,
+                      colors: Mapping[str, str]) -> Any:
+    """Statistics of a predicted-vs-target plot where they cover no point.
+
+    The points lie along the diagonal, so the block goes to the off-diagonal
+    corner (top left or bottom right) that covers fewer of them; if it still
+    covers some, the axis grows (up to doubling) until it covers none.
+    """
+    text = ax.text(0.03, 0.97, content, transform=ax.transAxes, ha="left", va="top",
+                   fontsize=8, color=colors["fg"], zorder=5,
+                   bbox={"boxstyle": "round,pad=0.25", "facecolor": colors.get("ax_bg", "none"),
+                         "edgecolor": "none", "alpha": 0.85})
+    try:
+        renderer = ax.figure.canvas.get_renderer()
+    except AttributeError:  # a canvas without a renderer: keep the top-left corner
+        return text
+    corners = (((0.03, 0.97), "left", "top"), ((0.97, 0.03), "right", "bottom"))
+    covered = []
+    for position, ha, va in corners:
+        text.set_position(position)
+        text.set_ha(ha)
+        text.set_va(va)
+        covered.append(_covered(ax, text, renderer, x, y))
+    best = int(np.argmin(covered))
+    position, ha, va = corners[best]
+    text.set_position(position)
+    text.set_ha(ha)
+    text.set_va(va)
+    low, high = ax.get_ylim()
+    span = high - low
+    for _ in range(8):
+        if not _covered(ax, text, renderer, x, y):
+            break
+        if va == "top":  # room above the points
+            ax.set_ylim(low, ax.get_ylim()[1] + 0.125 * span)
+        else:  # room below
+            ax.set_ylim(ax.get_ylim()[0] - 0.125 * span, high)
+    return text
 
 
 def _table_pred_vs_ref(payload: Any) -> PlotTable:
