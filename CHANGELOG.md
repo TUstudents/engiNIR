@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 1.6.0rc1 (2026-11-16)
+
+Release candidate of the guided viewer: one window for every step with a
+workflow strip, checks and verdicts that say what a project needs next,
+fit settings in a dock, a light theme and preferences. For trying before
+1.6.0; the library API is unchanged apart from the additions below.
 
 ### Added
 
