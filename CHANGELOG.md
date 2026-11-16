@@ -13,6 +13,16 @@
   gives a model one level (good, usable with care, not usable) with its
   reasons. Both read the project and change nothing.
 
+### Changed
+
+- **New viewer palette, dark and light.** All colours come from one table
+  of named colours: the orange of the engiNIR icon as the accent (current
+  tab, default button, selection, image crosshair, ROI outlines), cool
+  colours for data, viridis for values and a heat scale from the icon's
+  bands for distances and uncertainty. Square, compact controls. Text meets
+  WCAG AA contrast in both themes (tested). Predictions outside the
+  calibration range are violet (below) and pink (above).
+
 ### Fixed
 
 - A refit reported values as changed that had not changed, when they are

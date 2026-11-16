@@ -28,7 +28,7 @@ from .._checks import log_and_raise
 from .._logging import get_logger
 from ._plot_panel import PlotColumn, PlotTable, print_copy
 from ._state import ViewerState, signal_label
-from ._theme import panel_colors, print_colors
+from ._theme import HEAT_STOPS, heat_colormap, panel_colors, print_colors, tokens
 from ._ui_helpers import LayoutState, maybe_tight_layout, style_axes
 
 logger = get_logger(__name__)
@@ -201,7 +201,6 @@ class _ImagePanel(_PanelBase):
     with matplotlib in the print colors.
     """
 
-    _CMAP = "inferno"
 
     def __init__(self, state: ViewerState, *, x_label: str, y_label: str,
                  defer_initial_hidden_refresh: bool = True) -> None:
@@ -223,13 +222,10 @@ class _ImagePanel(_PanelBase):
         self._view.invertY(True)
         self._view.setMouseEnabled(x=False, y=False)
         self._image = pg.ImageItem(axisOrder="row-major")
-        colormap = pg.colormap.get(self._CMAP, source="matplotlib")
-        if not isinstance(colormap, pg.ColorMap):
-            log_and_raise("Colormap '{}' unavailable for the image panel", self._CMAP,
-                          error=RuntimeError)
-        self._image.setColorMap(colormap)
+        self._image.setColorMap(pg.ColorMap(np.linspace(0.0, 1.0, len(HEAT_STOPS)),
+                                            list(HEAT_STOPS)))
         self._plot.addItem(self._image)
-        pen = pg.mkPen("yellow", width=1)
+        pen = pg.mkPen(tokens()["accent"], width=1)
         self._vline = pg.InfiniteLine(angle=90, movable=False, pen=pen)
         self._hline = pg.InfiniteLine(angle=0, movable=False, pen=pen)
         self._plot.addItem(self._vline)
@@ -317,7 +313,7 @@ class _ImagePanel(_PanelBase):
         style_axes(ax, colors)
         if self._data is not None:
             ax.imshow(self._data, aspect="auto", origin="upper", interpolation="nearest",
-                      cmap=self._CMAP, vmin=self._levels[0], vmax=self._levels[1])
+                      cmap=heat_colormap(), vmin=self._levels[0], vmax=self._levels[1])
             ax.axvline(self._crosshair[0], color="yellow", linewidth=0.8)
             ax.axhline(self._crosshair[1], color="yellow", linewidth=0.8)
             (x0, x1), (y0, y1) = self._view.viewRange()

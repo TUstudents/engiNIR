@@ -247,12 +247,11 @@ def test_tiles_loaded_in_batches_share_one_stretch_at_the_end(qapp, trays, monke
 def test_equal_values_get_the_colour_the_colour_bar_shows(qapp):
     """All ROIs at 10: the lines must take the colour of 10 on the bar, not its lowest colour.
     (A plain Normalize(10, 10) maps them to the bottom colour while the bar shows 9-11.)"""
-    from matplotlib import colormaps
     from matplotlib.colors import to_rgba
     from matplotlib.figure import Figure
 
     from enginir.viewer._project_rois import _render_means
-    from enginir.viewer._theme import panel_colors
+    from enginir.viewer._theme import panel_colors, value_colormap
 
     payload = {"means": {"a": np.ones(5), "b": np.full(5, 2.0)}, "values": {"a": 10.0, "b": 10.0},
                "wavelengths": np.arange(5.0), "axis_label": "Band", "value_label": "Layer"}
@@ -260,7 +259,7 @@ def test_equal_values_get_the_colour_the_colour_bar_shows(qapp):
     _render_means(figure, payload, panel_colors())
     ax, bar = figure.axes
     low, high = bar.get_ylim()
-    expected = colormaps["viridis"]((10.0 - low) / (high - low))
+    expected = value_colormap(panel_colors())((10.0 - low) / (high - low))
     assert all(np.allclose(to_rgba(line.get_color()), expected) for line in ax.get_lines())
     assert ax.get_xlabel() == "Band"
 

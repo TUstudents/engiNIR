@@ -286,6 +286,14 @@ CSV, named by plot) into one folder. That includes Model pages you have not
 opened. A maximized plot stays maximized the next time the viewer opens, and
 **View > Reset Layout** restores the default layout.
 
+The viewer has a dark and a light theme (**Options**). Both use the orange
+of the engiNIR icon for the current tab, the default button, selections and
+the image crosshair; data use cool colors, so a plot never competes with the
+window around it. Target values and predictions are colored with viridis
+(perceptually even, readable with color-vision deficiencies), distances and
+uncertainty with a heat scale from the icon's bands. Exported images always
+use the light colors.
+
 Target values are typed in the **ROI table**, opened from **Target
 values...** in Model, from **ROI table** in
 Explore, or from the View menu. It opens by itself with the Project ROIs
@@ -402,7 +410,7 @@ warns with the largest difference. Models with MSC or EMSC apply the
 preprocessing state stored at calibration.
 
 The map's color scale is the target's range in the model's calibration values;
-predictions below and above it have their own colors (cyan, pink), so the
+predictions below and above it have their own colors (violet, pink), so the
 substrate and other material the model never saw do not flatten the scale.
 **Color scale** in the Controls dock (or **Color limits...** in the map's ⋯
 menu) sets your own limits, for one scale over a series of trays; the color

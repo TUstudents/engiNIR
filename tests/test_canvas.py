@@ -197,7 +197,11 @@ class TestFalseColourCanvas:
         assert canvas._selected_roi_id == "roi_1"
         rect = canvas._roi_item_map["roi_1"].rect
         pen = rect.pen
-        assert pen.color().name().lower() == "#ffff00"
+        from enginir.viewer._theme import tokens
+
+        assert pen.color().name().lower() == tokens()["attention"]
+        canvas.add_roi_rect(5, 7, 2, 4, "roi_b", "roi_2")
+        assert canvas._roi_item_map["roi_2"].rect.pen.color().name().lower() == tokens()["accent"]
 
     def test_roi_id_at_point_returns_matching_roi(self, qapp):
         from enginir.viewer._canvas import FalseColourCanvas

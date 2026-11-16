@@ -11,7 +11,6 @@ import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.colorbar import Colorbar
-from matplotlib import colormaps
 from matplotlib.colors import ListedColormap
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
@@ -46,10 +45,11 @@ from ..prediction import (
 )
 from ..preprocessing import PreprocessingRecipe
 from ..project import CalibrationSpec
-from ._predict_dialogs import _MODEL_COLORS, ModelChoice, PredictMapDialog, PredictRoisDialog
+from ._predict_dialogs import ModelChoice, PredictMapDialog, PredictRoisDialog
 from ._jobs import BackgroundWorker, BusyStatusWidget, start_background_job
 from ._state import ProjectState
-from ._theme import GUIDE_COLOR, panel_colors, secondary_text_style
+from ._theme import (GUIDE_COLOR, SERIES, heat_colormap, panel_colors, secondary_text_style,
+                     value_colormap)
 from ._plot_panel import PlotColumn, PlotSpec, PlotTable, draw_placeholder, print_copy
 from ._plot_registry import register_plot
 from ._ui_helpers import LayoutState, maybe_tight_layout, style_axes
@@ -89,7 +89,6 @@ def _array_payload_fingerprint(value: Any) -> tuple[Any, ...]:
 
 
 #: Colours of predictions below and above the map's colour range.
-_BELOW_RANGE, _ABOVE_RANGE = "#4cc3d9", "#ff5f7e"
 
 
 def shown_unit(unit: str) -> str:
@@ -364,19 +363,21 @@ class PredictionMapWidget(QWidget):
         # Each shown pixel covers ``step`` true frames and rows, starting at its index * step.
         extent = (-0.5, arr.shape[1] * step - 0.5, arr.shape[0] * step - 0.5, -0.5)
         limits = None
-        cmap: Any = "viridis" if layer == "Prediction" else "magma"
+        cmap: Any = value_colormap(colors) if layer == "Prediction" else heat_colormap()
         if layer == "Prediction interval":
             # Its own scale over the shown half-widths (they never fall below q · s, so a
             # scale from zero would hide their spread); pixels outside the model marked.
             finite = arr[np.isfinite(arr)]
             limits = ((float(finite.min()), float(finite.max()))
                       if finite.size and finite.max() > finite.min() else None)
-            cmap = colormaps["cividis"].with_extremes(bad=panel_colors()["accent"])
+            cmap = heat_colormap().with_extremes(bad=colors["series0"])
         elif layer == "Prediction":
             # The training range (or the user's limits); values outside get their own colours.
             limits = self.user_limits or payload.get("colour_range")
             if limits is not None and limits[1] > limits[0]:
-                cmap = colormaps["viridis"].with_extremes(under=_BELOW_RANGE, over=_ABOVE_RANGE)
+                # Values outside the range: violet below, pink above (not in the scale).
+                cmap = value_colormap(colors).with_extremes(under=colors["series3"],
+                                                             over=colors["series4"])
             else:
                 limits = None
         self._shown_limits = limits
@@ -412,7 +413,7 @@ class PredictionMapWidget(QWidget):
         if limit is not None:
             above = np.ma.masked_where(~(arr > limit), np.ones_like(arr))
             self._overlay = self._ax.imshow(
-                above, cmap=ListedColormap([panel_colors()["accent"]]), alpha=0.9,
+                above, cmap=ListedColormap([colors["highlight"]]), alpha=0.9,
                 origin="upper", aspect="auto", interpolation="nearest",
                 extent=(-0.5, arr.shape[1] * step - 0.5, arr.shape[0] * step - 0.5, -0.5))
         self._set_title(f"± {100 * INTERVAL_LEVEL:.0f} % prediction interval{unit_suffix}"
@@ -756,7 +757,7 @@ def _histogram_render(fig: Figure, payload: Any, colors: Any) -> None:
     rois = bool(payload.get("series"))
     for index, (name, values) in enumerate(series):
         counts, _ = np.histogram(values, bins=edges)
-        color = _MODEL_COLORS[index % len(_MODEL_COLORS)] if rois else colors["accent"]
+        color = colors[f"series{index % len(SERIES[False])}"] if rois else colors["accent"]
         ax.stairs(counts, edges, fill=len(series) == 1, color=color,
                   alpha=0.85 if len(series) == 1 else 1.0, label=name)
     unit = str(payload.get("target_unit", ""))

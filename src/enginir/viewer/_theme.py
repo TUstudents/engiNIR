@@ -11,7 +11,11 @@ import importlib.resources
 import json
 import os
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
+
+import numpy as np
 
 from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import QApplication
@@ -28,6 +32,11 @@ __all__ = [
     "panel_colors",
     "GUIDE_COLOR",
     "print_colors",
+    "series_colors",
+    "tokens",
+    "value_colormap",
+    "heat_colormap",
+    "TOKENS",
     "secondary_text_style",
     "theme_applied",
 ]
@@ -38,60 +47,118 @@ _THEME_MODE_PROPERTY = "_enginir_theme_dark"
 _PREFERENCE_FILE = "theme.json"
 _current_dark = True
 
-_SURFACE_COLORS = {
+#: The colour tokens of both themes (plan gui-1.6, theme). Every widget and
+#: plot colour of the viewer comes from here; no other viewer module writes a
+#: colour literal (``tests/test_theme.py``). The accent is the orange of the
+#: program icon; warm colours belong to the program and to check states, the
+#: data scales are cool, so plots never compete with the interface.
+TOKENS: dict[bool, dict[str, str]] = {
     True: {
-        "window": "#1b1f24",
-        "surface": "#232831",
-        "surface_alt": "#2b313b",
-        "surface_hover": "#343b46",
-        "surface_pressed": "#3d4654",
-        "border": "#566172",
-        "border_subtle": "#3d4652",
-        "text": "#f3f6fb",
-        "muted": "#b3bdca",
-        "accent": "#7c8cff",
-        "accent_active": "#98a6ff",
-        "selection": "#3f4fbe",
-        "disabled_text": "#6f7985",
-        "disabled_bg": "#20252c",
-        "progress": "#4f5fd0",
+        "window": "#1c1d20",        # main window, gaps between panels
+        "panel": "#25272b",         # docks, pages, group bodies
+        "header": "#2c2f34",        # dock titles, table headers, title strips
+        "input": "#17181a",         # editable fields, lists, tables
+        "hover": "#33363d",
+        "pressed": "#3c4048",
+        "selection": "#4a3a26",     # selected rows and items (warm, from the accent)
+        "border": "#4a4e58",
+        "border_subtle": "#363940",
+        "text": "#e4e6ea",
+        "text_secondary": "#a6abb5",
+        "text_hint": "#868c97",
+        "accent": "#f0912e",
+        "accent_hover": "#f5a54f",
+        "on_accent": "#1c1206",
+        "ok": "#4fbf87",
+        "attention": "#ecc94b",
+        "error": "#f07068",
+        "disabled_text": "#6b707a",
+        "disabled_bg": "#222427",
+        "plot_bg": "#1e1f23",
+        "plot_grid": "#2e3036",
+        "guide": "#8b919c",
     },
     False: {
-        "window": "#eef2f7",
-        "surface": "#ffffff",
-        "surface_alt": "#f6f8fc",
-        "surface_hover": "#edf2fb",
-        "surface_pressed": "#dfe7f7",
-        "border": "#bcc6d6",
-        "border_subtle": "#d6dde9",
-        "text": "#2f3944",
-        "muted": "#65707d",
-        "accent": "#4660d9",
-        "accent_active": "#5b73e5",
-        "selection": "#c7d3ff",
-        "disabled_text": "#a3acb8",
-        "disabled_bg": "#f1f4f8",
-        "progress": "#9aa9ef",
+        "window": "#ececee",
+        "panel": "#f8f8f9",
+        "header": "#e3e4e8",
+        "input": "#ffffff",
+        "hover": "#dfe1e6",
+        "pressed": "#d3d6dd",
+        "selection": "#f6d9bd",
+        "border": "#b9bdc6",
+        "border_subtle": "#d4d7de",
+        "text": "#1e2227",
+        "text_secondary": "#4f5560",
+        "text_hint": "#6c727d",
+        "accent": "#b8520b",
+        "accent_hover": "#cf6114",
+        "on_accent": "#ffffff",
+        "ok": "#1b7a50",
+        "attention": "#8a6400",
+        "error": "#b8332b",
+        "disabled_text": "#9aa0aa",
+        "disabled_bg": "#eeeff2",
+        "plot_bg": "#ffffff",
+        "plot_grid": "#e6e8ec",
+        "guide": "#7d838e",
     },
 }
 
-
-#: Plot colours follow the widget colours: the figure is the window, the axes
-#: are a surface, so plots sit in the shell without a visible seam.
-_PANEL_COLORS = {
-    dark: {
-        "bg": colors["window"],
-        "ax_bg": colors["surface"],
-        "fg": colors["text"],
-        "accent": colors["accent"],
-    }
-    for dark, colors in _SURFACE_COLORS.items()
+#: Categorical data colours (models, curves, series), cool first; one row per
+#: theme, the light row darker so it reads on white.
+SERIES: dict[bool, tuple[str, ...]] = {
+    True: ("#7aa2ff", "#2fc0c4", "#8fd16a", "#b48cff", "#f07fae", "#d9b26a"),
+    False: ("#2f5bd3", "#11888c", "#4c8f2a", "#7a4fd6", "#c43f7a", "#9a7428"),
 }
+
+#: The colours of the icon's bands, yellow to red; the middle of the heat scale.
+ICON_BANDS = ("#f2bc12", "#ee9d14", "#e27714", "#cf4c1c", "#b52c22")
+#: Heat scale for maps of distances and uncertainty and the sensor frame:
+#: dark to the icon's red, orange and yellow to pale; ordered by lightness.
+HEAT_STOPS = ("#1a0f12", "#5c1a1b", ICON_BANDS[4], ICON_BANDS[3], ICON_BANDS[2],
+              ICON_BANDS[1], ICON_BANDS[0], "#fbe7a0")
+#: The value scale (target values, predictions) is viridis, perceptually
+#: uniform and readable with colour-vision deficiencies, without its dark end
+#: on dark backgrounds and without its yellow end on white.
+VALUE_RANGE = {True: (0.12, 1.0), False: (0.0, 0.88)}
+
+#: Backwards-compatible view of the tokens under the keys of engiNIR 1.5.
+_SURFACE_COLORS = {
+    dark: {**tokens, "surface": tokens["panel"], "surface_alt": tokens["header"],
+           "surface_hover": tokens["hover"], "surface_pressed": tokens["pressed"],
+           "muted": tokens["text_secondary"], "accent_active": tokens["accent_hover"],
+           "progress": tokens["accent"]}
+    for dark, tokens in TOKENS.items()
+}
+
+
+def _plot_colors(dark: bool) -> dict[str, str]:
+    tokens = TOKENS[dark]
+    return {
+        "bg": tokens["panel"],
+        "ax_bg": tokens["plot_bg"],
+        "fg": tokens["text"],
+        "grid": tokens["plot_grid"],
+        "guide": tokens["guide"],
+        # The primary data colour: the first series colour, not the UI accent.
+        "accent": SERIES[dark][0],
+        "highlight": tokens["accent"],
+        "ok": tokens["ok"],
+        "attention": tokens["attention"],
+        "error": tokens["error"],
+        **{f"series{index}": color for index, color in enumerate(SERIES[dark])},
+        "mode": "dark" if dark else "light",
+    }
+
+
+#: Plot colours: the figure is a panel, the axes the plot background.
+_PANEL_COLORS = {dark: _plot_colors(dark) for dark in TOKENS}
 
 #: Reference lines and "no value" marks in plots (zero lines, the identity
 #: line, confidence ellipses, ROIs without a value, dark references); one
 #: neutral grey readable on the light and the dark plot background.
-GUIDE_COLOR = "#9aa3ad"
+GUIDE_COLOR = "#8b919c"
 
 
 def _preference_path() -> Path:
@@ -168,8 +235,39 @@ def panel_colors() -> dict[str, str]:
 
 def print_colors() -> dict[str, str]:
     """Return the plot colors for exported images (light, whatever the screen theme)."""
-    return {"bg": "#ffffff", "ax_bg": "#ffffff", "fg": "#1a1a1a",
-            "accent": _PANEL_COLORS[False]["accent"]}
+    return {**_PANEL_COLORS[False], "bg": "#ffffff", "ax_bg": "#ffffff", "fg": "#1a1a1a"}
+
+
+def series_colors() -> tuple[str, ...]:
+    """The categorical data colours of the current theme (models, curves)."""
+    return SERIES[_current_dark]
+
+
+def tokens() -> dict[str, str]:
+    """The colour tokens of the current theme."""
+    return dict(TOKENS[_current_dark])
+
+
+def value_colormap(colors: Mapping[str, str] | None = None) -> Any:
+    """The matplotlib colour map for target values and predictions.
+
+    For the plot colours ``colors`` (screen or print, by their ``mode``); the
+    current theme by default.
+    """
+    from matplotlib import colormaps
+    from matplotlib.colors import ListedColormap
+
+    dark = _current_dark if colors is None else colors.get("mode", "dark") == "dark"
+    low, high = VALUE_RANGE[dark]
+    return ListedColormap(colormaps["viridis"](np.linspace(low, high, 256)),
+                          name="enginir_values")
+
+
+def heat_colormap() -> Any:
+    """The matplotlib colour map built from the icon's bands (distances, uncertainty)."""
+    from matplotlib.colors import LinearSegmentedColormap
+
+    return LinearSegmentedColormap.from_list("enginir_heat", HEAT_STOPS)
 
 
 def secondary_text_style() -> str:
@@ -186,34 +284,21 @@ def secondary_text_style() -> str:
 
 
 def _build_palette(dark: bool) -> QPalette:
-    colors = _SURFACE_COLORS[dark]
+    t = TOKENS[dark]
     palette = QPalette()
-    window = QColor(colors["window"])
-    surface = QColor(colors["surface"])
-    surface_alt = QColor(colors["surface_alt"])
-    text = QColor(colors["text"])
-    muted = QColor(colors["muted"])
-    accent = QColor(colors["accent"])
-    selection = QColor(colors["selection"])
-
-    palette.setColor(QPalette.ColorRole.Window, window)
-    palette.setColor(QPalette.ColorRole.WindowText, text)
-    palette.setColor(QPalette.ColorRole.Base, surface)
-    palette.setColor(QPalette.ColorRole.AlternateBase, surface_alt)
-    palette.setColor(QPalette.ColorRole.ToolTipBase, surface_alt)
-    palette.setColor(QPalette.ColorRole.ToolTipText, text)
-    palette.setColor(QPalette.ColorRole.Text, text)
-    palette.setColor(QPalette.ColorRole.Button, surface_alt)
-    palette.setColor(QPalette.ColorRole.ButtonText, text)
-    palette.setColor(QPalette.ColorRole.BrightText, QColor("#ffffff"))
-    palette.setColor(QPalette.ColorRole.Highlight, selection)
-    palette.setColor(QPalette.ColorRole.HighlightedText, text if not dark else QColor("#ffffff"))
-    palette.setColor(QPalette.ColorRole.Link, accent)
-    palette.setColor(QPalette.ColorRole.PlaceholderText, muted)
-
-    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, muted)
-    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, muted)
-    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, muted)
+    roles = QPalette.ColorRole
+    for role, key in ((roles.Window, "window"), (roles.WindowText, "text"),
+                      (roles.Base, "input"), (roles.AlternateBase, "panel"),
+                      (roles.ToolTipBase, "header"), (roles.ToolTipText, "text"),
+                      (roles.Text, "text"), (roles.Button, "header"),
+                      (roles.ButtonText, "text"), (roles.BrightText, "on_accent"),
+                      (roles.Highlight, "selection"), (roles.HighlightedText, "text"),
+                      (roles.Link, "accent"), (roles.PlaceholderText, "text_hint"),
+                      (roles.Mid, "border"), (roles.Midlight, "border_subtle"),
+                      (roles.Dark, "window"), (roles.Light, "hover")):
+        palette.setColor(role, QColor(t[key]))
+    for role in (roles.Text, roles.ButtonText, roles.WindowText):
+        palette.setColor(QPalette.ColorGroup.Disabled, role, QColor(t["disabled_text"]))
     return palette
 
 
@@ -234,42 +319,88 @@ def _image(name: str) -> str:
 
 
 def _app_stylesheet(dark: bool) -> str:
-    colors = _SURFACE_COLORS[dark]
+    """The style sheet of the whole application, generated from :data:`TOKENS`.
+
+    Desktop proportions (plan gui-1.6, D1): square corners (3 px on controls),
+    controls 22–24 px high, dock and table headers on the header colour, the
+    current tab marked by an accent line.
+    """
+    c = TOKENS[dark]
     mode = "dark" if dark else "light"
     up, down = _image(f"arrow-up-{mode}.svg"), _image(f"arrow-down-{mode}.svg")
     up_off, down_off = _image("arrow-up-disabled.svg"), _image("arrow-down-disabled.svg")
     return f"""
 QWidget {{
-    color: {colors["text"]};
+    color: {c["text"]};
 }}
 
-QMainWindow, QDialog, QMenuBar, QStatusBar {{
-    background: {colors["window"]};
+QMainWindow, QDialog, QStatusBar {{
+    background: {c["window"]};
+}}
+
+QMainWindow::separator {{
+    background: {c["border_subtle"]};
+    width: 1px;
+    height: 1px;
+}}
+
+QMenuBar {{
+    background: {c["panel"]};
+    border-bottom: 1px solid {c["border_subtle"]};
+}}
+
+QMenuBar::item {{
+    padding: 4px 9px;
+    background: transparent;
+}}
+
+QMenuBar::item:selected, QMenu::item:selected {{
+    background: {c["hover"]};
+}}
+
+QMenu {{
+    background: {c["panel"]};
+    border: 1px solid {c["border"]};
+    padding: 3px 0;
+}}
+
+QMenu::item {{
+    padding: 4px 24px 4px 12px;
+}}
+
+QMenu::separator {{
+    height: 1px;
+    background: {c["border_subtle"]};
+    margin: 3px 6px;
 }}
 
 QGroupBox {{
-    margin-top: 4px;
-    padding-top: 3px;
-    border: 1px solid {colors["border_subtle"]};
-    border-radius: 8px;
-    background: {colors["surface"]};
+    margin-top: 6px;
+    padding-top: 4px;
+    border: 1px solid {c["border_subtle"]};
+    border-radius: 3px;
+    background: {c["panel"]};
 }}
 
 QGroupBox::title {{
     subcontrol-origin: margin;
     left: 8px;
-    padding: 0 2px;
-    color: {colors["muted"]};
+    padding: 0 3px;
+    color: {c["text_secondary"]};
+    font-weight: 600;
 }}
 
 QPushButton, QToolButton {{
-    background: {colors["surface_alt"]};
-    color: {colors["text"]};
-    border: 1px solid {colors["border"]};
-    border-radius: 7px;
+    background: {c["header"]};
+    color: {c["text"]};
+    border: 1px solid {c["border"]};
+    border-radius: 3px;
     padding: 2px 10px;
-    min-height: 22px;
-    font-weight: 500;
+    min-height: 20px;
+}}
+
+QToolButton {{
+    padding: 2px 4px;
 }}
 
 QFileDialog QToolButton {{
@@ -277,41 +408,59 @@ QFileDialog QToolButton {{
 }}
 
 QPushButton:default {{
-    border: 1px solid {colors["accent"]};
+    background: {c["accent"]};
+    border-color: {c["accent"]};
+    color: {c["on_accent"]};
     font-weight: 600;
 }}
 
+QPushButton:default:hover {{
+    background: {c["accent_hover"]};
+    border-color: {c["accent_hover"]};
+}}
+
 QPushButton:hover, QToolButton:hover {{
-    background: {colors["surface_hover"]};
-    border-color: {colors["accent"]};
+    background: {c["hover"]};
+    border-color: {c["accent"]};
 }}
 
 QPushButton:pressed, QToolButton:pressed,
 QPushButton:checked, QToolButton:checked {{
-    background: {colors["surface_pressed"]};
-    border-color: {colors["accent_active"]};
-    color: {colors["text"]};
+    background: {c["pressed"]};
+    border-color: {c["accent"]};
+    color: {c["text"]};
 }}
 
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QPlainTextEdit, QTextEdit, QListWidget,
 QTreeView, QTreeWidget, QAbstractItemView {{
-    background: {colors["surface"]};
-    border: 1px solid {colors["border"]};
-    border-radius: 6px;
-    padding: 2px 6px;
-    selection-background-color: {colors["selection"]};
+    background: {c["input"]};
+    border: 1px solid {c["border"]};
+    border-radius: 3px;
+    padding: 1px 5px;
+    selection-background-color: {c["selection"]};
+    selection-color: {c["text"]};
+}}
+
+QAbstractItemView {{
+    padding: 0;
+    gridline-color: {c["border_subtle"]};
+    alternate-background-color: {c["panel"]};
 }}
 
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus,
 QPlainTextEdit:focus, QTextEdit:focus {{
-    border-color: {colors["accent"]};
+    border-color: {c["accent"]};
 }}
 
 QPushButton:disabled, QToolButton:disabled, QLineEdit:disabled, QComboBox:disabled,
 QSpinBox:disabled, QDoubleSpinBox:disabled, QPlainTextEdit:disabled, QTextEdit:disabled {{
-    color: {colors["disabled_text"]};
-    background: {colors["disabled_bg"]};
-    border-color: {colors["border_subtle"]};
+    color: {c["disabled_text"]};
+    background: {c["disabled_bg"]};
+    border-color: {c["border_subtle"]};
+}}
+
+QComboBox {{
+    min-height: 20px;
 }}
 
 QComboBox::drop-down {{
@@ -329,8 +478,14 @@ QComboBox::down-arrow:disabled {{
     {down_off}
 }}
 
+QComboBox QAbstractItemView {{
+    background: {c["panel"]};
+    border: 1px solid {c["border"]};
+}}
+
 QSpinBox, QDoubleSpinBox {{
     padding-right: 18px;
+    min-height: 20px;
 }}
 
 QSpinBox::up-button, QDoubleSpinBox::up-button,
@@ -338,23 +493,21 @@ QSpinBox::down-button, QDoubleSpinBox::down-button {{
     subcontrol-origin: border;
     width: 16px;
     border: 0;
-    border-left: 1px solid {colors["border_subtle"]};
+    border-left: 1px solid {c["border_subtle"]};
     background: transparent;
 }}
 
 QSpinBox::up-button, QDoubleSpinBox::up-button {{
     subcontrol-position: top right;
-    border-top-right-radius: 6px;
 }}
 
 QSpinBox::down-button, QDoubleSpinBox::down-button {{
     subcontrol-position: bottom right;
-    border-bottom-right-radius: 6px;
 }}
 
 QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
 QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
-    background: {colors["surface_hover"]};
+    background: {c["hover"]};
 }}
 
 QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
@@ -380,80 +533,65 @@ QSpinBox::down-arrow:off, QDoubleSpinBox::down-arrow:off {{
 }}
 
 QProgressBar {{
-    background: {colors["surface"]};
-    border: 1px solid {colors["border"]};
-    border-radius: 6px;
+    background: {c["input"]};
+    border: 1px solid {c["border"]};
+    border-radius: 3px;
     text-align: center;
-    min-height: 16px;
+    min-height: 14px;
 }}
 
 QProgressBar::chunk {{
-    background: {colors["progress"]};
-    border-radius: 5px;
-}}
-
-QMenuBar {{
-    border-bottom: 1px solid {colors["border_subtle"]};
-}}
-
-QMenuBar::item {{
-    padding: 4px 8px;
-    margin: 1px 2px;
-    border-radius: 5px;
-}}
-
-QMenuBar::item:selected, QMenu::item:selected {{
-    background: {colors["surface_hover"]};
-}}
-
-QMenu {{
-    background: {colors["surface"]};
-    border: 1px solid {colors["border"]};
-    padding: 4px;
-}}
-
-QMenu::item {{
-    padding: 4px 18px 4px 10px;
-    border-radius: 4px;
+    background: {c["accent"]};
 }}
 
 QTabWidget::pane {{
-    border: 1px solid {colors["border"]};
-    border-radius: 8px;
+    border: 1px solid {c["border_subtle"]};
     top: -1px;
-    background: {colors["surface"]};
+    background: {c["panel"]};
 }}
 
 QTabBar::tab {{
-    background: {colors["surface_alt"]};
-    border: 1px solid {colors["border_subtle"]};
+    background: transparent;
+    color: {c["text_secondary"]};
+    border: 1px solid transparent;
     border-bottom: 0;
-    border-top-left-radius: 7px;
-    border-top-right-radius: 7px;
-    padding: 3px 10px;
-    margin-right: 2px;
-    min-height: 22px;
+    padding: 4px 12px;
+    margin-right: 1px;
+    min-height: 20px;
 }}
 
 QTabBar::tab:selected {{
-    background: {colors["surface"]};
-    border-color: {colors["border"]};
+    background: {c["panel"]};
+    color: {c["text"]};
+    border-color: {c["border_subtle"]};
+    border-top: 2px solid {c["accent"]};
     margin-bottom: -1px;
-    padding-bottom: 4px;
 }}
 
 QTabBar::tab:hover:!selected {{
-    background: {colors["surface_hover"]};
+    background: {c["hover"]};
+    color: {c["text"]};
+}}
+
+QDockWidget {{
+    titlebar-close-icon: none;
 }}
 
 QDockWidget::title {{
-    background: {colors["surface"]};
-    padding: 3px 8px;
-    border-bottom: 1px solid {colors["border_subtle"]};
+    background: {c["header"]};
+    padding: 4px 8px;
+    border-bottom: 1px solid {c["border_subtle"]};
 }}
 
 QStatusBar {{
+    background: {c["header"]};
+    border-top: 1px solid {c["border_subtle"]};
     padding: 0;
+}}
+
+QStatusBar::item {{
+    border: 0;
+    border-right: 1px solid {c["border_subtle"]};
 }}
 
 QCheckBox, QRadioButton {{
@@ -463,12 +601,12 @@ QCheckBox, QRadioButton {{
 QCheckBox::indicator, QRadioButton::indicator {{
     width: 12px;
     height: 12px;
-    border: 1px solid {colors["border"]};
-    background: {colors["surface"]};
+    border: 1px solid {c["border"]};
+    background: {c["input"]};
 }}
 
 QCheckBox::indicator {{
-    border-radius: 3px;
+    border-radius: 2px;
 }}
 
 QRadioButton::indicator {{
@@ -476,55 +614,63 @@ QRadioButton::indicator {{
 }}
 
 QCheckBox::indicator:hover, QRadioButton::indicator:hover {{
-    border-color: {colors["accent"]};
+    border-color: {c["accent"]};
 }}
 
 QCheckBox::indicator:checked {{
-    background: {colors["accent"]};
-    border-color: {colors["accent"]};
+    background: {c["accent"]};
+    border-color: {c["accent"]};
     {_image("check.svg")}
 }}
 
 QCheckBox::indicator:indeterminate {{
-    background: {colors["surface_pressed"]};
-    border-color: {colors["accent"]};
+    background: {c["pressed"]};
+    border-color: {c["accent"]};
 }}
 
 QRadioButton::indicator:checked {{
     background: qradialgradient(cx: 0.5, cy: 0.5, radius: 0.5, fx: 0.5, fy: 0.5,
-        stop: 0 {colors["text"]}, stop: 0.45 {colors["text"]},
-        stop: 0.5 {colors["accent"]}, stop: 1 {colors["accent"]});
-    border-color: {colors["accent"]};
+        stop: 0 {c["on_accent"]}, stop: 0.35 {c["on_accent"]},
+        stop: 0.45 {c["accent"]}, stop: 1 {c["accent"]});
+    border-color: {c["accent"]};
 }}
 
 QCheckBox::indicator:disabled, QRadioButton::indicator:disabled {{
-    border-color: {colors["border_subtle"]};
-    background: {colors["disabled_bg"]};
+    border-color: {c["border_subtle"]};
+    background: {c["disabled_bg"]};
 }}
 
 QCheckBox:disabled, QRadioButton:disabled, QLabel:disabled {{
-    color: {colors["disabled_text"]};
+    color: {c["disabled_text"]};
+}}
+
+QAbstractItemView::item:hover {{
+    background: {c["hover"]};
+}}
+
+QAbstractItemView::item:selected {{
+    background: {c["selection"]};
+    color: {c["text"]};
 }}
 
 QAbstractItemView::item:selected:!active {{
-    background: {colors["surface_pressed"]};
-    color: {colors["text"]};
+    background: {c["pressed"]};
+    color: {c["text"]};
 }}
 
 QToolTip {{
-    background: {colors["surface_alt"]};
-    color: {colors["text"]};
-    border: 1px solid {colors["border"]};
-    border-radius: 4px;
+    background: {c["header"]};
+    color: {c["text"]};
+    border: 1px solid {c["border"]};
     padding: 3px 6px;
 }}
 
 QSplitter::handle {{
-    background: transparent;
+    background: {c["border_subtle"]};
 }}
 
 QSplitter::handle:hover {{
-    background: {colors["border"]};
+    background: {c["accent"]};
 }}
 
 QScrollBar:vertical {{
@@ -540,8 +686,8 @@ QScrollBar:horizontal {{
 }}
 
 QScrollBar::handle:vertical, QScrollBar::handle:horizontal {{
-    background: {colors["border_subtle"]};
-    border-radius: 4px;
+    background: {c["border"]};
+    border-radius: 3px;
     margin: 2px;
 }}
 
@@ -554,7 +700,7 @@ QScrollBar::handle:horizontal {{
 }}
 
 QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover {{
-    background: {colors["border"]};
+    background: {c["text_hint"]};
 }}
 
 QScrollBar::add-line, QScrollBar::sub-line {{
@@ -570,22 +716,23 @@ QHeaderView {{
     border: 0;
     border-radius: 0;
     padding: 0;
-    background: {colors["surface_alt"]};
+    background: {c["header"]};
 }}
 
 QTableCornerButton::section {{
-    background: {colors["surface_alt"]};
+    background: {c["header"]};
     border: 0;
-    border-bottom: 1px solid {colors["border_subtle"]};
-    border-right: 1px solid {colors["border_subtle"]};
+    border-bottom: 1px solid {c["border_subtle"]};
+    border-right: 1px solid {c["border_subtle"]};
 }}
 
 QHeaderView::section {{
-    background: {colors["surface_alt"]};
+    background: {c["header"]};
     border: 0;
-    border-bottom: 1px solid {colors["border_subtle"]};
-    border-right: 1px solid {colors["border_subtle"]};
-    padding: 4px 6px;
-    color: {colors["muted"]};
+    border-bottom: 1px solid {c["border_subtle"]};
+    border-right: 1px solid {c["border_subtle"]};
+    padding: 3px 6px;
+    color: {c["text_secondary"]};
+    font-weight: 600;
 }}
 """.strip()

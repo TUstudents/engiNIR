@@ -626,24 +626,25 @@ def print_copy(fig: Figure) -> Figure:
     """A copy of a screen figure in the print colors, for figures drawn in place.
 
     Background, axes, labels and texts take :func:`print_colors`; artists drawn
-    in the screen accent color take the print accent. Data colors (images,
-    colormaps, crosshairs) are kept.
+    in a screen series colour take the print one. Images and colour maps are
+    kept.
     """
     screen, printed = panel_colors(), print_colors()
     copy = pickle.loads(pickle.dumps(fig))
     FigureCanvasAgg(copy)
     copy.set_facecolor(printed["bg"])
-    accent = to_hex(screen["accent"])
+    swap = {to_hex(screen[key]): printed[key] for key in screen
+            if key == "accent" or key.startswith("series")}
     for ax in copy.axes:
         style_axes(ax, printed)
         for text in ax.texts:
             text.set_color(printed["fg"])
         for line in ax.lines:
-            if to_hex(line.get_color()) == accent:
-                line.set_color(printed["accent"])
+            line.set_color(swap.get(to_hex(line.get_color()), line.get_color()))
         for patch in ax.patches:
-            if to_hex(patch.get_facecolor()) == accent:
-                patch.set_facecolor(printed["accent"])
+            face = to_hex(patch.get_facecolor())
+            if face in swap:
+                patch.set_facecolor(swap[face])
     _tight_layout(copy)
     return copy
 

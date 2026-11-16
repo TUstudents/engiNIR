@@ -34,7 +34,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ._plot_panel import PlotColumn, PlotSpec, PlotTable, RoiPoints, draw_placeholder
-from ._theme import secondary_text_style
+from ._theme import SERIES, secondary_text_style
 from ._ui_helpers import style_axes
 
 #: "All data files" in the Predict ROIs dialog.
@@ -220,7 +220,6 @@ class PredictMapDialog(QDialog):
 # The per-ROI results plot (viewer-workspace contract §3)
 # ----------------------------------------------------------------------
 
-_MODEL_COLORS = ("#7c8cff", "#e3a33b", "#3fb27f", "#e05d6f", "#b07cff", "#4cc3d9")
 
 
 def _rows(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -244,7 +243,7 @@ def _render_roi_results(fig: Figure, payload: Any, colors: Mapping[str, str]
     width = 0.8 / max(len(models), 1)
     points: list[RoiPoints] = []
     for m, model in enumerate(models):
-        color = _MODEL_COLORS[m % len(_MODEL_COLORS)]
+        color = colors[f"series{m % len(SERIES[False])}"]
         mine = [row for row in rows if row["model"] == model]
         x = np.array([rois.index(row["roi_id"]) + (m - (len(models) - 1) / 2) * width
                       for row in mine])

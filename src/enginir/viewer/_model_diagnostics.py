@@ -26,7 +26,7 @@ from ._plot_grid import PlotGrid, PlotPage, PlotSlot
 from ._plot_help import MODEL_PLOT_HELP
 from ._plot_panel import PlotColumn, PlotSpec, PlotTable, RoiPoints, draw_placeholder
 from ._plot_registry import PLOT_SPECS, WORKSPACE_PAGES, register_pages, register_plot
-from ._theme import GUIDE_COLOR
+from ._theme import GUIDE_COLOR, value_colormap
 from ._ui_helpers import is_band_index_axis, style_axes
 
 _EMPTY = "No fitted model diagnostics yet."
@@ -510,7 +510,7 @@ def _render_r2_q2(fig: Figure, payload: Any, colors: Mapping[str, str]) -> None:
     if r2y is not None:
         ax.plot(a, r2y, marker="o", markersize=3, color=colors["accent"], label="R²Y(cum), fit")
     if q2 is not None:
-        ax.plot(a, q2, marker="o", markersize=3, linestyle="--", color="#e3a33b",
+        ax.plot(a, q2, marker="o", markersize=3, linestyle="--", color=colors["series1"],
                 label="Q²(cum), cross-validated")
     if r2y is not None and q2 is not None:  # the gap: what the fit gains over prediction
         ax.fill_between(a, q2, r2y, color=GUIDE_COLOR, alpha=0.18, linewidth=0,
@@ -548,15 +548,15 @@ def _render_per_component(fig: Figure, payload: Any, colors: Mapping[str, str]) 
     ax.vlines(a - 0.17, 0.0, each["q2"], colors=q2_colors, linewidth=7,
               label="Q²ₐ, per ROI")
     ax.vlines(a + 0.17, 0.0, each["delta_r2x"], colors=np.where(
-        noise, GUIDE_COLOR, "#3fb27f").tolist(), linewidth=7, label="ΔR²X, per pixel")
+        noise, GUIDE_COLOR, colors["series2"]).tolist(), linewidth=7, label="ΔR²X, per pixel")
     ax.axhline(q2_limit(_n_groups(payload)), color=colors["fg"], linewidth=0.8,
                linestyle="--", label="Q² limit L")
-    ax.axhline(NOISE_R2X, color="#3fb27f", linewidth=0.7, linestyle=":",
+    ax.axhline(NOISE_R2X, color=colors["series2"], linewidth=0.7, linestyle=":",
                label="ΔR²X 1 %")
     ax.axhline(0.0, color=GUIDE_COLOR, linewidth=0.6)
     if "dw" in each:
         rough = ax.twinx()
-        rough.plot(a, each["dw"], color="#e3a33b", marker="o", markersize=3, linewidth=1.0,
+        rough.plot(a, each["dw"], color=colors["series3"], marker="o", markersize=3, linewidth=1.0,
                    label="Durbin–Watson of the weights")
         rough.set_ylabel("Durbin–Watson (0 smooth, 2 noise)", color=colors["fg"], fontsize=8)
         rough.tick_params(colors=colors["fg"], labelsize=7)
@@ -596,7 +596,7 @@ def _render_r2_pixels(fig: Figure, payload: Any, colors: Mapping[str, str]) -> N
         draw_placeholder(ax, _NO_CURVE, colors)
         return
     a = np.arange(1, curve["rmsecv"].size + 1)
-    for key, label, style, color in (("r2x_cum", "R²X(cum), spectra", ":", "#3fb27f"),
+    for key, label, style, color in (("r2x_cum", "R²X(cum), spectra", ":", colors["series2"]),
                                      ("r2y_cum", "R²Y(cum), target", "-", colors["accent"])):
         if key in curve:
             ax.plot(a, curve[key], linestyle=style, marker="o", markersize=3, color=color,
@@ -902,14 +902,13 @@ def _render_roi_distance(fig: Figure, payload: Any, colors: Mapping[str, str]
                          colors)
         return None
     dmodx, t2, reference, ids = shares
-    from matplotlib import colormaps
     from matplotlib.colors import Normalize
 
     x = np.arange(1, dmodx.size + 1, dtype=float)
     low, high = float(np.min(reference)), float(np.max(reference))
     norm = Normalize(low - 1, high + 1) if low == high else Normalize(low, high)
     width = max(2.0, min(14.0, 320.0 / dmodx.size))
-    ax.vlines(x, 0.0, dmodx * 100.0, colors=[colormaps["viridis"](norm(v)) for v in reference],
+    ax.vlines(x, 0.0, dmodx * 100.0, colors=[value_colormap(colors)(norm(v)) for v in reference],
               linewidth=width, label="DModX > limit")
     if t2 is not None:
         ax.scatter(x, t2 * 100.0, marker="D", s=18, color=colors["fg"], zorder=3,

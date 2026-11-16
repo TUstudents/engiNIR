@@ -25,7 +25,6 @@ from typing import Any
 
 import numpy as np
 import pyqtgraph as pg
-from matplotlib import colormaps
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.colors import Normalize
 from matplotlib.figure import Figure
@@ -62,7 +61,8 @@ from ._plot_panel import (
 )
 from ._plot_registry import register_plot
 from ._state import ProjectState, ViewerState, signal_label
-from ._theme import GUIDE_COLOR, panel_colors, print_colors, secondary_text_style
+from ._theme import (GUIDE_COLOR, panel_colors, print_colors, secondary_text_style,
+                     value_colormap)
 from ._ui_helpers import spectral_axis_label, style_axes
 
 logger = get_logger(__name__)
@@ -253,7 +253,7 @@ def _group_limits(patches: Mapping[str, np.ndarray], groups: Mapping[str, str] |
 def _value_color(value: float | None, norm: Normalize | None) -> tuple[int, int, int]:
     if value is None or norm is None:
         return _rgb255(GUIDE_COLOR)
-    r, g, b, _a = colormaps["viridis"](norm(value))
+    r, g, b, _a = value_colormap()(norm(value))
     return int(r * 255), int(g * 255), int(b * 255)
 
 
@@ -665,7 +665,7 @@ def _render_means(fig: Figure, payload: Any, colors: Mapping[str, str]) -> None:
         return
     values: Mapping[str, float | None] = payload.get("values", {})
     norm = value_norm(values.values())
-    cmap = colormaps["viridis"]
+    cmap = value_colormap(colors)
     x = np.asarray(payload["wavelengths"])
     predicted = set(payload.get("prediction_ids", ()))
     for roi_id, mean in means.items():
