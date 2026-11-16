@@ -14,21 +14,31 @@
   reasons. Both read the project and change nothing.
 - **A guided viewer.** The window is a desktop program in one layout for
   every step: menus hold every action (no toolbar); the **workflow strip**
-  Data › ROIs › Values › Model › Predict › Report shows where you are and
-  what is done or needs a look; a **guide bar** above the pages gives the
-  shown model's verdict or the step's next thing to do, with a button for
-  the fix; the bottom panel has **Checks** (every check with its fix),
+  Data → ROIs → Values → Model → Predict shows the order, where you are
+  and what is done; open checks show as a number in a round badge. The
+  Model page's fit summary starts with the verdict of the shown model;
+  the bottom panel has **Checks** (every check with its fix; passed checks
+  fold into one row),
   the **ROI table**, **Models** (figures of merit and verdict per model)
   and the **Log**. Built for 1920 × 1080, complete at 1536 × 864.
 - **Fit settings in a dock.** Every fit option sits in the Settings dock on
   the right instead of a dialog: **Fit Model** (F5) fits with what it
-  shows, **Load Model Settings** fills it from a model, a mark shows
-  changes since the last fit. View and Prediction settings sit in the same
+  shows and stays in view under the settings. The settings are in parts
+  that fold to a one-line summary (Data, Preprocessing, Bands, Model,
+  Validation, Fitting), show the selected model's settings until they are
+  edited, and a line says when they changed; **Load Model Settings** shows
+  the model's settings again. View and Prediction settings sit in the same
   place for their steps.
+- **Said once.** A model's fold warning is in the Checks, not also in the
+  fit summary and Properties; the figures of merit are on the Model page,
+  not also in Properties; the View settings have no Project buttons (File
+  menu). No bar above the pages repeats the first check.
+- **ROI table:** the bottom panel takes about 40 % of the window while the
+  ROI table is in front, and its rows are compact.
 - **Example project:** five synthetic tablet scans with a fitted model,
   created on first use (welcome screen, File > Open Example Project).
 - **Preferences** (Tools > Preferences): theme including follow the system,
-  interface scale for small screens, guide switches, start folders,
+  interface scale for small screens, plot help, start folders,
   defaults of the Fit and Prediction settings, export resolution, threads
   of a fit, log file level, the keyboard shortcuts.
 - **Dataset names:** Project > Name Dataset... gives a dataset a short name
@@ -40,6 +50,20 @@
 
 ### Changed
 
+- **One number format:** figures of merit (RMSECV, RMSEE, bias, R², Q²,
+  RPD) have four significant digits everywhere: the verdict sentence of
+  `Model.verdict()` (before: RMSECV with three, Q² and RPD with two
+  decimals), the Models table, the fit summary and the plots.
+- A dimensionless target unit (`1`) is no longer printed in the viewer
+  ("Layers", not "Layers (1)").
+- **Status strip:** it names what the step works on; frame, row and band
+  only on the Dataset page, the model in the Model step.
+- **Viewer details:** the project tree counts its objects and has icons;
+  Properties is a table; ROI names on the image have a plate behind them;
+  an empty plot shows its message without axes; plot headers use line
+  icons; the ROI mosaic puts its blocks beside each other in a wide view
+  and no longer cuts the labels of narrow tiles; the workflow strip names
+  the project and the model shown.
 - **New viewer palette, dark and light.** All colours come from one table
   of named colours: the orange of the engiNIR icon as the accent (current
   tab, default button, selection, image crosshair, ROI outlines), cool
@@ -50,6 +74,14 @@
 
 ### Fixed
 
+- **Model step after opening a project:** a project whose models of one
+  target use different preprocessing could show no model until one was
+  picked in the project tree. The Model step now shows the selected model,
+  else the active one, else the latest fitted, of the selected target.
+- **Project ROIs, mean spectra:** after the shown bands changed (a band
+  selection in Explore, or a fit with bands), the plot could pair the new
+  band axis with spectra still computed for the old one and log "Plot
+  table columns differ in length". It now uses the axis of its spectra.
 - Files without wavelengths no longer offer or show "nm": the spectral axis
   is the band number.
 - Opening a dataset from the Project tree shows its image; Predict names the

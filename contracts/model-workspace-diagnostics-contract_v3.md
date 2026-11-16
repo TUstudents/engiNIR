@@ -217,9 +217,12 @@ Required displayed metrics, in a *Per ROI* group:
 with `Q²`, `RMSEE`, `R²adj` and `RPD` when the run has them, and, for runs
 that store them, a *Per pixel* group with the `pixel_*` metrics (`R²`,
 `RMSECV`, `RMSEE`, `RPD`) and the pixel count. The `Predicted vs
-target value` statistics name their level (per ROI). The fit summary shows the
-fold warnings of the run (`cv_spec/@warnings`) in plain words, and its long
-values (the validation scheme, names) wrap instead of being cut off.
+target value` statistics name their level (per ROI). The fold
+warnings of the run (`cv_spec/@warnings`) are shown in plain words as
+checks of the model (`model.validation.<code>`: the Checks tab;
+engiNIR 1.6, no longer a line of the fit summary), and the long values of
+the fit summary (the validation scheme, names) wrap instead of being cut
+off.
 
 Metric definitions in v3:
 

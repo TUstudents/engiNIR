@@ -234,3 +234,13 @@ the method file of 2.0 in mind.
   `1.6.0rc1` after Phase 4.
 - **Q5 Review part A defects:** folded into 1.6 (Phase 7); no 1.5.3.
 - **Q6 Docks:** fixed positions, resizable and collapsible, not floating.
+
+## Changes after the first walkthrough (user, 2026-11-16)
+
+- The workflow strip has arrows between its steps, no step numbers, and the
+  open checks of a step in a round badge.
+- No Report step: the report is not defined yet (a 2.0 feature with the
+  method file). Exporting plots stays a menu item.
+- No guide bar: it repeated the Checks tab and cost height. The verdict is
+  the first line of the Model page's fit summary.
+- The ROI table gets about 40 % of the window while it is the front tab.

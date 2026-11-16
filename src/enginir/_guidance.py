@@ -43,6 +43,15 @@ RPD_GOOD, RPD_MIN = 2.5, 1.5
 Q2_GOOD, Q2_MIN = 0.8, 0.5
 
 
+def figure_text(value: float) -> str:
+    """A figure of merit as text: four significant digits (terminology contract, numbers).
+
+    One rule for RMSECV, RMSEE, bias, R², Q² and RPD, wherever they are
+    shown: the verdict, the Models table, the fit summary, the plots.
+    """
+    return f"{float(value):.4g}"
+
+
 @dataclass(frozen=True)
 class Fix:
     """An action that resolves a check: a name, a button label and its arguments."""
@@ -141,16 +150,17 @@ def model_verdict(model: Model) -> Verdict:
         if rpd < RPD_MIN or q2 < Q2_MIN:
             level = "not_usable"
             reasons.append(f"the cross-validated error is close to the spread of the values "
-                           f"(RPD {rpd:.2f}, Q² {q2:.2f})")
+                           f"(RPD {figure_text(rpd)}, Q² {figure_text(q2)})")
         elif rpd < RPD_GOOD or q2 < Q2_GOOD:
             level = "usable_with_care"
-            reasons.append(f"RPD {rpd:.2f} and Q² {q2:.2f} are below {RPD_GOOD} and {Q2_GOOD}")
+            reasons.append(f"RPD {figure_text(rpd)} and Q² {figure_text(q2)} are below "
+                           f"{RPD_GOOD} and {Q2_GOOD}")
     if open_checks and level == "good":
         level = "usable_with_care"
     reasons.extend(_reason(check) for check in open_checks)
     unit = "" if model.target.unit in ("", "1") else f" {model.target.unit}"
-    figures = [] if "rmsecv" not in metrics else [f"RMSECV {float(metrics['rmsecv']):.3g}{unit}"]
-    figures += [f"{name} {value:.2f}" for name, value in (("Q²", q2), ("RPD", rpd))
+    figures = [] if "rmsecv" not in metrics else [f"RMSECV {figure_text(metrics['rmsecv'])}{unit}"]
+    figures += [f"{name} {figure_text(value)}" for name, value in (("Q²", q2), ("RPD", rpd))
                 if value is not None]
     label = {"good": "Good", "usable_with_care": "Usable with care",
              "not_usable": "Not usable"}[level]

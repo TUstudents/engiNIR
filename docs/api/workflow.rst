@@ -67,6 +67,8 @@ project and change nothing.
 
 .. autofunction:: enginir._guidance.project_checks
 .. autofunction:: enginir._guidance.model_checks
+
+.. autofunction:: enginir._guidance.figure_text
 .. autofunction:: enginir._guidance.model_verdict
 
 Shared rules

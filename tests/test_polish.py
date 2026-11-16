@@ -1,0 +1,268 @@
+"""Polish of the 1.6 window after the design review: plots and details (groups 3 and 4)."""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from enginir._example import create_example_project
+from enginir._guidance import figure_text
+from enginir.viewer._app import ensure_app
+
+
+@pytest.fixture(scope="module")
+def qapp():
+    return ensure_app()
+
+
+@pytest.fixture(scope="module")
+def example(tmp_path_factory):
+    return create_example_project(tmp_path_factory.mktemp("example"))
+
+
+@pytest.fixture()
+def window(qapp, example):
+    from enginir.viewer import open_project
+
+    window = open_project(example)
+    window.resize(1536, 864)
+    window.show()
+    qapp.processEvents()
+    window.refresh_checks()
+    yield window
+    window.close()
+
+
+def _wait_until(qapp, predicate, timeout=20.0):
+    import time
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        qapp.processEvents()
+        if predicate():
+            return
+        time.sleep(0.01)
+    raise AssertionError("condition not reached")
+
+
+def _roi(roi_id, dataset_id, frames, rows):
+    from tests.test_project_rois import _roi as make
+
+    return make(roi_id, dataset_id, frames, rows)
+
+
+def test_the_mosaic_puts_blocks_side_by_side_in_a_wide_view_and_widens_label_columns():
+    from enginir.viewer._project_rois import GRID, mosaic_layout
+
+    rois = [_roi(f"{d}{i}", d, (10 * i, 10 * i + 5), (0, 19)) for d in "abcd" for i in range(5)]
+    names = {d: f"{d}.h5" for d in "abcd"}
+    stacked = mosaic_layout(rois, names, GRID)
+    assert len({x for _d, _n, x, _y, _w in stacked.headers}) == 1, "one column by default"
+
+    wide = mosaic_layout(rois, names, GRID, aspect=3.0)
+    columns = sorted({x for _d, _n, x, _y, _w in wide.headers})
+    assert len(columns) > 1, "blocks beside each other fill a wide view"
+    assert [name for _d, name, _x, _y, _w in wide.headers] == ["a.h5", "b.h5", "c.h5", "d.h5"]
+    for _d, _n, x, _y, width in wide.headers:  # no block reaches into its neighbour
+        later = [c for c in columns if c > x]
+        assert not later or x + width < later[0]
+    tall = mosaic_layout(rois, names, GRID, aspect=0.3)
+    assert len({x for _d, _n, x, _y, _w in tall.headers}) == 1
+
+    def pitch(layout):
+        return layout.places["a1"][0] - layout.places["a0"][0]
+
+    labelled = mosaic_layout(rois, names, GRID, label_chars=10)
+    assert pitch(labelled) > pitch(stacked), "room for the label under a narrow tile"
+    assert pitch(mosaic_layout(rois, names, GRID, label_chars=200)) \
+        == pitch(mosaic_layout(rois, names, GRID, label_chars=14)), "long labels are cut"
+
+
+def test_the_mosaic_shows_whole_tile_labels_for_narrow_tiles(qapp, window):
+    window.show_step("rois")
+    mosaic = window._project_rois.mosaic
+    _wait_until(qapp, lambda: mosaic._label_items)
+    shown = {roi_id: item.text() for roi_id, item in mosaic._label_items.items()}
+    assert shown and all("…" not in text for text in shown.values()), shown
+    assert all(text == mosaic.label_text(roi_id) for roi_id, text in shown.items())
+
+
+def test_a_dimensionless_unit_is_not_printed(qapp, window):
+    from enginir.viewer._ui_helpers import with_unit
+
+    assert (with_unit("API", "%"), with_unit("Layers", "1"), with_unit("Layers", "")) \
+        == ("API (%)", "Layers", "Layers")
+    form = window._modeling_view.fit_form
+    assert form._target_combo.currentText() == "Layers"  # the example's unit is "1"
+    assert window._modeling_view.workspace_summary()["target"] == "Layers"
+
+
+def test_an_empty_plot_shows_its_message_without_axes():
+    from matplotlib.figure import Figure
+
+    from enginir.viewer._plot_panel import draw_placeholder
+    from enginir.viewer._theme import panel_colors
+
+    ax = Figure().add_subplot(111)
+    draw_placeholder(ax, "Select an ROI to see the spread of its pixels.", panel_colors())
+    assert not ax.axison and [text.get_text() for text in ax.texts] \
+        == ["Select an ROI to see the spread of its pixels."]
+
+
+def test_roi_names_on_the_image_have_a_plate_and_plot_headers_have_icons(qapp, window):
+    from PyQt6.QtWidgets import QToolButton
+
+    window.show_step("data")
+    dataset_id = sorted(window.project_state.datasets)[0]
+    window.show_dataset(dataset_id)
+    window.wait_for_data_file()
+    qapp.processEvents()
+    entries = list(window._canvas._roi_item_map.values())
+    assert entries and all(entry.text.fill.color().alpha() > 150 for entry in entries), \
+        "a name is readable on a bright image"
+    buttons = [button for button in window._canvas_frame._header.findChildren(QToolButton)
+               if button.property("icon_name")]  # not the frame's own "Reset View"
+    assert len(buttons) >= 2, "maximize, export"
+    for button in buttons:
+        assert not button.icon().isNull() and button.text() == "", button.property("icon_name")
+    frame = window._canvas_frame
+    frame.set_maximized(True)
+    assert frame._max_button.property("icon_name") == "arrows-minimize"
+    frame.set_maximized(False)
+
+
+def test_the_strip_shows_order_badges_and_names_project_and_model(qapp, window):
+    from PyQt6.QtWidgets import QLabel
+
+    from enginir.viewer._workflow_strip import STEPS
+
+    strip = window._workflow
+    assert [step.key for step in STEPS] == ["data", "rois", "values", "model", "predict"], \
+        "no Report step before there is a report"
+    arrows = [label for label in strip.findChildren(QLabel)
+              if label.objectName() == "WorkflowArrow"]
+    assert len(arrows) == len(STEPS) - 1, "an arrow between the steps: their order"
+    assert [strip.button(step.key).text() for step in STEPS] \
+        == ["Data", "ROIs", "Values", "Model", "Predict"], "no numbers, no counts"
+    state, count = strip.state("model")
+    button = strip.button("model")
+    assert state == "open" and button.badge_text() == str(count)
+    assert "open check" in button.toolTip(), "what the number is"
+    badge = button.findChild(QLabel)
+    assert badge.isVisibleTo(window) and button.rect().contains(badge.geometry())
+    assert strip.context() == "engiNIR example.h5   ·   Model: PLS 2 LV, SNV"
+
+
+def test_the_roi_table_gets_more_height_while_it_is_in_front(qapp, window):
+    window.show_step("rois")
+    _wait_until(qapp, lambda: not window._roi_table_in_front()
+                and window._checks_dock.height() < 0.3 * window.height())
+    low = window._checks_dock.height()
+    window.show_step("values")  # the Values step brings the ROI table to the front
+    _wait_until(qapp, lambda: window._roi_table_in_front()
+                and window._roi_table_dock.height() >= 0.38 * window.height())
+    view = window._roi_table.view
+    rows = view.viewport().height() // view.rowHeight(0)
+    assert rows >= 10, f"only {rows} ROIs in view"
+    window.show_step("model")  # the next step gets its page's height back
+    _wait_until(qapp, lambda: not window._roi_table_in_front()
+                and window._checks_dock.height() <= low + 2)
+
+
+def test_the_status_strip_follows_the_step(qapp, window):
+    window.show_step("data")
+    window.show_dataset(sorted(window.project_state.datasets)[0])
+    window.wait_for_data_file()
+    qapp.processEvents()
+    assert "Frame: " in window._status_label.text() and "Band: " in window._status_label.text()
+    window.show_step("rois")
+    qapp.processEvents()
+    text = window._status_label.text()
+    assert "Dataset: " in text and "Frame" not in text, "no cursor on the Project ROIs page"
+    window.show_step("model")
+    qapp.processEvents()
+    assert window._status_label.text() == ("Project: engiNIR example.h5 | Model: PLS 2 LV, SNV"
+                                           " | Target: Layers | Calibration set: 20 ROIs, SNV")
+
+
+def test_the_project_tree_counts_and_properties_are_a_table_with_plain_text(qapp, window):
+    browser = window._project_browser
+    texts = [browser.topLevelItem(i).text(0) for i in range(browser.topLevelItemCount())]
+    assert texts[:3] == ["Datasets (5)", "Reference corrections (5)", "ROIs (25)"]
+    assert texts[-1] == "Predictions", "nothing to count"
+    body = window._inspector.body_label
+    body.setText("Target: Layers\nA sentence that runs on for a while before: its colon.\nNote")
+    assert body.text().startswith("Target: Layers\n"), "tests and copies read the lines"
+    from PyQt6.QtWidgets import QLabel
+
+    rendered = QLabel.text(body)  # what the label displays
+    assert "<table" in rendered and rendered.count("<tr>") == 3
+    assert rendered.count('colspan="2"') == 2, "only 'Target' is a key"
+
+
+def test_one_number_format_for_the_figures_of_merit(qapp, window):
+    from enginir import Project
+    from enginir._workflow import Model
+
+    assert (figure_text(1.10724), figure_text(0.89104), figure_text(12345.6)) \
+        == ("1.107", "0.891", "1.235e+04")
+    project = Project.open(window.project_state.project_path)
+    run = next(iter(window.project_state.model_runs.values()))
+    verdict = Model(project, run).verdict()
+    metrics = run.metrics
+    for key in ("rmsecv", "r2", "rpd"):
+        assert figure_text(metrics[key]) in verdict.summary, key
+    summary = window._modeling_view.workspace_summary()
+    assert summary["rmsecv"] == figure_text(metrics["rmsecv"])
+    table = window._models_panel.table
+    shown = [table.item(0, column).data(0) for column in (3, 4, 5)]
+    assert shown == [float(figure_text(metrics[key])) for key in ("rmsecv", "r2", "rpd")]
+    assert np.isfinite(shown).all()
+
+
+def test_icons_and_properties_take_the_colours_of_a_new_theme(qapp, window):
+    from PyQt6.QtWidgets import QLabel
+
+    from enginir.viewer._theme import TOKENS, is_dark
+
+    was_dark = is_dark()
+    body = window._inspector.body_label
+    body.setText("Target: Layers")
+    section = window._project_browser.topLevelItem(0)
+
+    def tree_icon():
+        return section.icon(0).pixmap(16, 16).toImage()
+
+    try:
+        window._set_theme_mode(True)
+        qapp.processEvents()
+        dark_icon = tree_icon()
+        assert TOKENS[True]["text_secondary"] in QLabel.text(body)
+        window._set_theme_mode(False)
+        qapp.processEvents()
+        assert TOKENS[False]["text_secondary"] in QLabel.text(body), "the keys' colour"
+        assert tree_icon() != dark_icon, "the icon is drawn again in the light theme's colour"
+    finally:
+        window._set_theme_mode(was_dark)
+
+
+def test_the_fit_form_takes_only_what_changed_in_the_explore_preview(qapp, window):
+    """Opening a dataset switches the preview's signal unit; that must not replace the
+    shown model's preprocessing (SNV) by the preview's (none)."""
+    view = window._modeling_view
+    form = view.fit_form
+    assert form._snv.isChecked() and not view.fit_settings_changed(), "the model's settings"
+    assert not window.state.preprocess_snv
+
+    window.show_step("data")
+    window.show_dataset(sorted(window.project_state.datasets)[0])
+    window.wait_for_data_file()
+    qapp.processEvents()
+    assert form._snv.isChecked() and not view.fit_settings_changed()
+
+    window.state.set_preprocess_filter("sg_d1")  # an edit of the preview
+    qapp.processEvents()
+    assert form._filter_combo.currentData() == "sg_d1", "the changed setting follows"
+    assert form._snv.isChecked(), "the others stay"
+    assert view.fit_settings_changed()
+    window.state.set_preprocess_filter("none")

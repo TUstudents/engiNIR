@@ -142,7 +142,9 @@ def test_the_strip_opens_each_step_and_shows_the_open_checks(qapp, layers):
         assert expected == {"values": 1}, "the typing error of ROI high3"
         assert strip.state("values") == ("open", 1)
         assert strip.state("data")[0] == "done" and strip.state("rois")[0] == "done"
-        assert "1" in strip.button("values").text()
+        assert strip.button("values").text() == "Values", "no count in the name"
+        assert strip.button("values").badge_text() == "1", "the open checks, in a badge"
+        assert strip.button("data").badge_text() == ""
         assert window._checks_dock.windowTitle() == "Checks (1)"
     finally:
         window.close()
@@ -286,18 +288,22 @@ def test_the_example_project_is_created_once_and_opens_with_a_model(qapp, tmp_pa
         window.close()
 
 
-def test_the_guide_bar_shows_the_verdict_or_the_steps_next_check(qapp, layers):
+def test_no_bar_repeats_the_checks_and_the_fit_summary_gives_the_verdict(qapp, layers):
+    """The Checks tab says what a step needs (no bar above the pages repeats its first
+    line); the Fit summary has the library's verdict of the model shown."""
     from enginir._workflow import Model
 
     window = _open(qapp, layers)
     try:
-        bar = window._guide_bar
+        assert window.centralWidget() is window._workspace_content_stack, "no bar above"
         window.show_step("values")
         qapp.processEvents()
-        (check,) = [c for c in layers.checks() if c.check_id == "values.differ_within_sample"]
-        assert bar.isVisible() and bar.text.text() == check.message and bar.level == "open"
-        assert bar.fix.isVisible() and bar.fix.text() == "Go to ROI"
-        bar.fix.click()
+        checks = window._checks_panel.checks()
+        row = next(i for i, c in enumerate(checks)
+                   if c.check_id == "values.differ_within_sample")
+        button = window._checks_panel.fix_button(row)
+        assert button is not None and button.text() == "Go to ROI"
+        button.click()
         assert window._selected_roi_id() == layers.roi("high3").roi_id
 
         window.show_step("predict")
@@ -310,6 +316,179 @@ def test_the_guide_bar_shows_the_verdict_or_the_steps_next_check(qapp, layers):
         window.select_model(run.model_run_id)
         qapp.processEvents()
         verdict = Model(Project.open(layers.path), run).verdict()
-        assert bar.text.text() == verdict.summary and bar.level == verdict.level
+        words = {"good": "Good", "usable_with_care": "Usable with care",
+                 "not_usable": "Not usable"}[verdict.level]
+        assert window._model_verdict_value.text() == words
+        assert window._model_verdict_value.toolTip() == verdict.summary
+        assert window._model_verdict_value.isVisibleTo(window)
     finally:
         window.close()
+
+
+# -- polish after the design review (repetition, Fit settings form) -------------------------
+
+
+def test_passed_checks_fold_into_one_row_that_unfolds(qapp, layers):
+    window = _open(qapp, layers)
+    try:
+        panel = window._checks_panel
+        checks = panel.checks()
+        passed = [check for check in checks if check.severity == "ok"]
+        others = [check for check in checks if check.severity != "ok"]
+        assert len(passed) >= 2 and others, "the fixture has open and passed checks"
+        assert panel.passed_folded()
+        assert panel.row_checks() == [*others, None], "open checks first, then one row"
+        item = panel.table.item(len(others), 1)
+        assert item is not None and item.text() == f"{len(passed)} checks passed"
+        panel.table.cellDoubleClicked.emit(len(others), 1)
+        assert panel.row_checks() == [*others, None, *passed]
+        window.refresh_checks()
+        assert not panel.passed_folded(), "a refresh keeps them unfolded"
+    finally:
+        window.close()
+
+
+def test_the_fold_warning_of_a_model_is_said_once_on_the_model_page(qapp, layers):
+    """In the Checks tab; not again above the page, in the fit summary or in Properties."""
+    from PyQt6.QtWidgets import QLabel
+
+    window = _open(qapp, layers)
+    try:
+        _fit(qapp, window, group_by="roi")
+        window.show_step("model")
+        qapp.processEvents()
+        window._refresh_workspace_content_pages()
+        form = window._modeling_view.fit_form
+        said = [label for label in window.findChildren(QLabel)
+                if "likely optimistic" in label.text() and label.isVisibleTo(window)]
+        assert said == [], "the Checks tab says it"
+        form._components_spin.setValue(2)  # other settings: the form warns before the fit
+        assert "likely optimistic" in form._fold_warning_label.text()
+        assert form._fold_warning_label.isVisibleTo(window)
+        assert any("likely optimistic" in check.message
+                   for check in window._checks_panel.checks())
+        assert "RMSECV" not in window._inspector.body_label.text(), \
+            "the metrics are on the page, not again in Properties"
+    finally:
+        window.close()
+
+
+def test_the_fit_form_shows_the_selected_model_until_it_is_edited(qapp, layers):
+    window = _open(qapp, layers)
+    try:
+        view = window._modeling_view
+        form = view.fit_form
+        one = _fit(qapp, window, n_components=1)
+        form._snv.setChecked(True)
+        two = _fit(qapp, window, n_components=2)
+        assert form._components_spin.value() == 2 and form._snv.isChecked()
+
+        view.select_model_run(one.model_run_id)
+        assert (form._components_spin.value(), form._snv.isChecked()) == (1, False)
+        assert not view.fit_settings_changed()
+        assert view._fit_changed_label.text() == "Settings of 'PLS 1 LV, raw'"
+
+        form._components_spin.setValue(3)  # an edit stays when another model is selected
+        view.select_model_run(two.model_run_id)
+        assert form._components_spin.value() == 3 and view.fit_settings_changed()
+        assert view._fit_changed_label.text().startswith("● Changed since the last fit")
+        view._btn_fit_again.click()  # Load Model Settings discards the edit
+        assert (form._components_spin.value(), form._snv.isChecked()) == (2, True)
+    finally:
+        window.close()
+
+
+def test_a_fit_uses_the_forms_preprocessing_when_its_bands_differ_from_explore(qapp, layers):
+    """Showing the fit's bands in Explore changes the preview; that must not put the
+    preview's other preprocessing into the form or the fit."""
+    window = _open(qapp, layers)
+    try:
+        form = window._modeling_view.fit_form
+        form._snv.setChecked(True)  # the Explore preview has no SNV
+        form._keep_edit.setText("1100-1500")
+        run = _fit(qapp, window)
+        state = window.project_state
+        recipe = state.recipes[state.sample_sets[run.sample_set_id].preprocessing_recipe_id]
+        assert recipe["snv"] is True and recipe["bands_keep"]
+        assert form._snv.isChecked() and not window._modeling_view.fit_settings_changed()
+        assert window.state.bands_keep, "Explore shows the bands of the fit"
+    finally:
+        window.close()
+    reopened = _open(qapp, Project.open(layers.path))  # an opened project shows its model
+    try:
+        form = reopened._modeling_view.fit_form
+        assert form._snv.isChecked() and form._keep_edit.text() == "1100-1500"
+        assert not reopened._modeling_view.fit_settings_changed()
+        assert not reopened.state.preprocess_snv, "the Explore preview stays as it was"
+    finally:
+        reopened.close()
+
+
+def test_the_fit_form_folds_and_keeps_fit_model_in_view(qapp, layers):
+    from PyQt6.QtWidgets import QScrollArea
+
+    window = _open(qapp, layers)
+    try:
+        window.resize(1536, 864)
+        view = window._modeling_view
+        form = view.fit_form
+        window.show_step("model")
+        qapp.processEvents()
+        assert [form.section(key).expanded for key in
+                ("data", "preprocessing", "bands", "model", "validation", "fitting")] \
+            == [True, True, False, True, True, False]
+        assert form.section("bands").summary == "all bands"
+        form._keep_edit.setText("1100-1500")
+        form._exclude_check.setChecked(True)
+        assert form.section("bands").summary == "keep 1100-1500"
+        assert "DModX exclusion at 0.99" in form.section("fitting").summary
+        assert not form._keep_edit.isVisibleTo(window)
+        form.section("bands").header.click()
+        assert form._keep_edit.isVisibleTo(window)
+
+        scroll = window._controls_dock.findChild(QScrollArea)
+        button = view._btn_fit_model
+        assert button.isVisibleTo(window) and not scroll.isAncestorOf(button), \
+            "under the scrolling settings, never scrolled away"
+        for hidden in (view._btn_target, view.target_status_label, view._sample_set_status):
+            assert not hidden.isVisibleTo(window), "the form's Target row says it"
+        window.show_step("rois")
+        qapp.processEvents()
+        assert not button.isVisibleTo(window)
+        window.show_step("model")  # Qt centres a shown dialog; the embedded form stays put
+        qapp.processEvents()
+        assert view.rect().contains(form.geometry()), form.geometry()
+    finally:
+        window.close()
+
+
+def test_a_reopened_project_shows_its_latest_model_whatever_its_preprocessing(qapp, layers):
+    """Two models of one target with different preprocessing have two calibration sets;
+    the Model step shows the latest (no model is selected or active yet), not none.
+    A model of another target is still not shown for the chosen target."""
+    window = _open(qapp, layers)
+    try:
+        _fit(qapp, window, n_components=1)
+        window._modeling_view.fit_form._snv.setChecked(True)
+        latest = _fit(qapp, window, n_components=2)
+    finally:
+        window.close()
+    project = Project.open(layers.path)
+    other = project.add_target("Other", unit="%")
+    reopened = _open(qapp, project)
+    try:
+        view = reopened._modeling_view
+        assert reopened.project_state.active_model_name is None and \
+            view._selected_model_run_id is None
+        shown = view._resolved_workspace_model_run()
+        assert shown is not None and shown.model_run_id == latest.model_run_id
+        reopened.show_step("model")
+        qapp.processEvents()
+        assert reopened._model_verdict_level in ("good", "usable_with_care", "not_usable"), \
+            "the verdict of the model shown"
+        assert view.fit_form._snv.isChecked() and view.fit_form._components_spin.value() == 2
+
+        view.selected_target_id = other.ref.target_id if hasattr(other, "ref") else other.target_id
+        assert view._resolved_workspace_model_run() is None, "no model of this target"
+    finally:
+        reopened.close()

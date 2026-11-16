@@ -206,7 +206,8 @@ class FalseColourCanvas(QWidget):
         )
         for handle in rect.getHandles():
             rect.removeHandle(handle)
-        text = pg.TextItem(text=label, color=self._roi_color(selected=is_selected), anchor=(0, 0))
+        text = pg.TextItem(text=label, color=self._roi_color(selected=is_selected),
+                           anchor=(0, 0), fill=self._label_fill())
         text.setPos(f0, r0)
         self._plot.addItem(rect)
         self._plot.addItem(text)
@@ -238,7 +239,8 @@ class FalseColourCanvas(QWidget):
             self._plot.addItem(rect)
             self._grid_preview_items.append(rect)
             if style == Qt.PenStyle.SolidLine:
-                text = pg.TextItem(text=cell.name, color=color, anchor=(0, 0))
+                text = pg.TextItem(text=cell.name, color=color, anchor=(0, 0),
+                                   fill=self._label_fill())
                 text.setPos(f0, r0)
                 self._plot.addItem(text)
                 self._grid_preview_items.append(text)
@@ -320,6 +322,9 @@ class FalseColourCanvas(QWidget):
     def restyle_theme(self) -> None:
         """Apply the current app theme to the pyqtgraph canvas chrome."""
         colors = panel_colors()
+        for roi_id, entry in self._roi_item_map.items():
+            entry.text.fill = pg.mkBrush(self._label_fill())
+            entry.text.setColor(self._roi_color(selected=roi_id == self._selected_roi_id))
         self._gw.setBackground(colors["bg"])
         self._plot.setLabel("bottom", "Frame", color=colors["fg"])
         self._plot.setLabel("left", "Row", color=colors["fg"])
@@ -508,6 +513,13 @@ class FalseColourCanvas(QWidget):
 
     def _roi_pen(self, *, selected: bool) -> pg.QtGui.QPen:
         return pg.mkPen(color=self._roi_color(selected=selected), width=2.0 if selected else 1.5)
+
+    @staticmethod
+    def _label_fill() -> QColor:
+        """The plate behind an ROI name: readable on any image (bright trays, false colour)."""
+        fill = QColor(tokens()["window"])
+        fill.setAlpha(215)
+        return fill
 
     def _roi_color(self, *, selected: bool) -> str:
         """ROI outlines in the accent, the selected one in the attention colour."""

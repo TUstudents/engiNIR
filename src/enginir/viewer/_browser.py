@@ -5,10 +5,17 @@ from __future__ import annotations
 from pathlib import Path
 
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QEvent, Qt, QTimer
 from PyQt6.QtWidgets import QFrame, QSizePolicy, QTreeWidget, QTreeWidgetItem, QWidget
 
+from ._icons import icon
 from ._state import ProjectState, signal_label
+
+#: The icon of each section of the project tree.
+_SECTION_ICONS = {"datasets": "database", "calibrations": "adjustments-horizontal",
+                  "rois": "grid-dots", "targets": "target",
+                  "target_assignments": "list-details", "model_runs": "chart-dots",
+                  "predictions": "map"}
 
 __all__ = ["ProjectBrowser"]
 
@@ -49,7 +56,7 @@ class ProjectBrowser(QTreeWidget):
         self.setHeaderHidden(True)
         self.setRootIsDecorated(True)
         self.setUniformRowHeights(True)
-        self.setIndentation(10)
+        self.setIndentation(14)
         self.setMinimumWidth(260)
         self.setMaximumWidth(260)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
@@ -103,12 +110,33 @@ class ProjectBrowser(QTreeWidget):
         self._populate_target_assignments()
         self._populate_model_runs()
         self._populate_predictions()
+        self._label_sections()
 
         item = self._item_for_payload(selected_payload)
         if item is not None:
             self.setCurrentItem(item)
             return
         self.setCurrentItem(None)
+
+    def _label_sections(self) -> None:
+        """Each section with the number of its objects and its icon (in the theme's colour)."""
+        state = self.project_state
+        counts = {"datasets": len(state.datasets), "calibrations": len(state.calibrations),
+                  "rois": len(state.rois), "targets": len(state.targets),
+                  "target_assignments": len(state.target_assignments),
+                  "model_runs": len(state.model_runs), "predictions": len(state.predictions)}
+        for key, label in self._SECTION_ORDER:
+            section = self._sections[key]
+            section.setText(0, f"{label} ({counts[key]})" if counts[key] else label)
+            section.setIcon(0, icon(_SECTION_ICONS[key]))
+
+    def changeEvent(self, event: QEvent | None) -> None:  # noqa: N802 (Qt API)
+        """The section icons follow the theme."""
+        super().changeEvent(event)
+        sections = getattr(self, "_sections", None)  # not yet during construction
+        if event is not None and event.type() == QEvent.Type.PaletteChange and sections:
+            for key, _label in self._SECTION_ORDER:
+                sections[key].setIcon(0, icon(_SECTION_ICONS[key]))
 
     def select_payload(self, payload: dict[str, str] | None) -> None:
         """Select one section or leaf item by payload."""

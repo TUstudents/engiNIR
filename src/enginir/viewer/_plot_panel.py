@@ -27,7 +27,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.colors import to_hex
 from matplotlib.figure import Figure
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QGuiApplication, QImage, QMouseEvent, QShowEvent
 from PyQt6.QtWidgets import (
     QFileDialog,
@@ -45,6 +45,7 @@ from PyQt6.QtWidgets import (
 from .. import __version__
 from .._checks import log_and_raise
 from .._logging import get_logger
+from ._icons import icon
 from ._theme import panel_colors, print_colors
 from ._ui_helpers import style_axes
 
@@ -190,7 +191,11 @@ class PlotSpec:
 
 
 def draw_placeholder(ax: Axes, message: str, colors: Mapping[str, str]) -> None:
-    """Write an empty-state message in the middle of ``ax``."""
+    """Write an empty-state message in the middle of ``ax``, without axes.
+
+    Empty axes from 0 to 1 behind the message look like a plot without data.
+    """
+    ax.set_axis_off()
     ax.text(0.5, 0.5, message, transform=ax.transAxes, ha="center", va="center",
             color=colors["fg"], fontsize=8, wrap=True)
 
@@ -287,7 +292,7 @@ class PlotFrame(QWidget):
         self._header_layout.setSpacing(2)
         self._title = _ElidedLabel(title)
         self._title.setStyleSheet("font-weight: 600;")
-        self._max_button = self._header_button("")
+        self._max_button = self._header_button("arrows-maximize")
         self._max_button.clicked.connect(self.maximize_toggled.emit)
         self._menu = QMenu(self)
         self._menu.setToolTipsVisible(True)
@@ -296,7 +301,7 @@ class PlotFrame(QWidget):
         self._svg_action = self._add_action("Save SVG...", lambda: self._save_image(".svg"))
         self._csv_action = self._add_action("Export CSV...", self._save_csv)
         self._copy_action = self._add_action("Copy image", self._copy_image)
-        menu_button = self._header_button("⋯")
+        menu_button = self._header_button("dots")
         menu_button.setToolTip("Export")
         menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu_button.setMenu(self._menu)
@@ -304,7 +309,7 @@ class PlotFrame(QWidget):
         self._header_layout.addWidget(self._title, 1)
         self._help_button: QToolButton | None = None
         if help_text:
-            self._help_button = self._header_button("?")
+            self._help_button = self._header_button("help")
             self._help_button.setToolTip(help_text)
             self._help_button.clicked.connect(self.show_help)
             self._header_layout.addWidget(self._help_button)
@@ -363,19 +368,31 @@ class PlotFrame(QWidget):
 
     def add_close_button(self, close: Callable[[], None]) -> None:
         """Add a close control (for a frame used as a dock title bar)."""
-        button = self._header_button("×")
+        button = self._header_button("x")
         button.setToolTip("Close")
         button.clicked.connect(lambda _checked=False: close())
         self._header_layout.addWidget(button)
 
-    def _header_button(self, text: str) -> QToolButton:
+    def _header_button(self, icon_name: str) -> QToolButton:
+        """A header control with a line icon in the theme's colour."""
         button = QToolButton()
         button.setAutoRaise(True)
-        button.setText(text)
+        button.setProperty("icon_name", icon_name)
+        button.setIcon(icon(icon_name))
+        button.setIconSize(QSize(_HEADER_BUTTON - 6, _HEADER_BUTTON - 6))
         button.setFixedSize(_HEADER_BUTTON, _HEADER_BUTTON)
         button.setStyleSheet("QToolButton { padding: 0px; margin: 0px; }"
                              "QToolButton::menu-indicator { image: none; width: 0px; }")
         return button
+
+    def changeEvent(self, a0: QEvent | None) -> None:  # noqa: N802 (Qt API)
+        """The header icons follow the theme."""
+        super().changeEvent(a0)
+        if a0 is not None and a0.type() == QEvent.Type.PaletteChange:
+            for button in self._header.findChildren(QToolButton):
+                name = button.property("icon_name")
+                if name:
+                    button.setIcon(icon(str(name)))
 
     @property
     def is_maximized(self) -> bool:
@@ -384,7 +401,9 @@ class PlotFrame(QWidget):
     def set_maximized(self, maximized: bool) -> None:
         """Show the maximize or the restore control (the owner does the layout)."""
         self._maximized = maximized
-        self._max_button.setText("⤡" if maximized else "⤢")
+        name = "arrows-minimize" if maximized else "arrows-maximize"
+        self._max_button.setProperty("icon_name", name)
+        self._max_button.setIcon(icon(name))
         self._max_button.setToolTip("Restore (Esc)" if maximized else "Maximize")
 
     # ------------------------------------------------------------------

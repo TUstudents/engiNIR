@@ -461,8 +461,8 @@ def test_every_control_row_fits_in_the_controls_dock(qapp, trays):
     window = _open(qapp, project)
     try:
         _settle(qapp, window._project_rois)
-        scroll = window._controls_dock.widget()
-        assert isinstance(scroll, QScrollArea)
+        scroll = window._controls_dock.findChild(QScrollArea)
+        assert scroll is not None
         content, viewport = scroll.widget(), scroll.viewport()
         assert content is not None and viewport is not None
         for page in (window._eda_view, window._modeling_view, window._prediction_view):

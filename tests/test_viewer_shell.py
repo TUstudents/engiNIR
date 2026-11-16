@@ -377,7 +377,8 @@ def test_project_browser_selection_syncs_inspector_and_canvas(qapp, cube_and_wav
 
     assert isinstance(viewer._project_browser, QTreeWidget)
     sections = {
-        viewer._project_browser.topLevelItem(i).text(0): viewer._project_browser.topLevelItem(i)
+        viewer._project_browser.topLevelItem(i).text(0).split(" (")[0]:
+            viewer._project_browser.topLevelItem(i)
         for i in range(viewer._project_browser.topLevelItemCount())
     }
     roi_item = sections["ROIs"].child(1)

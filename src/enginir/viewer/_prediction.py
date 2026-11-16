@@ -899,7 +899,8 @@ class PredictionView(QWidget):
         layout.addLayout(button_row)
 
         exclusion_row = FlowLayout()
-        self._exclusion_check = QCheckBox("Exclude pixels above the DModXPS limit")
+        # Two lines: one line is wider than the Settings column on a laptop screen.
+        self._exclusion_check = QCheckBox("Exclude pixels above the\nDModXPS limit")
         self._exclusion_check.setToolTip(
             "Leave pixels outside the model (glare, exposed substrate, direct reflections) "
             "out of every ROI statistic; recalculated without predicting again")
@@ -940,18 +941,19 @@ class PredictionView(QWidget):
                                      "the calibration set), or your own limits (one scale over "
                                      "a series of trays); values outside get their own colors")
         self._colour_low, self._colour_high = QDoubleSpinBox(), QDoubleSpinBox()
-        for spin, prefix in ((self._colour_low, "low "), (self._colour_high, "high ")):
+        for spin in (self._colour_low, self._colour_high):
             spin.setRange(-1e6, 1e6)
             spin.setDecimals(3)
-            spin.setPrefix(prefix)
             spin.setEnabled(False)
             spin.valueChanged.connect(self._on_display_changed)
         self._colour_mode.currentIndexChanged.connect(self._on_colour_mode_changed)
         grid.addWidget(QLabel("Color scale"), 0, 0)
         grid.addWidget(self._colour_mode, 0, 1, 1, 2)
-        grid.addWidget(QLabel("Limits"), 1, 0)
-        grid.addWidget(self._colour_low, 1, 1)
-        grid.addWidget(self._colour_high, 1, 2)
+        # One field per row: both in one row cut their numbers in the narrow column.
+        grid.addWidget(QLabel("Low limit"), 1, 0)
+        grid.addWidget(self._colour_low, 1, 1, 1, 2)
+        grid.addWidget(QLabel("High limit"), 2, 0)
+        grid.addWidget(self._colour_high, 2, 1, 1, 2)
         self._show_outlines = QCheckBox("ROI outlines")
         self._show_outlines.setToolTip("Outline the prediction ROIs on the map, with their mean")
         self._grey_removed = QCheckBox("Gray excluded pixels")
@@ -960,9 +962,9 @@ class PredictionView(QWidget):
         for check in (self._show_outlines, self._grey_removed):
             check.setChecked(True)
             check.toggled.connect(self._on_display_changed)
-        grid.addWidget(QLabel("Map"), 2, 0)
-        grid.addWidget(self._show_outlines, 2, 1)
-        grid.addWidget(self._grey_removed, 3, 1, 1, 2)
+        grid.addWidget(QLabel("Map"), 3, 0)
+        grid.addWidget(self._show_outlines, 3, 1, 1, 2)
+        grid.addWidget(self._grey_removed, 4, 1, 1, 2)
         self._histogram_source = QComboBox()
         self._histogram_source.addItem("ROI pixels", "rois")
         self._histogram_source.addItem("Whole map", "map")
@@ -970,8 +972,8 @@ class PredictionView(QWidget):
                                           "prediction ROIs (when there are ROI results), or "
                                           "every pixel of the shown map")
         self._histogram_source.currentIndexChanged.connect(self._on_display_changed)
-        grid.addWidget(QLabel("Histogram"), 4, 0)
-        grid.addWidget(self._histogram_source, 4, 1, 1, 2)
+        grid.addWidget(QLabel("Histogram"), 5, 0)
+        grid.addWidget(self._histogram_source, 5, 1, 1, 2)
         grid.setColumnStretch(1, 1)
         grid.setColumnStretch(2, 1)
         return grid

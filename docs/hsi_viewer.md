@@ -68,10 +68,10 @@ values:
 ```
 ┌────────────────────────────────────────────────────────────────────┐
 │ Menus: File Edit View Project ROI Model Predict Tools Help         │
-│ Workflow: Data › ROIs › Values › Model › Predict › Report          │
+│ Workflow: Data → ROIs → Values → Model → Predict                   │
 ├──────────────┬────────────────────────────────┬─────────┬──────────┤
-│ Project      │ Guide bar (verdict / next step)│ Sensor /│ Settings │
-│ (tree)       │ Workspace pages                │ Spatial │ View/Fit/│
+│ Project      │ Workspace pages                │ Sensor /│ Settings │
+│ (tree)       │                                │ Spatial │ View/Fit/│
 ├──────────────┤ Explore / Model / Predict      │ (Data   │Prediction│
 │ Properties   │                                │  step)  │ settings │
 ├──────────────┴────────────────────────────────┴─────────┴──────────┤
@@ -243,15 +243,12 @@ When no dataset is attached, Explore keeps the shell open in explicit
 project-only mode: the canvas and plot docks show `No dataset attached`
 empty states and ROI creation stays disabled until a real dataset is attached.
 
-### Project group
+### Project
 
-| Button | Action |
-|---|---|
-| **New** | Create a new empty HDF5 project file |
-| **Open** | Load an existing project (warns if ROI source files don't match the current cube) |
-
-The status label below the buttons shows the project filename and ROI count.
-The project group also shows an autosave hint because project-backed changes
+**File > New Project...** creates an empty HDF5 project file and **File >
+Open Project...** loads one (it warns if ROI source files don't match the
+current cube). The View settings have no project buttons: the menus hold
+them, and the status strip names the open project. Project-backed changes
 are persisted eagerly as they are made.
 All persisted calibration ROIs in the open project are drawn as magenta rectangles
 on the false-color canvas.
@@ -315,7 +312,11 @@ obvious.
 |---|---|
 | **Target...** | Select one existing target or define a new target |
 | **Target Values...** | Open the ROI table on the selected target: type, clear or paste the values of all ROIs |
-| **Fit Model** | One dialog: target, signal unit, preprocessing (prefilled from the Explore preview), model, components, validation, and the labeled ROIs per dataset; stores the grouped v3 `ModelRun` |
+| **Fit Model** | Fits with the Fit settings (Data, Preprocessing, Bands, Model, Validation, Fitting; foldable parts in the Settings dock); stores the grouped v3 `ModelRun` |
+| **Load Model Settings** | Shows the selected model's settings in the Fit settings again, discarding edits |
+
+In the window, **Target...** and **Target Values...** are menu items (Model
+menu); the Fit settings choose the target in their Data part.
 
 The Modeling section operates from project state. The Fit settings find the
 calibration set of all ROIs with a value for the target (`resolve_sample_set`,

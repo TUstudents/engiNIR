@@ -249,7 +249,7 @@ def test_the_verdict_follows_its_thresholds_and_the_open_checks(tmp_path):
     assert level(rpd=2.0, r2=0.49) == "not_usable"
 
     good = _with_metrics(model, rpd=4.0, r2=0.94, rmsecv=0.25).verdict()
-    assert good.summary == "Good. RMSECV 0.25 %, Q² 0.94, RPD 4.00."
+    assert good.summary == "Good. RMSECV 0.25 %, Q² 0.94, RPD 4."
     assert good.reasons == () and good.evidence == tuple(model.checks())
 
     # An open check takes a model with good figures down one level, never to "not usable".
@@ -261,7 +261,7 @@ def test_the_verdict_follows_its_thresholds_and_the_open_checks(tmp_path):
     # A model that is not usable says why first, not what else is open.
     poor = _with_metrics(model, rpd=1.2, r2=0.3).verdict()
     assert poor.level == "not_usable" and len(poor.reasons) == 2
-    assert poor.summary.endswith("(RPD 1.20, Q² 0.30).")
+    assert poor.summary.endswith("(RPD 1.2, Q² 0.3).")
 
 
 def test_checks_and_verdicts_change_nothing(tmp_path):

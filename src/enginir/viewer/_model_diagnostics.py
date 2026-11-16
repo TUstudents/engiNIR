@@ -121,7 +121,7 @@ def _unit(payload: Mapping[str, Any]) -> str:
 
 
 def _suffix(unit: str) -> str:
-    return f" ({unit})" if unit else ""
+    return f" ({unit})" if unit not in ("", "1") else ""  # "1": dimensionless
 
 
 #: Up to this many distinct reference values are counted per value, not binned.
@@ -178,7 +178,7 @@ def _render_pred_vs_ref(fig: Figure, payload: Any, colors: Mapping[str, str]
                     (("rmsee", "RMSEE (per ROI)", value_unit), ("r2_adj", "$R^2_{adj}$", ""))
                     if key in statistics)
     ax.text(0.03, 0.97,
-            f"per ROI\n$Q^2$ (CV $R^2$) = {r2_score(y_true, y_pred):.4f}"
+            f"per ROI\n$Q^2$ (CV $R^2$) = {r2_score(y_true, y_pred):.4g}"
             f"\nRMSECV (per ROI) = {rmsecv(y_true, y_pred):.4g}"
             f"{value_unit}\nBias = {bias(y_true, y_pred):.4g}{value_unit}{extra}",
             transform=ax.transAxes, ha="left", va="top", fontsize=8, color=colors["fg"])

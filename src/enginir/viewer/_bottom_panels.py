@@ -12,7 +12,6 @@ from typing import Any
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
-    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -35,6 +34,8 @@ STEP_LABELS = {"data": "Data", "rois": "ROIs", "values": "Values", "model": "Mod
 _SEVERITY_ICONS = {"ok": ("circle-check", "ok"), "info": ("info-circle", "text_secondary"),
                    "attention": ("alert-triangle", "attention"),
                    "blocking": ("circle-x", "error")}
+#: From this many passed checks on, they fold into one row.
+_FOLD_PASSED_FROM = 2
 _VERDICT_TEXT = {"good": "Good", "usable_with_care": "Usable with care",
                  "not_usable": "Not usable"}
 _VERDICT_ICONS = {"good": ("circle-check", "ok"), "usable_with_care": ("alert-triangle",
@@ -57,6 +58,17 @@ def _table(columns: list[str]) -> QTableWidget:
     return table
 
 
+def _fix_button(label: str) -> QPushButton:
+    """A small outlined button in a table row; wide enough for its label (the style
+    sheet's padding is not in the size hint a table column is fitted to)."""
+    button = QPushButton(label)
+    button.setObjectName("FixButton")
+    button.setFlat(True)
+    button.setCursor(Qt.CursorShape.PointingHandCursor)
+    button.setMinimumWidth(button.fontMetrics().horizontalAdvance(label) + 22)
+    return button
+
+
 class ChecksPanel(QWidget):
     """Every check of the project: severity, sentence, where, and a fix button."""
 
@@ -68,9 +80,14 @@ class ChecksPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._checks: list[Check] = []
+        self._names: dict[str, str] = {}
+        self._rows: list[Check | None] = []
+        self._fold_row: int | None = None
+        self._show_passed = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.table = _table(["", "Check", "Where", "Fix"])
+        self.table.setObjectName("ChecksTable")
         header = self.table.horizontalHeader()
         if header is not None:
             header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
@@ -82,20 +99,52 @@ class ChecksPanel(QWidget):
         layout.addWidget(self.table)
 
     def checks(self) -> list[Check]:
-        """The checks shown, open ones first, then in workflow order."""
+        """Every check of the panel, open ones first, then in workflow order."""
         return list(self._checks)
+
+    def row_checks(self) -> list[Check | None]:
+        """The check of every table row (``None``: the row of the folded passed checks)."""
+        return list(self._rows)
 
     def open_count(self) -> int:
         """The number of checks that ask for an action."""
         return sum(1 for check in self._checks if check.is_open)
 
     def set_checks(self, checks: list[Check], names: dict[str, str] | None = None) -> None:
-        """Show ``checks``; ``names`` maps model ids to names for the Where column."""
-        names = names or {}
+        """Show ``checks``; ``names`` maps model ids to names for the Where column.
+
+        Two or more passed checks fold into one row ("4 checks passed") that
+        unfolds with its button, so the open ones are not pushed out of a
+        low panel.
+        """
         rank = {"blocking": 0, "attention": 1, "info": 2, "ok": 3}
         self._checks = sorted(checks, key=lambda check: rank.get(check.severity, 4))
-        self.table.setRowCount(len(self._checks))
-        for row, check in enumerate(self._checks):
+        self._names = dict(names or {})
+        self._fill()
+
+    def passed_folded(self) -> bool:
+        """Whether the passed checks are shown as one row."""
+        return self._fold_row is not None and not self._show_passed
+
+    def set_passed_shown(self, shown: bool) -> None:
+        """Unfold (or fold) the passed checks."""
+        if shown != self._show_passed:
+            self._show_passed = shown
+            self._fill()
+
+    def _fill(self) -> None:
+        passed = [check for check in self._checks if check.severity == "ok"]
+        others = [check for check in self._checks if check.severity != "ok"]
+        fold = len(passed) >= _FOLD_PASSED_FROM
+        #: The check of every table row; ``None`` for the "passed" row.
+        self._rows: list[Check | None] = [*others, *([None] if fold else []),
+                                          *(passed if self._show_passed or not fold else [])]
+        self._fold_row = len(others) if fold else None
+        self.table.setRowCount(len(self._rows))
+        for row, check in enumerate(self._rows):
+            if check is None:
+                self._fill_fold_row(row, len(passed))
+                continue
             name, color = _SEVERITY_ICONS.get(check.severity, ("info-circle", None))
             mark = QTableWidgetItem(icon(name, color), "")
             mark.setToolTip(check.severity.capitalize())
@@ -104,20 +153,32 @@ class ChecksPanel(QWidget):
             text.setToolTip(check.message)
             self.table.setItem(row, 1, text)
             where = STEP_LABELS.get(check.step, check.step)
-            if check.model_run_id in names:
-                where += f" › {names[check.model_run_id]}"
+            if check.model_run_id in self._names:
+                where += f" › {self._names[check.model_run_id]}"
             self.table.setItem(row, 2, QTableWidgetItem(where))
             self.table.setCellWidget(row, 3, self._fix_button(check.fix))
+
+    def _fill_fold_row(self, row: int, count: int) -> None:
+        name, color = _SEVERITY_ICONS["ok"]
+        self.table.setItem(row, 0, QTableWidgetItem(icon(name, color), ""))
+        self.table.setItem(row, 1, QTableWidgetItem(f"{count} checks passed"))
+        self.table.setItem(row, 2, QTableWidgetItem(""))
+        holder = QWidget()
+        layout = QHBoxLayout(holder)
+        layout.setContentsMargins(4, 0, 4, 0)
+        button = _fix_button("Hide" if self._show_passed else "Show")
+        button.clicked.connect(lambda _checked=False: self.set_passed_shown(
+            not self._show_passed))
+        layout.addWidget(button)
+        layout.addStretch(1)
+        self.table.setCellWidget(row, 3, holder)
 
     def _fix_button(self, fix: Fix | None) -> QWidget:
         holder = QWidget()
         layout = QHBoxLayout(holder)
         layout.setContentsMargins(4, 0, 4, 0)
         if fix is not None:
-            button = QPushButton(fix.label)
-            button.setObjectName("FixButton")
-            button.setFlat(True)
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button = _fix_button(fix.label)
             button.clicked.connect(lambda _checked=False, fix=fix: self.fix_requested.emit(fix))
             layout.addWidget(button)
         layout.addStretch(1)
@@ -129,8 +190,13 @@ class ChecksPanel(QWidget):
         return None if holder is None else holder.findChild(QPushButton)
 
     def _activated(self, row: int, _column: int) -> None:
-        if 0 <= row < len(self._checks):
-            self.check_activated.emit(self._checks[row])
+        if not 0 <= row < len(self._rows):
+            return
+        check = self._rows[row]
+        if check is None:  # the "passed" row unfolds
+            self.set_passed_shown(not self._show_passed)
+        else:
+            self.check_activated.emit(check)
 
 
 class ModelsPanel(QWidget):
@@ -174,9 +240,9 @@ class ModelsPanel(QWidget):
                 QTableWidgetItem(row["name"]),
                 QTableWidgetItem(row.get("type", "")),
                 _number_item(row.get("components")),
-                _number_item(metrics.get("rmsecv"), 3),
-                _number_item(metrics.get("r2"), 3),
-                _number_item(metrics.get("rpd"), 2),
+                _number_item(metrics.get("rmsecv"), 4),
+                _number_item(metrics.get("r2"), 4),
+                _number_item(metrics.get("rpd"), 4),
                 QTableWidgetItem(row.get("validation", "")),
                 QTableWidgetItem(""),
                 QTableWidgetItem(row.get("fitted", "")),
@@ -209,88 +275,15 @@ def _number_item(value: Any, digits: int | None = None) -> QTableWidgetItem:
     except (TypeError, ValueError):
         item.setText("–")
         return item
+    # A number, so the column sorts by value; figures of merit with ``digits``
+    # significant digits (the rule of ``figure_text``).
     item.setData(Qt.ItemDataRole.DisplayRole, int(number) if digits is None else
-                 round(number, digits))
+                 float(f"{number:.{digits}g}"))
     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
     return item
 
 
-class GuideBar(QFrame):
-    """One line above the pages: the model's verdict or the step's next action, with its fix.
-
-    Shows what :meth:`enginir.Project.checks` and :meth:`Model.verdict`
-    return; it words nothing of its own beyond the empty states.
-    """
-
-    #: The fix button was pressed.
-    fix_requested = pyqtSignal(object)
-    #: "Show All Checks" was pressed.
-    checks_requested = pyqtSignal()
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setObjectName("VerdictBar")
-        self.setFrameShape(QFrame.Shape.NoFrame)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 5, 8, 5)
-        layout.setSpacing(8)
-        self._icon = QLabel()
-        self._icon.setFixedWidth(18)
-        layout.addWidget(self._icon)
-        self.text = QLabel("")
-        self.text.setWordWrap(True)
-        self.text.setTextFormat(Qt.TextFormat.PlainText)
-        layout.addWidget(self.text, 1)
-        self._checks = QPushButton("Show All Checks")
-        self._checks.clicked.connect(self.checks_requested.emit)
-        layout.addWidget(self._checks)
-        self.fix = QPushButton("")
-        self.fix.setDefault(True)
-        self.fix.clicked.connect(self._fix_clicked)
-        layout.addWidget(self.fix)
-        self._fix: Fix | None = None
-        self._level = ""
-
-    @property
-    def level(self) -> str:
-        """``good``, ``usable_with_care``, ``not_usable``, ``open``, ``ok`` or ``""``."""
-        return self._level
-
-    def show_verdict(self, verdict: Verdict) -> None:
-        """A model's verdict, with the fix of its first open check."""
-        fix = next((check.fix for check in verdict.evidence
-                    if check.is_open and check.fix is not None), None)
-        name, color = _VERDICT_ICONS[verdict.level]
-        self._set(verdict.level, verdict.summary, fix, name, color)
-
-    def show_check(self, check: Check | None, empty_text: str = "") -> None:
-        """The first open check of a step (``None``: ``empty_text``, or hidden)."""
-        if check is None:
-            if empty_text:
-                self._set("ok", empty_text, None, "circle-check", "ok")
-            else:
-                self.hide()
-            return
-        name, color = _SEVERITY_ICONS.get(check.severity, ("info-circle", None))
-        self._set("open" if check.is_open else check.severity, check.message, check.fix,
-                  name, color)
-
-    def _set(self, level: str, text: str, fix: Fix | None, icon_name: str,
-             color: str | None) -> None:
-        self._level = level
-        self.setProperty("level", level)
-        style = self.style()
-        if style is not None:
-            style.unpolish(self)
-            style.polish(self)
-        self._icon.setPixmap(icon(icon_name, color).pixmap(16, 16))
-        self.text.setText(text)
-        self._fix = fix
-        self.fix.setVisible(fix is not None)
-        if fix is not None:
-            self.fix.setText(fix.label)
-        self.show()
-
-    def _fix_clicked(self) -> None:
-        if self._fix is not None:
-            self.fix_requested.emit(self._fix)
+def verdict_mark(level: str) -> tuple[Any, str]:
+    """The icon and the words of a verdict level (``good``: a tick and "Good")."""
+    name, color = _VERDICT_ICONS[level]
+    return icon(name, color), _VERDICT_TEXT[level]

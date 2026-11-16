@@ -34,7 +34,7 @@ def test_preferences_round_trip_and_tolerate_a_damaged_file():
 
 
 def test_the_dialog_shows_and_returns_every_preference(qapp):
-    values = prefs.Preferences(theme="system", interface_scale=0.9, guide_bar=False,
+    values = prefs.Preferences(theme="system", interface_scale=0.9,
                                raise_checks=False, plot_help=False, project_folder="/p",
                                dataset_folder="/d", model_type="PCR", n_components=4,
                                auto_components=True, hold_out="target", x_scaling="uv",
@@ -75,7 +75,7 @@ def test_the_window_applies_preferences(qapp, tmp_path, monkeypatch):
     from enginir.viewer import open_project
 
     prefs.save(prefs.Preferences(n_components=3, hold_out="sample", exclude_dmodx=True,
-                                 dmodx_level=0.95, guide_bar=False, plot_help=False))
+                                 dmodx_level=0.95, plot_help=False))
     cube = np.full((6, 4, 8), 2000, dtype=np.uint16)
     save_hdf5(str(tmp_path / "scan.h5"), cube, np.linspace(1000, 1600, 8))
     project = Project.create(tmp_path / "p.h5")
@@ -87,18 +87,15 @@ def test_the_window_applies_preferences(qapp, tmp_path, monkeypatch):
         assert form._group_by_combo.currentData() == "sample"
         assert window._prediction_view._exclusion_check.isChecked()
         assert window._prediction_view._exclusion_level.value() == pytest.approx(0.95)
-        window.refresh_checks()
-        assert window._guide_bar.isHidden()
         helps = [frame._help_button for frame in window.findChildren(type(window._canvas_frame))
                  if getattr(frame, "_help_button", None) is not None]
         assert all(button.isHidden() for button in helps)
 
-        accepted = prefs.Preferences(guide_bar=True)
+        accepted = prefs.Preferences(plot_help=True)
         monkeypatch.setattr(prefs.PreferencesDialog, "exec", lambda self: 1)
         monkeypatch.setattr(prefs.PreferencesDialog, "values", lambda self: accepted)
         assert window.edit_preferences()
         assert prefs.load() == accepted
-        window.refresh_checks()
-        assert not window._guide_bar.isHidden()
+        assert not any(button.isHidden() for button in helps)
     finally:
         window.close()

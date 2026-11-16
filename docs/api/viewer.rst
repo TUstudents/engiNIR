@@ -37,23 +37,23 @@ shown in a message box. ``--install-shortcut`` (``--desktop``) and
 Window shell and guidance
 -------------------------
 
-The workflow strip, the bottom panels and the guide bar show what
+The workflow strip, the bottom panels and the verdict line of the fit summary show what
 :meth:`enginir.Project.checks` and :meth:`enginir._workflow.Model.verdict`
 return. ``HSIViewer.run_fix`` runs the fix a check offers;
 ``HSIViewer.refresh_checks`` recomputes them (after every project change,
 debounced).
 
 .. autoclass:: enginir.viewer._workflow_strip.WorkflowStrip
-   :members: step_clicked, set_current, set_states, state
+   :members: step_clicked, set_current, set_states, state, set_context
 
 .. autoclass:: enginir.viewer._bottom_panels.ChecksPanel
-   :members: fix_requested, check_activated, set_checks, checks, open_count
+   :members: fix_requested, check_activated, set_checks, checks, row_checks, open_count,
+      passed_folded, set_passed_shown
 
 .. autoclass:: enginir.viewer._bottom_panels.ModelsPanel
    :members: model_selected, set_models
 
-.. autoclass:: enginir.viewer._bottom_panels.GuideBar
-   :members: show_verdict, show_check
+.. autofunction:: enginir.viewer._bottom_panels.verdict_mark
 
 Preferences
 -----------
@@ -149,7 +149,10 @@ Modeling view
 
 .. autoclass:: enginir.viewer._modeling.FitModelRunDialog
    :members: target_id, recipe, set_recipe, model_type, n_components, signal_unit, cv,
-      group_by, hyperparameters, fit_spec, apply_model_run
+      group_by, hyperparameters, fit_spec, apply_model_run, embed, section
+
+.. autoclass:: enginir.viewer._ui_helpers.CollapsibleSection
+   :members: toggled, set_expanded, set_summary
 
 Band ranges
 -----------

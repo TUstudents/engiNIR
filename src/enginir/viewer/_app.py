@@ -114,7 +114,8 @@ class _DialogCentering(QObject):
         if a1 is None:
             return False
         kind = a1.type()
-        if kind == QEvent.Type.Show and isinstance(a0, QDialog):
+        if kind == QEvent.Type.Show and isinstance(a0, QDialog) and a0.isWindow():
+            # Only windows: the Fit settings form is a dialog class embedded in the dock.
             centre_dialog(a0)
         elif kind == QEvent.Type.Hide and self.release_combo_popups \
                 and isinstance(a0, QWidget) and _is_combo_popup(a0):

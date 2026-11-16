@@ -54,13 +54,13 @@ from ._inspector import ProjectInspector
 from ._data_files import AddDataFileDialog
 from ._project_rois import ProjectRoisView
 from ._roi_table import RoiTableWidget
-from ._bottom_panels import ChecksPanel, GuideBar, ModelsPanel
+from ._bottom_panels import ChecksPanel, ModelsPanel, verdict_mark
 from ._icons import icon
 from ._workflow_strip import WorkflowStrip
 from . import _preferences as preferences_store
 from ._preferences import Preferences, PreferencesDialog
 from .._guidance import Check, Fix
-from ._jobs import BusyStatusWidget, start_background_job
+from ._jobs import start_background_job
 from ._loading import ViewerBusyContext
 from ._model_diagnostics import ModelDiagnosticsWidget
 from . import _layout_settings as layout_settings
@@ -97,6 +97,9 @@ _CONTROLS_DOCK_TARGET_HEIGHT = 230
 #: class (plan gui-1.6, D4): "full" from 1800 px wide, "compact" below.
 _SETTINGS_DOCK_WIDTH = {"full": 340, "compact": 304}
 _BOTTOM_PANEL_HEIGHT = {"full": 200, "compact": 160}
+#: The share of the window's height the bottom panel takes while the ROI table is its
+#: front tab: a table of all ROIs needs more rows than a list of checks.
+_ROI_TABLE_HEIGHT_SHARE = 0.42
 _FULL_WIDTH = 1800
 #: Settings dock title per workspace (plan gui-1.6, the window).
 _SETTINGS_TITLES = ("View settings", "Fit settings", "Prediction settings")
@@ -396,16 +399,9 @@ class HSIViewer(QMainWindow):
         self._workspace_content_stack.addWidget(self._explore_content_page)
         self._workspace_content_stack.addWidget(self._model_content_page)
         self._workspace_content_stack.addWidget(self._predict_content_page)
-        # Above every page: the verdict or the next step with its fix (plan gui-1.6, Phase 5).
-        self._guide_bar = GuideBar()
-        self._guide_bar.hide()
-        central = QWidget()
-        central_column = QVBoxLayout(central)
-        central_column.setContentsMargins(0, 0, 0, 0)
-        central_column.setSpacing(0)
-        central_column.addWidget(self._guide_bar)
-        central_column.addWidget(self._workspace_content_stack, 1)
-        self.setCentralWidget(central)
+        # No bar above the pages: the Checks tab says what a step needs, and a bar
+        # repeating its first line only cost height (user decision, 2026-11-16).
+        self.setCentralWidget(self._workspace_content_stack)
 
         self._refresh_canvas_image()
 
@@ -494,6 +490,18 @@ class HSIViewer(QMainWindow):
         for label in (self._model_card_target_value, self._model_card_sample_set_value,
                       self._model_card_model_value, self._model_card_cv_value):
             label.setWordWrap(True)  # long values wrap instead of being cut off
+        # The library's verdict of the model shown (the Checks tab has the reasons).
+        verdict_row = QWidget()
+        verdict_layout = QHBoxLayout(verdict_row)
+        verdict_layout.setContentsMargins(0, 0, 0, 0)
+        verdict_layout.setSpacing(5)
+        self._model_verdict_icon = QLabel()
+        self._model_verdict_value = QLabel("–")
+        self._model_verdict_value.setObjectName("VerdictText")
+        verdict_layout.addWidget(self._model_verdict_icon)
+        verdict_layout.addWidget(self._model_verdict_value, 1)
+        self._model_verdict_level = ""
+        summary_layout.addRow("Verdict", verdict_row)
         summary_layout.addRow("Target", self._model_card_target_value)
         summary_layout.addRow("Calibration set", self._model_card_sample_set_value)
         summary_layout.addRow("Model", self._model_card_model_value)
@@ -520,9 +528,6 @@ class HSIViewer(QMainWindow):
         self._model_metric_rmsecv_value = QLabel("-")
         self._model_metric_bias_value = QLabel("-")
         self._model_metric_rows: list[str] = []
-        self._model_warnings = QLabel("")
-        self._model_warnings.setWordWrap(True)
-        self._model_warnings.setVisible(False)
 
         readiness_box = QGroupBox("Readiness")
         # The guide bar above the page says what is ready and what to do next.
@@ -533,14 +538,11 @@ class HSIViewer(QMainWindow):
         self._model_readiness_body = QLabel("Ready: define or select a target.")
         self._model_readiness_body.setWordWrap(True)
         readiness_layout.addWidget(self._model_readiness_body)
-        self._model_summary_service = BusyStatusWidget(idle_text="Service: idle", parent=page)
 
         layout.addWidget(self._model_content_title)
-        text_layout.addWidget(self._model_summary_service)
         text_layout.addWidget(summary_box)
         text_layout.addWidget(metrics_box)
         text_layout.addWidget(pixel_box)
-        text_layout.addWidget(self._model_warnings)
         text_layout.addWidget(readiness_box)
         text_layout.addStretch(1)
 
@@ -807,6 +809,10 @@ class HSIViewer(QMainWindow):
         self._default_roi_table_visibility = {"data_file": True, "project_rois": True}
         self._roi_table_visibility = dict(self._default_roi_table_visibility)
         self._roi_table_dock.visibilityChanged.connect(self._on_roi_table_visibility_changed)
+        # Taller while the table is the front tab, back to the panel's height after.
+        # (A bound method, not a lambda: Qt disconnects it when the window is destroyed;
+        # a lambda was called for a closing window and crashed.)
+        self._roi_table_dock.visibilityChanged.connect(self._schedule_bottom_dock_resize)
 
         #: Docks that show the data file at the cursor: only on Explore's Data file tab.
         self._data_file_docks = {"histogram": self._hist_dock, "raw": self._dc3_dock,
@@ -954,8 +960,6 @@ class HSIViewer(QMainWindow):
             parent=self,
         )
 
-        self._project_status = self._eda_view.project_status_label
-        self._target_status = self._modeling_view.target_status_label
 
         # The workspaces: Explore, Model, Predict. The workflow strip switches
         # them, so the tab bar is hidden (plan gui-1.6, Phase 3).
@@ -987,12 +991,29 @@ class HSIViewer(QMainWindow):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._controls_dock = QDockWidget(_SETTINGS_TITLES[0], self)
         self._controls_dock.setObjectName("SettingsDock")
-        self._controls_dock.setWidget(scroll)
+        column = QWidget()
+        column_layout = QVBoxLayout(column)
+        column_layout.setContentsMargins(0, 0, 0, 0)
+        column_layout.setSpacing(0)
+        column_layout.addWidget(scroll, 1)
+        # Fit Model stays in view under the scrolling settings (Model step only).
+        self._fit_footer = self._modeling_view.take_fit_footer()
+        if self._fit_footer is not None:
+            column_layout.addWidget(self._fit_footer)
+            self._fit_footer.setVisible(False)
+            self._workspace_tabs.currentChanged.connect(self._sync_fit_footer)
+        self._controls_dock.setWidget(column)
         self._configure_controls_dock_height()
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._controls_dock)
         # The Settings column is the outermost on the right, beside the data-file plots.
         self.splitDockWidget(self._sensor_dock, self._controls_dock, Qt.Orientation.Horizontal)
         self._refresh_workspace_content_pages()
+
+    def _sync_fit_footer(self, *_args: Any) -> None:
+        """The Fit Model row shows with the Model step."""
+        if self._fit_footer is not None:
+            self._fit_footer.setVisible(
+                self._workspace_tabs.currentWidget() is self._modeling_view)
 
     def _build_log_panel(self) -> None:
         """The bottom panel: Checks, ROI table, Models and Log as tabs (plan gui-1.6)."""
@@ -1071,14 +1092,22 @@ class HSIViewer(QMainWindow):
         self._canvas.set_crosshair(self.state.frame, self.state.row)
 
     def _update_status_strip(self, *_args) -> None:
+        """What the shown step works on; the cursor position only where there is a cursor."""
         project_label = "none"
         if self.project_state.project_path:
             project_label = os.path.basename(self.project_state.project_path)
         tabs = getattr(self, "_workspace_tabs", None)
-        if tabs is not None and tabs.currentWidget() is self._prediction_view:
+        current = None if tabs is None else tabs.currentWidget()
+        if tabs is not None and current is self._prediction_view:
             # Predict: what the shown map is (the hover readout replaces it on the map).
             self._status_label.setText(
                 f"Project: {project_label} | {self._prediction_view.status_text()}")
+            return
+        if tabs is not None and current is self._modeling_view:
+            summary = self._modeling_view.workspace_summary()
+            self._status_label.setText(
+                f"Project: {project_label} | Model: {summary['model']} | "
+                f"Target: {summary['target']} | Calibration set: {summary['sample_set']}")
             return
 
         dataset_label = "none"
@@ -1086,18 +1115,15 @@ class HSIViewer(QMainWindow):
             shown = self._eda_view.shown_dataset_id()
             dataset_label = (self.project_state.data_file_label(shown) if shown is not None
                              else os.path.basename(self._cube_path))
-
-        frame_label = "-" if not self.state.has_dataset else str(self.state.frame)
-        row_label = "-" if not self.state.has_dataset else str(self.state.row)
-        band_label = "-" if not self.state.has_dataset else str(self.state.band)
-        self._status_label.setText(
-            f"Project: {project_label} | "
-            f"Dataset: {dataset_label} | "
-            f"Signal: {signal_label(self.state.y_unit_effective)} | "
-            f"Frame: {frame_label} | "
-            f"Row: {row_label} | "
-            f"Band: {band_label}"
-        )
+        parts = [f"Project: {project_label}", f"Dataset: {dataset_label}",
+                 f"Signal: {signal_label(self.state.y_unit_effective)}"]
+        if not hasattr(self, "_explore_tabs") or self._on_data_file_page():
+            # Frame, row and band are the crosshair of the dataset's image.
+            has = self.state.has_dataset
+            parts += [f"Frame: {self.state.frame if has else '-'}",
+                      f"Row: {self.state.row if has else '-'}",
+                      f"Band: {self.state.band if has else '-'}"]
+        self._status_label.setText(" | ".join(parts))
 
     # ------------------------------------------------------------------
     # Signal wiring
@@ -1349,7 +1375,7 @@ class HSIViewer(QMainWindow):
 
     def _on_workspace_tab_changed(self, _index: int) -> None:
         self._sync_workflow_step()
-        self._refresh_guide()
+        self._refresh_context()
         self._update_status_strip()
         self._sync_workspace_content_host()
         self._refresh_workspace_content_pages()
@@ -1380,11 +1406,19 @@ class HSIViewer(QMainWindow):
         self._restore_bottom_dock_sizes()
         self._schedule_bottom_dock_resize()
 
-    def _schedule_bottom_dock_resize(self) -> None:
+    def _schedule_bottom_dock_resize(self, *_args: Any) -> None:
         if self._bottom_dock_resize_pending:
             return
         self._bottom_dock_resize_pending = True
         QTimer.singleShot(0, self._restore_bottom_dock_sizes)
+
+    def _roi_table_in_front(self) -> bool:
+        """Whether the ROI table is the front tab of the bottom panel.
+
+        ``isVisible`` is true for a dock behind another tab too; a widget that
+        is really on screen has a visible region.
+        """
+        return not self._roi_table.visibleRegion().isEmpty()
 
     def _restore_bottom_dock_sizes(self) -> None:
         """The bottom panel's height and the Settings width for the window's size class."""
@@ -1393,8 +1427,12 @@ class HSIViewer(QMainWindow):
             return
         size = self.size_class()
         self._configure_controls_dock_height()
-        self.resizeDocks([self._checks_dock], [_BOTTOM_PANEL_HEIGHT[size]],
-                         Qt.Orientation.Vertical)
+        height = _BOTTOM_PANEL_HEIGHT[size]
+        front = self._checks_dock
+        if self._roi_table_in_front():
+            height = max(height, int(_ROI_TABLE_HEIGHT_SHARE * self.height()))
+            front = self._roi_table_dock
+        self.resizeDocks([front], [height], Qt.Orientation.Vertical)
 
     def _refresh_model_workspace_content(self) -> None:
         self._ensure_model_content_page()
@@ -1402,7 +1440,6 @@ class HSIViewer(QMainWindow):
         if model_diagnostics_widget is None:
             return
         model_summary = self._modeling_view.workspace_summary()
-        service_text, service_busy = self._modeling_view.service_status_snapshot()
         self._model_content_title.setText(model_summary["title"])
         self._model_card_target_value.setText(model_summary["target"])
         self._model_card_sample_set_value.setText(model_summary["sample_set"])
@@ -1416,9 +1453,7 @@ class HSIViewer(QMainWindow):
         self._model_metric_bias_value.setText(model_summary["bias"])
         self._set_metric_rows(model_summary)
         self._model_readiness_body.setText(model_summary["readiness"])
-        self._set_busy_status_widget(
-            self._model_summary_service, text=service_text, busy=service_busy
-        )
+        self._update_verdict_row()
         model_diagnostics_widget.update_data(
             self._modeling_view.workspace_diagnostics_payload(),
             empty_reason=model_summary["readiness"],
@@ -1459,15 +1494,18 @@ class HSIViewer(QMainWindow):
         )
 
     def _set_metric_rows(self, model_summary: dict[str, Any]) -> None:
-        """Fill the *per ROI* and *per pixel* groups and the fold warnings."""
+        """Fill the *per ROI* and *per pixel* groups.
+
+        The fold warnings of the run are a check (Checks tab, guide bar), not a
+        line of this summary.
+        """
         roi_rows = list(model_summary.get("roi_metrics") or [])
         if not roi_rows:  # no run yet: the required three, empty
             roi_rows = [("Q² (CV R²)", model_summary["r2"]), ("RMSECV (per ROI)", model_summary["rmsecv"]),
                         ("Bias", model_summary["bias"])]
         rows = [f"{label}: {text}" for label, text in roi_rows]
         pixel_rows = list(model_summary.get("pixel_metrics") or [])
-        warnings = str(model_summary.get("warnings") or "")
-        shown = (rows, pixel_rows, warnings)
+        shown = (rows, pixel_rows)
         if shown == getattr(self, "_shown_metric_rows", None):
             return
         self._shown_metric_rows = shown
@@ -1479,20 +1517,6 @@ class HSIViewer(QMainWindow):
             for label, text in entries:
                 layout.addRow(label, QLabel(text))
         self._model_pixel_metrics_box.setVisible(bool(pixel_rows))
-        self._model_warnings.setText(f"⚠ Validation likely optimistic: {warnings}"
-                                     if warnings else "")
-        self._model_warnings.setVisible(bool(warnings))
-
-    @staticmethod
-    def _set_busy_status_widget(widget: BusyStatusWidget, *, text: str, busy: bool) -> None:
-        current_text = widget.label.text()
-        current_busy = widget.progress.isVisible()
-        if current_text == text and current_busy == busy:
-            return
-        if busy:
-            widget.set_busy(text)
-        else:
-            widget.set_idle(text)
 
     def _on_explore_plot_visibility_changed(self, plot_name: str, visible: bool) -> None:
         if self._workspace_tabs.currentWidget() is not self._eda_view:
@@ -1552,9 +1576,6 @@ class HSIViewer(QMainWindow):
                     f"Validation: {self._model_card_cv_value.text()}",
                     f"ROIs: {self._model_card_roi_count_value.text()}",
                     f"Pixels: {self._model_card_pixel_count_value.text()}",
-                    *(row if "(per " in row else f"{row} (per ROI)"
-                      for row in self._model_metric_rows),
-                    self._model_readiness_body.text(),
                 ],
             )
             return
@@ -1806,20 +1827,21 @@ class HSIViewer(QMainWindow):
                        state.model_runs_changed, state.sample_sets_changed):
             signal.connect(self._checks_timer.start)
         self._explore_tabs.currentChanged.connect(self._sync_workflow_step)
-        self._guide_bar.fix_requested.connect(self.run_fix)
-        self._guide_bar.checks_requested.connect(self.show_checks)
-        self._modeling_view.view_state_changed.connect(self._refresh_guide)
-        self.project_state.active_model_changed.connect(self._refresh_guide)
+        self._explore_tabs.currentChanged.connect(self._update_status_strip)
+        self._modeling_view.view_state_changed.connect(self._update_status_strip)
+        self._modeling_view.view_state_changed.connect(self._refresh_context)
+        self.project_state.active_model_changed.connect(self._refresh_context)
         self._sync_workflow_step()
         self.apply_preferences(preferences_store.load(), startup=True)
         self.refresh_checks()
 
     def show_step(self, step: str) -> None:
-        """Open the workspace of a workflow step (``data`` … ``report``)."""
-        if step == "report":
-            self._sync_workflow_step()
-            self._action_export_plots()
-            return
+        """Open the workspace of a workflow step (``data`` … ``predict``)."""
+        if step != "values" and self._workflow.current() == "values" \
+                and self._roi_table_in_front():
+            # The Values step brought the (tall) ROI table to the front; the next step
+            # gets the Checks and its page's height back.
+            self._checks_dock.raise_()
         if step in ("data", "rois", "values"):
             self._workspace_tabs.setCurrentWidget(self._eda_view)
             if step == "data":
@@ -1834,7 +1856,7 @@ class HSIViewer(QMainWindow):
             self._workspace_tabs.setCurrentWidget(self._prediction_view)
         self._workflow.set_current(step)
         self._sync_workflow_step()
-        self._refresh_guide()
+        self._refresh_context()
 
     def _sync_workflow_step(self, *_args: Any) -> None:
         """Mark the step of the shown workspace; title the Settings dock after it."""
@@ -1852,7 +1874,7 @@ class HSIViewer(QMainWindow):
         else:
             step = "values" if self._workflow.current() == "values" else "rois"
         self._workflow.set_current(step)
-        self._refresh_guide()
+        self._refresh_context()
 
     def refresh_checks(self) -> None:
         """Ask the library for the project's checks and verdicts and show them."""
@@ -1896,7 +1918,7 @@ class HSIViewer(QMainWindow):
         self._workflow.set_states(states)
         self._refresh_models_panel(project)
         self._checks = checks
-        self._refresh_guide()
+        self._refresh_context()
         self.checks_refreshed.emit()
 
     # ------------------------------------------------------------------
@@ -1930,11 +1952,6 @@ class HSIViewer(QMainWindow):
                 dark = hints is not None and hints.colorScheme() == Qt.ColorScheme.Dark
             if dark != is_dark():
                 self._set_theme_mode(dark)
-        self._guide_bar_enabled = preferences.guide_bar
-        if not preferences.guide_bar:
-            self._guide_bar.hide()
-        else:
-            self._refresh_guide()
         for frame in self.findChildren(PlotFrame):
             button = getattr(frame, "_help_button", None)
             if button is not None:
@@ -1959,37 +1976,38 @@ class HSIViewer(QMainWindow):
         self._checks_dock.show()
         self._checks_dock.raise_()
 
-    def _refresh_guide(self, *_args: Any) -> None:
-        """The guide bar for the shown step: the model's verdict, or the step's next check."""
-        if not hasattr(self, "_workflow") or not hasattr(self, "_guide_bar"):
+    def _update_strip_context(self) -> None:
+        """The project and the model shown, at the right end of the workflow strip."""
+        path = self.project_state.project_path
+        run = None if path is None else self._modeling_view._resolved_workspace_model_run()
+        from ._modeling import model_label
+
+        self._workflow.set_context("" if path is None else os.path.basename(path),
+                                   "" if run is None else model_label(run))
+
+    def _refresh_context(self, *_args: Any) -> None:
+        """What the window works on: the strip's project and model, the verdict of the model."""
+        if not hasattr(self, "_workflow"):
             return
-        step = self._workflow.current()
-        bar = self._guide_bar
-        if self.project_state.project is None or not getattr(self, "_guide_bar_enabled", True):
-            bar.hide()
+        self._update_strip_context()
+        self._update_verdict_row()
+
+    def _update_verdict_row(self) -> None:
+        """The verdict line of the Fit summary: the library's level of the model shown."""
+        if not hasattr(self, "_model_verdict_value"):
+            return  # the Model page is built when first shown
+        run = self._modeling_view._resolved_workspace_model_run()
+        verdict = None if run is None else self.model_verdict(run.model_run_id)
+        self._model_verdict_level = "" if verdict is None else verdict.level
+        if verdict is None:
+            self._model_verdict_icon.clear()
+            self._model_verdict_value.setText("–")
+            self._model_verdict_value.setToolTip("")
             return
-        checks = getattr(self, "_checks", [])
-        if step == "model":
-            run = self._modeling_view._resolved_workspace_model_run()
-            verdict = None if run is None else self.model_verdict(run.model_run_id)
-            if verdict is not None:
-                bar.show_verdict(verdict)
-                return
-        if step == "report":
-            bar.hide()
-            return
-        mine = [check for check in checks if check.step == step]
-        first_open = next((check for check in mine if check.severity == "blocking"),
-                          next((check for check in mine if check.is_open), None))
-        if first_open is not None:
-            bar.show_check(first_open)
-            return
-        offer = next((check for check in mine if check.fix is not None), None)
-        if offer is not None:
-            bar.show_check(offer)
-            return
-        done = next((check for check in mine if check.severity == "ok"), None)
-        bar.show_check(None, done.message if done is not None else "")
+        mark, text = verdict_mark(verdict.level)
+        self._model_verdict_icon.setPixmap(mark.pixmap(16, 16))
+        self._model_verdict_value.setText(text)
+        self._model_verdict_value.setToolTip(verdict.summary)
 
     def _refresh_models_panel(self, project: Any) -> None:
         from .._workflow import Model
@@ -2029,7 +2047,7 @@ class HSIViewer(QMainWindow):
         self.show_step("model")
         self._modeling_view.select_model_run(model_run_id)
         self.schedule_workspace_content_refresh()
-        self._refresh_guide()
+        self._refresh_context()
 
     def _show_check(self, check: Check) -> None:
         """Show what a check refers to: its model, ROI or step."""
@@ -2381,7 +2399,6 @@ class HSIViewer(QMainWindow):
         self._refresh_canvas_image()
         self._eda_view.refresh_roi_overlays()
         self._eda_view.refresh_attachment_state()
-        self._eda_view.update_project_status()
         self._update_status_strip()
         self._refresh_data_file_choices()
         if self._pending_roi_selection is not None:

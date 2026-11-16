@@ -64,7 +64,7 @@ Window
 
 .. image:: /_static/screens/window_model_light.png
    :alt: The engiNIR window in the Model step: menus, workflow strip, Project and
-         Properties on the left, the guide bar and diagnostics in the middle, the
+         Properties on the left, the diagnostics in the middle, the
          Fit settings on the right, Checks at the bottom.
    :width: 100%
 
@@ -73,23 +73,30 @@ From top to bottom:
 - **Menus** hold every action: File, Edit, View, Project, ROI, Model, Predict,
   Tools and Help. The most used have shortcuts (**F5** fits, **F6** predicts
   ROIs, **Ctrl+T** opens the ROI table); **Tools > Preferences** lists them all.
-- **The workflow strip**: Data › ROIs › Values › Model › Predict › Report. A
-  click opens the step. Each step shows its state: a tick when done, a warning
-  with the number of checks to look at, a number when not started yet.
+- **The workflow strip**: Data → ROIs → Values → Model → Predict, the order
+  in which a project is built. A click opens the step. Each step shows its
+  state: a tick when done, or a warning with the number of open checks in a
+  round badge (the Checks tab lists them).
 - **Left:** the **Project** tree (datasets, reference corrections, ROIs,
-  targets, values, models, predictions) above **Properties** of the selected
-  item.
-- **Middle:** the **guide bar**, then the pages of the step. In Model the bar
-  gives the shown model's verdict (good, usable with care, not usable) with its
-  reasons; in the other steps the step's next thing to do. Its button runs the
-  fix, **Show All Checks** opens the Checks.
+  targets, values, models, predictions, each with the number of its objects)
+  above **Properties** of the selected item, as a table.
+- **Middle:** the pages of the step. In Model the fit summary starts with
+  the **verdict** of the shown model (good, usable with care, not usable);
+  its tooltip gives the reason, and the Checks tab lists what to act on.
 - **Right:** the **settings** of the step, every option in one column: View
   settings (Data, ROIs, Values), Fit settings (Model), Prediction settings
-  (Predict). The main action is at the foot.
+  (Predict). **Fit Model** stays in view under the Fit settings.
 - **Bottom:** **Checks**, **ROI table**, **Models** and **Log** as tabs.
-  Checks lists everything engiNIR checked, with a button for the fix; Models
+  Checks lists everything engiNIR checked, with a button for the fix (the
+  checks that passed are one row, **Show** unfolds them); Models
   lists every model with RMSECV (per ROI), Q², RPD, validation and verdict.
-- **The status strip** with project, dataset, signal, frame, row and band.
+  The panel is low; while the **ROI table** is in front it takes about 40 % of
+  the window, and leaving the Values step brings Checks back.
+- **The status strip** names what the step works on: project, dataset and
+  signal in Data, ROIs and Values (with frame, row and band of the crosshair
+  on the Dataset page), the model with its target and calibration set in
+  Model, the map in Predict. The right end of the workflow strip names the
+  project and the model shown in every step.
 
 The checks and verdicts come from :meth:`enginir.Project.checks` and
 :meth:`enginir._workflow.Model.verdict`; a script sees the same.
@@ -110,7 +117,7 @@ created on first use in the settings folder; the fastest way to see how
 everything works.
 
 **Preferences** (Tools > Preferences) set the theme (dark, light or follow
-the system), the interface scale, the guide bar and plot help, start folders,
+the system), the interface scale, the plot help, start folders,
 the defaults of the Fit and Prediction settings, the PNG resolution of
 exports, the threads of a fit and the log file level. They belong to you, not
 to a project: a model stores what it was fitted with.
@@ -237,7 +244,8 @@ from the project file alone; the datasets are not needed:
   and columns in scan order. Each tile is outlined in the color of its value,
   on the scale of the ROI mean spectra (gray without a value). Labels leave
   out what all shown ROIs share (``API_10p_L1_01`` becomes ``L1_01``);
-  text grows and shrinks with the tiles when you zoom. **View** in the plot
+  text grows and shrinks with the tiles when you zoom. In a wide view the
+  blocks stand beside each other. **View** in the plot
   header shows the tiles at their positions in the scan instead, and
   stretches the contrast of each dataset on its own instead of all tiles
   together (the default, for comparing samples). A dataset filter narrows
@@ -370,31 +378,38 @@ or opening it on either tab is kept for that tab.
 - The table works from the project file alone; the datasets are not
   needed.
 
-**Fit Model** opens one dialog with everything the fit needs: the target,
-the signal unit, the preprocessing (it starts from the Explore preview, but
-what the dialog shows is what the model is trained with), PLS or PCR, the
-number of components, the validation and which ROIs are held out together
-(**Hold out together**: each ROI, ROIs with the same **Sample** label, or
-ROIs with the same target value). **Bands** sets **Keep** and **Exclude**
+The **Fit settings** in the Settings dock hold everything a fit needs, in
+six parts that fold to their headers (a folded part says what it holds, for
+example "all bands"): **Data** (the target, the signal unit and how many
+ROIs the model uses), **Preprocessing** (it follows changes of the Explore
+preview, but what the settings show is what the model is trained with),
+**Bands**, **Model** (PLS or PCR and the number of components),
+**Validation** (the folds and which ROIs are held out together under
+**Hold out**: each ROI, ROIs with the same **Sample** label, or ROIs with
+the same target value) and **Fitting**. **Fit Model** (F5) stays in view
+under the settings and fits with what they show. The settings show those of
+the selected model until you edit them; a line above the button then says
+that they changed, and **Load Model Settings** shows the model's settings
+again. **Bands** sets **Keep** and **Exclude**
 ranges (``1100-1350, 1500-2300``, applied after every other step), with a
 **Water bands** menu, **Select on plot...** to drag the ranges on the mean
 spectrum of the target's ROIs, and **Propose...** to run the band proposal
 with nested validation and take its ranges (:doc:`band_selection`); the
 Explore preview then shows the left-out bands as missing. **Components** takes a number, or **Auto**
 to choose it from the component curve by a rule (one SE by default; also
-lowest RMSECV (per ROI), Q² limit, F-test and Q² with look-ahead) with **drop noise**
-(the noise guard, on by default; see :doc:`fit_specification`). The dialog
-warns when the validation would be optimistic, for example when the ROIs of a
+lowest RMSECV (per ROI), Q² limit, F-test and Q² with look-ahead) with **Drop noise components**
+(the noise guard, on by default; see :doc:`fit_specification`). The
+Validation part warns when the validation would be optimistic, for example when the ROIs of a
 scan share one value but are held out in different folds. The
-**Fitting** group sets how the
+**Fitting** part sets how the
 model is fitted: the same number of pixels from every ROI (at most the
 smallest ROI, with a seed so the draw repeats), the scaling of X and Y, and
 leaving out outlying pixels by DModX (level, one or two rounds, at most a
 share of every ROI, unweighted or weighted as in SIMCA). The Project
 browser's inspector shows these settings for a stored model, with its
 algorithm (kernel PLS or NIPALS, PCA from XᵀX or by full SVD; **Load Model Settings**
-keeps it), the excluded pixels per ROI and the flagged ROIs. Below, the dialog counts per dataset how many ROIs have a value for the target and says why a fit cannot run
-yet; **OK** is enabled only when it can. The model uses all ROIs with a
+keeps it), the excluded pixels per ROI and the flagged ROIs. The line under the target says how many ROIs the model uses, or why a fit
+cannot run yet (its tooltip counts the ROIs with a value per dataset). The model uses all ROIs with a
 value, from all datasets. Fitting again with the same target, ROIs and
 preprocessing reuses the stored calibration set; the calibration set and preprocessing
 are stored only together with a fitted model. Cross-validation keeps the

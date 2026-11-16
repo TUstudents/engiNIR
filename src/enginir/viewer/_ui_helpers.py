@@ -9,9 +9,20 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import QPoint, QRect, QSize, Qt, QUrl
+from PyQt6.QtCore import QPoint, QRect, QSize, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
-from PyQt6.QtWidgets import QFileDialog, QLayout, QLayoutItem, QMessageBox, QWidget
+from PyQt6.QtWidgets import (
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLayout,
+    QLayoutItem,
+    QMessageBox,
+    QSizePolicy,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from .._logging import get_logger
 from ._theme import panel_colors
@@ -64,6 +75,16 @@ def ask_save_path(parent: QWidget | None, title: str, file_filter: str, suffix: 
         if answer != QMessageBox.StandardButton.Yes:
             return None
     return str(path)
+
+
+def with_unit(name: str, unit: str | None) -> str:
+    """``"API (%)"``; the name alone for a dimensionless unit (``1`` or empty).
+
+    The same rule as the library's verdict sentence (model-workspace-diagnostics
+    contract): a dimensionless unit is not printed.
+    """
+    unit = (unit or "").strip()
+    return name if unit in ("", "1") else f"{name} ({unit})"
 
 
 def style_axes(ax: Any, colors: Mapping[str, str] | None = None) -> None:
@@ -156,6 +177,7 @@ __all__ = [
     "reveal_in_file_manager",
     "spectral_axis_label",
     "style_axes",
+    "with_unit",
 ]
 
 
@@ -228,3 +250,72 @@ class FlowLayout(QLayout):
             x += hint.width() + space
             line = max(line, hint.height())
         return y + line - rect.y()
+
+
+class CollapsibleSection(QWidget):
+    """A titled part of a settings form that folds to its header.
+
+    The header shows a one-line summary of the folded settings (``set_summary``),
+    so a folded section still says what a fit would use.
+    """
+
+    #: Emitted when the section is folded or unfolded. Arg: expanded.
+    toggled = pyqtSignal(bool)
+
+    def __init__(self, title: str, content: QWidget, *, expanded: bool = True,
+                 parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._content = content
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(6)
+        self.header = QToolButton()
+        self.header.setObjectName("SectionHeader")
+        self.header.setText(title)
+        self.header.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.header.setCheckable(True)
+        self.header.setAutoRaise(True)
+        self.header.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.header.toggled.connect(self._on_toggled)
+        header.addWidget(self.header, 1)
+        layout.addLayout(header)
+        self._summary = QLabel("")
+        self._summary.setObjectName("SectionSummary")
+        self._summary.setWordWrap(True)
+        self._summary.setContentsMargins(18, 0, 0, 2)
+        layout.addWidget(self._summary)
+        layout.addWidget(content)
+        self._summary_text = ""
+        self.header.setChecked(expanded)
+        self._on_toggled(expanded)
+
+    @property
+    def title(self) -> str:
+        return self.header.text()
+
+    @property
+    def expanded(self) -> bool:
+        return self.header.isChecked()
+
+    def set_expanded(self, expanded: bool) -> None:
+        self.header.setChecked(expanded)
+
+    def set_summary(self, text: str) -> None:
+        """What the folded section holds, in a few words (shown only when folded)."""
+        self._summary_text = text
+        self._summary.setText(text)
+        self._summary.setVisible(bool(text) and not self.expanded)
+
+    @property
+    def summary(self) -> str:
+        return self._summary_text
+
+    def _on_toggled(self, expanded: bool) -> None:
+        self.header.setArrowType(Qt.ArrowType.DownArrow if expanded
+                                 else Qt.ArrowType.RightArrow)
+        self._content.setVisible(expanded)
+        self._summary.setVisible(bool(self._summary_text) and not expanded)
+        self.toggled.emit(expanded)

@@ -32,9 +32,13 @@ def test_a_model_shows_its_calibration_set_and_input_contract_beneath_it(qapp, t
     browser = ProjectBrowser(state)
     browser.refresh()
 
-    sections = [browser.topLevelItem(i).text(0) for i in range(browser.topLevelItemCount())]
+    shown = [browser.topLevelItem(i).text(0) for i in range(browser.topLevelItemCount())]
+    assert shown[0] == "Datasets (1)" and shown[-2:] == ["Models (1)", "Predictions"], \
+        "a section counts its objects; an empty one has no count"
+    sections = [text.split(" (")[0] for text in shown]
     assert sections == ["Datasets", "Reference corrections", "ROIs", "Targets", "Target values",
                         "Models", "Predictions"]
+    assert not browser.topLevelItem(0).icon(0).isNull()
     models = browser.topLevelItem(sections.index("Models"))
     assert models.childCount() == 1, "nothing left over: the set and the contract are used"
     item = models.child(0)

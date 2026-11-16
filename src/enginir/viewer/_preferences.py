@@ -57,7 +57,6 @@ class Preferences:
     # Appearance
     theme: str = "dark"                 # dark, light, system
     interface_scale: float = 1.0        # Qt scale factor, from the next start
-    guide_bar: bool = True              # the verdict / next-step bar above the pages
     raise_checks: bool = True           # bring Checks to the front when a new check opens
     plot_help: bool = True              # the "?" button of each plot
     # Data and paths
@@ -222,10 +221,9 @@ class PreferencesDialog(QDialog):
         form.addRow("Colors:", swatches)
         self._note(form, f"Data: six cool colors; values: {value_colormap().name}; "
                          "maps of distances: the icon's heat scale.")
-        self.guide_bar = QCheckBox("Show the verdict and next step above the pages")
         self.raise_checks = QCheckBox("Bring Checks to the front when a new check opens")
         self.plot_help = QCheckBox('Show the "?" help on plots')
-        for box in (self.guide_bar, self.raise_checks, self.plot_help):
+        for box in (self.raise_checks, self.plot_help):
             form.addRow("", box)
 
         form = self._page("Data and paths")
@@ -335,7 +333,6 @@ class PreferencesDialog(QDialog):
 
         select(self.theme, p.theme)
         select(self.scale, p.interface_scale)
-        self.guide_bar.setChecked(p.guide_bar)
         self.raise_checks.setChecked(p.raise_checks)
         self.plot_help.setChecked(p.plot_help)
         self.project_folder.setText(p.project_folder)
@@ -357,7 +354,6 @@ class PreferencesDialog(QDialog):
         return Preferences(
             theme=str(self.theme.currentData()),
             interface_scale=float(self.scale.currentData()),
-            guide_bar=self.guide_bar.isChecked(),
             raise_checks=self.raise_checks.isChecked(),
             plot_help=self.plot_help.isChecked(),
             project_folder=self.project_folder.text().strip(),

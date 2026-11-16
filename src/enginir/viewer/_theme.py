@@ -189,9 +189,11 @@ def apply_qt_theme(app: QApplication, *, dark: bool = True) -> QApplication:
     """Apply the shared compact Fusion theme to the current application."""
     global _current_dark
     app.setStyle("Fusion")
+    # Before the palette: widgets that redraw their icons and colours on the palette
+    # change (plot headers, project tree, Properties) must read the new theme.
+    _current_dark = dark
     app.setPalette(_build_palette(dark))
     app.setStyleSheet(_app_stylesheet(dark))
-    _current_dark = dark
     app.setProperty(_THEME_PROPERTY, True)
     app.setProperty(_THEME_MODE_PROPERTY, dark)
     _save_preference(dark)
@@ -733,6 +735,23 @@ QToolBar#WorkflowBar {{
     spacing: 0;
 }}
 
+QLabel#PropertiesTitle {{
+    font-weight: 600;
+}}
+
+QLabel#WorkflowContext {{
+    color: {c["text_secondary"]};
+    padding-right: 6px;
+}}
+
+QTreeWidget#ProjectBrowser::item {{
+    padding: 2px 0;
+}}
+
+QTableWidget#ChecksTable::item {{
+    padding-right: 8px;
+}}
+
 QLabel#WorkflowLabel {{
     color: {c["text_hint"]};
 }}
@@ -740,10 +759,34 @@ QLabel#WorkflowLabel {{
 QToolButton#WorkflowStep {{
     background: transparent;
     border: 0;
-    border-right: 1px solid {c["border_subtle"]};
     border-radius: 0;
-    padding: 5px 14px;
+    padding: 5px 12px;
     color: {c["text_secondary"]};
+}}
+
+QToolButton#WorkflowStep[badge="true"] {{
+    padding-right: 34px;
+}}
+
+QLabel#WorkflowArrow {{
+    color: {c["text_hint"]};
+    padding: 0 2px;
+}}
+
+QLabel#StepBadge {{
+    background: {c["attention"]};
+    color: {c["window"]};
+    border-radius: 8px;
+    min-width: 16px;
+    min-height: 16px;
+    max-height: 16px;
+    padding: 0 0px;
+    font-size: 8pt;
+    font-weight: 700;
+}}
+
+QLabel#StepBadge[level="blocked"] {{
+    background: {c["error"]};
 }}
 
 QToolButton#WorkflowStep:hover {{
@@ -760,15 +803,28 @@ QToolButton#WorkflowStep:checked {{
 
 QPushButton#FixButton {{
     background: transparent;
-    border: 0;
+    border: 1px solid {c["accent"]};
+    border-radius: 3px;
     color: {c["accent"]};
-    text-decoration: underline;
-    padding: 0 2px;
-    min-height: 0;
+    padding: 0 8px;
+    min-height: 18px;
+    max-height: 18px;
+}}
+
+QPushButton#FixButton:hover {{
+    background: {c["hover"]};
 }}
 
 QLabel#ChangedMark {{
     color: {c["attention"]};
+}}
+
+QLabel#ChangedMark[changed="false"] {{
+    color: {c["text_secondary"]};
+}}
+
+QWidget#FitFooter {{
+    border-top: 1px solid {c["border_subtle"]};
 }}
 
 QLabel#EmptyState {{
@@ -780,30 +836,45 @@ QLabel#EmptyTitle {{
     font-weight: 600;
 }}
 
-QFrame#VerdictBar {{
-    background: {c["panel"]};
-    border: 1px solid {c["border_subtle"]};
-    border-left: 3px solid {c["text_hint"]};
+QLabel#VerdictText {{
+    font-weight: 600;
 }}
 
-QFrame#VerdictBar[level="good"] {{
-    border-left-color: {c["ok"]};
+QToolButton#PrimaryAction {{
+    background: {c["accent"]};
+    border-color: {c["accent"]};
+    color: {c["on_accent"]};
+    font-weight: 600;
+    padding: 4px 10px;
 }}
 
-QFrame#VerdictBar[level="usable_with_care"] {{
-    border-left-color: {c["attention"]};
+QToolButton#PrimaryAction:hover {{
+    background: {c["accent_hover"]};
+    border-color: {c["accent_hover"]};
 }}
 
-QFrame#VerdictBar[level="not_usable"] {{
-    border-left-color: {c["error"]};
+QToolButton#PrimaryAction:disabled {{
+    background: {c["header"]};
+    border-color: {c["border"]};
+    color: {c["text_hint"]};
 }}
 
-QFrame#VerdictBar[level="open"] {{
-    border-left-color: {c["attention"]};
+QToolButton#SectionHeader {{
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid {c["border_subtle"]};
+    border-radius: 0;
+    padding: 3px 2px;
+    font-weight: 600;
+    text-align: left;
 }}
 
-QFrame#VerdictBar[level="ok"] {{
-    border-left-color: {c["ok"]};
+QToolButton#SectionHeader:hover {{
+    background: {c["hover"]};
+}}
+
+QLabel#SectionSummary {{
+    color: {c["text_secondary"]};
 }}
 
 QHeaderView::section {{

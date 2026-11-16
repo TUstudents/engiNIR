@@ -94,11 +94,15 @@ v3 requires exactly three explicit user-visible workspaces:
 Required implementation form (engiNIR 1.6, plan `plans/gui-1.6.md`):
 
 - the **workflow strip** under the menu bar: the steps `Data`, `ROIs`,
-  `Values`, `Model`, `Predict`, `Report`. `Data`, `ROIs` and `Values` open the
+  `Values`, `Model`, `Predict`, with an arrow between them (they are done
+  in this order). `Data`, `ROIs` and `Values` open the
   `Explore` workspace (its Dataset page, its Project ROIs page, the latter
   with the ROI table in front); `Model` and `Predict` open their
-  workspaces; `Report` exports the plots of the shown workspace. The strip
-  marks the shown step and the state of every step (see Guidance).
+  workspaces. The strip
+  marks the shown step and the state of every step (see Guidance). There
+  is no `Report` step before there is a report (engiNIR 2.0, the method
+  file's report; user decision 2026-11-16); exporting the plots of a
+  workspace is a menu item.
 
 Accepted labels:
 
@@ -130,16 +134,22 @@ Rationale:
 The following must remain visible in all workspaces:
 
 - current project identity or `none`
-- current dataset identity or `none`
-- current signal unit
-- current cursor position:
-  - frame
-  - row
-  - band
+
+and, where the shown step has them (engiNIR 1.6; before, in every
+workspace, also where they meant nothing):
+
+- current dataset identity or `none`, and the current signal unit: Data,
+  ROIs, Values
+- current cursor position (frame, row, band): the Dataset page only, whose
+  image has the crosshair
+- the model shown, its target and its calibration set: Model
+- the shown map, its signal, model and target: Predict
 
 v3 accepted presentation:
 
 - one compact global status strip
+- the workflow strip names the open project and the model shown at its
+  right end, in every step
 
 If the viewer is in project-only mode, that strip must make the missing dataset
 state obvious.
@@ -153,11 +163,14 @@ v3 requires one stable high-level frame shared by all workspaces (engiNIR
    Predict, Tools, Help); there is no toolbar of actions
 2. the workflow strip
 3. left: the project browser (`Project`) above `Properties` of the selection
-4. center: the guide bar (see Guidance) above the pages of the workspace
+4. center: the pages of the workspace, with no bar above them
 5. right: the `Settings` dock with every setting of the workspace (View,
    Fit or Prediction settings) in one column that never runs out sideways,
    its main action at the foot
-6. bottom: `Checks`, `ROI table`, `Models` and `Log` as tabs
+6. bottom: `Checks`, `ROI table`, `Models` and `Log` as tabs; while the
+   ROI table is the front tab the panel takes about 40 % of the window's
+   height (a table of all ROIs needs the rows), otherwise its low default;
+   leaving the Values step brings `Checks` back to the front
 7. the status strip
 
 Docks keep their places: they can be resized and closed, not floated or
@@ -327,7 +340,9 @@ Required visual elements:
 - ROI mosaic: one tile per stored ROI, grouped by dataset, with name and
   current target value; tiles in a compact grid (ROI grid positions, else
   scan order) or at their scan positions; text in mosaic units in reserved
-  room, so it never covers a tile; outlines in the value color of the ROI
+  room, so it never covers a tile; columns wide enough for the labels of
+  narrow tiles (up to 14 characters); the blocks beside each other in as
+  many columns as fill the view's shape best (one in a narrow view); outlines in the value color of the ROI
   mean spectra; contrast stretched over all tiles or per dataset
 - ROI mean spectra colored by the current target value
 - pixel spectra of the selected ROI
@@ -421,7 +436,10 @@ Required visible information:
 
 - selected target
 - current calibration set or `none`
-- current active model or `none`
+- current active model or `none`; the model shown is the selected one, else
+  the active one, else the latest fitted, among the models of the selected
+  target, whatever their calibration set (models of one target may differ
+  in preprocessing or ROIs); `none` only when the target has no model
 - service status for the fit (with its calibration-set build)
 
 Required controls:
@@ -429,16 +447,28 @@ Required controls:
 - target selection/creation
 - target assignment and sample label editing (the ROI table)
 - fit model: the Fit settings in the Settings dock (engiNIR 1.6; no
-  dialog: **Fit Model** fits with what they show, **Load Model Settings**
-  fills them from a model, a mark shows changes since the last fit, the
-  preprocessing follows the Explore preview) with target, signal unit,
+  dialog: **Fit Model** fits with what they show and stays in view under
+  the scrolling settings; the settings are in foldable parts (Data,
+  Preprocessing, Bands, Model, Validation, Fitting; a folded part shows a
+  one-line summary of what it holds); they show the settings of the
+  selected model until they are edited, also after a project is opened,
+  and keep those a model was just fitted with; edited settings stay when
+  another model is selected and a line says that they changed; **Load
+  Model Settings** shows the selected model's settings again; the
+  preprocessing follows a change of the Explore preview in the settings
+  that changed there and in no other (opening a dataset, which switches
+  the preview's signal unit, leaves a shown model's preprocessing), never
+  the reverse: a fit takes its preprocessing and signal unit from the settings
+  alone, also when it shows its bands in Explore) with target, signal unit,
   preprocessing, model,
   components (a number, or **Auto** with a rule, the noise guard (on by
   default) and a maximum: `sample-set-model-run-contract_v3.md` §7.4; the
   dialog and the Model readiness line warn, before fitting, when the chosen
   grouping gives fewer than 7 fold groups or a dataset's ROIs share one
   target value while they are held out in different folds (the fold
-  warnings of §7.4), cross-validation and which
+  warnings of §7.4; the Fit settings show this line only while they differ
+  from the settings of the model shown, whose own check says it otherwise),
+  cross-validation and which
   ROIs are held out together (each
   ROI, same sample label, same target value;
   `sample-set-model-run-contract_v3.md` §4.1), and a Fitting group: pixels
@@ -665,16 +695,25 @@ engiNIR 1.6 guides the user with what the library computes
 (`headless-workflow-contract_v3.md`, Guidance; model-workspace-diagnostics,
 Verdict). The viewer shows; it judges nothing of its own.
 
-- **Workflow strip:** per step `done` (only ok checks), `open` with the
-  number of open checks, `blocked`, or not started.
+- **Workflow strip:** per step `done` (a tick), `open` or `blocked` with
+  the number of open checks in a round badge (the tooltip says that these
+  are open checks, listed in the Checks tab), or not started (the name
+  alone; no step numbers).
 - **Checks** (bottom tab): every check of `Project.checks()`, open ones
-  first, with where it applies and its fix as a button; the tab title
+  first, with where it applies and its fix as a button; two or more passed
+  checks are one row ("n checks passed") that unfolds; the tab title
   counts the open checks. A new open check brings the tab to the front
   (switchable in Preferences).
-- **Guide bar** above the pages: in `Model` the shown model's verdict
-  (`Model.verdict()`), otherwise the step's first blocking or open check,
-  else the step's first check with a fix, else its first ok check; each
-  with its fix button and **Show All Checks**.
+- **No guide bar** (user decision 2026-11-16): a bar above the pages
+  repeated the first line of the Checks tab and cost height. The verdict
+  of the shown model (`Model.verdict()`) is the first line of the Model
+  page's fit summary: the level with its icon, the whole sentence as
+  tooltip; its reasons are the model's checks.
+- **Said once:** what a check says is in the Checks tab;
+  the Model page's summary and Properties do not repeat it, and Properties
+  does not repeat the figures of merit of the Model page. The Settings
+  dock repeats no menu-only action (no Project buttons in View settings;
+  target selection is the Target row of the Fit settings).
 - **Models** (bottom tab): one row per model with type, components, RMSECV
   (per ROI), Q², RPD, validation, the verdict and when it was fitted.
 - **Fixes** run the viewer's own actions, pre-filled: open a step, select an
@@ -686,7 +725,8 @@ Verdict). The viewer shows; it judges nothing of its own.
 
 ## Preferences
 
-Tools > Preferences: Appearance (theme, interface scale, guide switches),
+Tools > Preferences: Appearance (theme, interface scale, the switches for
+bringing Checks to the front and for the plot help),
 Data and paths, Fitting defaults, Prediction defaults, Plots and export,
 Performance, Logging, Keyboard. Preferences belong to the user, never to a
 project: defaults only pre-fill the settings docks, and a model stores what

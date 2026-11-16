@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import pathlib
 from collections.abc import Callable, Sequence
 from typing import Any, Protocol
@@ -17,7 +16,6 @@ from PyQt6.QtWidgets import (
     QDoubleSpinBox,
     QGridLayout,
     QGroupBox,
-    QHBoxLayout,
     QLabel,
     QMessageBox,
     QRadioButton,
@@ -98,7 +96,6 @@ class EDAView(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
-        layout.addWidget(self._project_group())
         layout.addWidget(self._signal_group())
         layout.addWidget(self._filtering_group())
         layout.addWidget(self._normalisation_group())
@@ -106,7 +103,6 @@ class EDAView(QWidget):
         layout.addWidget(self._roi_group())
         layout.addStretch(1)
 
-        self.project_state.project_loaded.connect(self._update_project_status)
         self.project_state.project_loaded.connect(self.refresh_roi_overlays)
         self.project_state.project_loaded.connect(self.refresh_attachment_state)
         self.project_state.rois_changed.connect(self.refresh_roi_overlays)
@@ -114,33 +110,6 @@ class EDAView(QWidget):
         self._canvas.roi_draw_finished.connect(self._on_canvas_roi_draw_finished)
         self._canvas.roi_draw_canceled.connect(self._on_canvas_roi_draw_canceled)
         self.refresh_attachment_state()
-
-    def _project_group(self) -> QGroupBox:
-        box = QGroupBox("Project")
-        layout = QVBoxLayout(box)
-        layout.setSpacing(2)
-
-        btn_row = QHBoxLayout()
-        btn_new = QToolButton()
-        btn_new.setText("New")
-        btn_new.clicked.connect(self.new_project_btn_clicked)
-
-        btn_open = QToolButton()
-        btn_open.setText("Open")
-        btn_open.clicked.connect(self.open_project_btn_clicked)
-
-        btn_row.addWidget(btn_new)
-        btn_row.addWidget(btn_open)
-        layout.addLayout(btn_row)
-
-        self.project_status_label = QLabel("No project")
-        self.project_status_label.setStyleSheet(secondary_text_style())
-        layout.addWidget(self.project_status_label)
-        self.project_autosave_label = QLabel("Changes are saved automatically.")
-        self.project_autosave_label.setStyleSheet(secondary_text_style())
-        self.project_autosave_label.setWordWrap(True)
-        layout.addWidget(self.project_autosave_label)
-        return box
 
     def _signal_group(self) -> QGroupBox:
         box = QGroupBox("Signal")
@@ -513,7 +482,6 @@ class EDAView(QWidget):
         self._set_project_active()
 
     def _set_project_active(self) -> None:
-        self._update_project_status()
         self.refresh_attachment_state()
 
     def refresh_attachment_state(self) -> None:
@@ -538,19 +506,6 @@ class EDAView(QWidget):
         self._btn_roi_training.setToolTip(tooltip)
         self._roi_hint_label.setText(hint)
 
-    def _update_project_status(self) -> None:
-        ps = self.project_state
-        if ps.project_path is None:
-            self.project_status_label.setText("No project")
-            return
-        fname = os.path.basename(ps.project_path)
-        n_rois = len(ps.rois)
-        dataset_status = "dataset attached" if self._dataset_attached_provider() else "no dataset"
-        self.project_status_label.setText(f"{fname} | ROIs: {n_rois} | {dataset_status}")
-
-    def update_project_status(self) -> None:
-        self._update_project_status()
-
     def refresh_roi_overlays(self) -> None:
         """Draw the ROIs of the shown data file only (attachment contract).
 
@@ -564,7 +519,6 @@ class EDAView(QWidget):
                     continue
                 f0, f1, r0, r1 = roi.spatial_bounds
                 self._canvas.add_roi_rect(f0, f1, r0, r1, roi.name, roi.roi_id)
-        self._update_project_status()
 
     def shown_dataset_id(self) -> str | None:
         """The project dataset of the shown data file, or ``None`` if it is not registered."""
