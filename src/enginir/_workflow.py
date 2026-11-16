@@ -18,6 +18,7 @@ from typing import Any
 import numpy as np
 
 from ._checks import log_and_raise
+from ._guidance import Check, Verdict, model_checks, model_verdict, project_checks
 from ._logging import get_logger
 from .io import file_format, load_spectra
 from .io import project_store as store
@@ -653,6 +654,19 @@ class Project:
                            roi_id, affected)
         return affected
 
+    def checks(self, *, files: bool = True) -> list[Check]:
+        """What is done and what needs attention, per step of the workflow.
+
+        One :class:`~enginir._guidance.Check` per item, in the order data,
+        ROIs, values, model, predict: its severity (``ok``, ``info``,
+        ``attention``, ``blocking``), a sentence, the ROIs, datasets, target
+        or model it refers to and, where one exists, the
+        :class:`~enginir._guidance.Fix` that resolves it. Nothing is
+        changed. ``files=False`` skips looking for the dataset files
+        (headless-workflow contract, Guidance).
+        """
+        return project_checks(self, files=files)
+
     def missing_rois(self, sample_set_id: str) -> list[str]:
         """Ids of deleted ROIs a sample set still lists."""
         sample_set = self.workspace.sample_sets.get(sample_set_id)
@@ -1072,6 +1086,21 @@ class Model:
         bounds = np.concatenate([[0], np.cumsum(counts)])
         return {roi_id: indices[bounds[i]:bounds[i + 1]] for i, roi_id in enumerate(roi_ids)}
 
+    def checks(self) -> list[Check]:
+        """The checks of this model: validation, calibration set, distance, components.
+
+        See :meth:`Project.checks`.
+        """
+        return model_checks(self)
+
+    def verdict(self) -> Verdict:
+        """The model in one level: ``good``, ``usable_with_care`` or ``not_usable``.
+
+        With one sentence, the reasons and the checks behind it
+        (model-workspace-diagnostics contract, Verdict).
+        """
+        return model_verdict(self)
+
     def refit(self, *, name: str | None = None) -> Model:
         """Fit this model again on exactly what it was fitted on, and store the new run.
 
@@ -1185,7 +1214,9 @@ class Model:
         for roi_id, used in zip(np.asarray(stored["roi_ids"]).astype(str),
                                 np.asarray(stored["y_true_roi"], dtype=float).reshape(-1)):
             now = assignments.get((roi_id, sample_set.target_id))
-            if now is None or not np.isclose(now.value, used, rtol=1e-9, atol=1e-12):
+            # The values are stored as float32 (about 7 digits); a tighter
+            # comparison reports values such as 12/7 as changed.
+            if now is None or not np.isclose(now.value, used, rtol=1e-6, atol=1e-12):
                 changed.append(str(roi_id))
         return changed
 

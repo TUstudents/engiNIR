@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Added
+
+- **Checks and verdicts.** `Project.checks()` lists, per step of the
+  workflow, what is done and what needs attention: dataset files that are
+  not found, ROIs without a value, a value that differs within its sample,
+  an optimistic cross-validation, a model whose ROIs or values changed
+  since the fit, calibration pixels far from the model. Each check names
+  what it refers to and, where there is one, the fix. `Model.verdict()`
+  gives a model one level (good, usable with care, not usable) with its
+  reasons. Both read the project and change nothing.
+
+### Fixed
+
+- A refit reported values as changed that had not changed, when they are
+  not exact in 32-bit precision (for example 12/7): the comparison with the
+  values the model was fitted with now allows for the stored precision.
+
 ## 1.5.2 (2026-11-13)
 
 The viewer on Windows for users without Python knowledge: one PowerShell
