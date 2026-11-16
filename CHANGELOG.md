@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.6.0rc2 (2026-11-16)
+## 1.6.0rc3 (2026-11-16)
 
 Release candidate of the guided viewer: one window for every step with a
 workflow strip, checks and verdicts that say what a project needs next,
@@ -79,6 +79,10 @@ fit settings in a dock, a light theme and preferences. For trying before
 
 ### Fixed
 
+- **Closing the viewer while it loads:** a background job still reading the
+  project file (ROI images, spectra) when the program ended could crash it
+  or make it hang. engiNIR now lets running jobs finish, for up to 10
+  seconds, before it exits.
 - **Model step after opening a project:** a project whose models of one
   target use different preprocessing could show no model until one was
   picked in the project tree. The Model step now shows the selected model,

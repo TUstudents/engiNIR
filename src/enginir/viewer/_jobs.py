@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import atexit
+import threading
 import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from PyQt6.QtCore import QCoreApplication, QObject, QThread, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import QLabel, QProgressBar, QVBoxLayout, QWidget
 
 from .._logging import get_logger
@@ -34,6 +35,8 @@ class BackgroundWorker(QObject):
     def __init__(self, fn: Callable[[], Any]) -> None:
         super().__init__()
         self._fn = fn
+        #: Set when ``fn`` has returned or raised (read without Qt, e.g. at exit).
+        self.done = threading.Event()
 
     @pyqtSlot()
     def run(self) -> None:
@@ -48,6 +51,7 @@ class BackgroundWorker(QObject):
         else:
             self.succeeded.emit(result)
         finally:
+            self.done.set()
             self.finished.emit()
 
 
@@ -192,25 +196,29 @@ def wait_for_running_jobs(timeout: float = 10.0) -> bool:
     """Let running jobs finish (up to ``timeout`` seconds); ``True`` if none is left.
 
     Called before the interpreter exits: a job thread that still reads a project
-    file while Python shuts down crashes or hangs the process (h5py, Qt). Events
-    are processed while waiting, since a job's thread is told to quit through
-    the event loop.
+    file while Python shuts down crashes or hangs the process (h5py, Qt). Waits
+    for each job's function to return, then ends its thread with the thread-safe
+    ``quit``/``wait``; no Qt events are processed, so windows half torn down at
+    exit are not touched. Results are delivered if the event loop runs again.
     """
     deadline = time.monotonic() + timeout
-    while _RUNNING_JOBS and time.monotonic() < deadline:
-        app = QCoreApplication.instance()
-        if app is not None:
-            app.processEvents()
-        for thread, _worker, _relay in list(_RUNNING_JOBS):
-            try:
-                if thread.isFinished():
-                    _RUNNING_JOBS.discard((thread, _worker, _relay))
-            except RuntimeError:  # the C++ thread object is gone already
-                _RUNNING_JOBS.discard((thread, _worker, _relay))
-        time.sleep(0.01)
-    if _RUNNING_JOBS:
-        logger.warning("{} background job(s) still running at exit", len(_RUNNING_JOBS))
-    return not _RUNNING_JOBS
+    left = 0
+    for thread, worker, _relay in list(_RUNNING_JOBS):
+        # The job stays in _RUNNING_JOBS: its thread's queued ``finished`` handlers
+        # remove it when the event loop runs; dropping the last reference here
+        # would delete the QThread under those handlers.
+        if not worker.done.wait(max(0.0, deadline - time.monotonic())):
+            left += 1
+            continue
+        try:
+            thread.quit()
+            if not thread.wait(max(0, int((deadline - time.monotonic()) * 1000))):
+                left += 1
+        except RuntimeError:  # the C++ thread object is gone already
+            pass
+    if left:
+        logger.warning("{} background job(s) still running at exit", left)
+    return not left
 
 
 atexit.register(wait_for_running_jobs)
