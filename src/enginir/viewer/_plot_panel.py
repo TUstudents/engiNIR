@@ -27,7 +27,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.colors import to_hex
 from matplotlib.figure import Figure
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QGuiApplication, QImage, QMouseEvent, QShowEvent
 from PyQt6.QtWidgets import (
     QFileDialog,
@@ -216,6 +216,41 @@ class PlotSource(Protocol):
         ...
 
 
+class _ElidedLabel(QLabel):
+    """A one-line label that ends in "…" when it is too narrow, with the whole text as tooltip.
+
+    Plot titles were cut off mid-word in narrow plot slots (review A3).
+    """
+
+    def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._full = ""
+        self.setMinimumWidth(40)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.setText(text)
+
+    def setText(self, a0: str | None) -> None:  # noqa: N802 (Qt API)
+        self._full = a0 or ""
+        self.setToolTip(self._full)
+        self._elide()
+
+    def text(self) -> str:
+        return self._full
+
+    @property
+    def elided(self) -> bool:
+        return super().text() != self._full
+
+    def resizeEvent(self, a0: Any) -> None:  # noqa: N802 (Qt API)
+        super().resizeEvent(a0)
+        self._elide()
+
+    def _elide(self) -> None:
+        metrics = self.fontMetrics()
+        shown = metrics.elidedText(self._full, Qt.TextElideMode.ElideRight, max(0, self.width()))
+        QLabel.setText(self, shown)
+
+
 class PlotFrame(QWidget):
     """A plot under a header: title, maximize/restore and the export menu.
 
@@ -250,7 +285,7 @@ class PlotFrame(QWidget):
         self._header_layout = QHBoxLayout(self._header)
         self._header_layout.setContentsMargins(6, 0, 2, 0)
         self._header_layout.setSpacing(2)
-        self._title = QLabel(title)
+        self._title = _ElidedLabel(title)
         self._title.setStyleSheet("font-weight: 600;")
         self._max_button = self._header_button("")
         self._max_button.clicked.connect(self.maximize_toggled.emit)
@@ -304,6 +339,11 @@ class PlotFrame(QWidget):
 
     def set_title(self, title: str) -> None:
         self._title.setText(title)
+
+    @property
+    def title_elided(self) -> bool:
+        """Whether the header is too narrow for the whole title (it ends in "…")."""
+        return self._title.elided
 
     def take_header(self) -> QWidget:
         """Remove the header from the frame, e.g. to use it as a dock title bar."""

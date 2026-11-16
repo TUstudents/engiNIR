@@ -1264,6 +1264,12 @@ class PredictionView(QWidget):
                       for d, w in prediction.wavelength_warnings.items()]
         return lines
 
+    def _rois_waiting(self) -> str:
+        """Before ROI predictions: how many prediction ROIs wait (review A6), not "none"."""
+        waiting = sum(1 for roi in self.project_state.rois.values() if roi.job == "prediction")
+        return ("no prediction ROI" if not waiting else
+                f"none predicted yet ({waiting} prediction ROI{'s' if waiting != 1 else ''})")
+
     def status_text(self) -> str:
         """The status line on Predict without hovering: the shown map's data file, the
         model's signal and recipe, the model and the target."""
@@ -1474,8 +1480,12 @@ class PredictionView(QWidget):
         result = self._resolved_workspace_prediction()
         run = None if result is None else result.prediction_run
         # The chain is the map's, or else the (first) model of the ROI results.
+        # Before any prediction, the model a prediction would use (review A6: "Model: none"
+        # while the project has one).
         model_run_id = (run.model_run_id if run is not None else
-                        self._roi_predictions[0].model_run_id if self._roi_predictions else None)
+                        self._roi_predictions[0].model_run_id if self._roi_predictions else
+                        self.project_state.active_model_name
+                        or next(reversed(self.project_state.model_runs), None))
         model_run = (None if model_run_id is None
                      else self.project_state.model_runs.get(model_run_id))
         signal_domain = (None if model_run is None
@@ -1548,7 +1558,7 @@ class PredictionView(QWidget):
             "readiness": readiness_text,
             "service": self._service_status.label.text(),
             "prediction": "none" if result is None else f"map of {dataset_text}",
-            "rois": "\n".join(self.roi_summary_lines()) or (self._roi_note or "none"),
+            "rois": "\n".join(self.roi_summary_lines()) or self._roi_note or self._rois_waiting(),
             "model": model_text,
             "dataset": dataset_text,
             "calibration": calibration_text,

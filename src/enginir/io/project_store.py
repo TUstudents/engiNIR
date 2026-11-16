@@ -495,6 +495,19 @@ def relocate_dataset_ref(path: PathLike, dataset_id: str, source_path: str,
     logger.info("Dataset '{}' moved from {} to {} in {}", dataset_id, previous, source_path, path)
 
 
+def save_dataset_label(path: PathLike, dataset_id: str, label: str) -> None:
+    """Set the display label of a stored dataset (``""``: show the file name).
+
+    A label is a mutable name, not identity (``project-schema-contract_v3.md`` §5).
+    """
+    with _open_project(path, writable=True) as f:
+        group = f["datasets"].get(dataset_id)
+        if not isinstance(group, h5py.Group):
+            log_and_raise("Unknown dataset '{}' in {}", dataset_id, path, error=KeyError)
+        group.attrs["label"] = str(label).strip()
+    logger.info("Dataset '{}' named '{}' in {}", dataset_id, label, path)
+
+
 def remove_target_assignment(path: PathLike, target_id: str, roi_id: str) -> None:
     """Delete the value of one target for one ROI; the ROI is then unlabeled for it.
 

@@ -1687,6 +1687,9 @@ class HSIViewer(QMainWindow):
         act = _add_required_action(m, "Add Dataset...")
         act.setIcon(icon("photo-plus"))
         act.triggered.connect(lambda: self.add_data_file())
+        act = _add_required_action(m, "Name Dataset...")
+        act.setToolTip("A short name for a dataset, shown instead of its file name")
+        act.triggered.connect(lambda: self.name_dataset())
         act = _add_required_action(m, "Locate Moved Datasets...")
         act.setToolTip("Find the files of datasets that are not at their stored place")
         act.triggered.connect(self._locate_first_missing)
@@ -2456,7 +2459,40 @@ class HSIViewer(QMainWindow):
     def _on_browser_item_activated(self, item: Any, _column: int = 0) -> None:
         payload = item.data(0, Qt.ItemDataRole.UserRole)
         if isinstance(payload, dict) and payload.get("kind") == "dataset":
-            self.show_data_file(str(payload.get("id")))
+            self.show_dataset(str(payload.get("id")))
+
+    def show_dataset(self, dataset_id: str) -> None:
+        """Show a dataset's image: load it and bring the Data step to the front (review A5)."""
+        self.show_data_file(dataset_id)  # first, so the tab switch does not load another file
+        self.show_step("data")
+
+    def name_dataset(self, dataset_id: str | None = None) -> bool:
+        """Project > Name Dataset: give a dataset a short display name ("Layer 7")."""
+        from PyQt6.QtWidgets import QInputDialog
+
+        state = self.project_state
+        if not state.datasets:
+            QMessageBox.information(self, "Name dataset", "The project has no dataset.")
+            return False
+        if dataset_id is None:
+            shown = self._eda_view.shown_dataset_id()
+            choices = list(state.datasets)
+            labels = [state.data_file_label(d) for d in choices]
+            current = choices.index(shown) if shown in choices else 0
+            label, ok = QInputDialog.getItem(self, "Name dataset", "Dataset:", labels,
+                                             current, False)
+            if not ok:
+                return False
+            dataset_id = choices[labels.index(label)]
+        ref = state.datasets[dataset_id]
+        name, ok = QInputDialog.getText(
+            self, "Name dataset",
+            f"Name of {os.path.basename(ref.source_path)} (empty: the file name):",
+            text=ref.label)
+        if not ok:
+            return False
+        state.set_dataset_label(dataset_id, name)
+        return True
 
     def _refresh_canvas_image(self) -> None:
         """Rebuild the central false-color preview from the current viewer state."""

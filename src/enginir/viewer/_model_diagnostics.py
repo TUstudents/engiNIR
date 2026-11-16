@@ -911,7 +911,8 @@ def _render_roi_distance(fig: Figure, payload: Any, colors: Mapping[str, str]
     ax.vlines(x, 0.0, dmodx * 100.0, colors=[value_colormap(colors)(norm(v)) for v in reference],
               linewidth=width, label="DModX > limit")
     if t2 is not None:
-        ax.scatter(x, t2 * 100.0, marker="D", s=18, color=colors["fg"], zorder=3,
+        ax.scatter(x, t2 * 100.0, marker="D", s=22, color=colors["fg"], zorder=3,
+                   edgecolors=colors["ax_bg"], linewidths=0.9,
                    label="T² > limit")
     ax.axhline(_EXPECTED_ABOVE * 100.0, color=GUIDE_COLOR, linewidth=0.9, linestyle="--",
                label="expected 1 %")

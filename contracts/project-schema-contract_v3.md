@@ -337,6 +337,9 @@ Explicit exceptions, each already governed by its own contract rule:
   identity. Both may be updated after `Locate File...` has verified the
   file against the dataset and against the stored raw pixels of its ROIs
   (`project-dataset-attachment-contract_v3.md`, Missing and moved files)
+- `DatasetRef.label`: a short display name the user gives a dataset
+  ("Layer 7"); a mutable name like every name, set by `Dataset.set_label`,
+  shown instead of the file name where datasets are listed (engiNIR 1.6)
 - `TargetAssignment` removal: deleting the assignment of a `(roi_id,
   target_id)` pair returns it to "no value" (`roi-target-contract_v3.md`)
 
@@ -493,6 +496,7 @@ project.h5
 +-- /datasets/{dataset_id}/
 |   +-- @source_path
 |   +-- @relative_path       (display data; "" when not computable)
+|   +-- @label               (display data; the user's short name, "" for none)
 |   +-- @source_format
 |   +-- @source_modality
 |   +-- @cube_shape
@@ -817,7 +821,7 @@ malformed:
 
 **Display data:** metrics, the component curve, the calibration
 diagnostics, shares above the limits, coverage, `cv_spec` and `cv_outputs`,
-the telemetry of stored predictions, and a dataset's `relative_path`. A missing or malformed display
+the telemetry of stored predictions, and a dataset's `relative_path` and `label`. A missing or malformed display
 value never stops a project from opening: the reader logs it, and the
 viewer shows "–" (or "not available") in its place and never fails on it.
 

@@ -671,7 +671,7 @@ class SpectrumPanel(_BasePanelWidget):
         xb = x[self._state.band]
         self._marker = self._ax.axvline(xb, color="red", linewidth=1.5)
 
-        xlabel = "Wavelength (nm)" if self._state.x_spectral_unit == "nm" else "Band"
+        xlabel = self._state.spectral_axis_label()
         self._ax.set_xlabel(xlabel, color=colors["fg"], fontsize=8)
         self._ax.set_ylabel(signal_label(self._state.y_unit_effective), color=colors["fg"], fontsize=8)
         self._draw_idle()
@@ -688,7 +688,7 @@ class SpectrumPanel(_BasePanelWidget):
         self._line.set_data(x, y)
         self._line.set_color(colors["accent"])
         self._marker.set_xdata([x[self._state.band], x[self._state.band]])
-        xlabel = "Wavelength (nm)" if self._state.x_spectral_unit == "nm" else "Band"
+        xlabel = self._state.spectral_axis_label()
         self._ax.set_xlabel(xlabel, color=colors["fg"], fontsize=8)
         self._ax.set_ylabel(signal_label(self._state.y_unit_effective), color=colors["fg"], fontsize=8)
         self._ax.relim()

@@ -274,6 +274,8 @@ class EDAView(QWidget):
         layout.addWidget(self._spin_px, 2, 1, 1, 2)
 
         self._spectral_bg.buttonClicked.connect(self._on_spectral_axis_changed)
+        self.state.units_changed.connect(self._sync_spectral_axis)
+        self._sync_spectral_axis()
         self._spatial_bg.buttonClicked.connect(self._on_spatial_axis_changed)
         self._spin_px.valueChanged.connect(self.state.set_pixel_size_mm)
         return box
@@ -347,6 +349,14 @@ class EDAView(QWidget):
             msg = "from the dark/white references"
         else:
             msg = f"levels: black={state.black_level:g}  white={state.white_level:g}"
+        share = None if state.y_unit == "DN" else state.reflectance_clip_share()
+        if share is not None and share >= 0.001:
+            msg += (f"\n⚠ {share:.1%} of the values are above white and clipped to "
+                    "reflectance 1; check the white reference").replace("%", " %", 1)
+            self._signal_info.setToolTip("Values above the white reference become reflectance "
+                                         "1 (absorbance 0); many of them point to a white "
+                                         "reference that is too dark or saturated pixels.")
+        self._signal_info.setWordWrap(True)
         self._signal_info.setText(msg)
 
     def set_signal_choices(self, units: tuple[str, ...]) -> None:
@@ -376,6 +386,15 @@ class EDAView(QWidget):
     def _on_detrend_toggled(self, checked: bool) -> None:
         self._spin_det.setEnabled(checked)
         self.state.set_preprocess_detrend(checked)
+
+    def _sync_spectral_axis(self, *_args: Any) -> None:
+        """A file without wavelengths offers band numbers only (review A1)."""
+        has = self.state.has_wavelengths
+        self._rb_nm.setEnabled(has)
+        self._rb_nm.setToolTip("" if has else "This file has no wavelengths; bands are "
+                               "numbered from 0.")
+        if not has and self._rb_nm.isChecked():
+            self._rb_band.setChecked(True)
 
     def _on_spectral_axis_changed(self, button) -> None:
         unit = "nm" if button is self._rb_nm else "band"

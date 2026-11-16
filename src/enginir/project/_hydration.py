@@ -31,7 +31,7 @@ _PROJECT_META_FIELDS = ("project_id", "FileSchemaVersion", "FileCreator", "FileW
                         "created_at", "updated_at")
 _MODEL_DISPLAY_FIELDS = ("cv_spec", "metrics")
 #: Display data of a dataset: tolerated when missing or malformed (schema contract).
-_DATASET_DISPLAY_FIELDS = ("relative_path",)
+_DATASET_DISPLAY_FIELDS = ("relative_path", "label")
 _CALIBRATION_REFERENCE_FIELDS = ("dark_ref_source", "white_ref_source", "dark_ref_data",
                                  "white_ref_data", "black_level", "white_level")
 
@@ -220,12 +220,16 @@ def _check_executable_models(model_runs: dict[str, ModelRun], sample_sets: dict[
 
 
 def _dataset_ref(location: str, payload: dict[str, Any], dataset_id: str) -> DatasetRef:
-    """A dataset; its ``relative_path`` is display data: missing or malformed reads as ``""``."""
-    relative = payload.get("relative_path", "")
-    if not isinstance(relative, str):
-        logger.warning("{}: relative_path {!r} is not text; it is ignored", location, relative)
-        relative = ""
-    return _build(DatasetRef, location, {**payload, "relative_path": relative},
+    """A dataset; ``relative_path`` and ``label`` are display data: missing or malformed read
+    as ``""``."""
+    display = {}
+    for key in _DATASET_DISPLAY_FIELDS:
+        value = payload.get(key, "")
+        if not isinstance(value, str):
+            logger.warning("{}: {} {!r} is not text; it is ignored", location, key, value)
+            value = ""
+        display[key] = value
+    return _build(DatasetRef, location, {**payload, **display},
                   {"dataset_id": dataset_id}, ignored={"calibrations", "active_calibration_id"})
 
 

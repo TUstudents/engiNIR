@@ -979,6 +979,19 @@ class Dataset:
         project._found[self.ref.dataset_id] = DataFileCandidate(abs_path, STORED)
         return self
 
+    def set_label(self, label: str) -> Dataset:
+        """Give the dataset a short display name ("Layer 7"); ``""`` shows the file name.
+
+        A label is a mutable name like every name in a project; the dataset
+        is identified by its id (project-schema contract §5).
+        """
+        project, ws = self.project, self.project.workspace
+        label = str(label).strip()
+        store.save_dataset_label(project.path, self.ref.dataset_id, label)
+        self.ref = replace(self.ref, label=label)
+        ws.datasets[self.ref.dataset_id] = self.ref
+        return self
+
     def add_rois(self, cells: Sequence[GridCell]) -> list[TrainingROI]:
         """Store the cells of an ROI grid (see :func:`roi_grid`), all or none.
 
@@ -1451,7 +1464,8 @@ def data_file_labels(datasets: Mapping[str, DatasetRef], *,
                      shorten: bool = True) -> dict[str, str]:
     """A short, unique display label per dataset id (viewer identity rule).
 
-    A data file is labelled by its file name. When several data files share
+    A dataset with a label (:meth:`Dataset.set_label`) is shown by it. Otherwise a
+    data file is labelled by its file name. When several data files share
     a file name, each gets the folder that tells it apart, e.g.
     ``stream_hsi.h5 (API 10% - nozzle 0.6 mm)``: the parent folder, or more
     of the path where parent folders repeat too. Long folders are shortened
@@ -1466,6 +1480,8 @@ def data_file_labels(datasets: Mapping[str, DatasetRef], *,
     for dataset_id, parts in paths.items():
         by_name.setdefault(parts[-1].lower(), []).append(dataset_id)
     labels: dict[str, str] = {}
+    named = {dataset_id: ref.label for dataset_id, ref in datasets.items()
+             if getattr(ref, "label", "")}
     for ids in by_name.values():
         if len(ids) == 1:
             labels[ids[0]] = paths[ids[0]][-1]
@@ -1481,6 +1497,7 @@ def data_file_labels(datasets: Mapping[str, DatasetRef], *,
             short = folders
         for i in ids:
             labels[i] = f"{paths[i][-1]} ({short[i]})" if short[i] else paths[i][-1]
+    labels.update(named)
     return labels
 
 
