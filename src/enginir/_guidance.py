@@ -307,10 +307,14 @@ def _validation_checks(model: Model) -> list[Check]:
         if code == "one_level_per_file":
             members = [ws.rois[roi_id] for roi_id in sample_set.roi_ids if roi_id in ws.rois]
             labelled = bool(members) and all(roi.sample for roi in members)
-            fix = Fix("fit_again", "Hold Out by Sample",
-                      {"model_run_id": run.model_run_id, "group_by": "sample"}) if labelled \
-                else Fix("edit_samples", "Set Sample Labels",
-                         {"roi_ids": tuple(roi.roi_id for roi in members if not roi.sample)})
+            by_sample = run.fit_specification.group_by == "sample"
+            if labelled and not by_sample:
+                fix = Fix("fit_again", "Hold Out by Sample",
+                          {"model_run_id": run.model_run_id, "group_by": "sample"})
+            else:  # no labels, or held out by sample already: the labels need a look
+                fix = Fix("edit_samples", "Set Sample Labels",
+                          {"roi_ids": tuple(roi.roi_id for roi in members
+                                            if by_sample or not roi.sample)})
         checks.append(Check(
             f"model.validation.{code}", "model", "attention",
             f"The cross-validation of '{model.name}' is likely optimistic: {text}.",

@@ -5,11 +5,12 @@ from __future__ import annotations
 import os
 import time
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QCheckBox,
     QFileDialog,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -23,6 +24,8 @@ from PyQt6.QtWidgets import (
 
 from .._logging import get_logger
 from . import _is_project_file
+from ._app import app_icon
+from ._icons import icon
 from ._jobs import BusyStatusWidget
 from ._recent import load as _load_recent
 from ._theme import secondary_text_style
@@ -45,11 +48,13 @@ class WelcomeWindow(QMainWindow):
     #: Emitted when the user creates a new project file. Args: (path,)
     project_created = pyqtSignal(str)
 
+    #: Emitted when the user asks for the example project (created on first use).
+    example_requested = pyqtSignal()
+
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("engiNIR — HSI Viewer")
-        self.setFixedSize(680, 500)
-
+        self.setWindowTitle("engiNIR")
+        self.setFixedSize(760, 600)
 
         self._dark_path: str | None = None
         self._white_path: str | None = None
@@ -57,86 +62,95 @@ class WelcomeWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
-        layout.setSpacing(10)
-        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+        layout.setContentsMargins(24, 20, 24, 16)
 
+        heading = QHBoxLayout()
+        logo = QLabel()
+        logo.setPixmap(app_icon().pixmap(40, 40))
+        heading.addWidget(logo)
         title = QLabel("engiNIR")
         font = QFont()
         font.setPointSize(22)
         font.setBold(True)
         title.setFont(font)
-        layout.addWidget(title)
+        heading.addWidget(title)
+        heading.addStretch(1)
+        layout.addLayout(heading)
 
-        subtitle = QLabel(
-            "Open a dataset for exploration, or continue inside one persisted scientific workspace."
-        )
+        subtitle = QLabel("Calibration models for NIR spectra and hyperspectral images.")
         subtitle.setWordWrap(True)
         subtitle.setStyleSheet(secondary_text_style())
         layout.addWidget(subtitle)
 
-        quick_start = QGroupBox("Quick start")
-        quick_layout = QVBoxLayout(quick_start)
-        quick_layout.setSpacing(6)
-
-        self._btn_open = QPushButton("Open Dataset...")
-        self._btn_open.clicked.connect(self._on_open_clicked)
-        quick_layout.addWidget(self._btn_open)
-
-        project_row = QHBoxLayout()
-        self._btn_new_project = QPushButton("Create Project...")
+        quick_start = QGroupBox("Start")
+        quick_layout = QGridLayout(quick_start)
+        quick_layout.setHorizontalSpacing(10)
+        quick_layout.setVerticalSpacing(4)
+        self._btn_example = QPushButton("Open Example Project")
+        self._btn_example.setIcon(icon("wand", "accent"))
+        self._btn_example.setDefault(True)
+        self._btn_example.clicked.connect(self.example_requested.emit)
+        self._btn_new_project = QPushButton("New Project...")
+        self._btn_new_project.setIcon(icon("file-plus"))
         self._btn_new_project.clicked.connect(self._on_new_project_clicked)
         self._btn_open_project = QPushButton("Open Project...")
+        self._btn_open_project.setIcon(icon("folder-open"))
         self._btn_open_project.clicked.connect(self._on_open_project_clicked)
-        project_row.addWidget(self._btn_new_project)
-        project_row.addWidget(self._btn_open_project)
-        quick_layout.addLayout(project_row)
-
-        launcher_hint = QLabel(
-            "Open a dataset to explore it, or open or create a project for models and predictions."
+        hints = (
+            "Five tablet scans with a fitted model: the fastest way to see how it works.",
+            "Choose your scans and their references, then name what to predict.",
+            "Continue a project; scans that moved are found again.",
         )
-        launcher_hint.setWordWrap(True)
-        launcher_hint.setStyleSheet(secondary_text_style())
-        quick_layout.addWidget(launcher_hint)
+        for column, (button, hint) in enumerate(zip(
+                (self._btn_example, self._btn_new_project, self._btn_open_project), hints)):
+            button.setMinimumHeight(34)
+            quick_layout.addWidget(button, 0, column)
+            label = QLabel(hint)
+            label.setWordWrap(True)
+            label.setStyleSheet(secondary_text_style())
+            quick_layout.addWidget(label, 1, column)
         layout.addWidget(quick_start)
 
-        refs_box = QGroupBox("Optional references")
-        refs_layout = QVBoxLayout(refs_box)
-        refs_layout.setSpacing(6)
-        dark_row = QHBoxLayout()
-        self._cb_dark = QCheckBox("Include dark reference")
-        self._lbl_dark = QLabel("(none)")
-        self._btn_dark = QPushButton("Browse...")
-        self._btn_dark.setEnabled(False)
-        self._btn_dark.clicked.connect(self._on_browse_dark)
-        self._cb_dark.toggled.connect(self._btn_dark.setEnabled)
-        dark_row.addWidget(self._cb_dark)
-        dark_row.addWidget(self._lbl_dark)
-        dark_row.addWidget(self._btn_dark)
-        refs_layout.addLayout(dark_row)
-
-        white_row = QHBoxLayout()
-        self._cb_white = QCheckBox("Include white reference")
-        self._lbl_white = QLabel("(none)")
-        self._btn_white = QPushButton("Browse...")
-        self._btn_white.setEnabled(False)
-        self._btn_white.clicked.connect(self._on_browse_white)
-        self._cb_white.toggled.connect(self._btn_white.setEnabled)
-        white_row.addWidget(self._cb_white)
-        white_row.addWidget(self._lbl_white)
-        white_row.addWidget(self._btn_white)
-        refs_layout.addLayout(white_row)
-        layout.addWidget(refs_box)
-
-        recent_box = QGroupBox("Recent workspaces")
+        recent_box = QGroupBox("Recent")
         recent_layout = QVBoxLayout(recent_box)
         recent_layout.setSpacing(6)
-        recent_label = QLabel("Recent files")
-        recent_layout.addWidget(recent_label)
         self._recent_list = QListWidget()
         self._populate_recent()
         self._recent_list.itemActivated.connect(self._on_recent_double_clicked)
         recent_layout.addWidget(self._recent_list)
         layout.addWidget(recent_box, 1)
+
+        refs_box = QGroupBox("Explore a dataset without a project")
+        refs_layout = QVBoxLayout(refs_box)
+        refs_layout.setSpacing(6)
+        self._btn_open = QPushButton("Open Dataset...")
+        self._btn_open.clicked.connect(self._on_open_clicked)
+        dark_row = QHBoxLayout()
+        self._cb_dark = QCheckBox("Dark reference")
+        self._lbl_dark = QLabel("(none)")
+        self._btn_dark = QPushButton("Browse...")
+        self._btn_dark.setEnabled(False)
+        self._btn_dark.clicked.connect(self._on_browse_dark)
+        self._cb_dark.toggled.connect(self._btn_dark.setEnabled)
+        dark_row.addWidget(self._btn_open)
+        dark_row.addSpacing(12)
+        dark_row.addWidget(self._cb_dark)
+        dark_row.addWidget(self._lbl_dark)
+        dark_row.addWidget(self._btn_dark)
+        white_row = QHBoxLayout()
+        self._cb_white = QCheckBox("White reference")
+        self._lbl_white = QLabel("(none)")
+        self._btn_white = QPushButton("Browse...")
+        self._btn_white.setEnabled(False)
+        self._btn_white.clicked.connect(self._on_browse_white)
+        self._cb_white.toggled.connect(self._btn_white.setEnabled)
+        dark_row.addWidget(self._cb_white)
+        dark_row.addWidget(self._lbl_white)
+        dark_row.addWidget(self._btn_white)
+        refs_layout.addLayout(dark_row)
+        refs_layout.addLayout(white_row)
+        layout.addWidget(refs_box)
 
         self._loading_status = BusyStatusWidget(idle_text="Ready", parent=self)
         layout.addWidget(self._loading_status)
@@ -148,6 +162,7 @@ class WelcomeWindow(QMainWindow):
     def loading_controls(self) -> list[QWidget]:
         """Return controls that should be disabled while startup loading runs."""
         return [
+            self._btn_example,
             self._btn_open,
             self._btn_new_project,
             self._btn_open_project,
@@ -163,10 +178,17 @@ class WelcomeWindow(QMainWindow):
         return self._loading_status.snapshot()
 
     def _populate_recent(self) -> None:
+        """Recent files by name, with the folder after it (the whole path in the tooltip)."""
         self._recent_list.clear()
         for path in _load_recent():
             if os.path.exists(path):
-                self._recent_list.addItem(path)
+                folder = os.path.dirname(path)
+                kind = "project" if _is_project_file(path) else "dataset"
+                item = QListWidgetItem(icon("file-text" if kind == "project" else "photo"),
+                                       f"{os.path.basename(path)}    {_short_folder(folder)}")
+                item.setData(Qt.ItemDataRole.UserRole, path)
+                item.setToolTip(path)
+                self._recent_list.addItem(item)
 
     def _on_open_clicked(self) -> None:
         dialog_started = time.perf_counter()
@@ -229,7 +251,7 @@ class WelcomeWindow(QMainWindow):
             self._lbl_white.setText(os.path.basename(path))
 
     def _on_recent_double_clicked(self, item: QListWidgetItem) -> None:
-        path = os.path.abspath(item.text())
+        path = os.path.abspath(str(item.data(Qt.ItemDataRole.UserRole) or item.text()))
         logger.debug("Startup timing: recent item activated: {}", path)
         if _is_project_file(path):
             self.project_selected.emit(path)
@@ -237,3 +259,8 @@ class WelcomeWindow(QMainWindow):
         dark = self._dark_path if self._cb_dark.isChecked() else None
         white = self._white_path if self._cb_white.isChecked() else None
         self.file_selected.emit(path, dark, white)
+
+
+def _short_folder(folder: str, limit: int = 48) -> str:
+    """The end of a folder path, the part that tells recent files apart."""
+    return folder if len(folder) <= limit else "…" + folder[-(limit - 1):]

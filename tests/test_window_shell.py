@@ -256,3 +256,60 @@ def test_the_window_is_menus_strip_three_columns_and_a_bottom_panel(qapp, layers
         assert window._inspector_dock.windowTitle() == "Properties"
     finally:
         window.close()
+
+
+def test_the_example_project_is_created_once_and_opens_with_a_model(qapp, tmp_path,
+                                                                     monkeypatch):
+    from enginir._example import create_example_project
+    from enginir.viewer import _recent
+
+    path = create_example_project(tmp_path)
+    project = Project.open(path)
+    assert len(project.workspace.datasets) == 5 and len(project.models) == 1
+    jobs = [roi.job for roi in project.workspace.rois.values()]
+    assert jobs.count("prediction") == 5 and jobs.count("calibration") == 20
+    assert all(roi.sample for roi in project.workspace.rois.values())
+    model = next(iter(project.models.values()))
+    assert model.verdict().level in ("good", "usable_with_care")
+    stamp = path.stat().st_mtime_ns
+    assert create_example_project(tmp_path) == path and path.stat().st_mtime_ns == stamp, \
+        "reused, not written again"
+
+    monkeypatch.setattr(_recent, "config_dir", lambda: tmp_path / "config")
+    window = _open(qapp, project)
+    try:
+        window.open_example_project()
+        _wait_until(qapp, lambda: window.project_state.project_path is not None
+                    and "example" in window.project_state.project_path)
+        assert len(window.project_state.model_runs) == 1
+    finally:
+        window.close()
+
+
+def test_the_guide_bar_shows_the_verdict_or_the_steps_next_check(qapp, layers):
+    from enginir._workflow import Model
+
+    window = _open(qapp, layers)
+    try:
+        bar = window._guide_bar
+        window.show_step("values")
+        qapp.processEvents()
+        (check,) = [c for c in layers.checks() if c.check_id == "values.differ_within_sample"]
+        assert bar.isVisible() and bar.text.text() == check.message and bar.level == "open"
+        assert bar.fix.isVisible() and bar.fix.text() == "Go to ROI"
+        bar.fix.click()
+        assert window._selected_roi_id() == layers.roi("high3").roi_id
+
+        window.show_step("predict")
+        qapp.processEvents()
+        assert window._predict_page_stack.currentWidget() is window._predict_empty, \
+            "an invitation, not empty axes"
+
+        run = _fit(qapp, window)
+        window.show_step("model")
+        window.select_model(run.model_run_id)
+        qapp.processEvents()
+        verdict = Model(Project.open(layers.path), run).verdict()
+        assert bar.text.text() == verdict.summary and bar.level == verdict.level
+    finally:
+        window.close()

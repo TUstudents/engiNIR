@@ -12,6 +12,7 @@ from typing import Any
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -212,3 +213,84 @@ def _number_item(value: Any, digits: int | None = None) -> QTableWidgetItem:
                  round(number, digits))
     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
     return item
+
+
+class GuideBar(QFrame):
+    """One line above the pages: the model's verdict or the step's next action, with its fix.
+
+    Shows what :meth:`enginir.Project.checks` and :meth:`Model.verdict`
+    return; it words nothing of its own beyond the empty states.
+    """
+
+    #: The fix button was pressed.
+    fix_requested = pyqtSignal(object)
+    #: "Show All Checks" was pressed.
+    checks_requested = pyqtSignal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("VerdictBar")
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 5, 8, 5)
+        layout.setSpacing(8)
+        self._icon = QLabel()
+        self._icon.setFixedWidth(18)
+        layout.addWidget(self._icon)
+        self.text = QLabel("")
+        self.text.setWordWrap(True)
+        self.text.setTextFormat(Qt.TextFormat.PlainText)
+        layout.addWidget(self.text, 1)
+        self._checks = QPushButton("Show All Checks")
+        self._checks.clicked.connect(self.checks_requested.emit)
+        layout.addWidget(self._checks)
+        self.fix = QPushButton("")
+        self.fix.setDefault(True)
+        self.fix.clicked.connect(self._fix_clicked)
+        layout.addWidget(self.fix)
+        self._fix: Fix | None = None
+        self._level = ""
+
+    @property
+    def level(self) -> str:
+        """``good``, ``usable_with_care``, ``not_usable``, ``open``, ``ok`` or ``""``."""
+        return self._level
+
+    def show_verdict(self, verdict: Verdict) -> None:
+        """A model's verdict, with the fix of its first open check."""
+        fix = next((check.fix for check in verdict.evidence
+                    if check.is_open and check.fix is not None), None)
+        name, color = _VERDICT_ICONS[verdict.level]
+        self._set(verdict.level, verdict.summary, fix, name, color)
+
+    def show_check(self, check: Check | None, empty_text: str = "") -> None:
+        """The first open check of a step (``None``: ``empty_text``, or hidden)."""
+        if check is None:
+            if empty_text:
+                self._set("ok", empty_text, None, "circle-check", "ok")
+            else:
+                self.hide()
+            return
+        name, color = _SEVERITY_ICONS.get(check.severity, ("info-circle", None))
+        self._set("open" if check.is_open else check.severity, check.message, check.fix,
+                  name, color)
+
+    def _set(self, level: str, text: str, fix: Fix | None, icon_name: str,
+             color: str | None) -> None:
+        self._level = level
+        self.setProperty("level", level)
+        style = self.style()
+        if style is not None:
+            style.unpolish(self)
+            style.polish(self)
+        self._icon.setPixmap(icon(icon_name, color).pixmap(16, 16))
+        self.text.setText(text)
+        self._fix = fix
+        self.fix.setVisible(fix is not None)
+        if fix is not None:
+            self.fix.setText(fix.label)
+        self.show()
+
+    def _fix_clicked(self) -> None:
+        if self._fix is not None:
+            self.fix_requested.emit(self._fix)

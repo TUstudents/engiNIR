@@ -169,6 +169,11 @@ def test_an_optimistic_cross_validation_is_a_check_with_its_fix(tmp_path, sample
     else:
         assert check.fix.action == "edit_samples" and len(check.fix.arguments["roi_ids"]) == 8
     assert check in project.checks(), "the project lists the checks of its models"
+
+    if sample_labels:  # held out by sample already, the labels are what needs a look
+        by_sample = project.fit("API", n_components=1, fit_spec={"folds": {"group_by": "sample"}})
+        found = _by_id(by_sample.checks()).get("model.validation.one_level_per_file", [])
+        assert all(c.fix is not None and c.fix.action == "edit_samples" for c in found)
     assert model.verdict().level != "good"
 
 

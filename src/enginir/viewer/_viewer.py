@@ -29,6 +29,8 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QSplitter,
     QStackedWidget,
+    QHBoxLayout,
+    QPushButton,
     QToolButton,
     QTabWidget,
     QAbstractItemView,
@@ -52,7 +54,7 @@ from ._inspector import ProjectInspector
 from ._data_files import AddDataFileDialog
 from ._project_rois import ProjectRoisView
 from ._roi_table import RoiTableWidget
-from ._bottom_panels import ChecksPanel, ModelsPanel
+from ._bottom_panels import ChecksPanel, GuideBar, ModelsPanel
 from ._icons import icon
 from ._workflow_strip import WorkflowStrip
 from .._guidance import Check, Fix
@@ -392,7 +394,16 @@ class HSIViewer(QMainWindow):
         self._workspace_content_stack.addWidget(self._explore_content_page)
         self._workspace_content_stack.addWidget(self._model_content_page)
         self._workspace_content_stack.addWidget(self._predict_content_page)
-        self.setCentralWidget(self._workspace_content_stack)
+        # Above every page: the verdict or the next step with its fix (plan gui-1.6, Phase 5).
+        self._guide_bar = GuideBar()
+        self._guide_bar.hide()
+        central = QWidget()
+        central_column = QVBoxLayout(central)
+        central_column.setContentsMargins(0, 0, 0, 0)
+        central_column.setSpacing(0)
+        central_column.addWidget(self._guide_bar)
+        central_column.addWidget(self._workspace_content_stack, 1)
+        self.setCentralWidget(central)
 
         self._refresh_canvas_image()
 
@@ -512,6 +523,8 @@ class HSIViewer(QMainWindow):
         self._model_warnings.setVisible(False)
 
         readiness_box = QGroupBox("Readiness")
+        # The guide bar above the page says what is ready and what to do next.
+        readiness_box.setVisible(False)
         readiness_layout = QVBoxLayout(readiness_box)
         readiness_layout.setContentsMargins(8, 8, 8, 8)
         readiness_layout.setSpacing(4)
@@ -641,7 +654,57 @@ class HSIViewer(QMainWindow):
         self._predict_workspace_splitter.setStretchFactor(0, 5)
         self._predict_workspace_splitter.setStretchFactor(1, 1)
         self._predict_workspace_splitter.setSizes([900, 300])
-        layout.addWidget(self._predict_workspace_splitter, 1)
+        # Before the first prediction of the session the page invites one instead of
+        # showing empty axes (plan gui-1.6, empty states).
+        self._predict_page_stack = QStackedWidget()
+        self._predict_empty = self._empty_state(
+            "wand", "Predict your samples",
+            "A model predicts the prediction ROIs from the project file alone, one result "
+            "per ROI, with a check that each one is inside the model; or every pixel of a "
+            "dataset as a map.",
+            (("Predict ROIs...", self._prediction_view._btn_predict_rois),
+             ("Predict Map...", self._prediction_view._btn_predict)))
+        self._predict_page_stack.addWidget(self._predict_empty)
+        self._predict_page_stack.addWidget(self._predict_workspace_splitter)
+        layout.addWidget(self._predict_page_stack, 1)
+        return page
+
+    @staticmethod
+    def _empty_state(icon_name: str, title: str, text: str,
+                     buttons: tuple[tuple[str, Any], ...]) -> QWidget:
+        """A page with one sentence and the buttons of the next action."""
+        page = QWidget()
+        page.setObjectName("EmptyPage")
+        column = QVBoxLayout(page)
+        column.addStretch(1)
+        mark = QLabel()
+        mark.setPixmap(icon(icon_name, "accent").pixmap(48, 48))
+        mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        column.addWidget(mark)
+        heading = QLabel(title)
+        heading.setObjectName("EmptyTitle")
+        heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        column.addWidget(heading)
+        body = QLabel(text)
+        body.setObjectName("EmptyState")
+        body.setWordWrap(True)
+        body.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        body.setMaximumWidth(520)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(body)
+        row.addStretch(1)
+        column.addLayout(row)
+        actions = QHBoxLayout()
+        actions.addStretch(1)
+        for index, (label, target) in enumerate(buttons):
+            button = QPushButton(label)
+            button.setDefault(index == 0)
+            button.clicked.connect(lambda _checked=False, target=target: target.click())
+            actions.addWidget(button)
+        actions.addStretch(1)
+        column.addLayout(actions)
+        column.addStretch(2)
         return page
 
     def _on_predict_display_changed(self) -> None:
@@ -1284,6 +1347,7 @@ class HSIViewer(QMainWindow):
 
     def _on_workspace_tab_changed(self, _index: int) -> None:
         self._sync_workflow_step()
+        self._refresh_guide()
         self._update_status_strip()
         self._sync_workspace_content_host()
         self._refresh_workspace_content_pages()
@@ -1365,6 +1429,9 @@ class HSIViewer(QMainWindow):
         if predict_map_widget is None:
             return
         prediction_summary = self._prediction_view.workspace_summary()
+        has_results = bool(self.project_state.predictions or self.project_state.roi_results)
+        self._predict_page_stack.setCurrentWidget(
+            self._predict_workspace_splitter if has_results else self._predict_empty)
         self._predict_content_title.setText(prediction_summary["title"])
         self._predict_headline.setText(prediction_summary["headline"])
         self._predict_card_calibration_value.setText(prediction_summary["calibration"])
@@ -1729,6 +1796,10 @@ class HSIViewer(QMainWindow):
                        state.model_runs_changed, state.sample_sets_changed):
             signal.connect(self._checks_timer.start)
         self._explore_tabs.currentChanged.connect(self._sync_workflow_step)
+        self._guide_bar.fix_requested.connect(self.run_fix)
+        self._guide_bar.checks_requested.connect(self.show_checks)
+        self._modeling_view.view_state_changed.connect(self._refresh_guide)
+        self.project_state.active_model_changed.connect(self._refresh_guide)
         self._sync_workflow_step()
         self.refresh_checks()
 
@@ -1752,6 +1823,7 @@ class HSIViewer(QMainWindow):
             self._workspace_tabs.setCurrentWidget(self._prediction_view)
         self._workflow.set_current(step)
         self._sync_workflow_step()
+        self._refresh_guide()
 
     def _sync_workflow_step(self, *_args: Any) -> None:
         """Mark the step of the shown workspace; title the Settings dock after it."""
@@ -1769,6 +1841,7 @@ class HSIViewer(QMainWindow):
         else:
             step = "values" if self._workflow.current() == "values" else "rois"
         self._workflow.set_current(step)
+        self._refresh_guide()
 
     def refresh_checks(self) -> None:
         """Ask the library for the project's checks and verdicts and show them."""
@@ -1806,7 +1879,46 @@ class HSIViewer(QMainWindow):
                 states["predict"] = ("done", 0)
         self._workflow.set_states(states)
         self._refresh_models_panel(project)
+        self._checks = checks
+        self._refresh_guide()
         self.checks_refreshed.emit()
+
+    def show_checks(self) -> None:
+        """Bring the Checks tab of the bottom panel to the front."""
+        self._checks_dock.show()
+        self._checks_dock.raise_()
+
+    def _refresh_guide(self, *_args: Any) -> None:
+        """The guide bar for the shown step: the model's verdict, or the step's next check."""
+        if not hasattr(self, "_workflow") or not hasattr(self, "_guide_bar"):
+            return
+        step = self._workflow.current()
+        bar = self._guide_bar
+        if self.project_state.project is None:
+            bar.hide()
+            return
+        checks = getattr(self, "_checks", [])
+        if step == "model":
+            run = self._modeling_view._resolved_workspace_model_run()
+            verdict = None if run is None else self.model_verdict(run.model_run_id)
+            if verdict is not None:
+                bar.show_verdict(verdict)
+                return
+        if step == "report":
+            bar.hide()
+            return
+        mine = [check for check in checks if check.step == step]
+        first_open = next((check for check in mine if check.severity == "blocking"),
+                          next((check for check in mine if check.is_open), None))
+        if first_open is not None:
+            bar.show_check(first_open)
+            return
+        offer = next((check for check in mine if check.fix is not None), None)
+        if offer is not None:
+            bar.show_check(offer)
+            return
+        done = next((check for check in mine if check.severity == "ok"), None)
+        bar.show_check(None, done.message if done is not None else "")
 
     def _refresh_models_panel(self, project: Any) -> None:
         from .._workflow import Model
@@ -1846,6 +1958,7 @@ class HSIViewer(QMainWindow):
         self.show_step("model")
         self._modeling_view.select_model_run(model_run_id)
         self.schedule_workspace_content_refresh()
+        self._refresh_guide()
 
     def _show_check(self, check: Check) -> None:
         """Show what a check refers to: its model, ROI or step."""
@@ -1945,6 +2058,10 @@ class HSIViewer(QMainWindow):
         act.setShortcut("Ctrl+Shift+O")
         act.triggered.connect(self._eda_view.open_project_btn_clicked)
 
+        act = _add_required_action(m, "Open Example Project")
+        act.setToolTip("Five synthetic tablet scans with a fitted model, created on first use")
+        act.triggered.connect(self.open_example_project)
+
         m.addSeparator()
 
         act = _add_required_action(m, "Export CSV...")
@@ -1962,6 +2079,23 @@ class HSIViewer(QMainWindow):
         act = _add_required_action(m, "Quit")
         act.setShortcut("Ctrl+Q")
         act.triggered.connect(self._quit_application)
+
+    def open_example_project(self) -> None:
+        """Create the example project (first use) and open it in this window."""
+        from .._example import create_example_project
+        from ._recent import config_dir
+
+        busy = self._viewer_busy_context("Preparing the example project")
+        busy.begin()
+        try:
+            path = create_example_project(config_dir() / "example")
+        except (OSError, ValueError) as exc:
+            logger.error("Cannot create the example project: {}", exc)
+            QMessageBox.warning(self, "Example project", str(exc))
+            return
+        finally:
+            busy.end()
+        self._open_project_btn_clicked_with_path(str(path))
 
     def _open_data(self) -> None:
         path, _ = QFileDialog.getOpenFileName(

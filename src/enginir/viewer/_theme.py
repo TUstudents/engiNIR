@@ -776,6 +776,11 @@ QLabel#EmptyState {{
     color: {c["text_secondary"]};
 }}
 
+QLabel#EmptyTitle {{
+    font-size: 15pt;
+    font-weight: 600;
+}}
+
 QFrame#VerdictBar {{
     background: {c["panel"]};
     border: 1px solid {c["border_subtle"]};
@@ -792,6 +797,14 @@ QFrame#VerdictBar[level="usable_with_care"] {{
 
 QFrame#VerdictBar[level="not_usable"] {{
     border-left-color: {c["error"]};
+}}
+
+QFrame#VerdictBar[level="open"] {{
+    border-left-color: {c["attention"]};
+}}
+
+QFrame#VerdictBar[level="ok"] {{
+    border-left-color: {c["ok"]};
 }}
 
 QHeaderView::section {{
