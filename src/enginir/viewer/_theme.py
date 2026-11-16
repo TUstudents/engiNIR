@@ -411,7 +411,6 @@ QPushButton:default {{
     background: {c["accent"]};
     border-color: {c["accent"]};
     color: {c["on_accent"]};
-    font-weight: 600;
 }}
 
 QPushButton:default:hover {{

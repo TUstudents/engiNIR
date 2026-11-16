@@ -12,6 +12,31 @@
   what it refers to and, where there is one, the fix. `Model.verdict()`
   gives a model one level (good, usable with care, not usable) with its
   reasons. Both read the project and change nothing.
+- **A guided viewer.** The window is a desktop program in one layout for
+  every step: menus hold every action (no toolbar); the **workflow strip**
+  Data › ROIs › Values › Model › Predict › Report shows where you are and
+  what is done or needs a look; a **guide bar** above the pages gives the
+  shown model's verdict or the step's next thing to do, with a button for
+  the fix; the bottom panel has **Checks** (every check with its fix),
+  the **ROI table**, **Models** (figures of merit and verdict per model)
+  and the **Log**. Built for 1920 × 1080, complete at 1536 × 864.
+- **Fit settings in a dock.** Every fit option sits in the Settings dock on
+  the right instead of a dialog: **Fit Model** (F5) fits with what it
+  shows, **Load Model Settings** fills it from a model, a mark shows
+  changes since the last fit. View and Prediction settings sit in the same
+  place for their steps.
+- **Example project:** five synthetic tablet scans with a fitted model,
+  created on first use (welcome screen, File > Open Example Project).
+- **Preferences** (Tools > Preferences): theme including follow the system,
+  interface scale for small screens, guide switches, start folders,
+  defaults of the Fit and Prediction settings, export resolution, threads
+  of a fit, log file level, the keyboard shortcuts.
+- **Dataset names:** Project > Name Dataset... gives a dataset a short name
+  shown instead of its file name (`Dataset.set_label`; stored as display
+  data, projects without it open as before).
+- Empty pages invite the next action; values above the white reference
+  are counted and shown under Signal; plot titles that do not fit end in
+  an ellipsis with the whole title as tooltip.
 
 ### Changed
 
@@ -25,6 +50,11 @@
 
 ### Fixed
 
+- Files without wavelengths no longer offer or show "nm": the spectral axis
+  is the band number.
+- Opening a dataset from the Project tree shows its image; Predict names the
+  prediction ROIs waiting and the model a prediction would use, instead of
+  "none".
 - A refit reported values as changed that had not changed, when they are
   not exact in 32-bit precision (for example 12/7): the comparison with the
   values the model was fitted with now allows for the stored precision.

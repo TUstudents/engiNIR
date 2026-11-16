@@ -202,8 +202,9 @@ class FlowLayout(QLayout):
         self._place(a0, move=True)
 
     def sizeHint(self) -> QSize:  # noqa: N802 (Qt API)
-        width = sum(item.sizeHint().width() for item in self._items) \
-            + self.spacing() * max(0, len(self._items) - 1)
+        # The widest item, not the one-line width: a flow asks for no more than it
+        # needs to wrap, and takes the width its parent gives (heightForWidth).
+        width = max((item.sizeHint().width() for item in self._items), default=0)
         height = max((item.sizeHint().height() for item in self._items), default=0)
         return QSize(width, height)
 

@@ -8,6 +8,8 @@ Phase 3, where the menus need it).
 Phases 3 and 4 done together (4105128), Phase 5 (2948c81), Phase 6 (preferences
 in `preferences.json` in the viewer's settings folder like its other settings,
 not `QSettings`: one place, isolated in tests).
+Phase 7 (89cae59). Phase 8 (docs, contract, screenshots) done; the release is
+not made (user, 2026-11-16: everything but the release).
 Input: `plans/gui-review-1.6.md` (22 findings on the 1.5.2 viewer) and the
 mockup (local, not committed: `review/gui-1.6/mockup2.html` and the
 `desk_*.png` screenshots). The mockup shows layout, density and palette;

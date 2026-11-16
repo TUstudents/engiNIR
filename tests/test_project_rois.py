@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import time
 
 import h5py
@@ -448,6 +449,9 @@ def test_the_window_never_demands_more_width_than_the_compositor_gives(qapp, tra
         window.close()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason=(
+    "offscreen Qt on Windows has no system fonts: its fallback font is about twice as "
+    "wide as Segoe UI (a checkbox 336 px instead of 181), so widths are not real"))
 def test_every_control_row_fits_in_the_controls_dock(qapp, trays):
     """The Settings column never runs out of the dock sideways: rows wrap and drop-downs
     shrink (plan gui-1.6); it scrolls up and down instead."""
@@ -470,7 +474,8 @@ def test_every_control_row_fits_in_the_controls_dock(qapp, trays):
                 if child.isVisible() and child.width() > 0:
                     right = child.mapTo(content, child.rect().topRight()).x()
                     assert right <= viewport.width() + 1, \
-                        f"{type(page).__name__}: {type(child).__name__} {child.objectName()}"
+                        f"{type(page).__name__}: {type(child).__name__} {child.objectName()} " \
+                        f"{getattr(child, 'text', lambda: '')()!r}"
     finally:
         _settle(qapp, window._project_rois)
         window.close()

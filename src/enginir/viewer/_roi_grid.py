@@ -123,7 +123,7 @@ class GridGeometryForm(QWidget):
 
 
 class GridDefaultsDialog(QDialog):
-    """Options > ROI Grid Defaults: the geometry every new ROI grid starts with."""
+    """Tools > ROI Grid Defaults: the geometry every new ROI grid starts with."""
 
     def __init__(self, values: GridDefaults, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -191,7 +191,7 @@ class RoiGridDialog(QDialog):
         select_none.clicked.connect(lambda: self._select_all(False))
         self._make_defaults = QPushButton("Make Defaults")
         self._make_defaults.setToolTip("Use this geometry and these names for every new ROI grid "
-                                       "(Options > ROI Grid Defaults)")
+                                       "(Tools > ROI Grid Defaults)")
         self._make_defaults.clicked.connect(self.make_defaults)
         select_row = QHBoxLayout()
         hint = QLabel("Click a cell to mark an empty position.")

@@ -91,13 +91,19 @@ v3 requires exactly three explicit user-visible workspaces:
 2. `Model`
 3. `Predict`
 
-Required implementation form:
+Required implementation form (engiNIR 1.6, plan `plans/gui-1.6.md`):
 
-- top-level tabs
+- the **workflow strip** under the menu bar: the steps `Data`, `ROIs`,
+  `Values`, `Model`, `Predict`, `Report`. `Data`, `ROIs` and `Values` open the
+  `Explore` workspace (its Dataset page, its Project ROIs page, the latter
+  with the ROI table in front); `Model` and `Predict` open their
+  workspaces; `Report` exports the plots of the shown workspace. The strip
+  marks the shown step and the state of every step (see Guidance).
 
 Accepted labels:
 
-- `Explore`, `Model`, `Predict`
+- `Explore`, `Model`, `Predict` for the workspaces; the step names above for
+  the strip
 
 Alternative labels are not part of the v3 contract unless a future contract
 revision replaces them.
@@ -113,7 +119,8 @@ Forbidden implementation forms:
 
 Rationale:
 
-- tabs provide the clearest mental model for phase-based scientific work
+- the strip names the workflow a novice follows and shows where they are;
+  an expert jumps to any step
 - the user should always know which phase they are in
 - free-form dock arrangements are too weak as the primary contract because they
   do not define task hierarchy
@@ -139,13 +146,24 @@ state obvious.
 
 ## Global frame layout
 
-v3 requires one stable high-level frame shared by all tabs:
+v3 requires one stable high-level frame shared by all workspaces (engiNIR
+1.6):
 
-1. top status strip
-2. left project browser
-3. center primary workspace area
-4. right contextual inspector / secondary views
-5. bottom log area, collapsed or hidden by default
+1. the menu bar, holding every action (File, Edit, View, Project, ROI, Model,
+   Predict, Tools, Help); there is no toolbar of actions
+2. the workflow strip
+3. left: the project browser (`Project`) above `Properties` of the selection
+4. center: the guide bar (see Guidance) above the pages of the workspace
+5. right: the `Settings` dock with every setting of the workspace (View,
+   Fit or Prediction settings) in one column that never runs out sideways,
+   its main action at the foot
+6. bottom: `Checks`, `ROI table`, `Models` and `Log` as tabs
+7. the status strip
+
+Docks keep their places: they can be resized and closed, not floated or
+moved (plan decision Q6). The window is designed for 1920 × 1080 and keeps
+every function at 1536 × 864; smaller screens use the interface scale
+(Tools > Preferences).
 
 This is a behavioral contract, not a pixel-perfect styling rule.
 
@@ -410,7 +428,11 @@ Required controls:
 
 - target selection/creation
 - target assignment and sample label editing (the ROI table)
-- fit model: one dialog with target, signal unit, preprocessing, model,
+- fit model: the Fit settings in the Settings dock (engiNIR 1.6; no
+  dialog: **Fit Model** fits with what they show, **Load Model Settings**
+  fills them from a model, a mark shows changes since the last fit, the
+  preprocessing follows the Explore preview) with target, signal unit,
+  preprocessing, model,
   components (a number, or **Auto** with a rule, the noise guard (on by
   default) and a maximum: `sample-set-model-run-contract_v3.md` §7.4; the
   dialog and the Model readiness line warn, before fitting, when the chosen
@@ -636,6 +658,39 @@ Forbidden controls in Predict:
 - ROI drawing (prediction ROIs are drawn in Explore)
 - target assignment editing
 - model fit controls
+
+## Guidance
+
+engiNIR 1.6 guides the user with what the library computes
+(`headless-workflow-contract_v3.md`, Guidance; model-workspace-diagnostics,
+Verdict). The viewer shows; it judges nothing of its own.
+
+- **Workflow strip:** per step `done` (only ok checks), `open` with the
+  number of open checks, `blocked`, or not started.
+- **Checks** (bottom tab): every check of `Project.checks()`, open ones
+  first, with where it applies and its fix as a button; the tab title
+  counts the open checks. A new open check brings the tab to the front
+  (switchable in Preferences).
+- **Guide bar** above the pages: in `Model` the shown model's verdict
+  (`Model.verdict()`), otherwise the step's first blocking or open check,
+  else the step's first check with a fix, else its first ok check; each
+  with its fix button and **Show All Checks**.
+- **Models** (bottom tab): one row per model with type, components, RMSECV
+  (per ROI), Q², RPD, validation, the verdict and when it was fitted.
+- **Fixes** run the viewer's own actions, pre-filled: open a step, select an
+  ROI, load a model's settings with another hold-out rule, show a
+  diagnostics page, predict.
+- **Empty pages** invite the next action (one sentence and its buttons)
+  instead of showing empty axes; the welcome screen offers the example
+  project first.
+
+## Preferences
+
+Tools > Preferences: Appearance (theme, interface scale, guide switches),
+Data and paths, Fitting defaults, Prediction defaults, Plots and export,
+Performance, Logging, Keyboard. Preferences belong to the user, never to a
+project: defaults only pre-fill the settings docks, and a model stores what
+it was fitted with.
 
 ## Plot and diagram policy
 

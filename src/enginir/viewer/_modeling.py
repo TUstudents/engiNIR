@@ -757,8 +757,16 @@ class FitModelRunDialog(QDialog):
         self._embedded = True
         self.setWindowFlags(Qt.WindowType.Widget)
         self._buttons.hide()
-        self._form_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+        for form in (self._form_layout, *self.findChildren(QFormLayout)):
+            form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+            form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self._form_layout.setContentsMargins(4, 4, 4, 4)
+        for label in self.findChildren(QLabel):
+            # Sentences wrap in the narrow dock instead of running out of it (wider fonts
+            # on Windows made a hint 30 px wider than the column); short labels in the
+            # wrapping rows stay one line.
+            if len(label.text()) > 24:
+                label.setWordWrap(True)
         self.show()  # a new window flag hides a widget
 
     @property

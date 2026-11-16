@@ -62,17 +62,62 @@ X11.
 Window
 ------
 
-Around the three workspace tabs the window keeps:
+.. image:: /_static/screens/window_model_light.png
+   :alt: The engiNIR window in the Model step: menus, workflow strip, Project and
+         Properties on the left, the guide bar and diagnostics in the middle, the
+         Fit settings on the right, Checks at the bottom.
+   :width: 100%
 
-- a status strip with project, dataset, signal, frame, row and band
-- the **Project Browser**, listing datasets, reference corrections, ROIs, targets,
-  values, calibration sets, input contracts, models and predictions, and the
-  **Inspector**, showing the details of the selected item
-- a **Log** dock (collapsed until opened); **Help > Log File** shows where
-  the log file is (by default ``~/.enginir/enginir.log``)
+From top to bottom:
+
+- **Menus** hold every action: File, Edit, View, Project, ROI, Model, Predict,
+  Tools and Help. The most used have shortcuts (**F5** fits, **F6** predicts
+  ROIs, **Ctrl+T** opens the ROI table); **Tools > Preferences** lists them all.
+- **The workflow strip**: Data › ROIs › Values › Model › Predict › Report. A
+  click opens the step. Each step shows its state: a tick when done, a warning
+  with the number of checks to look at, a number when not started yet.
+- **Left:** the **Project** tree (datasets, reference corrections, ROIs,
+  targets, values, models, predictions) above **Properties** of the selected
+  item.
+- **Middle:** the **guide bar**, then the pages of the step. In Model the bar
+  gives the shown model's verdict (good, usable with care, not usable) with its
+  reasons; in the other steps the step's next thing to do. Its button runs the
+  fix, **Show All Checks** opens the Checks.
+- **Right:** the **settings** of the step, every option in one column: View
+  settings (Data, ROIs, Values), Fit settings (Model), Prediction settings
+  (Predict). The main action is at the foot.
+- **Bottom:** **Checks**, **ROI table**, **Models** and **Log** as tabs.
+  Checks lists everything engiNIR checked, with a button for the fix; Models
+  lists every model with RMSECV (per ROI), Q², RPD, validation and verdict.
+- **The status strip** with project, dataset, signal, frame, row and band.
+
+The checks and verdicts come from :meth:`enginir.Project.checks` and
+:meth:`enginir._workflow.Model.verdict`; a script sees the same.
+
+The window is made for 1920 × 1080 and keeps everything at 1536 × 864. On a
+smaller screen choose a smaller **Interface scale** in **Tools > Preferences**.
+Docks can be resized and closed (**View** brings them back); they stay in
+their places. **View > Reset Layout** restores the default.
+
+.. image:: /_static/screens/window_predict_compact.png
+   :alt: The Predict step at 1536 × 864 before the first prediction, inviting
+         Predict ROIs; dark theme.
+   :width: 80%
+
+**The example project** (first button of the welcome screen, or **File > Open
+Example Project**) has five synthetic tablet scans with a fitted model. It is
+created on first use in the settings folder; the fastest way to see how
+everything works.
+
+**Preferences** (Tools > Preferences) set the theme (dark, light or follow
+the system), the interface scale, the guide bar and plot help, start folders,
+the defaults of the Fit and Prediction settings, the PNG resolution of
+exports, the threads of a fit and the log file level. They belong to you, not
+to a project: a model stores what it was fitted with.
 
 A project opened without a scan shows its stored objects in every
-workspace; drawing ROIs needs a scan.
+step; drawing ROIs needs a scan. **Project > Name Dataset...** gives a
+dataset a short name ("Layer 7") that is shown instead of its file name.
 
 Explore
 -------
@@ -130,7 +175,7 @@ conversion, then smoothing and derivatives, then scatter correction (SNV, MSC,
 EMSC, detrend).
 AsLS baseline correction, which comes before smoothing and derivatives, is available in
 scripts only (:class:`~enginir.preprocessing.PreprocessingRecipe`); a model
-fitted with it shows "AsLS" in its name, and **Fit Again...** keeps it.
+fitted with it shows "AsLS" in its name, and **Load Model Settings** keeps it.
 
 To record calibration data:
 
@@ -141,7 +186,7 @@ To record calibration data:
 4. Name the ROI and, optionally, enter its target value.
 
 For a tray of samples, **Add ROI grid** creates them in one go. The dialog
-opens at once with the defaults from **Options > ROI Grid Defaults** and
+opens at once with the defaults from **Tools > ROI Grid Defaults** and
 lays out equal ROIs in pixels, with x along frames and y along rows:
 
 - **Number**: columns (x) and rows (y).
@@ -164,7 +209,7 @@ one of them cannot be stored. Each ROI records its grid position and the grid
 layout.
 
 Changes in the dialog apply to that grid only: the next grid starts from the
-Options defaults again. Set them once for your tray holder in **Options >
+Tools defaults again. Set them once for your tray holder in **Tools >
 ROI Grid Defaults**, or press **Make defaults** in the grid dialog to keep
 the current values for every new grid (stored in your user settings).
 
@@ -260,7 +305,7 @@ Model shows the selected model and its diagnostics:
   guard changed); R²Y and Q² per ROI, with the gap between them shaded; each
   component on its own (Q²ₐ per ROI, ΔR²X per pixel, the Durbin–Watson value
   of its weights; noise components gray); and R²X and R²Y per pixel.
-  **Fit Again...** opens the fit dialog with the model's settings, including
+  **Load Model Settings** fills the Fit settings with the model's settings, including
   its signal unit, to try another number
 - the **Distance** page: the distance to the model (DModX) and Hotelling T²
   of the calibration pixels, with their 0.99 limits and the share above them.
@@ -347,7 +392,7 @@ smallest ROI, with a seed so the draw repeats), the scaling of X and Y, and
 leaving out outlying pixels by DModX (level, one or two rounds, at most a
 share of every ROI, unweighted or weighted as in SIMCA). The Project
 browser's inspector shows these settings for a stored model, with its
-algorithm (kernel PLS or NIPALS, PCA from XᵀX or by full SVD; **Fit Again**
+algorithm (kernel PLS or NIPALS, PCA from XᵀX or by full SVD; **Load Model Settings**
 keeps it), the excluded pixels per ROI and the flagged ROIs. Below, the dialog counts per dataset how many ROIs have a value for the target and says why a fit cannot run
 yet; **OK** is enabled only when it can. The model uses all ROIs with a
 value, from all datasets. Fitting again with the same target, ROIs and
@@ -393,7 +438,7 @@ residual, with RMSEP (per ROI) and bias per model.
 exposed substrate and direct reflections out of every ROI statistic; the
 statistics are recalculated at once, without predicting again. It starts as
 the model was fitted: on at its level for a model fitted with DModX
-exclusion, off otherwise. Next to the level, the Controls dock shows the
+exclusion, off otherwise. Next to the level, the Prediction settings shows the
 DModX limit (DCrit) it gives for each model.
 
 **Predict Map...** predicts every pixel of one project dataset with one
@@ -412,11 +457,11 @@ preprocessing state stored at calibration.
 The map's color scale is the target's range in the model's calibration values;
 predictions below and above it have their own colors (violet, pink), so the
 substrate and other material the model never saw do not flatten the scale.
-**Color scale** in the Controls dock (or **Color limits...** in the map's ⋯
+**Color scale** in the Prediction settings (or **Color limits...** in the map's ⋯
 menu) sets your own limits, for one scale over a series of trays; the color
 bar and the CSV record the scale. The prediction ROIs are outlined with
 their mean; with the pixel exclusion on, excluded pixels are grayed. **Map** in
-the Controls dock turns the outlines and the graying off. Hovering the map
+the Prediction settings turns the outlines and the graying off. Hovering the map
 shows the pixel in the status line at the bottom of the window: its frame and
 row, the prediction (and whether it is outside the color scale) with its
 95 % interval, DModXPS against DCrit (and whether the pixel is excluded), T²PS
@@ -432,7 +477,7 @@ frame and row. A value a model does not have is shown as "not available".
 The **Prediction Distribution** histogram shows the pixels behind the per-ROI
 numbers: the kept pixels of the prediction ROIs, one outline per model, and
 it follows the pixel removal. Without ROI results, or with **Histogram: Whole
-map** in the Controls dock, it shows the pixels of the shown map. Map and per-ROI results always describe the same dataset: a map
+map** in the Prediction settings, it shows the pixels of the shown map. Map and per-ROI results always describe the same dataset: a map
 of a file without prediction ROIs drops the earlier per-ROI results and says
 so; the Predict map file list shows each file's prediction ROIs.
 
@@ -503,7 +548,7 @@ keep their own.
 Datasets are shown by their file name. When several share a file name
 (scans saved as ``stream_hsi.h5`` in different folders), each is shown with
 the folder that tells them apart, e.g. ``stream_hsi.h5 (API 10% - nozzle…)``,
-in the dataset list, the ROI table, the Project ROIs tab, the fit dialog
+in the dataset list, the ROI table, the Project ROIs tab, the Fit settings
 and the browser; the full path is the tooltip.
 
 Every object in a project has a stable id, its identity. Names of ROIs,
@@ -532,7 +577,7 @@ white references recorded once. From an empty project to a model:
    file itself, or choose the reference files. Check the mean spectra and the share
    of saturated values, then **OK**: the dataset and its reference correction are
    stored together.
-3. **Draw the samples.** Set your tray holder once in **Options > ROI Grid
+3. **Draw the samples.** Set your tray holder once in **Tools > ROI Grid
    Defaults** (rows, columns, ROI size, spacing). **Add ROI grid** then
    shows the grid on the tray; correct the origin if the tray sits elsewhere,
    click empty positions, and **OK**. Every cell becomes an ROI named after the file and its position,

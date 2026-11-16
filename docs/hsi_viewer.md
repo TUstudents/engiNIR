@@ -67,15 +67,17 @@ values:
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│ Project Browser / Inspector │ Workspace content host  │ Sensor /  │
-│ left dock stack             │ Explore/Model/Predict   │ Spatial   │
-│                             │ primary page            │ right docks│
-├─────────────────────────────┼─────────────────────────┼───────────┤
-│ Histogram / RAW (collapsed) │                         │           │
-├─────────────────────────────┴─────────────────────────┴───────────┤
-│ Controls dock — Explore / Model / Predict tabs                     │
+│ Menus: File Edit View Project ROI Model Predict Tools Help         │
+│ Workflow: Data › ROIs › Values › Model › Predict › Report          │
+├──────────────┬────────────────────────────────┬─────────┬──────────┤
+│ Project      │ Guide bar (verdict / next step)│ Sensor /│ Settings │
+│ (tree)       │ Workspace pages                │ Spatial │ View/Fit/│
+├──────────────┤ Explore / Model / Predict      │ (Data   │Prediction│
+│ Properties   │                                │  step)  │ settings │
+├──────────────┴────────────────────────────────┴─────────┴──────────┤
+│ Checks | ROI table | Models | Log  (tabs)                          │
 ├────────────────────────────────────────────────────────────────────┤
-│ Log dock (collapsed by default)                                    │
+│ Status strip                                                       │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -315,7 +317,7 @@ obvious.
 | **Target Values...** | Open the ROI table on the selected target: type, clear or paste the values of all ROIs |
 | **Fit Model** | One dialog: target, signal unit, preprocessing (prefilled from the Explore preview), model, components, validation, and the labeled ROIs per dataset; stores the grouped v3 `ModelRun` |
 
-The Modeling section operates from project state. The fit dialog finds the
+The Modeling section operates from project state. The Fit settings find the
 calibration set of all ROIs with a value for the target (`resolve_sample_set`,
 the rule `Project.fit` uses): an equal stored calibration set, recipe and
 `SignalDomainContract` are reused, new ones are stored only together with
@@ -513,7 +515,7 @@ between batches.
 
 **Add ROI grid** (`EDAView.open_roi_grid_dialog`, `_roi_grid.RoiGridDialog`)
 lays out equal ROIs by number, size, origin and spacing with
-`enginir._workflow.roi_grid`, starting from **Options > ROI Grid Defaults**
+`enginir._workflow.roi_grid`, starting from **Tools > ROI Grid Defaults**
 (`_grid_settings.GridDefaults`, user settings) every time.
 It previews them on the canvas (`FalseColourCanvas.set_grid_preview`) and
 stores them through `ProjectState.add_rois` → `Project.save_rois`, all or none.

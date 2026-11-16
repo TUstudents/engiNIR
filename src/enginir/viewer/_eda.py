@@ -303,7 +303,7 @@ class EDAView(QWidget):
         self._btn_roi_grid = QToolButton()
         self._btn_roi_grid.setText("Add ROI Grid")
         self._btn_roi_grid.setToolTip("Lay out a tray of equal ROIs by number, size, origin "
-                                      "and spacing (defaults in Options > ROI Grid Defaults)")
+                                      "and spacing (defaults in Tools > ROI Grid Defaults)")
         self._btn_roi_grid.clicked.connect(self.open_roi_grid_dialog)
         place(self._btn_roi_grid)
 
@@ -598,7 +598,7 @@ class EDAView(QWidget):
     def open_roi_grid_dialog(self) -> None:
         """Lay out an ROI grid on the shown image and store its ROIs, all or none.
 
-        The dialog starts from Options > ROI Grid Defaults every time; its
+        The dialog starts from Tools > ROI Grid Defaults every time; its
         changes apply to this grid only (ROI/target contract).
         """
         if self.project_state.project_path is None or not self._dataset_attached_provider():

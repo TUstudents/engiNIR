@@ -34,11 +34,49 @@ shown in a message box. ``--install-shortcut`` (``--desktop``) and
 .. autofunction:: enginir.viewer._windows_shell.read_shortcut
 .. autofunction:: enginir.viewer._windows_shell.launcher_path
 
+Window shell and guidance
+-------------------------
+
+The workflow strip, the bottom panels and the guide bar show what
+:meth:`enginir.Project.checks` and :meth:`enginir._workflow.Model.verdict`
+return. ``HSIViewer.run_fix`` runs the fix a check offers;
+``HSIViewer.refresh_checks`` recomputes them (after every project change,
+debounced).
+
+.. autoclass:: enginir.viewer._workflow_strip.WorkflowStrip
+   :members: step_clicked, set_current, set_states, state
+
+.. autoclass:: enginir.viewer._bottom_panels.ChecksPanel
+   :members: fix_requested, check_activated, set_checks, checks, open_count
+
+.. autoclass:: enginir.viewer._bottom_panels.ModelsPanel
+   :members: model_selected, set_models
+
+.. autoclass:: enginir.viewer._bottom_panels.GuideBar
+   :members: show_verdict, show_check
+
+Preferences
+-----------
+
+.. autoclass:: enginir.viewer._preferences.Preferences
+   :no-index:
+
+.. autoclass:: enginir.viewer._preferences.PreferencesDialog
+   :members: values, set_values
+
+.. autofunction:: enginir.viewer._preferences.load
+.. autofunction:: enginir.viewer._preferences.save
+
+The example project
+-------------------
+
+.. autofunction:: enginir._example.create_example_project
+
 WelcomeWindow
 -------------
 
 .. autoclass:: enginir.viewer._welcome.WelcomeWindow
-   :members: file_selected, project_selected, project_created
+   :members: file_selected, project_selected, project_created, example_requested
 
 Loading helpers
 ---------------

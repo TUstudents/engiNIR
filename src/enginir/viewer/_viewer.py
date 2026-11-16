@@ -1588,7 +1588,7 @@ class HSIViewer(QMainWindow):
         return None
 
     def edit_grid_defaults(self) -> bool:
-        """Options > ROI Grid Defaults: the geometry every new ROI grid starts with."""
+        """Tools > ROI Grid Defaults: the geometry every new ROI grid starts with."""
         from ._grid_settings import load_grid_defaults
         from ._roi_grid import GridDefaultsDialog
 
@@ -2388,6 +2388,8 @@ class HSIViewer(QMainWindow):
             pending, self._pending_roi_selection = self._pending_roi_selection, None
             self._canvas.select_roi(pending)  # also when the browser already selects it
             self._on_canvas_roi_selected(pending)
+        else:
+            self._centre_on_first_roi(dataset_id)
         from ._recent import add as _recent_add
 
         _recent_add(path)
@@ -2465,6 +2467,14 @@ class HSIViewer(QMainWindow):
         """Show a dataset's image: load it and bring the Data step to the front (review A5)."""
         self.show_data_file(dataset_id)  # first, so the tab switch does not load another file
         self.show_step("data")
+
+    def _centre_on_first_roi(self, dataset_id: str) -> None:
+        """Put the crosshair on the dataset's first ROI (not on a reference frame)."""
+        rois = [roi for roi in self.project_state.rois.values() if roi.dataset_id == dataset_id]
+        if rois and self.state.has_dataset:
+            f0, f1, r0, r1 = rois[0].spatial_bounds
+            self.state.set_frame((f0 + f1) // 2)
+            self.state.set_row((r0 + r1) // 2)
 
     def name_dataset(self, dataset_id: str | None = None) -> bool:
         """Project > Name Dataset: give a dataset a short display name ("Layer 7")."""
