@@ -148,6 +148,17 @@ _CHAR_WIDTH = 0.56
 _MAX_LABEL_CHARS = 14
 
 
+def _fitted_text(metrics: QFontMetricsF, text: str, width: float) -> str:
+    """``text`` whole if its measured width fits ``width``, else cut in the middle.
+
+    Decided on ``horizontalAdvance``, the measure the layout reserves room with:
+    ``elidedText`` alone cut labels that fit on Windows.
+    """
+    if metrics.horizontalAdvance(text) <= width:
+        return text
+    return metrics.elidedText(text, Qt.TextElideMode.ElideMiddle, max(width, 1.0))
+
+
 def mosaic_layout(rois: list[TrainingROI], file_names: Mapping[str, str],
                   mode: str = GRID, *, label_chars: int = 0,
                   aspect: float | None = None) -> MosaicLayout:
@@ -363,6 +374,7 @@ class RoiMosaic(QWidget):
         #: width a tile label may take (the column, not the tile).
         self._laid_out_aspect = 0.0
         self._label_width = 0.0
+        self._laid_out_chars = 0
         self._relayout_timer = QTimer(self)
         self._relayout_timer.setSingleShot(True)
         self._relayout_timer.setInterval(150)
@@ -450,6 +462,7 @@ class RoiMosaic(QWidget):
         self._limits = {}
         self._selection = None
         chars = self._label_chars()
+        self._laid_out_chars = min(chars, _MAX_LABEL_CHARS)
         self._laid_out_aspect = self._view_aspect()
         self._layout = mosaic_layout(list(self._rois.values()), self._file_names,
                                      self.layout_mode, label_chars=chars,
@@ -507,8 +520,7 @@ class RoiMosaic(QWidget):
         item.setFont(font)
         metrics = QFontMetricsF(font)
         scale = height / max(metrics.height(), 1.0)
-        item.setText(metrics.elidedText(text, Qt.TextElideMode.ElideMiddle,
-                                        max(width / scale, 1.0)))
+        item.setText(_fitted_text(metrics, text, width / scale))
         item.setBrush(QColor(panel_colors()["fg"]))
         item.setScale(scale)
         item.setPos(x, y)
@@ -518,19 +530,26 @@ class RoiMosaic(QWidget):
 
     def set_labels(self, labels: Mapping[str, str],
                    values: Mapping[str, float | None] | None = None) -> None:
-        """Change labels and values (e.g. another target) without laying the tiles out again."""
+        """Change labels and values (e.g. another target).
+
+        The tiles stay where they are unless a label became wider than the columns
+        were laid out for; then they are laid out again, so no label is cut.
+        """
         self._labels = dict(labels)
         if values is not None:
             self._values = dict(values)
+        if self.layout_mode == GRID and self._rois \
+                and min(self._label_chars(), _MAX_LABEL_CHARS) > self._laid_out_chars:
+            self._lay_out()
+            return
         unit = self._layout.unit
         for roi_id, item in self._label_items.items():
             text = self._labels.get(roi_id, "")
             if item.data(0) != text:
                 metrics = QFontMetricsF(item.font())
                 width = max(self._layout.places[roi_id][2], self._label_width)
-                item.setText(metrics.elidedText(text, Qt.TextElideMode.ElideMiddle,
-                                                max(width / (unit / max(metrics.height(), 1.0)),
-                                                    1.0)))
+                item.setText(_fitted_text(metrics, text,
+                                          width / (unit / max(metrics.height(), 1.0))))
                 item.setData(0, text)
         self._color_outlines()
 

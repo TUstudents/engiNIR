@@ -102,6 +102,19 @@ def test_mosaic_labels_are_measured_in_the_actual_font(qapp, window):
     assert shown and all("\u2026" not in text for text in shown), shown
 
 
+def test_mosaic_labels_that_grow_later_are_not_cut(qapp, window):
+    """Values arrive after the first layout (slow machines): the columns must widen."""
+    window.show_step("rois")
+    mosaic = window._project_rois.mosaic
+    _wait_until(qapp, lambda: mosaic._label_items)
+    full = dict(mosaic._labels)
+    mosaic.set_rois(list(mosaic._rois.values()), mosaic._file_names,
+                    {roi_id: text[:2] for roi_id, text in full.items()}, mosaic._values)
+    mosaic.set_labels(full)
+    shown = {roi_id: item.text() for roi_id, item in mosaic._label_items.items()}
+    assert shown == {roi_id: full[roi_id] for roi_id in shown}, shown
+
+
 def test_a_dimensionless_unit_is_not_printed(qapp, window):
     from enginir.viewer._ui_helpers import with_unit
 
