@@ -18,6 +18,7 @@ background jobs; nothing needs a data file.
 
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -448,7 +449,7 @@ class RoiMosaic(QWidget):
         self._label_items.clear()
         self._limits = {}
         self._selection = None
-        chars = max((len(self._labels.get(roi_id, "")) for roi_id in self._rois), default=0)
+        chars = self._label_chars()
         self._laid_out_aspect = self._view_aspect()
         self._layout = mosaic_layout(list(self._rois.values()), self._file_names,
                                      self.layout_mode, label_chars=chars,
@@ -471,6 +472,18 @@ class RoiMosaic(QWidget):
         self._redraw_images()
         self._view.autoRange(padding=0.02)
         self.select_roi(self._selected)
+
+    def _label_chars(self) -> int:
+        """The longest tile label in ``_CHAR_WIDTH`` character widths of the actual font.
+
+        Measured, not counted: fonts differ by platform (Segoe UI on Windows is wider
+        than ``_CHAR_WIDTH`` per character), and a counted width would cut whole labels.
+        """
+        metrics = QFontMetricsF(QFont(self.font()))
+        height = max(metrics.height(), 1.0)
+        widest = max((metrics.horizontalAdvance(self._labels.get(roi_id, ""))
+                      for roi_id in self._rois), default=0.0)
+        return math.ceil(widest / height / _CHAR_WIDTH + 0.01) if widest > 0 else 0
 
     def _view_aspect(self) -> float:
         """Width / height of the mosaic's view (1.6 before it has a size)."""

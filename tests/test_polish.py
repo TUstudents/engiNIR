@@ -87,6 +87,21 @@ def test_the_mosaic_shows_whole_tile_labels_for_narrow_tiles(qapp, window):
     assert all(text == mosaic.label_text(roi_id) for roi_id, text in shown.items())
 
 
+def test_mosaic_labels_are_measured_in_the_actual_font(qapp, window):
+    """A wider font (Segoe UI on Windows) must not cut the labels."""
+    from PyQt6.QtGui import QFont
+
+    window.show_step("rois")
+    mosaic = window._project_rois.mosaic
+    _wait_until(qapp, lambda: mosaic._label_items)
+    font = QFont(mosaic.font())
+    font.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 140)
+    mosaic.setFont(font)
+    mosaic._lay_out()
+    shown = [item.text() for item in mosaic._label_items.values()]
+    assert shown and all("\u2026" not in text for text in shown), shown
+
+
 def test_a_dimensionless_unit_is_not_printed(qapp, window):
     from enginir.viewer._ui_helpers import with_unit
 
