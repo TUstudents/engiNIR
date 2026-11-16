@@ -78,12 +78,28 @@ def test_the_mosaic_puts_blocks_side_by_side_in_a_wide_view_and_widens_label_col
         == pitch(mosaic_layout(rois, names, GRID, label_chars=14)), "long labels are cut"
 
 
+def _mosaic_numbers(mosaic) -> str:
+    """Layout numbers for a failure message (fonts differ by platform)."""
+    from PyQt6.QtGui import QFont, QFontMetricsF
+
+    metrics = QFontMetricsF(QFont(mosaic.font()))
+    longest = max(mosaic._labels.values(), key=len, default="")
+    widths = sorted({round(place[2], 3) for place in mosaic._layout.places.values()})
+    return (f"mode={mosaic.layout_mode} font={mosaic.font().family()!r} "
+            f"{mosaic.font().pointSizeF()}pt height={metrics.height():.3f} "
+            f"advance({longest!r})={metrics.horizontalAdvance(longest):.3f} "
+            f"chars={mosaic._label_chars()} laid_out={mosaic._laid_out_chars} "
+            f"unit={mosaic._layout.unit:.3f} label_width={mosaic._label_width:.3f} "
+            f"tile_widths={widths[:4]} scale={mosaic._label_items and next(iter(mosaic._label_items.values())).scale():.4f}")
+
+
 def test_the_mosaic_shows_whole_tile_labels_for_narrow_tiles(qapp, window):
     window.show_step("rois")
     mosaic = window._project_rois.mosaic
     _wait_until(qapp, lambda: mosaic._label_items)
     shown = {roi_id: item.text() for roi_id, item in mosaic._label_items.items()}
-    assert shown and all("…" not in text for text in shown.values()), shown
+    assert shown and all("…" not in text for text in shown.values()), \
+        f"{_mosaic_numbers(mosaic)} {shown}"
     assert all(text == mosaic.label_text(roi_id) for roi_id, text in shown.items())
 
 
@@ -99,7 +115,8 @@ def test_mosaic_labels_are_measured_in_the_actual_font(qapp, window):
     mosaic.setFont(font)
     mosaic._lay_out()
     shown = [item.text() for item in mosaic._label_items.values()]
-    assert shown and all("\u2026" not in text for text in shown), shown
+    assert shown and all("\u2026" not in text for text in shown), \
+        f"{_mosaic_numbers(mosaic)} {shown}"
 
 
 def test_mosaic_labels_that_grow_later_are_not_cut(qapp, window):
@@ -112,7 +129,8 @@ def test_mosaic_labels_that_grow_later_are_not_cut(qapp, window):
                     {roi_id: text[:2] for roi_id, text in full.items()}, mosaic._values)
     mosaic.set_labels(full)
     shown = {roi_id: item.text() for roi_id, item in mosaic._label_items.items()}
-    assert shown == {roi_id: full[roi_id] for roi_id in shown}, shown
+    assert shown == {roi_id: full[roi_id] for roi_id in shown}, \
+        f"{_mosaic_numbers(mosaic)} {shown}"
 
 
 def test_a_dimensionless_unit_is_not_printed(qapp, window):
@@ -294,3 +312,20 @@ def test_the_fit_form_takes_only_what_changed_in_the_explore_preview(qapp, windo
     assert form._snv.isChecked(), "the others stay"
     assert view.fit_settings_changed()
     window.state.set_preprocess_filter("none")
+
+
+def test_running_jobs_finish_before_the_interpreter_exits(qapp):
+    """A job thread still reading a file at exit crashed or hung the process."""
+    import time
+
+    from PyQt6.QtCore import QObject
+
+    from enginir.viewer._jobs import _RUNNING_JOBS, start_background_job, wait_for_running_jobs
+
+    owner = QObject()
+    done = []
+    start_background_job(owner=owner, fn=lambda: time.sleep(0.3), on_success=done.append,
+                         on_error=done.append, on_finished=lambda: None)
+    assert _RUNNING_JOBS
+    assert wait_for_running_jobs(timeout=10.0)
+    assert not _RUNNING_JOBS and done == [None]

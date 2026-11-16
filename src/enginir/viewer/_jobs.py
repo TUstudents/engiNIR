@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import atexit
+import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QCoreApplication, QObject, QThread, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import QLabel, QProgressBar, QVBoxLayout, QWidget
 
 from .._logging import get_logger
@@ -186,4 +188,33 @@ def start_background_job(
     return job
 
 
-__all__ = ["BackgroundWorker", "BusyStatusWidget", "start_background_job"]
+def wait_for_running_jobs(timeout: float = 10.0) -> bool:
+    """Let running jobs finish (up to ``timeout`` seconds); ``True`` if none is left.
+
+    Called before the interpreter exits: a job thread that still reads a project
+    file while Python shuts down crashes or hangs the process (h5py, Qt). Events
+    are processed while waiting, since a job's thread is told to quit through
+    the event loop.
+    """
+    deadline = time.monotonic() + timeout
+    while _RUNNING_JOBS and time.monotonic() < deadline:
+        app = QCoreApplication.instance()
+        if app is not None:
+            app.processEvents()
+        for thread, _worker, _relay in list(_RUNNING_JOBS):
+            try:
+                if thread.isFinished():
+                    _RUNNING_JOBS.discard((thread, _worker, _relay))
+            except RuntimeError:  # the C++ thread object is gone already
+                _RUNNING_JOBS.discard((thread, _worker, _relay))
+        time.sleep(0.01)
+    if _RUNNING_JOBS:
+        logger.warning("{} background job(s) still running at exit", len(_RUNNING_JOBS))
+    return not _RUNNING_JOBS
+
+
+atexit.register(wait_for_running_jobs)
+
+
+__all__ = ["BackgroundWorker", "BusyStatusWidget", "start_background_job",
+           "wait_for_running_jobs"]
