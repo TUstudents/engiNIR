@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 
 from enginir import Project
+from enginir import _guidance as guidance
 from enginir._guidance import DMODX_SHARE_ATTENTION, Q2_GOOD, RPD_GOOD, RPD_MIN
 from enginir._workflow import Model
 from enginir.io import save_hdf5
@@ -202,8 +203,10 @@ def test_pixels_far_from_the_model_are_reported_with_their_dataset(tmp_path, mon
     pixels = np.asarray(stored["roi_score_pixels"], dtype=float)
 
     def with_shares(shares):
-        monkeypatch.setattr(Model, "diagnostics", property(lambda self: {
-            **stored, "roi_share_above_dcrit": np.asarray(shares, dtype=np.float32)}))
+        guidance._STORED.clear()
+        monkeypatch.setattr(guidance, "_diagnostics", lambda _model, keys: {
+            **{key: stored[key] for key in keys if key in stored},
+            "roi_share_above_dcrit": np.asarray(shares, dtype=np.float32)})
         return _by_id(model.checks())["model.distance"][0]
 
     assert with_shares([0.02] * 8).severity == "ok"

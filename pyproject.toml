@@ -53,7 +53,7 @@ enginir-viewer-console = "enginir.viewer.__main__:main"
 enginir-viewer = "enginir.viewer.__main__:main"
 
 [tool.uv-build]
-include = ["src/enginir/_resources/*.ico", "src/enginir/_resources/*.svg", "src/enginir/viewer/themes/*.xml"]
+include = ["src/enginir/_resources/*.ico", "src/enginir/_resources/*.svg", "src/enginir/_resources/icons/*", "src/enginir/viewer/themes/*.xml"]
 
 [tool.ruff]
 line-length = 100

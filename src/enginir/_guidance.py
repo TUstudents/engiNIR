@@ -353,7 +353,8 @@ def _calibration_set_checks(model: Model) -> list[Check]:
 
 def _distance_check(model: Model) -> Check | None:
     """The share of calibration pixels above the DModX limit, with the datasets it comes from."""
-    stored = model.diagnostics
+    stored = _stored(model, "diagnostics", ("roi_share_above_dcrit", "roi_ids",
+                                            "roi_score_pixels"))
     if "roi_share_above_dcrit" not in stored or "roi_ids" not in stored:
         return None
     shares = np.asarray(stored["roi_share_above_dcrit"], dtype=float).reshape(-1)
@@ -394,7 +395,7 @@ def _distance_check(model: Model) -> Check | None:
 
 def _components_check(model: Model) -> Check | None:
     """The number of components against the selection rules and the structure ceiling."""
-    curve = model.component_curve
+    curve = _stored(model, "component_curve", None) or None
     chosen = model.ref.hyperparameters.get("n_components")
     if not curve or chosen is None:
         return None
@@ -424,6 +425,46 @@ def _components_check(model: Model) -> Check | None:
 
 
 # --- helpers ---------------------------------------------------------------------------
+
+#: Stored model results read for checks, by (project file, model run, artifact).
+#: A stored model never changes (headless-workflow contract, ids), so entries
+#: stay valid; the viewer recomputes checks after every change.
+_STORED: dict[tuple[str, str, str], dict[str, Any]] = {}
+
+
+def _stored(model: Model, artifact: str, keys: tuple[str, ...] | None) -> dict[str, Any]:
+    """The arrays ``keys`` (all with ``None``) of a stored model artifact, read once."""
+    key = (str(model.project.path), model.ref.model_run_id, artifact)
+    if key not in _STORED:
+        if artifact == "component_curve":
+            _STORED[key] = dict(model.component_curve or {})
+        else:
+            values = model.diagnostics if keys is None else _diagnostics(model, keys)
+            _STORED[key] = dict(values)
+    return _STORED[key]
+
+
+def _diagnostics(model: Model, keys: tuple[str, ...]) -> dict[str, Any]:
+    """Only ``keys`` of a model's diagnostics and cross-validation outputs.
+
+    ``Model.diagnostics`` reads every array, including per-pixel scores;
+    the checks need a few per-ROI ones.
+    """
+    from .io import project_store as store
+
+    refs = store.load_model_run_artifact_refs(model.project.path, model.ref.model_run_id,
+                                              keys=("cv_outputs",))
+    found = {key: value for key, value in refs.get("cv_outputs", {}).items() if key in keys}
+    import h5py
+
+    with h5py.File(model.project.path, "r") as handle:
+        group = handle.get(f"model_runs/{model.ref.model_run_id}/artifact_refs/diagnostics")
+        if isinstance(group, h5py.Group):
+            for key in keys:
+                item = group.get(key)
+                if isinstance(item, h5py.Dataset):
+                    found[key] = item[()]
+    return found
 
 
 def _targets_ready_to_fit(project: Project) -> list[str]:

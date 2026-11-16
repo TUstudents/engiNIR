@@ -20,7 +20,6 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QGridLayout,
     QGroupBox,
-    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -57,7 +56,7 @@ from ._band_ranges import (
 from ._jobs import BusyStatusWidget, BackgroundWorker, start_background_job
 from ._state import ProjectState, signal_label, ViewerState
 from ._theme import secondary_text_style
-from ._ui_helpers import spectral_axis_label
+from ._ui_helpers import FlowLayout, spectral_axis_label
 from ..project._ids import now_iso
 
 logger = get_logger(__name__)
@@ -337,6 +336,8 @@ class FitModelRunDialog(QDialog):
         self._band_source = band_source
         self._band_proposer = band_proposer
         layout = QFormLayout(self)
+        self._form_layout = layout
+        self._embedded = False
 
         self._target_combo = QComboBox()
         for target_id, label in targets:
@@ -368,8 +369,8 @@ class FitModelRunDialog(QDialog):
         self._poly_spin = QSpinBox()
         self._poly_spin.setRange(1, 10)
         self._poly_spin.setValue(recipe.sg_polyorder)
-        filter_row = QHBoxLayout()
-        filter_row.addWidget(self._filter_combo, 1)
+        filter_row = FlowLayout()
+        filter_row.addWidget(self._filter_combo)
         filter_row.addWidget(QLabel("window"))
         filter_row.addWidget(self._window_spin)
         filter_row.addWidget(QLabel("order"))
@@ -385,7 +386,7 @@ class FitModelRunDialog(QDialog):
         for box, value in ((self._snv, recipe.snv), (self._msc, recipe.msc),
                            (self._emsc, recipe.emsc), (self._detrend, recipe.detrend)):
             box.setChecked(value)
-        scatter_row = QHBoxLayout()
+        scatter_row = FlowLayout()
         for widget in (self._snv, self._msc, self._emsc, self._detrend, self._detrend_order):
             scatter_row.addWidget(widget)
         layout.addRow("Scatter correction:", scatter_row)
@@ -444,7 +445,7 @@ class FitModelRunDialog(QDialog):
         self._max_spin.setRange(0, 128)
         self._max_spin.setSpecialValueText("default")
         self._max_spin.setPrefix("max ")
-        components_row = QHBoxLayout()
+        components_row = FlowLayout()
         for widget in (self._components_spin, self._auto_check, self._rule_combo,
                        self._guard_check, self._max_spin):
             components_row.addWidget(widget)
@@ -522,9 +523,11 @@ class FitModelRunDialog(QDialog):
         grid.addWidget(self._keep_edit, 0, 1)
         grid.addWidget(QLabel("Exclude"), 1, 0)
         grid.addWidget(self._exclude_edit, 1, 1)
-        grid.addWidget(water, 0, 2)
-        grid.addWidget(self._select_bands, 1, 2)
-        grid.addWidget(self._propose_bands, 0, 3)
+        buttons = FlowLayout()
+        for button in (water, self._select_bands, self._propose_bands):
+            buttons.addWidget(button)
+        grid.addLayout(buttons, 2, 0, 1, 2)
+        grid.setColumnStretch(1, 1)
         return row
 
     def _propose_bands_clicked(self) -> None:
@@ -631,7 +634,7 @@ class FitModelRunDialog(QDialog):
         self._seed_spin = _SeedEdit()
         self._smallest_label = QLabel("")
         self._smallest_label.setStyleSheet(secondary_text_style())
-        pixels_row = QHBoxLayout()
+        pixels_row = FlowLayout()
         for widget in (self._draw_check, self._pixels_spin, QLabel("seed"), self._seed_spin,
                        self._smallest_label):
             pixels_row.addWidget(widget)
@@ -644,7 +647,7 @@ class FitModelRunDialog(QDialog):
                                  ("Pareto", "pareto")):
                 combo.addItem(label, value)
         self._y_scaling_combo.setCurrentIndex(self._y_scaling_combo.findData("uv"))
-        scaling_row = QHBoxLayout()
+        scaling_row = FlowLayout()
         for widget in (QLabel("X"), self._x_scaling_combo, QLabel("Y"), self._y_scaling_combo):
             scaling_row.addWidget(widget)
         scaling_row.addStretch(1)
@@ -670,7 +673,7 @@ class FitModelRunDialog(QDialog):
         self._formula_combo.addItem("Unweighted", "dmodx-1")
         self._formula_combo.addItem("Weighted by modeling power (SIMCA)", "dmodx-2")
         form.addRow("", self._exclude_check)
-        exclusion_row = QHBoxLayout()
+        exclusion_row = FlowLayout()
         for widget in (QLabel("level"), self._level_spin, QLabel("rounds"), self._rounds_spin,
                        QLabel("at most"), self._share_spin, QLabel("per ROI")):
             exclusion_row.addWidget(widget)
@@ -726,6 +729,83 @@ class FitModelRunDialog(QDialog):
     @property
     def readiness_text(self) -> str:
         return self._readiness_label.text()
+
+    def apply_recipe(self, recipe: PreprocessingRecipe, signal_unit: str | None = None) -> None:
+        """Show ``recipe`` (and ``signal_unit``) in the preprocessing fields (Explore preview)."""
+        self._filter_combo.setCurrentIndex(max(0, self._filter_combo.findData(recipe.filter)))
+        self._window_spin.setValue(recipe.sg_window)
+        self._poly_spin.setValue(recipe.sg_polyorder)
+        for box, value in ((self._snv, recipe.snv), (self._msc, recipe.msc),
+                           (self._emsc, recipe.emsc), (self._detrend, recipe.detrend)):
+            box.setChecked(value)
+        self._detrend_order.setValue(recipe.detrend_order)
+        self._keep_edit.setText(format_ranges(recipe.bands_keep))
+        self._exclude_edit.setText(format_ranges(recipe.bands_exclude))
+        self._kept_recipe = recipe
+        self._show_kept_recipe()
+        if signal_unit is not None and self._signal_unit_combo.findData(signal_unit) >= 0:
+            self._signal_unit_combo.setCurrentIndex(self._signal_unit_combo.findData(signal_unit))
+        self._update_enabled()
+
+    def embed(self) -> None:
+        """Turn the dialog into the Fit settings panel of the main window (plan gui-1.6, Q2).
+
+        No window frame and no OK/Cancel: the dock's Fit Model button runs the
+        fit with these settings. Labels go above their fields, for the narrow
+        dock.
+        """
+        self._embedded = True
+        self.setWindowFlags(Qt.WindowType.Widget)
+        self._buttons.hide()
+        self._form_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+        self._form_layout.setContentsMargins(4, 4, 4, 4)
+        self.show()  # a new window flag hides a widget
+
+    @property
+    def embedded(self) -> bool:
+        """Whether the form is the Fit settings panel (no dialog)."""
+        return self._embedded
+
+    @property
+    def ready(self) -> bool:
+        """Whether a fit with these settings can run (the OK button of the dialog)."""
+        ok = self._buttons.button(QDialogButtonBox.StandardButton.Ok)
+        return ok is not None and ok.isEnabled()
+
+    def set_targets(self, targets: list[tuple[str, str]], current: str | None) -> None:
+        """Replace the target choices (the project's targets changed), keeping ``current``."""
+        self._target_combo.blockSignals(True)
+        self._target_combo.clear()
+        for target_id, label in targets:
+            self._target_combo.addItem(label, target_id)
+        if current is not None and self._target_combo.findData(current) >= 0:
+            self._target_combo.setCurrentIndex(self._target_combo.findData(current))
+        self._target_combo.blockSignals(False)
+        self._update_readiness()
+        self._update_fitting()
+
+    def watch_changes(self, callback: Callable[[], None]) -> None:
+        """Call ``callback`` whenever any setting changes (the "changed" mark of the dock)."""
+        for combo in self.findChildren(QComboBox):
+            combo.currentIndexChanged.connect(lambda *_: callback())
+        for spin in (*self.findChildren(QSpinBox), *self.findChildren(QDoubleSpinBox)):
+            spin.valueChanged.connect(lambda *_: callback())
+        for check in self.findChildren(QCheckBox):
+            check.toggled.connect(lambda *_: callback())
+        for edit in self.findChildren(QLineEdit):
+            edit.textChanged.connect(lambda *_: callback())
+
+    def settings_key(self) -> tuple[Any, ...]:
+        """Everything a fit takes from the form, comparable (for the "changed" mark)."""
+        try:
+            recipe = repr(sorted(self.recipe.to_dict().items(), key=lambda item: item[0]))
+            spec = repr(self.fit_spec)
+            hyper = repr(sorted(self.hyperparameters.items()))
+            cv = repr(self.cv)
+        except (ValueError, TypeError):
+            recipe = spec = hyper = cv = "invalid"
+        return (self._target_combo.currentData(), self.signal_unit, self.model_type,
+                hyper, cv, spec, recipe)
 
     def _on_accept(self) -> None:
         try:
@@ -1001,20 +1081,21 @@ class ModelingView(QWidget):
         layout.setSpacing(4)
 
         action_panel = QWidget(box)
-        action_panel.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        action_panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         action_grid = QGridLayout(action_panel)
         action_grid.setContentsMargins(0, 0, 0, 0)
         action_grid.setHorizontalSpacing(8)
         action_grid.setVerticalSpacing(4)
+        action_grid.setColumnStretch(0, 1)
+        action_grid.setColumnStretch(1, 1)
 
         def configure_status(label: QLabel) -> None:
             label.setStyleSheet(secondary_text_style())
             label.setWordWrap(True)
-            label.setMaximumWidth(132)
+            label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
 
         def configure_action(button: QToolButton) -> None:
-            button.setMinimumWidth(132)
-            button.setMaximumWidth(132)
+            button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         self.target_status_label = QLabel("Target: none")
         configure_status(self.target_status_label)
@@ -1060,14 +1141,133 @@ class ModelingView(QWidget):
         action_grid.addWidget(self._btn_fit_again, 3, 0)
 
         self._service_status = BusyStatusWidget(idle_text="Service: idle", parent=self)
-        self._service_status.setMaximumWidth(272)
         self._service_status.label.setWordWrap(True)
         action_grid.addWidget(self._service_status, 4, 0, 1, 2)
 
         layout.addWidget(action_panel)
+        #: The Fit settings panel (the embedded fit form) of the main window, if any.
+        self._fit_form: FitModelRunDialog | None = None
+        self._fit_form_host = QVBoxLayout()
+        self._fit_form_host.setContentsMargins(0, 0, 0, 0)
+        layout.addLayout(self._fit_form_host)
+        self._fit_changed_label = QLabel("")
+        self._fit_changed_label.setObjectName("ChangedMark")
+        self._fit_changed_label.setWordWrap(True)
+        layout.addWidget(self._fit_changed_label)
+        self._fitted_key: tuple[Any, ...] | None = None
         layout.addStretch(1)
 
         return box
+
+    # -- Fit settings panel (plan gui-1.6, Phase 4, Q2) ----------------------------------
+
+    def embed_fit_settings(self) -> FitModelRunDialog:
+        """Show the fit settings in this view instead of a dialog; returns the form.
+
+        The main window calls this once: from then on Fit Model fits with what
+        the form shows, Fit Again loads a model's settings into it, and the
+        preprocessing follows the Explore preview.
+        """
+        if self._fit_form is None:
+            self._fit_form = self._new_fit_form()
+            self._fit_form.embed()
+            self._fit_form_host.addWidget(self._fit_form)
+            self._fit_form.watch_changes(self._update_fit_changed_mark)
+            self.project_state.targets_changed.connect(self._refresh_fit_form_targets)
+            self.project_state.project_loaded.connect(self._refresh_fit_form_targets)
+            self.project_state.rois_changed.connect(self._fit_form._update_readiness)
+            self.project_state.target_assignments_changed.connect(
+                self._fit_form._update_readiness)
+            self.state.units_changed.connect(self._follow_explore_preview)
+            # The Checks panel and the form's calibration-set line say this now.
+            self._readiness_status.hide()
+            self._model_status.hide()
+            self._btn_fit_again.setText("Load Model Settings")
+            self._btn_fit_again.setToolTip("Load the selected model's settings into the fit "
+                                           "settings below, e.g. to fit it again with another "
+                                           "number of components")
+            self._update_fit_changed_mark()
+        return self._fit_form
+
+    @property
+    def fit_form(self) -> FitModelRunDialog | None:
+        """The Fit settings panel, when the view shows one."""
+        return self._fit_form
+
+    def _target_choices(self) -> list[tuple[str, str]]:
+        return [(target_id, target.name if not target.unit else f"{target.name} ({target.unit})")
+                for target_id, target in sorted(self.project_state.targets.items(),
+                                                key=lambda item: item[1].name.lower())]
+
+    def _new_fit_form(self, preset_sample_set: Any = None,
+                      preset_recipe: Mapping[str, Any] | None = None) -> FitModelRunDialog:
+        current = self.current_target()
+        return FitModelRunDialog(
+            self._target_choices(),
+            default_target_id=(preset_sample_set.target_id if preset_sample_set is not None
+                               else None if current is None else current.target_id),
+            recipe=(PreprocessingRecipe.from_dict(preset_recipe) if preset_recipe is not None
+                    else self.state.recipe),
+            default_signal_unit=self.state.y_unit,
+            readiness=self.fit_readiness,
+            smallest_roi=self._smallest_labelled_roi,
+            band_source=self._band_source,
+            band_proposer=self._band_proposer,
+            fold_warner=self._dialog_fold_warnings,
+            parent=self,
+        )
+
+    def _refresh_fit_form_targets(self, *_args: Any) -> None:
+        if self._fit_form is not None:
+            current = self.current_target()
+            self._fit_form.set_targets(self._target_choices(),
+                                       None if current is None else current.target_id)
+
+    def _follow_explore_preview(self, *_args: Any) -> None:
+        """The form's preprocessing follows the Explore preview (one recipe, plan gui-1.6)."""
+        if self._fit_form is None:
+            return
+        try:
+            shown = self._fit_form.recipe
+        except ValueError:
+            shown = None
+        preview = self.state.recipe
+        if shown != preview or self._fit_form.signal_unit != self.state.y_unit:
+            self._fit_form.apply_recipe(preview, self.state.y_unit)
+
+    def load_model_settings(self, model_run: ModelRun) -> None:
+        """Put a stored model's settings into the Fit settings panel."""
+        form = self.embed_fit_settings()
+        state = self.project_state
+        sample_set = state.sample_sets.get(model_run.sample_set_id)
+        recipe = None if sample_set is None else state.recipes.get(
+            sample_set.preprocessing_recipe_id)
+        domain = state.signal_domains.get(model_run.signal_domain_id)
+        if sample_set is not None:
+            form.set_targets(self._target_choices(), sample_set.target_id)
+        if recipe is not None:
+            form.apply_recipe(PreprocessingRecipe.from_dict(recipe),
+                              None if domain is None else domain.required_signal_unit)
+        form.apply_model_run(model_run, signal_unit=None if domain is None
+                             else domain.required_signal_unit)
+        self._fitted_key = form.settings_key()
+        self._update_fit_changed_mark()
+
+    def _update_fit_changed_mark(self, *_args: Any) -> None:
+        if self._fit_form is None:
+            return
+        if self._fitted_key is None:
+            text = ""
+        elif self._fit_form.settings_key() != self._fitted_key:
+            text = "● Changed since the last fit"
+        else:
+            text = "Same settings as the model shown"
+        self._fit_changed_label.setText(text)
+
+    def fit_settings_changed(self) -> bool:
+        """Whether the Fit settings differ from those of the last fit or loaded model."""
+        return (self._fit_form is not None and self._fitted_key is not None
+                and self._fit_form.settings_key() != self._fitted_key)
 
     def visible_targets(self) -> list[TargetDefinition]:
         return sorted(
@@ -1143,6 +1343,9 @@ class ModelingView(QWidget):
         if model_run is None:
             QMessageBox.information(self, "No model", "Select a fitted model first.")
             return
+        if self._fit_form is not None:
+            self.load_model_settings(model_run)
+            return
         self.fit_model_btn_clicked(preset=model_run)
 
     def _show_bands_in_explore(self, recipe: PreprocessingRecipe) -> None:
@@ -1215,33 +1418,28 @@ class ModelingView(QWidget):
         if not state.targets:
             QMessageBox.information(self, "No target", "Define a target and its values first.")
             return
-        current = self.current_target()
         preset_sample_set = (None if preset is None
                              else state.sample_sets.get(preset.sample_set_id))
         preset_recipe = (None if preset_sample_set is None else state.recipes.get(
             preset_sample_set.preprocessing_recipe_id))
-        dlg = FitModelRunDialog(
-            [(target_id, target.name if not target.unit else f"{target.name} ({target.unit})")
-             for target_id, target in sorted(state.targets.items(),
-                                             key=lambda item: item[1].name.lower())],
-            default_target_id=(preset_sample_set.target_id if preset_sample_set is not None
-                               else None if current is None else current.target_id),
-            recipe=(PreprocessingRecipe.from_dict(preset_recipe) if preset_recipe is not None
-                    else self.state.recipe),
-            default_signal_unit=self.state.y_unit,
-            readiness=self.fit_readiness,
-            smallest_roi=self._smallest_labelled_roi,
-            band_source=self._band_source,
-            band_proposer=self._band_proposer,
-            fold_warner=self._dialog_fold_warnings,
-            parent=self,
-        )
-        if preset is not None:
-            domain = state.signal_domains.get(preset.signal_domain_id)
-            dlg.apply_model_run(
-                preset, signal_unit=None if domain is None else domain.required_signal_unit)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
+        if self._fit_form is not None and preset is None:
+            dlg = self._fit_form
+            if not dlg.ready:
+                QMessageBox.information(self, "Cannot fit yet", dlg.readiness_text)
+                return
+            try:
+                dlg.recipe  # noqa: B018 (validates the preprocessing)
+            except ValueError as exc:
+                QMessageBox.warning(self, "Preprocessing", str(exc))
+                return
+        else:
+            dlg = self._new_fit_form(preset_sample_set, preset_recipe)
+            if preset is not None:
+                domain = state.signal_domains.get(preset.signal_domain_id)
+                dlg.apply_model_run(
+                    preset, signal_unit=None if domain is None else domain.required_signal_unit)
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                return
         self._selected_target_id = dlg.target_id
         self._show_bands_in_explore(dlg.recipe)
         planned = self._plan_fit_sample_set(dlg.target_id, dlg.recipe)
@@ -1942,6 +2140,9 @@ class ModelingView(QWidget):
         recipe: PreprocessingRecipe | None = None,
     ) -> None:
         """Store the fitted run with its new sample set and recipe (``None``: already stored)."""
+        if self._fit_form is not None:
+            self._fitted_key = self._fit_form.settings_key()
+            self._update_fit_changed_mark()
         if self._job_result_is_stale(project_path, what="model"):
             return
         state = self.project_state

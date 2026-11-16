@@ -13,10 +13,13 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_windows_shell.py` | Windows Start menu and desktop shortcuts through the shell's COM interfaces with `ctypes` (no Qt, no extra package): target the windowless launcher, the engiNIR icon and the taskbar id `WINDOWS_APP_ID`, which the running viewer also sets |
 | `_app.py` | QApplication singleton, platform choice (Wayland on WSLg, X11 on other mixed sessions), application icon (on Windows with its own taskbar app id, `WINDOWS_APP_ID` from `_windows_shell`, so the taskbar shows the engiNIR icon instead of grouping the window under python.exe), the application-wide event filter (dialog centering; on WSLg Wayland, combo popups release their native window after hiding, because WSLg keeps an unmapped popup on screen, microsoft/wslg#1522) |
 | `_theme.py` | The colour tokens of the dark and light theme (`TOKENS`), the categorical data colours (`SERIES`), the value and heat colour maps; the Qt palette and style sheet are generated from the tokens. No other viewer module writes a colour (`tests/test_theme.py`) |
+| `_icons.py` | The line icons (Tabler Icons, MIT, `_resources/icons/`) rendered in a theme colour |
+| `_workflow_strip.py` | `WorkflowStrip`: the steps Data › ROIs › Values › Model › Predict › Report under the menu bar, their state from `Project.checks()`; navigation only |
+| `_bottom_panels.py` | `ChecksPanel` (the library's checks with fix buttons) and `ModelsPanel` (models with figures of merit and the library's verdict), tabs of the bottom panel |
 | `_state.py` | `ViewerState` (UI) + `ProjectState` (Qt adapter over `enginir.Project`) |
 | `_canvas.py` | `FalseColourCanvas` (pyqtgraph image surface, crosshair, ROI draw/selection) |
 | `_panels.py` | Exploration dock widgets: Histogram, Spatial and Spectrum (matplotlib); RAW and Sensor Frame (pyqtgraph `_ImagePanel`) |
-| `_viewer.py` | `HSIViewer(QMainWindow)` shell, menus, docks, status strip, workspace host |
+| `_viewer.py` | `HSIViewer(QMainWindow)`: menus (every action; no toolbar), the workflow strip, Project and Properties on the left, the Settings dock on the right (the workspace controls; the Model workspace's fit settings are the embedded fit form), the bottom panel (Checks, ROI table, Models, Log as tabs), status strip, workspace host; `run_fix` runs the fix a check offers |
 | `_welcome.py` | Launcher window with recent files list and startup routing |
 | `_recent.py` | MRU file list (`~/.config/enginir/recent.json`) |
 | `_eda.py` | `EDAView` — signal, preprocessing, project, and ROI controls |

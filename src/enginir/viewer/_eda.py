@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMessageBox,
     QRadioButton,
+    QSizePolicy,
     QSpinBox,
     QToolButton,
     QVBoxLayout,
@@ -93,7 +94,8 @@ class EDAView(QWidget):
         self._current_target_provider = current_target_provider
         self._selected_roi_id_provider = selected_roi_id_provider
 
-        layout = QHBoxLayout(self)
+        # One column of groups for the Settings dock (plan gui-1.6, Phase 4).
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
         layout.addWidget(self._project_group())
@@ -102,6 +104,7 @@ class EDAView(QWidget):
         layout.addWidget(self._normalisation_group())
         layout.addWidget(self._axis_group())
         layout.addWidget(self._roi_group())
+        layout.addStretch(1)
 
         self.project_state.project_loaded.connect(self._update_project_status)
         self.project_state.project_loaded.connect(self.refresh_roi_overlays)
@@ -176,7 +179,7 @@ class EDAView(QWidget):
         self._rb_filt_none.setChecked(True)
 
         self._filt_bg = QButtonGroup()
-        for col, rb in enumerate(
+        for index, rb in enumerate(
             (
                 self._rb_filt_none,
                 self._rb_filt_sg0,
@@ -185,22 +188,22 @@ class EDAView(QWidget):
             )
         ):
             self._filt_bg.addButton(rb)
-            layout.addWidget(rb, 0, col)
+            layout.addWidget(rb, index // 2, 2 * (index % 2), 1, 2)
 
-        layout.addWidget(QLabel("Window:"), 1, 0)
+        layout.addWidget(QLabel("Window:"), 2, 0)
         self._spin_win = QSpinBox()
         self._spin_win.setRange(3, 101)
         self._spin_win.setSingleStep(2)
         self._spin_win.setValue(11)
         self._spin_win.setEnabled(False)
-        layout.addWidget(self._spin_win, 1, 1)
+        layout.addWidget(self._spin_win, 2, 1)
 
-        layout.addWidget(QLabel("Poly:"), 1, 2)
+        layout.addWidget(QLabel("Poly:"), 2, 2)
         self._spin_pol = QSpinBox()
         self._spin_pol.setRange(1, 9)
         self._spin_pol.setValue(2)
         self._spin_pol.setEnabled(False)
-        layout.addWidget(self._spin_pol, 1, 3)
+        layout.addWidget(self._spin_pol, 2, 3)
 
         self._filt_bg.buttonClicked.connect(self._on_filter_changed)
         self._spin_win.valueChanged.connect(self.state.set_sg_window)
@@ -277,42 +280,51 @@ class EDAView(QWidget):
 
     def _roi_group(self) -> QGroupBox:
         box = QGroupBox("ROI")
-        layout = QVBoxLayout(box)
-        layout.setSpacing(2)
+        outer = QVBoxLayout(box)
+        outer.setSpacing(2)
+        buttons = QGridLayout()
+        buttons.setSpacing(4)
+        outer.addLayout(buttons)
+
+        def place(widget: QWidget) -> None:
+            """The ROI buttons two per row."""
+            index = buttons.count()
+            widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            buttons.addWidget(widget, index // 2, index % 2)
 
         self._btn_roi_training = QToolButton()
         self._btn_roi_training.setText("Add ROI")
         self._btn_roi_training.setCheckable(True)
         self._btn_roi_training.toggled.connect(self._on_add_roi_toggled)
-        layout.addWidget(self._btn_roi_training)
+        place(self._btn_roi_training)
 
         self._btn_roi_grid = QToolButton()
         self._btn_roi_grid.setText("Add ROI Grid")
         self._btn_roi_grid.setToolTip("Lay out a tray of equal ROIs by number, size, origin "
                                       "and spacing (defaults in Options > ROI Grid Defaults)")
         self._btn_roi_grid.clicked.connect(self.open_roi_grid_dialog)
-        layout.addWidget(self._btn_roi_grid)
+        place(self._btn_roi_grid)
 
         self._btn_roi_delete = QToolButton()
         self._btn_roi_delete.setText("Delete ROI")
         self._btn_roi_delete.clicked.connect(self._delete_roi_btn_clicked)
-        layout.addWidget(self._btn_roi_delete)
+        place(self._btn_roi_delete)
 
         btn_table = QToolButton()
         btn_table.setText("ROI Table")
         btn_table.setToolTip("Target values of all ROIs of the project")
         btn_table.clicked.connect(self.roi_table_requested.emit)
-        layout.addWidget(btn_table)
+        place(btn_table)
 
         btn_export = QToolButton()
         btn_export.setText("Export CSV")
         btn_export.clicked.connect(self.export_csv_btn_clicked)
-        layout.addWidget(btn_export)
+        place(btn_export)
 
         self._roi_hint_label = QLabel()
         self._roi_hint_label.setStyleSheet(secondary_text_style())
         self._roi_hint_label.setWordWrap(True)
-        layout.addWidget(self._roi_hint_label)
+        outer.addWidget(self._roi_hint_label)
         return box
 
     def _signal_buttons(self) -> dict[str, QRadioButton]:

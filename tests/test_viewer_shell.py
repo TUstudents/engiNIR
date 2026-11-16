@@ -261,8 +261,10 @@ def test_shell_initializes_main_window_canvas_and_tabs(qapp, cube_and_wavelength
     assert viewer._inspector_dock.minimumWidth() == 260
     assert viewer._inspector_dock.maximumWidth() == 260
     assert viewer._inspector_dock.features() == QDockWidget.DockWidgetFeature.DockWidgetClosable
-    assert viewer._controls_dock.minimumHeight() == viewer._controls_dock.maximumHeight()
-    assert viewer._controls_dock.maximumHeight() == 230
+    # The Settings dock: the outer right column, a fixed width per screen-size class.
+    assert viewer._controls_dock.minimumWidth() == viewer._controls_dock.maximumWidth()
+    assert viewer._controls_dock.maximumWidth() in (340, 304)
+    assert viewer.dockWidgetArea(viewer._controls_dock) == Qt.DockWidgetArea.RightDockWidgetArea
     assert viewer._spectrum_panel.minimumHeight() == viewer._spectrum_panel.maximumHeight()
     assert viewer._spectrum_panel.maximumHeight() == 220
     assert viewer._spectrum_toggle_action.isCheckable()
@@ -342,7 +344,9 @@ def test_workspace_controls_height_is_stable_between_modes(qapp, cube_and_wavele
 
     cube, wavelengths = cube_and_wavelengths
     viewer = HSIViewer(cube, wavelengths)
-    expected_height = viewer._controls_dock.maximumHeight()
+    expected_width = viewer._controls_dock.maximumWidth()
+    titles = {viewer._eda_view: "View settings", viewer._modeling_view: "Fit settings",
+              viewer._prediction_view: "Prediction settings"}
 
     for widget, spectrum_visible in (
         (viewer._eda_view, True),
@@ -352,8 +356,9 @@ def test_workspace_controls_height_is_stable_between_modes(qapp, cube_and_wavele
     ):
         viewer._workspace_tabs.setCurrentWidget(widget)
         qapp.processEvents()
-        assert viewer._controls_dock.minimumHeight() == expected_height
-        assert viewer._controls_dock.maximumHeight() == expected_height
+        assert viewer._controls_dock.minimumWidth() == expected_width
+        assert viewer._controls_dock.maximumWidth() == expected_width
+        assert viewer._controls_dock.windowTitle() == titles[widget]
         assert viewer._spectrum_panel.isHidden() is not spectrum_visible
         assert viewer._spectrum_toggle_action.isEnabled() is spectrum_visible
 

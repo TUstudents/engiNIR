@@ -18,7 +18,6 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QInputDialog,
-    QHBoxLayout,
     QVBoxLayout,
     QFileDialog,
     QMessageBox,
@@ -32,6 +31,7 @@ from PyQt6.QtWidgets import (
     QStackedWidget,
     QToolButton,
     QTabWidget,
+    QAbstractItemView,
     QMenu,
     QMenuBar,
 )
@@ -52,6 +52,10 @@ from ._inspector import ProjectInspector
 from ._data_files import AddDataFileDialog
 from ._project_rois import ProjectRoisView
 from ._roi_table import RoiTableWidget
+from ._bottom_panels import ChecksPanel, ModelsPanel
+from ._icons import icon
+from ._workflow_strip import WorkflowStrip
+from .._guidance import Check, Fix
 from ._jobs import BusyStatusWidget, start_background_job
 from ._loading import ViewerBusyContext
 from ._model_diagnostics import ModelDiagnosticsWidget
@@ -85,6 +89,13 @@ logger = get_logger(__name__)
 _QtObject = TypeVar("_QtObject")
 _COMPACT_LEFT_DOCK_WIDTH = 260
 _CONTROLS_DOCK_TARGET_HEIGHT = 230
+#: Width of the Settings dock and height of the bottom panel per screen-size
+#: class (plan gui-1.6, D4): "full" from 1800 px wide, "compact" below.
+_SETTINGS_DOCK_WIDTH = {"full": 340, "compact": 304}
+_BOTTOM_PANEL_HEIGHT = {"full": 200, "compact": 160}
+_FULL_WIDTH = 1800
+#: Settings dock title per workspace (plan gui-1.6, the window).
+_SETTINGS_TITLES = ("View settings", "Fit settings", "Prediction settings")
 _SPECTRUM_PANEL_HEIGHT = 220
 _UNLIMITED_HEIGHT = 16777215  # QWIDGETSIZE_MAX
 _SAVED_MESSAGE_MS = 8000
@@ -135,6 +146,21 @@ __all__ = [
 # ------------------------------------------------------------------
 # LogPanel - dock widget for loguru output
 # ------------------------------------------------------------------
+
+
+class _ColumnScrollArea(QScrollArea):
+    """Scrolls up and down only: the content always gets the viewport's width.
+
+    The Settings dock's groups are narrow but tall; the content is held to the
+    dock's width so rows wrap (flow layouts) and drop-downs shrink instead of
+    running out of the dock.
+    """
+
+    def resizeEvent(self, a0: Any) -> None:  # noqa: N802 (Qt API)
+        super().resizeEvent(a0)
+        content, viewport = self.widget(), self.viewport()
+        if content is not None and viewport is not None:
+            content.setFixedWidth(viewport.width())
 
 
 class _WidthScrollArea(QScrollArea):
@@ -212,6 +238,9 @@ class HSIViewer(QMainWindow):
         Optional white-reference cube or image.  Same convention as *dark*.
     """
 
+    #: The checks and verdicts were recomputed (plan gui-1.6, guidance).
+    checks_refreshed = pyqtSignal()
+
     def __init__(
         self,
         cube: np.ndarray,
@@ -281,6 +310,7 @@ class HSIViewer(QMainWindow):
         self._wire_signals()
         _mark_init_step("signals")
         self._build_menu_bar()
+        self._build_workflow_strip()
         _mark_init_step("menu")
         self.refresh_theme()
         _mark_init_step("theme")
@@ -659,13 +689,13 @@ class HSIViewer(QMainWindow):
         self._project_browser = ProjectBrowser(self.project_state)
         self._inspector = ProjectInspector(self.project_state)
 
-        self._project_browser_dock = QDockWidget("Project browser", self)
+        self._project_browser_dock = QDockWidget("Project", self)
         self._project_browser_dock.setObjectName("ProjectBrowserDock")
         self._project_browser_dock.setWidget(self._project_browser)
         self._configure_compact_left_dock(self._project_browser_dock)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._project_browser_dock)
 
-        self._inspector_dock = QDockWidget("Inspector", self)
+        self._inspector_dock = QDockWidget("Properties", self)
         self._inspector_dock.setObjectName("InspectorDock")
         self._inspector_dock.setWidget(self._inspector)
         self._configure_compact_left_dock(self._inspector_dock)
@@ -709,7 +739,7 @@ class HSIViewer(QMainWindow):
         self._roi_table_dock.hide()
         #: ROI table per Explore tab: shown with Project ROIs, not on the Data file tab;
         #: the user's choice on each tab is kept. Model and Predict leave it as it is.
-        self._default_roi_table_visibility = {"data_file": False, "project_rois": True}
+        self._default_roi_table_visibility = {"data_file": True, "project_rois": True}
         self._roi_table_visibility = dict(self._default_roi_table_visibility)
         self._roi_table_dock.visibilityChanged.connect(self._on_roi_table_visibility_changed)
 
@@ -830,10 +860,19 @@ class HSIViewer(QMainWindow):
         dock.setMaximumWidth(_COMPACT_LEFT_DOCK_WIDTH)
         dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable)
 
+    def size_class(self) -> str:
+        """``"full"`` for windows from 1800 px wide (Full HD), else ``"compact"`` (plan D4)."""
+        screen = self.screen()
+        width = self.width() if self.isVisible() else (
+            screen.availableGeometry().width() if screen is not None else self.width())
+        return "full" if width >= _FULL_WIDTH else "compact"
+
     def _configure_controls_dock_height(self) -> None:
-        self._controls_dock_height = _CONTROLS_DOCK_TARGET_HEIGHT
-        self._controls_dock.setMinimumHeight(self._controls_dock_height)
-        self._controls_dock.setMaximumHeight(self._controls_dock_height)
+        """The Settings dock: a fixed width per size class, the full height."""
+        width = _SETTINGS_DOCK_WIDTH[self.size_class()]
+        self._controls_dock.setMinimumWidth(width)
+        self._controls_dock.setMaximumWidth(width)
+        self._controls_dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable)
 
     def _build_controls_panel(self) -> None:
         self._modeling_view = ModelingView(self.state, self.project_state, parent=self)
@@ -853,45 +892,75 @@ class HSIViewer(QMainWindow):
         self._project_status = self._eda_view.project_status_label
         self._target_status = self._modeling_view.target_status_label
 
+        # The workspaces: Explore, Model, Predict. The workflow strip switches
+        # them, so the tab bar is hidden (plan gui-1.6, Phase 3).
         self._workspace_tabs = QTabWidget()
         self._workspace_tabs.setObjectName("WorkspaceTabs")
         self._workspace_tabs.addTab(self._eda_view, "Explore")
         self._workspace_tabs.addTab(self._modeling_view, "Model")
         self._workspace_tabs.addTab(self._prediction_view, "Predict")
-        self._workspace_tabs.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Ignored,
-        )
+        _require_qt_object(self._workspace_tabs.tabBar(), "workspace tab bar").hide()
+        self._workspace_tabs.setDocumentMode(True)
+        self._modeling_view.embed_fit_settings()
 
         container = QWidget()
-        container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
-        outer = QHBoxLayout(container)
-        outer.setContentsMargins(4, 2, 4, 2)
+        outer = QVBoxLayout(container)
+        outer.setContentsMargins(6, 4, 6, 4)
         outer.setSpacing(6)
         outer.addWidget(self._workspace_tabs)
 
-        # The control rows are wide; a scroll area lets them shrink with the window
-        # instead of setting its minimum width (see _release_minimum_size).
-        scroll = _WidthScrollArea()
+        # One column of settings; it scrolls vertically when the window is low.
+        for combo in container.findChildren(QComboBox):
+            # Long choices ("Auto (7 round-robin folds, ...)") must not widen the column.
+            combo.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            combo.setMinimumContentsLength(8)
+        scroll = _ColumnScrollArea()
         scroll.setWidget(container)
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._controls_dock = QDockWidget("Controls", self)
-        self._controls_dock.setObjectName("ControlsDock")
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._controls_dock = QDockWidget(_SETTINGS_TITLES[0], self)
+        self._controls_dock.setObjectName("SettingsDock")
         self._controls_dock.setWidget(scroll)
         self._configure_controls_dock_height()
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._controls_dock)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._controls_dock)
+        # The Settings column is the outermost on the right, beside the data-file plots.
+        self.splitDockWidget(self._sensor_dock, self._controls_dock, Qt.Orientation.Horizontal)
         self._refresh_workspace_content_pages()
 
     def _build_log_panel(self) -> None:
+        """The bottom panel: Checks, ROI table, Models and Log as tabs (plan gui-1.6)."""
         self._log_panel = LogPanel()
         self._log_dock = QDockWidget("Log", self)
         self._log_dock.setObjectName("LogDock")
         self._log_dock.setWidget(self._log_panel)
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._log_dock)
-        self.splitDockWidget(self._controls_dock, self._log_dock, Qt.Orientation.Vertical)
-        self._log_dock.hide()
+        self._checks_panel = ChecksPanel()
+        self._checks_dock = QDockWidget("Checks", self)
+        self._checks_dock.setObjectName("ChecksDock")
+        self._checks_dock.setWidget(self._checks_panel)
+        self._models_panel = ModelsPanel()
+        self._models_dock = QDockWidget("Models", self)
+        self._models_dock.setObjectName("ModelsDock")
+        self._models_dock.setWidget(self._models_panel)
+        self.removeDockWidget(self._roi_table_dock)
+        bottom = Qt.DockWidgetArea.BottomDockWidgetArea
+        self.addDockWidget(bottom, self._checks_dock)
+        for dock in (self._roi_table_dock, self._models_dock, self._log_dock):
+            self.addDockWidget(bottom, dock)
+            self.tabifyDockWidget(self._checks_dock, dock)
+        for dock in (self._checks_dock, self._roi_table_dock, self._models_dock, self._log_dock,
+                     self._project_browser_dock, self._inspector_dock):
+            dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable)
+            dock.show()
+        for dock in (self._checks_dock, self._roi_table_dock, self._models_dock, self._log_dock):
+            # The tab names the panel; a title bar above it would repeat the name.
+            dock.setTitleBarWidget(QWidget(dock))
+        self.setTabPosition(bottom, QTabWidget.TabPosition.North)
+        self._checks_dock.raise_()
+        self._checks_panel.fix_requested.connect(self.run_fix)
+        self._checks_panel.check_activated.connect(self._show_check)
+        self._models_panel.model_selected.connect(self.select_model)
         self._restore_bottom_dock_sizes()
         self._log_sink_id = add_log_sink(
             self._log_panel.sink,
@@ -1107,12 +1176,8 @@ class HSIViewer(QMainWindow):
         self._roi_table.show_data_file(self._roi_table_data_file())
         target = self._modeling_view.current_target()
         self._roi_table.focus_target(None if target is None else target.target_id)
-        was_hidden = self._roi_table_dock.isHidden()
         self._roi_table_dock.show()
-        self._place_roi_table()
         self._roi_table_dock.raise_()
-        if was_hidden and not self._roi_table_dock.isFloating():
-            self.resizeDocks([self._roi_table_dock], [460], Qt.Orientation.Horizontal)
 
     def _on_data_file_page(self) -> bool:
         return (self._workspace_tabs.currentWidget() is self._eda_view
@@ -1132,14 +1197,7 @@ class HSIViewer(QMainWindow):
             self._roi_table.show_data_file(self._roi_table_data_file())
 
     def _place_roi_table(self) -> None:
-        """On the Data file tab, tab a docked ROI table with the Sensor Frame (full slot)."""
-        table, sensor = self._roi_table_dock, self._sensor_dock
-        if (not self._on_data_file_page() or table.isHidden() or table.isFloating()
-                or sensor.isHidden() or sensor.isFloating()
-                or table in self.tabifiedDockWidgets(sensor)):
-            return
-        self.tabifyDockWidget(sensor, table)
-        table.raise_()
+        """The ROI table is a tab of the bottom panel (plan gui-1.6); nothing to place."""
 
     def _on_explore_tab_changed(self, *_args: Any) -> None:
         self._sync_data_file_docks()
@@ -1225,6 +1283,7 @@ class HSIViewer(QMainWindow):
         self._refresh_workspace_content_pages()
 
     def _on_workspace_tab_changed(self, _index: int) -> None:
+        self._sync_workflow_step()
         self._update_status_strip()
         self._sync_workspace_content_host()
         self._refresh_workspace_content_pages()
@@ -1262,15 +1321,14 @@ class HSIViewer(QMainWindow):
         QTimer.singleShot(0, self._restore_bottom_dock_sizes)
 
     def _restore_bottom_dock_sizes(self) -> None:
+        """The bottom panel's height and the Settings width for the window's size class."""
         self._bottom_dock_resize_pending = False
-        if not hasattr(self, "_controls_dock"):
+        if not hasattr(self, "_checks_dock"):
             return
-        docks = [self._controls_dock]
-        sizes = [self._controls_dock_height]
-        if hasattr(self, "_log_dock") and not self._log_dock.isHidden():
-            docks.append(self._log_dock)
-            sizes.append(_CONTROLS_DOCK_TARGET_HEIGHT)
-        self.resizeDocks(docks, sizes, Qt.Orientation.Vertical)
+        size = self.size_class()
+        self._configure_controls_dock_height()
+        self.resizeDocks([self._checks_dock], [_BOTTOM_PANEL_HEIGHT[size]],
+                         Qt.Orientation.Vertical)
 
     def _refresh_model_workspace_content(self) -> None:
         self._ensure_model_content_page()
@@ -1481,15 +1539,26 @@ class HSIViewer(QMainWindow):
 
     def _build_menu_bar(self) -> None:
         mb = _require_qt_object(self.menuBar(), "main menu bar")
+        # Every action of the viewer is a menu item (plan gui-1.6, D2: no toolbar).
         self._menu_file = _add_required_menu(mb, "File")
+        self._menu_edit = _add_required_menu(mb, "Edit")
         self._menu_view = _add_required_menu(mb, "View")
-        self._menu_options = _add_required_menu(mb, "Options")
+        self._menu_project = _add_required_menu(mb, "Project")
+        self._menu_roi = _add_required_menu(mb, "ROI")
+        self._menu_model = _add_required_menu(mb, "Model")
+        self._menu_predict = _add_required_menu(mb, "Predict")
+        self._menu_options = _add_required_menu(mb, "Tools")
         self._menu_help = _add_required_menu(mb, "Help")
         self._populate_file_menu()
+        self._populate_edit_menu()
         self._populate_view_menu()
+        self._populate_workflow_menus()
         grid_defaults = QAction("ROI Grid Defaults...", self)
         grid_defaults.triggered.connect(self.edit_grid_defaults)
         self._menu_options.addAction(grid_defaults)
+        self._menu_options.addSeparator()
+        act = _add_required_action(self._menu_options, "Open Log File")
+        act.triggered.connect(self._action_log_file)
         self._populate_help_menu()
         self._default_layout_state = self.saveState()
         self._release_minimum_size()
@@ -1504,6 +1573,339 @@ class HSIViewer(QMainWindow):
         status_bar.addPermanentWidget(self._saved_label)
         self.project_state.saved.connect(self._show_saved_message)
         self._update_status_strip()
+
+    # ------------------------------------------------------------------
+    # Menus of the workflow (plan gui-1.6, the window)
+    # ------------------------------------------------------------------
+
+    def _menu_button_action(self, menu: QMenu, text: str, button: Any, *,
+                            icon_name: str = "", shortcut: str = "",
+                            tip: str = "") -> QAction:
+        """A menu item that presses ``button`` and is enabled when the button is."""
+        action = _add_required_action(menu, text)
+        if icon_name:
+            action.setIcon(icon(icon_name))
+        if shortcut:
+            action.setShortcut(shortcut)
+        if tip:
+            action.setToolTip(tip)
+        action.triggered.connect(lambda _checked=False: button.click())
+        self._button_actions.append((action, button))
+        return action
+
+    def _sync_button_actions(self) -> None:
+        for action, button in self._button_actions:
+            action.setEnabled(button.isEnabled())
+
+    def _populate_edit_menu(self) -> None:
+        m = self._menu_edit
+        act = _add_required_action(m, "Copy")
+        act.setShortcut("Ctrl+C")
+        act.triggered.connect(self._copy_focused)
+        act = _add_required_action(m, "Find ROI...")
+        act.setShortcut("Ctrl+F")
+        act.triggered.connect(self._find_roi)
+
+    def _populate_workflow_menus(self) -> None:
+        self._button_actions: list[tuple[QAction, Any]] = []
+        eda, model, predict = self._eda_view, self._modeling_view, self._prediction_view
+        m = self._menu_project
+        act = _add_required_action(m, "Add Dataset...")
+        act.setIcon(icon("photo-plus"))
+        act.triggered.connect(lambda: self.add_data_file())
+        act = _add_required_action(m, "Locate Moved Datasets...")
+        act.setToolTip("Find the files of datasets that are not at their stored place")
+        act.triggered.connect(self._locate_first_missing)
+        m.addSeparator()
+        self._menu_button_action(m, "Targets...", model._btn_target, icon_name="target")
+        self._menu_button_action(m, "Target Values...", model._btn_assign_target,
+                                 icon_name="table")
+
+        m = self._menu_roi
+        self._menu_button_action(m, "Add ROI", eda._btn_roi_training, icon_name="square-plus",
+                                 shortcut="Ctrl+R")
+        self._menu_button_action(m, "Add ROI Grid...", eda._btn_roi_grid, icon_name="grid-dots",
+                                 shortcut="Ctrl+G")
+        self._menu_button_action(m, "Delete ROI", eda._btn_roi_delete, icon_name="trash")
+        m.addSeparator()
+        act = _add_required_action(m, "ROI Table")
+        act.setIcon(icon("table"))
+        act.setShortcut("Ctrl+T")
+        act.triggered.connect(self.show_roi_table)
+        act = _add_required_action(m, "Export ROI Spectra (CSV)...")
+        act.triggered.connect(eda.export_csv_btn_clicked)
+
+        m = self._menu_model
+        self._menu_button_action(m, "Fit Model", model._btn_fit_model, icon_name="player-play",
+                                 shortcut="F5")
+        self._menu_button_action(m, "Load Model Settings", model._btn_fit_again,
+                                 icon_name="refresh",
+                                 tip="The selected model's settings in the Fit settings")
+        if model.fit_form is not None:
+            act = _add_required_action(m, "Propose Bands...")
+            act.triggered.connect(model.fit_form._propose_bands_clicked)
+            act = _add_required_action(m, "Select Bands on Plot...")
+            act.triggered.connect(model.fit_form._select_bands_on_plot)
+
+        m = self._menu_predict
+        self._menu_button_action(m, "Predict ROIs...", predict._btn_predict_rois,
+                                 icon_name="wand", shortcut="F6")
+        self._menu_button_action(m, "Predict Map...", predict._btn_predict, icon_name="map")
+        self._menu_button_action(m, "Cancel Prediction", predict._btn_cancel,
+                                 icon_name="player-stop")
+        for menu in (self._menu_project, self._menu_roi, self._menu_model, self._menu_predict):
+            menu.aboutToShow.connect(self._sync_button_actions)
+
+    def _copy_focused(self) -> None:
+        """Copy the selection of the focused table or text to the clipboard."""
+        widget = QApplication.focusWidget()
+        copy = getattr(widget, "copy", None)
+        if callable(copy):
+            copy()
+            return
+        if isinstance(widget, QAbstractItemView):
+            rows = sorted({(i.row(), i.column()) for i in widget.selectedIndexes()})
+            model = widget.model()
+            if model is None or not rows:
+                return
+            lines: dict[int, list[str]] = {}
+            for row, column in rows:
+                lines.setdefault(row, []).append(str(model.index(row, column).data() or ""))
+            clipboard = QApplication.clipboard()
+            if clipboard is not None:
+                clipboard.setText("\n".join("\t".join(cells) for cells in lines.values()))
+
+    def _find_roi(self) -> None:
+        """Ask for an ROI name and select it."""
+        from PyQt6.QtWidgets import QInputDialog
+
+        names = sorted(roi.name for roi in self.project_state.rois.values())
+        if not names:
+            QMessageBox.information(self, "Find ROI", "The project has no ROI.")
+            return
+        name, ok = QInputDialog.getItem(self, "Find ROI", "ROI:", names, 0, True)
+        if ok:
+            found = [roi_id for roi_id, roi in self.project_state.rois.items()
+                     if roi.name == name]
+            if found:
+                self.show_roi_table()
+                self._on_canvas_roi_selected(found[0])
+
+    def _locate_first_missing(self) -> None:
+        missing = [dataset_id for dataset_id in self.project_state.datasets
+                   if self.project_state.data_file(dataset_id) is None]
+        if not missing:
+            QMessageBox.information(self, "Locate moved datasets",
+                                    "The files of all datasets were found.")
+            return
+        self.locate_data_file(missing[0])
+
+    # ------------------------------------------------------------------
+    # Workflow strip and checks (plan gui-1.6, Phases 3 and 5)
+    # ------------------------------------------------------------------
+
+    def _build_workflow_strip(self) -> None:
+        from PyQt6.QtWidgets import QToolBar
+
+        self._workflow = WorkflowStrip()
+        self._workflow.step_clicked.connect(self.show_step)
+        bar = QToolBar("Workflow", self)
+        bar.setObjectName("WorkflowBar")
+        bar.setMovable(False)
+        bar.setFloatable(False)
+        toggle = bar.toggleViewAction()
+        if toggle is not None:
+            toggle.setVisible(False)
+        bar.addWidget(self._workflow)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, bar)
+        self._workflow_bar = bar
+        self._checks_timer = QTimer(self)
+        self._checks_timer.setSingleShot(True)
+        self._checks_timer.setInterval(150)
+        self._checks_timer.timeout.connect(self.refresh_checks)
+        state = self.project_state
+        for signal in (state.project_loaded, state.datasets_changed, state.rois_changed,
+                       state.targets_changed, state.target_assignments_changed,
+                       state.model_runs_changed, state.sample_sets_changed):
+            signal.connect(self._checks_timer.start)
+        self._explore_tabs.currentChanged.connect(self._sync_workflow_step)
+        self._sync_workflow_step()
+        self.refresh_checks()
+
+    def show_step(self, step: str) -> None:
+        """Open the workspace of a workflow step (``data`` … ``report``)."""
+        if step == "report":
+            self._sync_workflow_step()
+            self._action_export_plots()
+            return
+        if step in ("data", "rois", "values"):
+            self._workspace_tabs.setCurrentWidget(self._eda_view)
+            if step == "data":
+                self._explore_tabs.setCurrentWidget(self._data_file_page)
+            elif self._project_rois is not None:
+                self._explore_tabs.setCurrentWidget(self._project_rois)
+            if step == "values":
+                self.show_roi_table()
+        elif step == "model":
+            self._workspace_tabs.setCurrentWidget(self._modeling_view)
+        elif step == "predict":
+            self._workspace_tabs.setCurrentWidget(self._prediction_view)
+        self._workflow.set_current(step)
+        self._sync_workflow_step()
+
+    def _sync_workflow_step(self, *_args: Any) -> None:
+        """Mark the step of the shown workspace; title the Settings dock after it."""
+        if not hasattr(self, "_workflow"):
+            return
+        current = self._workspace_tabs.currentWidget()
+        index = self._workspace_tabs.currentIndex()
+        self._controls_dock.setWindowTitle(_SETTINGS_TITLES[max(0, index)])
+        if current is self._modeling_view:
+            step = "model"
+        elif current is self._prediction_view:
+            step = "predict"
+        elif self._on_data_file_page():
+            step = "data"
+        else:
+            step = "values" if self._workflow.current() == "values" else "rois"
+        self._workflow.set_current(step)
+
+    def refresh_checks(self) -> None:
+        """Ask the library for the project's checks and verdicts and show them."""
+        project = self.project_state.project
+        if project is None:
+            self._checks_panel.set_checks([])
+            self._models_panel.set_models([])
+            self._workflow.set_states({})
+            self._checks_dock.setWindowTitle("Checks")
+            return
+        try:
+            checks = project.checks()
+        except Exception as exc:  # a check must never take the window down
+            logger.exception("Checks failed: {}", exc)
+            checks = []
+        names = {run_id: (run.name or run_id) for run_id, run in
+                 self.project_state.model_runs.items()}
+        self._checks_panel.set_checks(checks, names)
+        open_count = self._checks_panel.open_count()
+        self._checks_dock.setWindowTitle(f"Checks ({open_count})" if open_count else "Checks")
+        states: dict[str, tuple[str, int]] = {}
+        for step in ("data", "rois", "values", "model", "predict"):
+            mine = [check for check in checks if check.step == step]
+            blocking = sum(1 for check in mine if check.severity == "blocking")
+            opened = sum(1 for check in mine if check.is_open)
+            if blocking:
+                states[step] = ("blocked", opened)
+            elif opened:
+                states[step] = ("open", opened)
+            elif any(check.severity == "ok" for check in mine):
+                states[step] = ("done", 0)
+        if self.project_state.predictions:
+            states["predict"] = states.get("predict", ("done", 0))
+            if states["predict"][0] == "idle":
+                states["predict"] = ("done", 0)
+        self._workflow.set_states(states)
+        self._refresh_models_panel(project)
+        self.checks_refreshed.emit()
+
+    def _refresh_models_panel(self, project: Any) -> None:
+        from .._workflow import Model
+
+        rows = []
+        for run in self.project_state.model_runs.values():
+            model = Model(project, run)
+            try:
+                verdict = model.verdict()
+            except Exception as exc:
+                logger.exception("Verdict of model '{}' failed: {}", model.name, exc)
+                verdict = None
+            spec = run.fit_spec.get("folds", {}) if isinstance(run.fit_spec, dict) else {}
+            validation = (f"{spec.get('rule', '')}".replace("_", " ")
+                          + (f", by {spec.get('group_by')}" if spec.get("group_by") else ""))
+            rows.append({"id": run.model_run_id, "name": model.name, "type": run.model_type,
+                         "components": run.hyperparameters.get("n_components"),
+                         "metrics": run.metrics, "validation": validation.strip(", "),
+                         "verdict": verdict, "fitted": str(run.created_at)[:16].replace("T", " ")})
+        self._models_panel.set_models(rows)
+
+    def model_verdict(self, model_run_id: str) -> Any:
+        """The library's verdict of a model (for the verdict bar), or ``None``."""
+        project = self.project_state.project
+        if project is None or model_run_id not in self.project_state.model_runs:
+            return None
+        from .._workflow import Model
+
+        try:
+            return Model(project, self.project_state.model_runs[model_run_id]).verdict()
+        except Exception as exc:
+            logger.exception("Verdict failed: {}", exc)
+            return None
+
+    def select_model(self, model_run_id: str) -> None:
+        """Show a model in the Model workspace."""
+        self.show_step("model")
+        self._modeling_view.select_model_run(model_run_id)
+        self.schedule_workspace_content_refresh()
+
+    def _show_check(self, check: Check) -> None:
+        """Show what a check refers to: its model, ROI or step."""
+        if check.model_run_id:
+            self.select_model(check.model_run_id)
+        elif check.roi_ids:
+            self.show_step("values")
+            self._on_canvas_roi_selected(check.roi_ids[0])
+        else:
+            self.show_step(check.step)
+
+    def run_fix(self, fix: Fix) -> None:
+        """Run the action a check offers (the viewer's own actions, pre-filled)."""
+        args = dict(fix.arguments)
+        action = fix.action
+        logger.info("Fix: {} {}", action, args)
+        if action == "add_dataset":
+            self.add_data_file()
+        elif action == "locate_dataset":
+            self.locate_data_file(str(args["dataset_id"]))
+        elif action == "add_roi":
+            self.show_step("data")
+        elif action == "add_target":
+            self.show_step("model")
+            self._modeling_view.select_target_btn_clicked()
+        elif action in ("edit_values", "edit_samples"):
+            self.show_step("values")
+            roi_ids = args.get("roi_ids") or ()
+            if roi_ids:
+                self._on_canvas_roi_selected(str(roi_ids[0]))
+        elif action == "select_roi":
+            self.show_step("values")
+            self._on_canvas_roi_selected(str(args["roi_id"]))
+        elif action == "fit":
+            self.show_step("model")
+            form = self._modeling_view.fit_form
+            if form is not None and args.get("target_id"):
+                form.set_targets(self._modeling_view._target_choices(), str(args["target_id"]))
+        elif action in ("fit_again", "refit"):
+            run_id = str(args["model_run_id"])
+            run = self.project_state.model_runs.get(run_id)
+            if run is None:
+                return
+            self.select_model(run_id)
+            self._modeling_view.load_model_settings(run)
+            form = self._modeling_view.fit_form
+            if form is not None and args.get("group_by"):
+                combo = form._group_by_combo
+                combo.setCurrentIndex(max(0, combo.findData(args["group_by"])))
+        elif action == "show_page":
+            self.select_model(str(args["model_run_id"]))
+            self._ensure_model_content_page()
+            widget = self._model_diagnostics_widget
+            if widget is not None and args.get("page") in widget.grid.page_names:
+                widget.grid.set_current_page(str(args["page"]))
+        elif action == "predict_rois":
+            self.show_step("predict")
+            self._prediction_view._btn_predict_rois.click()
+        else:
+            logger.warning("Unknown fix action '{}'", action)
 
     def _show_saved_message(self, message: str) -> None:
         """Confirm a project write in the status bar for a few seconds."""

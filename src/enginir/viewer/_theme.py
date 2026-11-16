@@ -726,6 +726,74 @@ QTableCornerButton::section {{
     border-right: 1px solid {c["border_subtle"]};
 }}
 
+QToolBar#WorkflowBar {{
+    background: {c["window"]};
+    border: 0;
+    border-bottom: 1px solid {c["border_subtle"]};
+    padding: 0;
+    spacing: 0;
+}}
+
+QLabel#WorkflowLabel {{
+    color: {c["text_hint"]};
+}}
+
+QToolButton#WorkflowStep {{
+    background: transparent;
+    border: 0;
+    border-right: 1px solid {c["border_subtle"]};
+    border-radius: 0;
+    padding: 5px 14px;
+    color: {c["text_secondary"]};
+}}
+
+QToolButton#WorkflowStep:hover {{
+    background: {c["hover"]};
+    color: {c["text"]};
+}}
+
+QToolButton#WorkflowStep:checked {{
+    background: {c["panel"]};
+    color: {c["text"]};
+    font-weight: 600;
+    border-bottom: 2px solid {c["accent"]};
+}}
+
+QPushButton#FixButton {{
+    background: transparent;
+    border: 0;
+    color: {c["accent"]};
+    text-decoration: underline;
+    padding: 0 2px;
+    min-height: 0;
+}}
+
+QLabel#ChangedMark {{
+    color: {c["attention"]};
+}}
+
+QLabel#EmptyState {{
+    color: {c["text_secondary"]};
+}}
+
+QFrame#VerdictBar {{
+    background: {c["panel"]};
+    border: 1px solid {c["border_subtle"]};
+    border-left: 3px solid {c["text_hint"]};
+}}
+
+QFrame#VerdictBar[level="good"] {{
+    border-left-color: {c["ok"]};
+}}
+
+QFrame#VerdictBar[level="usable_with_care"] {{
+    border-left-color: {c["attention"]};
+}}
+
+QFrame#VerdictBar[level="not_usable"] {{
+    border-left-color: {c["error"]};
+}}
+
 QHeaderView::section {{
     background: {c["header"]};
     border: 0;

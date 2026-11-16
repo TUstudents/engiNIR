@@ -52,7 +52,7 @@ from ._theme import (GUIDE_COLOR, SERIES, heat_colormap, panel_colors, secondary
                      value_colormap)
 from ._plot_panel import PlotColumn, PlotSpec, PlotTable, draw_placeholder, print_copy
 from ._plot_registry import register_plot
-from ._ui_helpers import LayoutState, maybe_tight_layout, style_axes
+from ._ui_helpers import FlowLayout, LayoutState, maybe_tight_layout, style_axes
 
 logger = get_logger(__name__)
 
@@ -876,7 +876,7 @@ class PredictionView(QWidget):
         self._prediction_status = QLabel("Prediction: none")
         self._readiness_status = QLabel("Ready: fit or load a model.")
 
-        button_row = QHBoxLayout()
+        button_row = FlowLayout()
         self._btn_predict_rois = QToolButton()
         self._btn_predict_rois.setText("Predict ROIs...")
         self._btn_predict_rois.setToolTip(
@@ -898,7 +898,7 @@ class PredictionView(QWidget):
         button_row.addStretch(1)
         layout.addLayout(button_row)
 
-        exclusion_row = QHBoxLayout()
+        exclusion_row = FlowLayout()
         self._exclusion_check = QCheckBox("Exclude pixels above the DModXPS limit")
         self._exclusion_check.setToolTip(
             "Leave pixels outside the model (glare, exposed substrate, direct reflections) "
@@ -923,7 +923,9 @@ class PredictionView(QWidget):
         layout.addLayout(self._build_display_rows())
 
         self._service_status = BusyStatusWidget(idle_text="Service: idle", parent=self)
+        self._service_status.label.setWordWrap(True)
         layout.addWidget(self._service_status)
+        layout.addStretch(1)
         return box
 
     def _build_display_rows(self) -> QGridLayout:
@@ -946,9 +948,10 @@ class PredictionView(QWidget):
             spin.valueChanged.connect(self._on_display_changed)
         self._colour_mode.currentIndexChanged.connect(self._on_colour_mode_changed)
         grid.addWidget(QLabel("Color scale"), 0, 0)
-        grid.addWidget(self._colour_mode, 0, 1)
-        grid.addWidget(self._colour_low, 0, 2)
-        grid.addWidget(self._colour_high, 0, 3)
+        grid.addWidget(self._colour_mode, 0, 1, 1, 2)
+        grid.addWidget(QLabel("Limits"), 1, 0)
+        grid.addWidget(self._colour_low, 1, 1)
+        grid.addWidget(self._colour_high, 1, 2)
         self._show_outlines = QCheckBox("ROI outlines")
         self._show_outlines.setToolTip("Outline the prediction ROIs on the map, with their mean")
         self._grey_removed = QCheckBox("Gray excluded pixels")
@@ -957,9 +960,9 @@ class PredictionView(QWidget):
         for check in (self._show_outlines, self._grey_removed):
             check.setChecked(True)
             check.toggled.connect(self._on_display_changed)
-        grid.addWidget(QLabel("Map"), 1, 0)
-        grid.addWidget(self._show_outlines, 1, 1)
-        grid.addWidget(self._grey_removed, 1, 2, 1, 2)
+        grid.addWidget(QLabel("Map"), 2, 0)
+        grid.addWidget(self._show_outlines, 2, 1)
+        grid.addWidget(self._grey_removed, 3, 1, 1, 2)
         self._histogram_source = QComboBox()
         self._histogram_source.addItem("ROI pixels", "rois")
         self._histogram_source.addItem("Whole map", "map")
@@ -967,9 +970,10 @@ class PredictionView(QWidget):
                                           "prediction ROIs (when there are ROI results), or "
                                           "every pixel of the shown map")
         self._histogram_source.currentIndexChanged.connect(self._on_display_changed)
-        grid.addWidget(QLabel("Histogram"), 2, 0)
-        grid.addWidget(self._histogram_source, 2, 1)
-        grid.setColumnStretch(4, 1)
+        grid.addWidget(QLabel("Histogram"), 4, 0)
+        grid.addWidget(self._histogram_source, 4, 1, 1, 2)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(2, 1)
         return grid
 
     @property
