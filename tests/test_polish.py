@@ -254,9 +254,20 @@ def test_the_roi_table_gets_more_height_while_it_is_in_front(qapp, window):
     view = window._roi_table.view
     rows = view.viewport().height() // view.rowHeight(0)
     assert rows >= 10, f"only {rows} ROIs in view"
-    window.show_step("model")  # the next step gets its page's height back
+    # The next step, by its workspace tab as by the strip, gets its page's height back:
+    # Model with the Models in front, Predict with the Checks.
+    window._workspace_tabs.setCurrentWidget(window._modeling_view)
     _wait_until(qapp, lambda: not window._roi_table_in_front()
-                and window._checks_dock.height() <= low + 2)
+                and not window._models_panel.visibleRegion().isEmpty()
+                and window._models_dock.height() <= low + 2)
+    for leave in (lambda: window.show_step("model"),
+                  lambda: window._workspace_tabs.setCurrentWidget(window._prediction_view)):
+        window.show_step("values")
+        _wait_until(qapp, window._roi_table_in_front)
+        leave()
+        _wait_until(qapp, lambda: not window._roi_table_in_front()
+                    and window._models_dock.height() <= low + 2)
+    assert not window._checks_panel.visibleRegion().isEmpty(), "Predict: the Checks"
 
 
 def test_the_status_strip_follows_the_step(qapp, window):

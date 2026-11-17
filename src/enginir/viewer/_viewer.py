@@ -1407,6 +1407,11 @@ class HSIViewer(QMainWindow):
         self._refresh_workspace_content_pages()
 
     def _on_workspace_tab_changed(self, _index: int) -> None:
+        current = self._workspace_tabs.currentWidget()
+        if current is not self._eda_view and self._roi_table_in_front():
+            # The tall ROI table belongs to Values: Model gets its Models tab,
+            # Predict the Checks, both with the page's height back.
+            (self._models_dock if current is self._modeling_view else self._checks_dock).raise_()
         self._sync_workflow_step()
         self._refresh_context()
         self._update_status_strip()
@@ -1880,10 +1885,11 @@ class HSIViewer(QMainWindow):
 
     def show_step(self, step: str) -> None:
         """Open the workspace of a workflow step (``data`` … ``predict``)."""
-        if step != "values" and self._workflow.current() == "values" \
+        if step in ("data", "rois") and self._workflow.current() == "values" \
                 and self._roi_table_in_front():
             # The Values step brought the (tall) ROI table to the front; the next step
-            # gets the Checks and its page's height back.
+            # gets the Checks and its page's height back (Model and Predict: on the
+            # workspace tab change).
             self._checks_dock.raise_()
         if step in ("data", "rois", "values"):
             self._workspace_tabs.setCurrentWidget(self._eda_view)

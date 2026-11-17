@@ -170,7 +170,8 @@ v3 requires one stable high-level frame shared by all workspaces (engiNIR
 6. bottom: `Checks`, `ROI table`, `Models` and `Log` as tabs; while the
    ROI table is the front tab the panel takes about 40 % of the window's
    height (a table of all ROIs needs the rows), otherwise its low default;
-   leaving the Values step brings `Checks` back to the front
+   leaving the Values step, by the strip or a workspace tab, brings
+   `Models` to the front on Model and `Checks` everywhere else
 7. the status strip
 
 Docks keep their places: they can be resized and closed, not floated or

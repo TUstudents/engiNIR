@@ -92,7 +92,8 @@ From top to bottom:
   checks that passed are one row, **Show** unfolds them); Models
   lists every model with RMSECV (per ROI), Q², RPD, validation and verdict.
   The panel is low; while the **ROI table** is in front it takes about 40 % of
-  the window, and leaving the Values step brings Checks back.
+  the window. Leaving the Values step brings **Models** to the front on
+  Model and **Checks** everywhere else.
 - **The status strip** names what the step works on: project, dataset and
   signal in Data, ROIs and Values (with frame, row and band of the crosshair
   on the Dataset page), the model with its target and calibration set in

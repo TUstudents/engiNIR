@@ -32,6 +32,9 @@ Changes since 1.6.0rc3.
   frames the white reference was taken from, half of whose values lie above
   their own mean, so every scan with embedded references warned (1.2 % for
   two white frames of 80). Those frames are left out now.
+- **Leaving Values by the Model or Predict tab:** the tall ROI table stayed
+  in front (only the workflow strip put it back). Now Model brings Models to
+  the front and Predict brings Checks, each with the page's height.
 
 ## 1.6.0rc3 (2026-11-16)
 
