@@ -25,6 +25,8 @@ Where to start:
   :doc:`user_guide/model_plots`: how models are fitted, which bands they use
   and how to read their diagnostics.
 - :doc:`hdf5_format`: what a project file holds.
+- :doc:`user_guide/regulatory`: what engiNIR guarantees, and how it supports
+  ICH, USP and FDA expectations for NIR methods.
 
 There are two ways to use the library.
 
@@ -72,6 +74,7 @@ scikit-learn estimators:
 
    user_guide/installation
    user_guide/workflows
+   user_guide/regulatory
    glossary
 
 .. toctree::
