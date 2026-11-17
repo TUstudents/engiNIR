@@ -1,8 +1,14 @@
 # Changelog
 
-## Unreleased
+## 1.6.0 (2026-11-17)
 
-Changes since 1.6.0rc3.
+The guided viewer: one window for every step with a workflow strip, checks
+and verdicts that say what a project needs next, fit settings in a dock, a
+light theme and preferences. Everything of 1.6.0rc3 (below) is part of
+1.6.0; the library API is unchanged apart from the additions listed there.
+Upgrading from 1.5.x needs nothing: projects open as they are.
+
+Changes since 1.6.0rc3:
 
 ### Changed
 
