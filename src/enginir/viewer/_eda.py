@@ -40,6 +40,7 @@ from ._modeling import NewROIDialog
 from ._grid_settings import load_grid_defaults
 from ._project_settings import load_prediction_default, save_prediction_default
 from ._roi_grid import RoiGridDialog
+from ._preferences import start_folder
 from ._state import DEFAULT_SOURCE_MODALITY, ProjectState, ViewerState
 from ._theme import secondary_text_style
 from ._ui_helpers import PROJECT_OPEN_FILTER, PROJECT_SAVE_FILTER, ask_save_path
@@ -428,7 +429,8 @@ class EDAView(QWidget):
 
     def new_project_btn_clicked(self) -> None:
         # The dialog (or ask_save_path, for an added extension) confirms replacing a file.
-        path = ask_save_path(self, "New Project", PROJECT_SAVE_FILTER, ".h5", (".hdf5",))
+        path = ask_save_path(self, "New Project", PROJECT_SAVE_FILTER, ".h5", (".hdf5",),
+                             directory=start_folder("project"))
         if not path:
             return
         try:
@@ -440,7 +442,8 @@ class EDAView(QWidget):
         self._set_project_active()
 
     def open_project_btn_clicked(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Open project", "", PROJECT_OPEN_FILTER)
+        path, _ = QFileDialog.getOpenFileName(self, "Open project", start_folder("project"),
+                                              PROJECT_OPEN_FILTER)
         if not path:
             return
         self.open_project_btn_clicked_with_path(path)

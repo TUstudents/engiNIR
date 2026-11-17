@@ -740,7 +740,9 @@ Verdict). The viewer shows; it judges nothing of its own.
 
 Tools > Preferences: Appearance (theme, interface scale, the switches for
 bringing Checks to the front and for the plot help),
-Data and paths, Fitting defaults, Prediction defaults, Plots and export,
+Data and paths (the folders every project and dataset file dialog starts
+in, ignored when missing; the drive mapping of stored paths shown as
+applied, not set), Fitting defaults, Prediction defaults, Plots and export,
 Performance, Logging, Keyboard. Preferences belong to the user, never to a
 project: defaults only pre-fill the settings docks, and a model stores what
 it was fitted with.

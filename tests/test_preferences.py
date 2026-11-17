@@ -99,3 +99,57 @@ def test_the_window_applies_preferences(qapp, tmp_path, monkeypatch):
         assert not any(button.isHidden() for button in helps)
     finally:
         window.close()
+
+
+def test_file_dialogs_open_in_the_preferred_folders(qapp, tmp_path, monkeypatch):
+    from PyQt6.QtWidgets import QFileDialog
+
+    from enginir.viewer._data_files import _ReferenceSource
+    from enginir.viewer._welcome import WelcomeWindow
+
+    projects, datasets = tmp_path / "projects", tmp_path / "datasets"
+    projects.mkdir()
+    datasets.mkdir()
+    opened: list[tuple[str, str]] = []
+
+    def record(_parent, title, directory="", _filter=""):
+        opened.append((title, directory))
+        return "", ""
+
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(record))
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(record))
+
+    def ask_all() -> dict[str, str]:
+        opened.clear()
+        welcome = WelcomeWindow()
+        try:
+            welcome._on_open_project_clicked()
+            welcome._on_new_project_clicked()
+            welcome._on_open_clicked()
+            welcome._on_browse_dark()
+        finally:
+            welcome.close()
+        _ReferenceSource("White", 10, (0, 1), lambda *_: None)._browse()
+        return dict(opened)
+
+    prefs.save(prefs.Preferences(project_folder=str(projects), dataset_folder=str(datasets)))
+    assert ask_all() == {"Open project": str(projects), "Create Project": str(projects),
+                         "Open dataset": str(datasets), "Dark reference": str(datasets),
+                         "White reference": str(datasets)}
+    prefs.save(prefs.Preferences(project_folder=str(tmp_path / "gone"),
+                                 dataset_folder=str(datasets)))
+    assert ask_all()["Open project"] == "", "a folder that is not there: Qt's default"
+
+
+def test_the_drive_mapping_shown_is_the_one_applied(qapp, monkeypatch):
+    from pathlib import PureWindowsPath
+
+    from enginir.project._data_paths import drive_mapped
+
+    monkeypatch.setattr(prefs, "wsl_mount_root", lambda: "/wsl/")
+    dialog = prefs.PreferencesDialog(prefs.Preferences())
+    assert dialog.drive_mapping.text() == prefs.drive_mapping_text(), "this platform's rule"
+    shown = prefs.drive_mapping_text(windows=False)
+    applied = drive_mapped(PureWindowsPath("Z:\\"), windows=False, wsl_root="/wsl/")
+    assert applied is not None and f"→  {applied}" in shown, (shown, applied)
+    assert "Z:\\" in prefs.drive_mapping_text(windows=True), "Windows maps to the drive"

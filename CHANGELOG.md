@@ -35,6 +35,11 @@ Changes since 1.6.0rc3.
 - **Leaving Values by the Model or Predict tab:** the tall ROI table stayed
   in front (only the workflow strip put it back). Now Model brings Models to
   the front and Predict brings Checks, each with the page's height.
+- **Preferences > Data and paths:** the Projects folder was not used, and
+  the welcome page's dialogs ignored the Datasets folder. Every project and
+  dataset file dialog now starts in its folder (unless it is missing). The
+  page shows the drive mapping applied to stored paths instead of "nothing
+  to set here".
 
 ## 1.6.0rc3 (2026-11-16)
 

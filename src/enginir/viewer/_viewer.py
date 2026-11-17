@@ -1293,9 +1293,8 @@ class HSIViewer(QMainWindow):
     def show_roi_table(self) -> None:
         """Show the ROI table on the ROIs of the current page and the target selected in Model.
 
-        The table takes the right dock column: alone on Project ROIs, Model and
-        Predict (the data-file docks are hidden there), as a tab next to the
-        Sensor Frame on the Data file tab.
+        The table is a tab of the bottom panel, beside Checks, Models and Log;
+        while it is in front the panel takes about 40 % of the window's height.
         """
         self._roi_table.show_data_file(self._roi_table_data_file())
         target = self._modeling_view.current_target()
@@ -1319,9 +1318,6 @@ class HSIViewer(QMainWindow):
     def _follow_roi_table_filter(self, *_args: Any) -> None:
         if not self._roi_table_dock.isHidden():
             self._roi_table.show_data_file(self._roi_table_data_file())
-
-    def _place_roi_table(self) -> None:
-        """The ROI table is a tab of the bottom panel (plan gui-1.6); nothing to place."""
 
     def _on_explore_tab_changed(self, *_args: Any) -> None:
         self._sync_data_file_docks()
@@ -1578,7 +1574,6 @@ class HSIViewer(QMainWindow):
         finally:
             self._syncing_data_file_docks = False
         self._sync_roi_table()
-        self._place_roi_table()
 
     def _on_data_file_dock_visibility_changed(self, name: str) -> None:
         """Remember a dock the user shows or closes on the Data file tab.
@@ -2239,7 +2234,7 @@ class HSIViewer(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Open data",
-            self._preferences.dataset_folder,
+            preferences_store.start_folder("dataset"),
             "Hyperspectral files (*.eiff *.hdr *.h5 *.hdf5 *.csv *.spa);;All files (*.*)",
         )
         if path:
@@ -2282,7 +2277,7 @@ class HSIViewer(QMainWindow):
             return None
         if path is None:
             path, _ = QFileDialog.getOpenFileName(
-                self, "Add dataset", self._preferences.dataset_folder,
+                self, "Add dataset", preferences_store.start_folder("dataset"),
                 "Hyperspectral files (*.eiff *.hdr *.h5 *.hdf5 *.csv *.spa);;All files (*.*)")
             if not path:
                 return None

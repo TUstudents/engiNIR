@@ -51,6 +51,7 @@ from .._logging import get_logger
 from .._workflow import DEFAULT_BLACK_LEVEL, DEFAULT_WHITE_LEVEL, data_file_labels, read_frames
 from ..io import load_spectra
 from ..project import CalibrationSpec, DatasetRef
+from ._preferences import start_folder
 from ._theme import GUIDE_COLOR, panel_colors, secondary_text_style
 from ._ui_helpers import spectral_axis_label, style_axes
 
@@ -139,7 +140,8 @@ class _ReferenceSource(QWidget):
             signal.connect(on_change)
 
     def _browse(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, f"{self.label} reference", "", _FILE_FILTER)
+        path, _ = QFileDialog.getOpenFileName(self, f"{self.label} reference",
+                                              start_folder("dataset"), _FILE_FILTER)
         if path:
             self._path.setText(path)
             self._from_file.setChecked(True)

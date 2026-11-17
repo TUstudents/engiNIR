@@ -27,6 +27,7 @@ from . import _is_project_file
 from ._app import app_icon
 from ._icons import icon
 from ._jobs import BusyStatusWidget
+from ._preferences import start_folder
 from ._recent import load as _load_recent
 from ._theme import secondary_text_style
 from ._ui_helpers import PROJECT_OPEN_FILTER, PROJECT_SAVE_FILTER, ask_save_path
@@ -192,7 +193,7 @@ class WelcomeWindow(QMainWindow):
 
     def _on_open_clicked(self) -> None:
         dialog_started = time.perf_counter()
-        path, _ = QFileDialog.getOpenFileName(self, "Open dataset", "", _FILTER)
+        path, _ = QFileDialog.getOpenFileName(self, "Open dataset", start_folder("dataset"), _FILTER)
         logger.debug(
             "Startup timing: dataset file dialog returned in {:.3f}s (selected={})",
             time.perf_counter() - dialog_started,
@@ -206,7 +207,8 @@ class WelcomeWindow(QMainWindow):
 
     def _on_open_project_clicked(self) -> None:
         dialog_started = time.perf_counter()
-        path, _ = QFileDialog.getOpenFileName(self, "Open project", "", PROJECT_OPEN_FILTER)
+        path, _ = QFileDialog.getOpenFileName(self, "Open project", start_folder("project"),
+                                              PROJECT_OPEN_FILTER)
         logger.debug(
             "Startup timing: project file dialog returned in {:.3f}s (selected={})",
             time.perf_counter() - dialog_started,
@@ -217,7 +219,8 @@ class WelcomeWindow(QMainWindow):
 
     def _on_new_project_clicked(self) -> None:
         dialog_started = time.perf_counter()
-        path = ask_save_path(self, "Create Project", PROJECT_SAVE_FILTER, ".h5", (".hdf5",))
+        path = ask_save_path(self, "Create Project", PROJECT_SAVE_FILTER, ".h5", (".hdf5",),
+                             directory=start_folder("project"))
         logger.debug(
             "Startup timing: create-project dialog returned in {:.3f}s (selected={})",
             time.perf_counter() - dialog_started,
@@ -228,7 +231,8 @@ class WelcomeWindow(QMainWindow):
 
     def _on_browse_dark(self) -> None:
         dialog_started = time.perf_counter()
-        path, _ = QFileDialog.getOpenFileName(self, "Dark reference", "", _FILTER)
+        path, _ = QFileDialog.getOpenFileName(self, "Dark reference", start_folder("dataset"),
+                                              _FILTER)
         logger.debug(
             "Startup timing: dark-reference dialog returned in {:.3f}s (selected={})",
             time.perf_counter() - dialog_started,
@@ -240,7 +244,8 @@ class WelcomeWindow(QMainWindow):
 
     def _on_browse_white(self) -> None:
         dialog_started = time.perf_counter()
-        path, _ = QFileDialog.getOpenFileName(self, "White reference", "", _FILTER)
+        path, _ = QFileDialog.getOpenFileName(self, "White reference", start_folder("dataset"),
+                                              _FILTER)
         logger.debug(
             "Startup timing: white-reference dialog returned in {:.3f}s (selected={})",
             time.perf_counter() - dialog_started,

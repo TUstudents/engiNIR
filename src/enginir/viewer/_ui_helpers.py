@@ -51,16 +51,17 @@ def spectral_axis_label(wavelengths: Any) -> tuple[str, str]:
 
 
 def ask_save_path(parent: QWidget | None, title: str, file_filter: str, suffix: str,
-                  accepted: tuple[str, ...] = ()) -> str | None:
+                  accepted: tuple[str, ...] = (), directory: str = "") -> str | None:
     """Ask for a file to write; add ``suffix`` when the name has none of the accepted ones.
 
     File dialogs on some platforms return the typed name without the
     extension of the chosen filter, and an open dialog filtering on that
     extension would then hide the file. When the suffix is added and that
     file exists, the user confirms replacing it (the dialog only checked the
-    typed name). Returns ``None`` when cancelled.
+    typed name). The dialog opens in ``directory`` ("": Qt's default).
+    Returns ``None`` when cancelled.
     """
-    name, _ = QFileDialog.getSaveFileName(parent, title, "", file_filter)
+    name, _ = QFileDialog.getSaveFileName(parent, title, directory, file_filter)
     if not name:
         return None
     path = Path(name)

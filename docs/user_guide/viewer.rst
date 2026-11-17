@@ -121,10 +121,12 @@ created on first use in the settings folder; the fastest way to see how
 everything works.
 
 **Preferences** (Tools > Preferences) set the theme (dark, light or follow
-the system), the interface scale, the plot help, start folders,
-the defaults of the Fit and Prediction settings, the PNG resolution of
-exports, the threads of a fit and the log file level. They belong to you, not
-to a project: a model stores what it was fitted with.
+the system), the interface scale, the plot help, the folders the project and
+dataset file dialogs start in, the defaults of the Fit and Prediction
+settings, the PNG resolution of exports, the threads of a fit and the log
+file level. **Data and paths** also shows the drive mapping applied to
+stored paths (``Z:\…`` ↔ ``/mnt/z/…``); it is automatic. They belong to you,
+not to a project: a model stores what it was fitted with.
 
 A project opened without a scan shows its stored objects in every
 step; drawing ROIs needs a scan. **Project > Name Dataset...** gives a

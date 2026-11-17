@@ -14,6 +14,7 @@ from dataclasses import asdict, dataclass, fields, replace
 from collections.abc import Sequence
 from typing import Any
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QKeySequence, QPalette
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -39,6 +40,7 @@ from PyQt6.QtWidgets import (
 
 from .._logging import get_logger
 from ..models._gram import BLAS_THREADS_ENV
+from ..project._data_paths import wsl_mount_root
 from ._icons import icon
 from ._recent import config_dir
 from ._theme import HEAT_STOPS, SERIES, secondary_text_style, value_colormap
@@ -115,6 +117,25 @@ def save(preferences: Preferences) -> None:
         path.write_text(json.dumps(asdict(preferences), indent=1), encoding="utf-8")
     except OSError as exc:
         logger.warning("Could not save preferences {}: {}", path, exc)
+
+
+def drive_mapping_text(*, windows: bool | None = None, wsl_root: str | None = None) -> str:
+    """The drive mapping this platform applies to stored paths, as Preferences shows it."""
+    windows = os.name == "nt" if windows is None else windows
+    if windows:
+        return "/mnt/z/… and /z/…  →  Z:\\…  (every drive letter)"
+    root = wsl_mount_root() if wsl_root is None else wsl_root
+    return f"Z:\\…  →  {root}z/…  (every drive letter)"
+
+
+def start_folder(kind: str) -> str:
+    """The folder a ``"project"`` or ``"dataset"`` file dialog opens in ("": Qt's default).
+
+    A preferred folder that does not exist (another computer, a share not
+    mounted) is ignored.
+    """
+    folder = load().project_folder if kind == "project" else load().dataset_folder
+    return folder if folder and os.path.isdir(folder) else ""
 
 
 def apply_environment(preferences: Preferences) -> None:
@@ -228,20 +249,25 @@ class PreferencesDialog(QDialog):
 
         form = self._page("Data and paths")
         self.project_folder = QLineEdit()
-        self.project_folder.setPlaceholderText("the last folder used")
+        self.project_folder.setPlaceholderText("not set: the file dialog's own choice")
         self.dataset_folder = QLineEdit()
-        self.dataset_folder.setPlaceholderText("the last folder used")
+        self.dataset_folder.setPlaceholderText("not set: the file dialog's own choice")
         form.addRow("Projects:", self.project_folder)
         form.addRow("Datasets:", self.dataset_folder)
-        self._note(form, "Datasets that moved are found next to the project, at their "
-                         "stored path or through the drive mapping between Windows and "
-                         "WSL; nothing to set here.")
+        self._note(form, "The folders Open, New Project and Add Dataset start in.")
+        self.drive_mapping = QLabel(drive_mapping_text())
+        self.drive_mapping.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        form.addRow("Drive mapping:", self.drive_mapping)
+        self._note(form, "A dataset's file is looked for next to the project, at its stored "
+                         "path, and at that path mapped between a Windows drive and its WSL "
+                         "mount. The mapping is automatic; the WSL mount root comes from "
+                         "/etc/wsl.conf ([automount] root).")
 
         form = self._page("Fitting defaults")
         self.model_type = QComboBox()
         self.model_type.addItems(["PLS", "PCR"])
         self.n_components = QSpinBox()
-        self.n_components.setRange(1, 64)
+        self.n_components.setRange(1, 128)  # as the Fit settings
         self.auto_components = QCheckBox("Choose the number by the rule (one SE)")
         self.hold_out = QComboBox()
         for label, value in (("Each ROI", "roi"), ("ROIs with the same Sample label", "sample"),
@@ -373,4 +399,4 @@ class PreferencesDialog(QDialog):
 
 
 __all__ = ["Preferences", "PreferencesDialog", "apply_environment", "load", "save",
-           "startup_scale"]
+           "start_folder", "startup_scale"]
