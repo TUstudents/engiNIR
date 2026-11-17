@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import atexit
+import threading
+import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -32,6 +35,8 @@ class BackgroundWorker(QObject):
     def __init__(self, fn: Callable[[], Any]) -> None:
         super().__init__()
         self._fn = fn
+        #: Set when ``fn`` has returned or raised (read without Qt, e.g. at exit).
+        self.done = threading.Event()
 
     @pyqtSlot()
     def run(self) -> None:
@@ -46,6 +51,7 @@ class BackgroundWorker(QObject):
         else:
             self.succeeded.emit(result)
         finally:
+            self.done.set()
             self.finished.emit()
 
 
@@ -186,4 +192,37 @@ def start_background_job(
     return job
 
 
-__all__ = ["BackgroundWorker", "BusyStatusWidget", "start_background_job"]
+def wait_for_running_jobs(timeout: float = 10.0) -> bool:
+    """Let running jobs finish (up to ``timeout`` seconds); ``True`` if none is left.
+
+    Called before the interpreter exits: a job thread that still reads a project
+    file while Python shuts down crashes or hangs the process (h5py, Qt). Waits
+    for each job's function to return, then ends its thread with the thread-safe
+    ``quit``/``wait``; no Qt events are processed, so windows half torn down at
+    exit are not touched. Results are delivered if the event loop runs again.
+    """
+    deadline = time.monotonic() + timeout
+    left = 0
+    for thread, worker, _relay in list(_RUNNING_JOBS):
+        # The job stays in _RUNNING_JOBS: its thread's queued ``finished`` handlers
+        # remove it when the event loop runs; dropping the last reference here
+        # would delete the QThread under those handlers.
+        if not worker.done.wait(max(0.0, deadline - time.monotonic())):
+            left += 1
+            continue
+        try:
+            thread.quit()
+            if not thread.wait(max(0, int((deadline - time.monotonic()) * 1000))):
+                left += 1
+        except RuntimeError:  # the C++ thread object is gone already
+            pass
+    if left:
+        logger.warning("{} background job(s) still running at exit", left)
+    return not left
+
+
+atexit.register(wait_for_running_jobs)
+
+
+__all__ = ["BackgroundWorker", "BusyStatusWidget", "start_background_job",
+           "wait_for_running_jobs"]

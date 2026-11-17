@@ -40,6 +40,37 @@ StoredPrediction
 .. autoclass:: enginir._workflow.StoredPrediction
    :members:
 
+Checks and verdicts
+-------------------
+
+:meth:`enginir.Project.checks`, :meth:`enginir._workflow.Model.checks` and
+:meth:`enginir._workflow.Model.verdict` say what a project needs next: which
+steps are done, what needs attention and how a model stands. They read the
+project and change nothing.
+
+.. code-block:: python
+
+   for check in project.checks():
+       print(check.step, check.severity, check.message)
+
+   verdict = project.model("PLS 6 LV, SNV").verdict()
+   print(verdict.level, verdict.summary)
+
+.. autoclass:: enginir._guidance.Check
+   :members:
+
+.. autoclass:: enginir._guidance.Fix
+   :members:
+
+.. autoclass:: enginir._guidance.Verdict
+   :members:
+
+.. autofunction:: enginir._guidance.project_checks
+.. autofunction:: enginir._guidance.model_checks
+
+.. autofunction:: enginir._guidance.figure_text
+.. autofunction:: enginir._guidance.model_verdict
+
 Shared rules
 ------------
 

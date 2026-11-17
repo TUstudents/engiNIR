@@ -26,7 +26,7 @@ from ._plot_grid import PlotGrid, PlotPage, PlotSlot
 from ._plot_help import MODEL_PLOT_HELP
 from ._plot_panel import PlotColumn, PlotSpec, PlotTable, RoiPoints, draw_placeholder
 from ._plot_registry import PLOT_SPECS, WORKSPACE_PAGES, register_pages, register_plot
-from ._theme import GUIDE_COLOR
+from ._theme import GUIDE_COLOR, value_colormap
 from ._ui_helpers import is_band_index_axis, style_axes
 
 _EMPTY = "No fitted model diagnostics yet."
@@ -121,7 +121,7 @@ def _unit(payload: Mapping[str, Any]) -> str:
 
 
 def _suffix(unit: str) -> str:
-    return f" ({unit})" if unit else ""
+    return f" ({unit})" if unit not in ("", "1") else ""  # "1": dimensionless
 
 
 #: Up to this many distinct reference values are counted per value, not binned.
@@ -177,14 +177,62 @@ def _render_pred_vs_ref(fig: Figure, payload: Any, colors: Mapping[str, str]
     extra = "".join(f"\n{label} = {statistics[key]:.4g}{suffix}" for key, label, suffix in
                     (("rmsee", "RMSEE (per ROI)", value_unit), ("r2_adj", "$R^2_{adj}$", ""))
                     if key in statistics)
-    ax.text(0.03, 0.97,
-            f"per ROI\n$Q^2$ (CV $R^2$) = {r2_score(y_true, y_pred):.4f}"
-            f"\nRMSECV (per ROI) = {rmsecv(y_true, y_pred):.4g}"
-            f"{value_unit}\nBias = {bias(y_true, y_pred):.4g}{value_unit}{extra}",
-            transform=ax.transAxes, ha="left", va="top", fontsize=8, color=colors["fg"])
+    _statistics_block(ax, f"per ROI\n$Q^2$ (CV $R^2$) = {r2_score(y_true, y_pred):.4g}"
+                          f"\nRMSECV (per ROI) = {rmsecv(y_true, y_pred):.4g}"
+                          f"{value_unit}\nBias = {bias(y_true, y_pred):.4g}{value_unit}{extra}",
+                      y_true, y_pred, colors)
     _label(ax, f"Target value{_suffix(unit)}", f"Predicted (CV){_suffix(unit)}", colors)
     ids = _roi_ids(payload, y_true.size)
     return None if ids is None else [RoiPoints(ax, y_true, y_pred, ids)]
+
+
+def _covered(ax: Any, text: Any, renderer: Any, x: np.ndarray, y: np.ndarray) -> int:
+    """How many points (with a margin of their marker) lie under ``text``'s box."""
+    box = text.get_window_extent(renderer).expanded(1.0, 1.0).padded(6)
+    points = ax.transData.transform(np.column_stack([x, y]))
+    inside = ((points[:, 0] >= box.x0) & (points[:, 0] <= box.x1)
+              & (points[:, 1] >= box.y0) & (points[:, 1] <= box.y1))
+    return int(np.count_nonzero(inside))
+
+
+def _statistics_block(ax: Any, content: str, x: np.ndarray, y: np.ndarray,
+                      colors: Mapping[str, str]) -> Any:
+    """Statistics of a predicted-vs-target plot where they cover no point.
+
+    The points lie along the diagonal, so the block goes to the off-diagonal
+    corner (top left or bottom right) that covers fewer of them; if it still
+    covers some, the axis grows (up to doubling) until it covers none.
+    """
+    text = ax.text(0.03, 0.97, content, transform=ax.transAxes, ha="left", va="top",
+                   fontsize=8, color=colors["fg"], zorder=5,
+                   bbox={"boxstyle": "round,pad=0.25", "facecolor": colors.get("ax_bg", "none"),
+                         "edgecolor": "none", "alpha": 0.85})
+    try:
+        renderer = ax.figure.canvas.get_renderer()
+    except AttributeError:  # a canvas without a renderer: keep the top-left corner
+        return text
+    corners = (((0.03, 0.97), "left", "top"), ((0.97, 0.03), "right", "bottom"))
+    covered = []
+    for position, ha, va in corners:
+        text.set_position(position)
+        text.set_ha(ha)
+        text.set_va(va)
+        covered.append(_covered(ax, text, renderer, x, y))
+    best = int(np.argmin(covered))
+    position, ha, va = corners[best]
+    text.set_position(position)
+    text.set_ha(ha)
+    text.set_va(va)
+    low, high = ax.get_ylim()
+    span = high - low
+    for _ in range(8):
+        if not _covered(ax, text, renderer, x, y):
+            break
+        if va == "top":  # room above the points
+            ax.set_ylim(low, ax.get_ylim()[1] + 0.125 * span)
+        else:  # room below
+            ax.set_ylim(ax.get_ylim()[0] - 0.125 * span, high)
+    return text
 
 
 def _table_pred_vs_ref(payload: Any) -> PlotTable:
@@ -510,7 +558,7 @@ def _render_r2_q2(fig: Figure, payload: Any, colors: Mapping[str, str]) -> None:
     if r2y is not None:
         ax.plot(a, r2y, marker="o", markersize=3, color=colors["accent"], label="R²Y(cum), fit")
     if q2 is not None:
-        ax.plot(a, q2, marker="o", markersize=3, linestyle="--", color="#e3a33b",
+        ax.plot(a, q2, marker="o", markersize=3, linestyle="--", color=colors["series1"],
                 label="Q²(cum), cross-validated")
     if r2y is not None and q2 is not None:  # the gap: what the fit gains over prediction
         ax.fill_between(a, q2, r2y, color=GUIDE_COLOR, alpha=0.18, linewidth=0,
@@ -548,15 +596,15 @@ def _render_per_component(fig: Figure, payload: Any, colors: Mapping[str, str]) 
     ax.vlines(a - 0.17, 0.0, each["q2"], colors=q2_colors, linewidth=7,
               label="Q²ₐ, per ROI")
     ax.vlines(a + 0.17, 0.0, each["delta_r2x"], colors=np.where(
-        noise, GUIDE_COLOR, "#3fb27f").tolist(), linewidth=7, label="ΔR²X, per pixel")
+        noise, GUIDE_COLOR, colors["series2"]).tolist(), linewidth=7, label="ΔR²X, per pixel")
     ax.axhline(q2_limit(_n_groups(payload)), color=colors["fg"], linewidth=0.8,
                linestyle="--", label="Q² limit L")
-    ax.axhline(NOISE_R2X, color="#3fb27f", linewidth=0.7, linestyle=":",
+    ax.axhline(NOISE_R2X, color=colors["series2"], linewidth=0.7, linestyle=":",
                label="ΔR²X 1 %")
     ax.axhline(0.0, color=GUIDE_COLOR, linewidth=0.6)
     if "dw" in each:
         rough = ax.twinx()
-        rough.plot(a, each["dw"], color="#e3a33b", marker="o", markersize=3, linewidth=1.0,
+        rough.plot(a, each["dw"], color=colors["series3"], marker="o", markersize=3, linewidth=1.0,
                    label="Durbin–Watson of the weights")
         rough.set_ylabel("Durbin–Watson (0 smooth, 2 noise)", color=colors["fg"], fontsize=8)
         rough.tick_params(colors=colors["fg"], labelsize=7)
@@ -596,7 +644,7 @@ def _render_r2_pixels(fig: Figure, payload: Any, colors: Mapping[str, str]) -> N
         draw_placeholder(ax, _NO_CURVE, colors)
         return
     a = np.arange(1, curve["rmsecv"].size + 1)
-    for key, label, style, color in (("r2x_cum", "R²X(cum), spectra", ":", "#3fb27f"),
+    for key, label, style, color in (("r2x_cum", "R²X(cum), spectra", ":", colors["series2"]),
                                      ("r2y_cum", "R²Y(cum), target", "-", colors["accent"])):
         if key in curve:
             ax.plot(a, curve[key], linestyle=style, marker="o", markersize=3, color=color,
@@ -902,17 +950,17 @@ def _render_roi_distance(fig: Figure, payload: Any, colors: Mapping[str, str]
                          colors)
         return None
     dmodx, t2, reference, ids = shares
-    from matplotlib import colormaps
     from matplotlib.colors import Normalize
 
     x = np.arange(1, dmodx.size + 1, dtype=float)
     low, high = float(np.min(reference)), float(np.max(reference))
     norm = Normalize(low - 1, high + 1) if low == high else Normalize(low, high)
     width = max(2.0, min(14.0, 320.0 / dmodx.size))
-    ax.vlines(x, 0.0, dmodx * 100.0, colors=[colormaps["viridis"](norm(v)) for v in reference],
+    ax.vlines(x, 0.0, dmodx * 100.0, colors=[value_colormap(colors)(norm(v)) for v in reference],
               linewidth=width, label="DModX > limit")
     if t2 is not None:
-        ax.scatter(x, t2 * 100.0, marker="D", s=18, color=colors["fg"], zorder=3,
+        ax.scatter(x, t2 * 100.0, marker="D", s=22, color=colors["fg"], zorder=3,
+                   edgecolors=colors["ax_bg"], linewidths=0.9,
                    label="T² > limit")
     ax.axhline(_EXPECTED_ABOVE * 100.0, color=GUIDE_COLOR, linewidth=0.9, linestyle="--",
                label="expected 1 %")

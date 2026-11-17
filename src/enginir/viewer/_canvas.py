@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import QGraphicsRectItem, QGraphicsSceneMouseEvent
 from .._checks import log_and_raise
 from .._logging import get_logger
 from ._plot_panel import PlotColumn, PlotTable
-from ._theme import panel_colors, print_colors
+from ._theme import panel_colors, print_colors, series_colors, tokens
 from ._ui_helpers import style_axes
 
 # Use numpy (row, col) axis convention for ImageItem data.
@@ -86,7 +86,7 @@ class FalseColourCanvas(QWidget):
         self._plot.addItem(self._image_item)
 
         # Crosshair: vertical line marks frame (x), horizontal marks row (y).
-        pen_y = pg.mkPen("yellow", width=1)
+        pen_y = pg.mkPen(tokens()["accent"], width=1)
         self._vline = pg.InfiniteLine(angle=90, movable=False, pen=pen_y)
         self._hline = pg.InfiniteLine(angle=0, movable=False, pen=pen_y)
         self._plot.addItem(self._vline)
@@ -162,6 +162,11 @@ class FalseColourCanvas(QWidget):
         self._vline.setVisible(True)
         self._hline.setVisible(True)
 
+    @property
+    def view_box(self) -> ViewBox:
+        """The image's view; the Sensor frame and the Spatial profile follow its rows."""
+        return self._view
+
     def reset_view(self) -> None:
         """Reset zoom and pan so the full image is visible again."""
         self._view.autoRange(padding=0.02)
@@ -206,7 +211,8 @@ class FalseColourCanvas(QWidget):
         )
         for handle in rect.getHandles():
             rect.removeHandle(handle)
-        text = pg.TextItem(text=label, color=self._roi_color(selected=is_selected), anchor=(0, 0))
+        text = pg.TextItem(text=label, color=self._roi_color(selected=is_selected),
+                           anchor=(0, 0), fill=self._label_fill())
         text.setPos(f0, r0)
         self._plot.addItem(rect)
         self._plot.addItem(text)
@@ -225,11 +231,11 @@ class FalseColourCanvas(QWidget):
         """Show planned ROI grid cells (with their names), empty cells (grey, dashed) and
         cells outside the image (red)."""
         self.clear_grid_preview()
-        for cell, color, style in [*((c, (0, 220, 255), Qt.PenStyle.SolidLine) for c in cells),
-                                   *((c, (140, 140, 140), Qt.PenStyle.DashLine)
-                                     for c in skipped),
-                                   *((c, (255, 70, 70), Qt.PenStyle.SolidLine)
-                                     for c in outside)]:
+        t = tokens()
+        for cell, color, style in [*((c, series_colors()[1], Qt.PenStyle.SolidLine)
+                                     for c in cells),
+                                   *((c, t["guide"], Qt.PenStyle.DashLine) for c in skipped),
+                                   *((c, t["error"], Qt.PenStyle.SolidLine) for c in outside)]:
             (f0, f1), (r0, r1) = cell.frames, cell.rows
             rect = QGraphicsRectItem(f0, r0, f1 - f0 + 1, r1 - r0 + 1)
             pen = pg.mkPen(color=color, width=1.2, style=style)
@@ -238,7 +244,8 @@ class FalseColourCanvas(QWidget):
             self._plot.addItem(rect)
             self._grid_preview_items.append(rect)
             if style == Qt.PenStyle.SolidLine:
-                text = pg.TextItem(text=cell.name, color=color, anchor=(0, 0))
+                text = pg.TextItem(text=cell.name, color=color, anchor=(0, 0),
+                                   fill=self._label_fill())
                 text.setPos(f0, r0)
                 self._plot.addItem(text)
                 self._grid_preview_items.append(text)
@@ -302,8 +309,7 @@ class FalseColourCanvas(QWidget):
                       extent=(0, width, height, 0))
         for roi_id, entry in self._roi_item_map.items():
             f0, f1, r0, r1 = entry.bounds
-            color = tuple(c / 255 for c in self._roi_color(
-                selected=roi_id == self._selected_roi_id))
+            color = self._roi_color(selected=roi_id == self._selected_roi_id)
             ax.add_patch(Rectangle((f0, r0), f1 - f0 + 1, r1 - r0 + 1, fill=False,
                                    edgecolor=color, linewidth=1.2))
             ax.text(f0, r0, entry.label, color=color, fontsize=7, va="top")
@@ -321,6 +327,9 @@ class FalseColourCanvas(QWidget):
     def restyle_theme(self) -> None:
         """Apply the current app theme to the pyqtgraph canvas chrome."""
         colors = panel_colors()
+        for roi_id, entry in self._roi_item_map.items():
+            entry.text.fill = pg.mkBrush(self._label_fill())
+            entry.text.setColor(self._roi_color(selected=roi_id == self._selected_roi_id))
         self._gw.setBackground(colors["bg"])
         self._plot.setLabel("bottom", "Frame", color=colors["fg"])
         self._plot.setLabel("left", "Row", color=colors["fg"])
@@ -485,7 +494,7 @@ class FalseColourCanvas(QWidget):
                 size=(width, height),
                 movable=False,
                 resizable=False,
-                pen=pg.mkPen(color=(255, 255, 0), width=1.5),
+                pen=pg.mkPen(color=tokens()["attention"], width=1.5),
             )
             for handle in self._roi_preview_item.getHandles():
                 self._roi_preview_item.removeHandle(handle)
@@ -510,5 +519,13 @@ class FalseColourCanvas(QWidget):
     def _roi_pen(self, *, selected: bool) -> pg.QtGui.QPen:
         return pg.mkPen(color=self._roi_color(selected=selected), width=2.0 if selected else 1.5)
 
-    def _roi_color(self, *, selected: bool) -> tuple[int, int, int]:
-        return (255, 255, 0) if selected else (255, 0, 255)
+    @staticmethod
+    def _label_fill() -> QColor:
+        """The plate behind an ROI name: readable on any image (bright trays, false colour)."""
+        fill = QColor(tokens()["window"])
+        fill.setAlpha(215)
+        return fill
+
+    def _roi_color(self, *, selected: bool) -> str:
+        """ROI outlines in the accent, the selected one in the attention colour."""
+        return tokens()["attention" if selected else "accent"]

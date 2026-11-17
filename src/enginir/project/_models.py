@@ -215,6 +215,9 @@ class DatasetRef(SerializableModel):
         Path of the data file relative to the project file's folder, with
         ``/`` separators; ``""`` when it cannot be computed (display data,
         used to find a moved data file).
+    label : str
+        A short name the user gives the dataset ("Layer 7"); ``""`` shows the
+        file name (display data, a mutable label like every name).
     """
 
     dataset_id: str
@@ -227,6 +230,7 @@ class DatasetRef(SerializableModel):
     loader_metadata: dict[str, Any]
     import_timestamp: str
     relative_path: str = ""
+    label: str = ""
 
     def __post_init__(self) -> None:
         self.dataset_id = _text(self.dataset_id, "dataset_id")
@@ -234,6 +238,7 @@ class DatasetRef(SerializableModel):
         # Display data: None (not stored) is "not defined", an empty string.
         self.relative_path = ("" if self.relative_path is None
                               else _text(self.relative_path, "relative_path", required=False))
+        self.label = "" if self.label is None else _text(self.label, "label", required=False)
         self.source_format = _text(self.source_format, "source_format")
         self.source_modality = _text(self.source_modality, "source_modality")
         self.n_bands = check_integer(self.n_bands, "n_bands", minimum=1)

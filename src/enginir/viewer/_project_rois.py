@@ -18,6 +18,7 @@ background jobs; nothing needs a data file.
 
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -25,7 +26,6 @@ from typing import Any
 
 import numpy as np
 import pyqtgraph as pg
-from matplotlib import colormaps
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.colors import Normalize
 from matplotlib.figure import Figure
@@ -62,8 +62,9 @@ from ._plot_panel import (
 )
 from ._plot_registry import register_plot
 from ._state import ProjectState, ViewerState, signal_label
-from ._theme import GUIDE_COLOR, panel_colors, print_colors, secondary_text_style
-from ._ui_helpers import spectral_axis_label, style_axes
+from ._theme import (GUIDE_COLOR, panel_colors, print_colors, secondary_text_style,
+                     value_colormap)
+from ._ui_helpers import spectral_axis_label, style_axes, with_unit
 
 logger = get_logger(__name__)
 
@@ -141,9 +142,34 @@ def grid_cells(members: list[TrainingROI]) -> dict[str, tuple[int, int]]:
             for j, roi in enumerate(sorted(row, key=lambda r: r.spatial_bounds[0]))}
 
 
+#: Width of a label character in units of the label height (proportional fonts).
+_CHAR_WIDTH = 0.56
+#: Labels longer than this are cut with "…" instead of widening the columns further.
+_MAX_LABEL_CHARS = 14
+
+
+def _fitted_text(metrics: QFontMetricsF, text: str, width: float) -> str:
+    """``text`` whole if its measured width fits ``width``, else cut in the middle.
+
+    Decided on ``horizontalAdvance``, the measure the layout reserves room with:
+    ``elidedText`` alone cut labels that fit on Windows.
+    """
+    if metrics.horizontalAdvance(text) <= width:
+        return text
+    return metrics.elidedText(text, Qt.TextElideMode.ElideMiddle, max(width, 1.0))
+
+
 def mosaic_layout(rois: list[TrainingROI], file_names: Mapping[str, str],
-                  mode: str = GRID) -> MosaicLayout:
-    """Lay out the ROIs, one block per data file, stacked down with a header each.
+                  mode: str = GRID, *, label_chars: int = 0,
+                  aspect: float | None = None) -> MosaicLayout:
+    """Lay out the ROIs, one block per data file with a header each.
+
+    The blocks are stacked down; with ``aspect`` (width / height of the view)
+    they are placed in as many columns as fill that shape best, so a wide
+    view is not left mostly empty by a tall, narrow stack.
+
+    ``label_chars`` is the length of the longest tile label: in ``GRID`` the
+    columns are at least that wide, so narrow tiles keep readable labels.
 
     ``GRID``: equal cells in the rows and columns of :func:`grid_cells`; each
     tile keeps its size in pixels. ``SCAN``: each ROI at its frame (x) and row
@@ -159,14 +185,14 @@ def mosaic_layout(rois: list[TrainingROI], file_names: Mapping[str, str],
     cell_h = max(float(r.spatial_bounds[3] - r.spatial_bounds[2] + 1) for r in rois)
     unit = 0.16 * max(cell_h, cell_w / 2.5)
     label_band, header_band, gap = 1.6 * unit, 2.0 * unit, 0.6 * unit
-    column_gap = max(1.5 * unit, 0.08 * cell_w)
-    places: dict[str, tuple[float, float, float, float]] = {}
-    blocks: list[tuple[str, float, float]] = []  # dataset id, header y, block width
-    y = 0.0
+    label_width = _CHAR_WIDTH * unit * min(max(label_chars, 0), _MAX_LABEL_CHARS)
+    column_gap = max(1.5 * unit, 0.08 * cell_w, label_width + 0.6 * unit - cell_w)
+    #: dataset id, the ROIs' places relative to the block, block width and height
+    blocks: list[tuple[str, dict[str, tuple[float, float, float, float]], float, float]] = []
     for dataset_id in sorted(by_file, key=lambda d: file_names.get(d, d).lower()):
         members = by_file[dataset_id]
-        header_y = y
-        y += header_band
+        places: dict[str, tuple[float, float, float, float]] = {}
+        y = header_band
         if mode == SCAN:
             top = min(roi.spatial_bounds[2] for roi in members)
             bottom = max(roi.spatial_bounds[3] for roi in members)
@@ -185,14 +211,48 @@ def mosaic_layout(rois: list[TrainingROI], file_names: Mapping[str, str],
                 f0, f1, r0, r1 = roi.spatial_bounds
                 places[roi.roi_id] = (j * (cell_w + column_gap), y + i * (cell_h + label_band),
                                       float(f1 - f0 + 1), float(r1 - r0 + 1))
-            width = n_columns * (cell_w + column_gap) - column_gap
+            # The last column's label may be wider than its tile.
+            width = (n_columns - 1) * (cell_w + column_gap) + max(cell_w, label_width)
             y += n_rows * (cell_h + label_band)
-        blocks.append((dataset_id, header_y, width))
-        y += gap
-    widest = max(width for _d, _y, width in blocks)
-    headers = [(dataset_id, file_names.get(dataset_id, dataset_id), 0.0, header_y,
-                max(width, widest)) for dataset_id, header_y, width in blocks]
-    return MosaicLayout(places, headers, unit)
+        blocks.append((dataset_id, places, width, y))
+
+    widest = max(width for _d, _p, width, _h in blocks)
+    block_gap = 2.0 * unit
+    n_columns = _block_columns([(widest, height) for _d, _p, _w, height in blocks],
+                               block_gap, gap, aspect)
+    all_places: dict[str, tuple[float, float, float, float]] = {}
+    headers: list[tuple[str, str, float, float, float]] = []
+    y = 0.0
+    for start in range(0, len(blocks), n_columns):
+        row = blocks[start:start + n_columns]
+        for column, (dataset_id, block_places, _width, _height) in enumerate(row):
+            x0 = column * (widest + block_gap)
+            headers.append((dataset_id, file_names.get(dataset_id, dataset_id), x0, y, widest))
+            for roi_id, (x, top, w, h) in block_places.items():
+                all_places[roi_id] = (x0 + x, y + top, w, h)
+        y += max(height for _d, _p, _w, height in row) + gap
+    return MosaicLayout(all_places, headers, unit)
+
+
+def _block_columns(sizes: list[tuple[float, float]], column_gap: float, row_gap: float,
+                   aspect: float | None) -> int:
+    """How many blocks go side by side so that the mosaic best fills a view of ``aspect``.
+
+    The number that leaves the tiles largest: the one whose total shape, scaled
+    into the view, has the largest scale. ``None``: one column.
+    """
+    if aspect is None or aspect <= 0 or len(sizes) < 2:
+        return 1
+    width = max(w for w, _h in sizes)
+    best, best_scale = 1, 0.0
+    for n_columns in range(1, len(sizes) + 1):
+        total_w = n_columns * width + (n_columns - 1) * column_gap
+        total_h = sum(max(h for _w, h in sizes[start:start + n_columns]) + row_gap
+                      for start in range(0, len(sizes), n_columns)) - row_gap
+        scale = min(aspect / total_w, 1.0 / total_h)
+        if scale > best_scale * 1.02:  # a clear gain only: fewer columns read easier
+            best, best_scale = n_columns, scale
+    return best
 
 
 def _short_names(names: Mapping[str, str], file_names: Mapping[str, str]) -> dict[str, str]:
@@ -253,7 +313,7 @@ def _group_limits(patches: Mapping[str, np.ndarray], groups: Mapping[str, str] |
 def _value_color(value: float | None, norm: Normalize | None) -> tuple[int, int, int]:
     if value is None or norm is None:
         return _rgb255(GUIDE_COLOR)
-    r, g, b, _a = colormaps["viridis"](norm(value))
+    r, g, b, _a = value_colormap()(norm(value))
     return int(r * 255), int(g * 255), int(b * 255)
 
 
@@ -310,6 +370,15 @@ class RoiMosaic(QWidget):
         self._values: dict[str, float | None] = {}
         self._roi_files: dict[str, str] = {}
         self._layout = MosaicLayout({}, [], 1.0)
+        #: The view shape the blocks were arranged for (width / height), and the
+        #: width a tile label may take (the column, not the tile).
+        self._laid_out_aspect = 0.0
+        self._label_width = 0.0
+        self._laid_out_chars = 0
+        self._relayout_timer = QTimer(self)
+        self._relayout_timer.setSingleShot(True)
+        self._relayout_timer.setInterval(150)
+        self._relayout_timer.timeout.connect(self._lay_out)
         self._patches: dict[str, np.ndarray] = {}
         self._images: dict[str, pg.ImageItem] = {}
         self._outlines: dict[str, QGraphicsRectItem] = {}
@@ -392,9 +461,15 @@ class RoiMosaic(QWidget):
         self._label_items.clear()
         self._limits = {}
         self._selection = None
+        chars = self._label_chars()
+        self._laid_out_chars = min(chars, _MAX_LABEL_CHARS)
+        self._laid_out_aspect = self._view_aspect()
         self._layout = mosaic_layout(list(self._rois.values()), self._file_names,
-                                     self.layout_mode)
+                                     self.layout_mode, label_chars=chars,
+                                     aspect=self._laid_out_aspect)
         unit = self._layout.unit
+        self._label_width = (_CHAR_WIDTH * unit * min(chars, _MAX_LABEL_CHARS)
+                             if self.layout_mode == GRID else 0.0)
         for _dataset_id, name, x, y, width in self._layout.headers:
             header = self._text(name, x, y + 0.2 * unit, 1.25 * unit, width, bold=True)
             header.setToolTip(name)
@@ -403,12 +478,38 @@ class RoiMosaic(QWidget):
             self._plot.addItem(outline)
             self._outlines[roi_id] = outline
             self._label_items[roi_id] = self._text(self._labels.get(roi_id, ""), x,
-                                                   y + h + 0.15 * unit, unit, w)
+                                                   y + h + 0.15 * unit, unit,
+                                                   max(w, self._label_width))
         self._color_outlines()
         self._message.setText("" if self._rois else "No ROIs stored in the project yet.")
         self._redraw_images()
         self._view.autoRange(padding=0.02)
         self.select_roi(self._selected)
+
+    def _label_chars(self) -> int:
+        """The longest tile label in ``_CHAR_WIDTH`` character widths of the actual font.
+
+        Measured, not counted: fonts differ by platform (Segoe UI on Windows is wider
+        than ``_CHAR_WIDTH`` per character), and a counted width would cut whole labels.
+        """
+        metrics = QFontMetricsF(QFont(self.font()))
+        height = max(metrics.height(), 1.0)
+        widest = max((metrics.horizontalAdvance(self._labels.get(roi_id, ""))
+                      for roi_id in self._rois), default=0.0)
+        return math.ceil(widest / height / _CHAR_WIDTH + 0.01) if widest > 0 else 0
+
+    def _view_aspect(self) -> float:
+        """Width / height of the mosaic's view (1.6 before it has a size)."""
+        width, height = self._plot_widget.width(), self._plot_widget.height()
+        return width / height if width > 50 and height > 50 else 1.6
+
+    def resizeEvent(self, a0: Any) -> None:  # noqa: N802 (Qt API)
+        """Arrange the blocks again when the view's shape changed clearly."""
+        super().resizeEvent(a0)
+        aspect = self._view_aspect()
+        if self._rois and self._laid_out_aspect > 0 \
+                and not 0.8 < aspect / self._laid_out_aspect < 1.25:
+            self._relayout_timer.start()
 
     def _text(self, text: str, x: float, y: float, height: float, width: float,
               bold: bool = False) -> QGraphicsSimpleTextItem:
@@ -419,8 +520,7 @@ class RoiMosaic(QWidget):
         item.setFont(font)
         metrics = QFontMetricsF(font)
         scale = height / max(metrics.height(), 1.0)
-        item.setText(metrics.elidedText(text, Qt.TextElideMode.ElideMiddle,
-                                        max(width / scale, 1.0)))
+        item.setText(_fitted_text(metrics, text, width / scale))
         item.setBrush(QColor(panel_colors()["fg"]))
         item.setScale(scale)
         item.setPos(x, y)
@@ -430,19 +530,26 @@ class RoiMosaic(QWidget):
 
     def set_labels(self, labels: Mapping[str, str],
                    values: Mapping[str, float | None] | None = None) -> None:
-        """Change labels and values (e.g. another target) without laying the tiles out again."""
+        """Change labels and values (e.g. another target).
+
+        The tiles stay where they are unless a label became wider than the columns
+        were laid out for; then they are laid out again, so no label is cut.
+        """
         self._labels = dict(labels)
         if values is not None:
             self._values = dict(values)
+        if self.layout_mode == GRID and self._rois \
+                and min(self._label_chars(), _MAX_LABEL_CHARS) > self._laid_out_chars:
+            self._lay_out()
+            return
         unit = self._layout.unit
         for roi_id, item in self._label_items.items():
             text = self._labels.get(roi_id, "")
             if item.data(0) != text:
                 metrics = QFontMetricsF(item.font())
-                width = self._layout.places[roi_id][2]
-                item.setText(metrics.elidedText(text, Qt.TextElideMode.ElideMiddle,
-                                                max(width / (unit / max(metrics.height(), 1.0)),
-                                                    1.0)))
+                width = max(self._layout.places[roi_id][2], self._label_width)
+                item.setText(_fitted_text(metrics, text,
+                                          width / (unit / max(metrics.height(), 1.0))))
                 item.setData(0, text)
         self._color_outlines()
 
@@ -665,7 +772,7 @@ def _render_means(fig: Figure, payload: Any, colors: Mapping[str, str]) -> None:
         return
     values: Mapping[str, float | None] = payload.get("values", {})
     norm = value_norm(values.values())
-    cmap = colormaps["viridis"]
+    cmap = value_colormap(colors)
     x = np.asarray(payload["wavelengths"])
     predicted = set(payload.get("prediction_ids", ()))
     for roi_id, mean in means.items():
@@ -784,6 +891,8 @@ class ProjectRoisView(QWidget):
         layout.addWidget(self.page, 1)
 
         self._summaries: dict[str, Any] = {}
+        #: The recipe the summaries were computed with (their band axis).
+        self._summaries_recipe: Any = None
         self._skipped: dict[str, str] = {}
         self._tile_job: Any = None
         self._spectra_job: Any = None
@@ -962,6 +1071,7 @@ class ProjectRoisView(QWidget):
 
         def computed(result: Any) -> None:
             self._summaries, self._skipped = result
+            self._summaries_recipe = recipe
             described = recipe.describe()
             shown = signal_label(unit)
             self._signal_label = shown if described == "none" else f"{shown}, {described}"
@@ -981,7 +1091,10 @@ class ProjectRoisView(QWidget):
     def _payload_base(self) -> dict[str, Any]:
         rois = self.project_state.rois
         first = next(iter(self._summaries), None)
-        wavelengths = (self.state.recipe.output_wavelengths(rois[first].wavelengths)
+        # The axis of the recipe the spectra were computed with: the preview may have
+        # changed since (the new spectra are still being computed).
+        recipe = self._summaries_recipe or self.state.recipe
+        wavelengths = (recipe.output_wavelengths(rois[first].wavelengths)
                        if first in rois else np.array([]))
         label, unit = spectral_axis_label(rois[first].wavelengths if first in rois else [])
         return {"wavelengths": np.asarray(wavelengths), "axis_label": label, "axis_unit": unit,
@@ -1004,7 +1117,7 @@ class ProjectRoisView(QWidget):
                      if target_id and (roi_id, target_id) in state.target_assignments else None)
             for roi_id in self._summaries}
         payload["value_label"] = "" if target is None else (
-            f"{target.name} ({target.unit})" if target.unit else target.name)
+            with_unit(target.name, target.unit))
         if not self._summaries and self._skipped:
             payload["message"] = (f"None of the shown ROIs can be shown as {self.state.y_unit}"
                                   " (for example raw counts without references).")

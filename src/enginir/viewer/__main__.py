@@ -318,6 +318,21 @@ def _main(argv: list[str] | None = None) -> int:
 
         welcome.file_selected.connect(_on_dataset_selected)
         welcome.project_selected.connect(_on_project_selected)
+
+        def _on_example_requested() -> None:
+            from .._example import create_example_project
+            from ._recent import config_dir
+
+            _start_welcome_job(
+                text="Preparing the example project",
+                fn=lambda _progress: _load_project_startup(
+                    str(create_example_project(config_dir() / "example"))),
+                on_success=_show_loaded_project,
+                error_title="Cannot open the example project",
+                log_context="Failed to create the example project",
+            )
+
+        welcome.example_requested.connect(_on_example_requested)
         welcome.project_created.connect(_on_project_created)
         welcome.show()
         logger.info(

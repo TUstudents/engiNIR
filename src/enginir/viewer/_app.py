@@ -114,7 +114,8 @@ class _DialogCentering(QObject):
         if a1 is None:
             return False
         kind = a1.type()
-        if kind == QEvent.Type.Show and isinstance(a0, QDialog):
+        if kind == QEvent.Type.Show and isinstance(a0, QDialog) and a0.isWindow():
+            # Only windows: the Fit settings form is a dialog class embedded in the dock.
             centre_dialog(a0)
         elif kind == QEvent.Type.Hide and self.release_combo_popups \
                 and isinstance(a0, QWidget) and _is_combo_popup(a0):
@@ -205,7 +206,9 @@ def enable_viewer_logging() -> None:
     PyQt from aborting the process when an exception escapes a Qt slot.
     """
     if not logging_enabled():
-        enable_logging("WARNING", file=True, catch_uncaught=True)
+        from ._preferences import load
+
+        enable_logging("WARNING", file=True, file_level=load().log_level, catch_uncaught=True)
 
 
 def ensure_app() -> QApplication:
@@ -230,6 +233,10 @@ def ensure_app() -> QApplication:
             return existing
         return apply_qt_theme(existing, dark=dark)
     _configure_qt_platform()
+    from ._preferences import apply_environment, load, startup_scale
+
+    startup_scale()  # Qt reads its scale factor when the application starts
+    apply_environment(load())
     _set_windows_app_id()  # before the first window, so the taskbar uses our icon
     _app = QApplication([])
     _app.setWindowIcon(app_icon())

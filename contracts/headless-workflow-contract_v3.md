@@ -318,6 +318,55 @@ and writes nothing they would reject.
   which are read on demand; single-object writes update memory without
   rereading the file
 
+### Guidance: checks and verdicts
+
+`Project.checks()`, `Model.checks()` and `Model.verdict()` say what a project
+needs next. They are the only place where these judgements are made: the
+viewer, scripts and reports show their results and add none of their own.
+
+- **Read-only.** They change neither the project file nor the `Project` in
+  memory, and they need no dataset file. `Project.checks()` looks whether the
+  dataset files are found (as `find_data_file` does) unless called with
+  `files=False`.
+- **A check** has a stable id, the workflow step it belongs to (`data`,
+  `rois`, `values`, `model`, `predict`), a severity, one sentence in the terms
+  of the terminology contract, the ids of the ROIs, datasets, target and model
+  it refers to, and optionally a fix.
+- **Severities:** `ok` (done), `info` (worth knowing), `attention` (look at
+  it), `blocking` (the next step cannot run). A check is *open* when it is
+  `attention` or `blocking`.
+- **A fix** is a description, not an execution: an action name, a button
+  label and arguments. The caller decides whether and how to run it.
+  Actions: `add_dataset`, `locate_dataset`, `add_roi`, `add_target`,
+  `edit_values`, `edit_samples`, `select_roi`, `fit`, `fit_again`, `refit`,
+  `show_page`, `predict_rois`.
+- **Order:** by step, in the order above; within a step in a fixed order, so
+  two calls on an unchanged project return equal lists.
+
+Checks (id, severity when not `ok`):
+
+| Id | Condition | Severity | Fix |
+|---|---|---|---|
+| `data.none` | no dataset | attention | `add_dataset` |
+| `data.files_missing` / `data.files_found` | dataset files not found / all found | attention | `locate_dataset` |
+| `data.no_wavelengths` | datasets whose ROIs have the band index 0 … n − 1 as wavelengths | info | |
+| `rois.none` / `rois.present` | datasets but no ROI / counts per job | attention | `add_roi` |
+| `values.no_target` | calibration ROIs but no target | attention | `add_target` |
+| `values.missing` / `values.complete` | calibration ROIs without a value for a target; blocking with fewer than 2 values | attention or blocking | `edit_values` |
+| `values.differ_within_sample` | ROIs with one sample label and different values; the ROIs that differ from the majority are named, all of them without a majority | attention | `select_roi` |
+| `model.none` | no model, and a target with at least 2 values | info | `fit` |
+| `model.validation.<code>` | each stored fold warning of the model (`sample-set-model-run-contract_v3.md` §7.4) | attention | `fit_again` with `group_by = sample` when every ROI of the calibration set has a sample label, else `edit_samples` |
+| `model.rois_deleted` | the calibration set lists deleted ROIs | attention | |
+| `model.values_changed` | current values differ from the values the model was fitted with (compared to float32 precision, relative 1e-6) | attention | `refit` (none after a deletion) |
+| `model.rois_added` | calibration ROIs with a value that the model does not use | info | `fit` |
+| `model.distance` | share of calibration pixels above the DModX limit (0.99 level), weighted by pixels; attention above 5 %, naming the datasets above the overall share | attention | `show_page` Distance |
+| `model.components` | components beyond the structure ceiling: attention; otherwise ok when the chosen number is the most suggested one of the selection rules, else info | attention or info | `show_page` Components |
+| `model.calibration_set` | ROIs and pixels of the fit | | |
+| `predict.no_rois` / `predict.rois_ready` | models exist; no prediction ROI / their number | info | `predict_rois` with the newest model |
+
+Not yet checks (need results that are not stored): reflectance values
+clipped by the reference correction, and predicted ROIs outside the model.
+
 ## Callback contract
 
 Required behavior:

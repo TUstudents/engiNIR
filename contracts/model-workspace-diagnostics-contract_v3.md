@@ -217,9 +217,12 @@ Required displayed metrics, in a *Per ROI* group:
 with `Q²`, `RMSEE`, `R²adj` and `RPD` when the run has them, and, for runs
 that store them, a *Per pixel* group with the `pixel_*` metrics (`R²`,
 `RMSECV`, `RMSEE`, `RPD`) and the pixel count. The `Predicted vs
-target value` statistics name their level (per ROI). The fit summary shows the
-fold warnings of the run (`cv_spec/@warnings`) in plain words, and its long
-values (the validation scheme, names) wrap instead of being cut off.
+target value` statistics name their level (per ROI). The fold
+warnings of the run (`cv_spec/@warnings`) are shown in plain words as
+checks of the model (`model.validation.<code>`: the Checks tab;
+engiNIR 1.6, no longer a line of the fit summary), and the long values of
+the fit summary (the validation scheme, names) wrap instead of being cut
+off.
 
 Metric definitions in v3:
 
@@ -439,6 +442,32 @@ Required UI behavior:
 
 - show the blocking reason in the fit summary / readiness region
 - do not launch a background fit job for obviously invalid runs
+
+## Verdict
+
+`Model.verdict()` condenses a model into one level, one sentence, its
+reasons and the checks behind it (`headless-workflow-contract_v3.md`,
+Guidance). The viewer shows the verdict; it does not compute one.
+
+The thresholds were accepted by the user (2026-11-16, plan
+`plans/gui-1.6.md`, Q3). They apply to the cross-validated figures of merit
+per ROI: RPD (SD of the values / RMSECV) and Q² (`r2`).
+
+| Level | Rule |
+|---|---|
+| `not_usable` | RPD < 1.5 or Q² < 0.5 |
+| `good` | RPD ≥ 2.5 and Q² ≥ 0.8 and no open check of the model |
+| `usable_with_care` | everything else: figures between the two rows, or good figures with an open check |
+
+- An open check lowers `good` to `usable_with_care`; it never makes a model
+  `not_usable`.
+- A model without these figures of merit is judged by its checks alone.
+- The summary is "<Level>. RMSECV <value> <unit>, Q² <value>, RPD <value>."
+  followed by one sentence: for `not_usable` the figure rule that failed,
+  otherwise the first open check, or else the first reason.
+  A dimensionless unit (`1` or empty) is not printed.
+- The reasons list the figure rule that set the level first, then every
+  open check.
 
 ## Non-goals for v3
 

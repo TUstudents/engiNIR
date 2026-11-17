@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "enginir"
-version = "1.5.2"
+version = "1.6.0"
 description = "engiNIR: chemometric tools and project-backed workflows for NIR spectra and hyperspectral imaging"
 readme = "README.md"
 authors = [{ name = "Johannes Poms" }]
@@ -52,8 +52,14 @@ enginir-viewer-console = "enginir.viewer.__main__:main"
 # On Windows a launcher without a console window; elsewhere a normal script.
 enginir-viewer = "enginir.viewer.__main__:main"
 
+[tool.uv]
+# The development environment (tests, pyright) only, not what users install:
+# the type stubs of PyQt6 6.12.1 are broken (pyqtSignal requires `arguments`,
+# QWidget's parent is typed `Self`); lift this when a fixed PyQt6 is out.
+constraint-dependencies = ["pyqt6<6.12"]
+
 [tool.uv-build]
-include = ["src/enginir/_resources/*.ico", "src/enginir/_resources/*.svg", "src/enginir/viewer/themes/*.xml"]
+include = ["src/enginir/_resources/*.ico", "src/enginir/_resources/*.svg", "src/enginir/_resources/icons/*", "src/enginir/viewer/themes/*.xml"]
 
 [tool.ruff]
 line-length = 100

@@ -42,7 +42,11 @@ vocabulary for years.
    unit ("95 %", "1450 nm"; no space before the degree sign, "45°"), a
    decimal point, and a thin space as thousands separator in text
    ("396 000 pixels"). Machine-readable exports (CSV values) have no
-   thousands separator.
+   thousands separator. Figures of merit (RMSECV, RMSEE, bias, R², Q²,
+   RPD) are shown with four significant digits everywhere (`figure_text`),
+   so one model reads the same in the verdict, the fit summary, the Models
+   table and the plots. A dimensionless unit (`1` or empty) is not printed
+   ("Layers", not "Layers (1)").
 4. **One word per concept:** a term defined here is used for nothing else, and
    its concept is called by no other word in user-visible text. Two
    exceptions, read by context: "row" also names a table or CSV row, and

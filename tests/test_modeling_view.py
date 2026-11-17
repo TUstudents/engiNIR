@@ -875,9 +875,9 @@ def test_fit_again_presets_the_models_signal_unit_and_its_full_seed(
     assert dialog.fit_spec.seed == 2**40
 
 
-def test_the_fit_summary_shows_the_fold_warnings_and_wraps_long_values(qapp):
-    """B6: a model's fold warnings are shown, also when its metric rows equal the previous
-    model's; long summary values wrap instead of being cut off."""
+def test_the_fit_summary_wraps_long_values(qapp):
+    """B6: long summary values (the validation scheme, names) wrap instead of being cut
+    off. The fold warnings of a run are a check now (test_window_shell)."""
     import numpy as np
 
     from enginir.viewer._viewer import HSIViewer
@@ -885,13 +885,6 @@ def test_the_fit_summary_shows_the_fold_warnings_and_wraps_long_values(qapp):
     viewer = HSIViewer(np.zeros((4, 4, 4), np.uint16), np.arange(4.0), {})
     viewer._workspace_tabs.setCurrentIndex(1)  # the Model page is built when first shown
     qapp.processEvents()
-    rows = {"roi_metrics": [("Q² (CV R²)", "0.9")], "pixel_metrics": [],
-            "r2": "0.9", "rmsecv": "1", "bias": "0"}
-    viewer._set_metric_rows({**rows, "warnings": ""})
-    assert not viewer._model_warnings.isVisibleTo(viewer)
-    viewer._set_metric_rows({**rows, "warnings": "fewer than 7 fold groups"})
-    assert viewer._model_warnings.isVisibleTo(viewer)
-    assert "fewer than 7 fold groups" in viewer._model_warnings.text()
     assert viewer._model_card_cv_value.wordWrap()
     viewer.close()
 

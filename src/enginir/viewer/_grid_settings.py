@@ -1,4 +1,4 @@
-"""Default ROI grid geometry, kept in the user settings (Options > ROI Grid Defaults).
+"""Default ROI grid geometry, kept in the user settings (Tools > ROI Grid Defaults).
 
 Every new ROI grid starts from these values; changes made in the grid dialog
 apply to that grid only. Stored in ``roi_grid.json`` next to the

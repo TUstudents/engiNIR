@@ -157,7 +157,7 @@ files before reading project objects:
 
 **Display data** never stops a project from opening: metrics, the component
 curve, the calibration diagnostics, `cv_spec`, `cv_outputs`, prediction
-telemetry and a dataset's `relative_path` may be missing or malformed; the reader logs it, and the viewer
+telemetry and a dataset's `relative_path` and `label` may be missing or malformed; the reader logs it, and the viewer
 shows "–" in its place. Writers still write all of it.
 
 Unknown extra groups, datasets, and attributes (e.g. an ROI `@y_value`) are
@@ -241,6 +241,7 @@ offset and microseconds, e.g. `2026-11-12T09:56:05.852000+00:00`.
 /datasets/{dataset_id}/
 ├── @source_path
 ├── @relative_path           relative to the project file's folder, "/" separators; "" when not computable (display data)
+├── @label                   the user's short name for the dataset; "" for none (display data, engiNIR 1.6; missing reads "")
 ├── @source_format
 ├── @source_modality
 ├── @cube_shape              (n_frames, height, n_bands)

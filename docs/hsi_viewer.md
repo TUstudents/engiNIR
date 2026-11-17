@@ -67,15 +67,17 @@ values:
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│ Project Browser / Inspector │ Workspace content host  │ Sensor /  │
-│ left dock stack             │ Explore/Model/Predict   │ Spatial   │
-│                             │ primary page            │ right docks│
-├─────────────────────────────┼─────────────────────────┼───────────┤
-│ Histogram / RAW (collapsed) │                         │           │
-├─────────────────────────────┴─────────────────────────┴───────────┤
-│ Controls dock — Explore / Model / Predict tabs                     │
+│ Menus: File Edit View Project ROI Model Predict Tools Help         │
+│ Workflow: Data → ROIs → Values → Model → Predict                   │
+├──────────────┬────────────────────────────────┬─────────┬──────────┤
+│ Project      │ Workspace pages                │ Sensor /│ Settings │
+│ (tree)       │                                │ Spatial │ View/Fit/│
+├──────────────┤ Explore / Model / Predict      │ (Data   │Prediction│
+│ Properties   │                                │  step)  │ settings │
+├──────────────┴────────────────────────────────┴─────────┴──────────┤
+│ Checks | ROI table | Models | Log  (tabs)                          │
 ├────────────────────────────────────────────────────────────────────┤
-│ Log dock (collapsed by default)                                    │
+│ Status strip                                                       │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -167,18 +169,20 @@ spatial navigation reference.
   `band_changed` (new band image)
 - **Click** → emits `frame_pick(int)`, `row_pick(int)`
 
-### Sensor frame panel (internal class `SensorPanel`, right dock, top)
+### Sensor frame panel (internal class `SensorPanel`, Dataset page, beside the image)
 
 Displays the processed current frame: `current_frame_image()` — height ×
-n_bands.  Yellow crosshairs mark the active `(row, band)`; drawn with pyqtgraph.
+n_bands, along wavelengths when the spectral axis is nm. Crosshairs mark the
+active `(row, band)`; drawn with pyqtgraph; its rows follow the image's.
 
 - Updates on: `frame_changed`, `units_changed` (full rebuild)
 - **Click** → emits `row_pick(int)`, `band_pick(int)`
 
-### SpatialProfilePanel (right dock, middle)
+### SpatialProfilePanel (Dataset page, beside the sensor frame)
 
-Plots processed `intensity vs. row` for the selected band.  A red vertical
-marker shows the active row and can be dragged.
+Plots the processed value of each row for the selected band, upright (rows
+down, as in the image; drawn with pyqtgraph, rows follow the image's). A red
+horizontal line shows the active row and can be dragged.
 
 - Updates on: `frame_changed`, `band_changed`, `units_changed` (full rebuild);
   `row_changed` (marker only)
@@ -241,15 +245,12 @@ When no dataset is attached, Explore keeps the shell open in explicit
 project-only mode: the canvas and plot docks show `No dataset attached`
 empty states and ROI creation stays disabled until a real dataset is attached.
 
-### Project group
+### Project
 
-| Button | Action |
-|---|---|
-| **New** | Create a new empty HDF5 project file |
-| **Open** | Load an existing project (warns if ROI source files don't match the current cube) |
-
-The status label below the buttons shows the project filename and ROI count.
-The project group also shows an autosave hint because project-backed changes
+**File > New Project...** creates an empty HDF5 project file and **File >
+Open Project...** loads one (it warns if ROI source files don't match the
+current cube). The View settings have no project buttons: the menus hold
+them, and the status strip names the open project. Project-backed changes
 are persisted eagerly as they are made.
 All persisted calibration ROIs in the open project are drawn as magenta rectangles
 on the false-color canvas.
@@ -313,9 +314,13 @@ obvious.
 |---|---|
 | **Target...** | Select one existing target or define a new target |
 | **Target Values...** | Open the ROI table on the selected target: type, clear or paste the values of all ROIs |
-| **Fit Model** | One dialog: target, signal unit, preprocessing (prefilled from the Explore preview), model, components, validation, and the labeled ROIs per dataset; stores the grouped v3 `ModelRun` |
+| **Fit Model** | Fits with the Fit settings (Data, Preprocessing, Bands, Model, Validation, Fitting; foldable parts in the Settings dock); stores the grouped v3 `ModelRun` |
+| **Load Model Settings** | Shows the selected model's settings in the Fit settings again, discarding edits |
 
-The Modeling section operates from project state. The fit dialog finds the
+In the window, **Target...** and **Target Values...** are menu items (Model
+menu); the Fit settings choose the target in their Data part.
+
+The Modeling section operates from project state. The Fit settings find the
 calibration set of all ROIs with a value for the target (`resolve_sample_set`,
 the rule `Project.fit` uses): an equal stored calibration set, recipe and
 `SignalDomainContract` are reused, new ones are stored only together with
@@ -513,7 +518,7 @@ between batches.
 
 **Add ROI grid** (`EDAView.open_roi_grid_dialog`, `_roi_grid.RoiGridDialog`)
 lays out equal ROIs by number, size, origin and spacing with
-`enginir._workflow.roi_grid`, starting from **Options > ROI Grid Defaults**
+`enginir._workflow.roi_grid`, starting from **Tools > ROI Grid Defaults**
 (`_grid_settings.GridDefaults`, user settings) every time.
 It previews them on the canvas (`FalseColourCanvas.set_grid_preview`) and
 stores them through `ProjectState.add_rois` → `Project.save_rois`, all or none.

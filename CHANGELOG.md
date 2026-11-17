@@ -1,6 +1,151 @@
 # Changelog
 
-## Unreleased
+## 1.6.0 (2026-11-17)
+
+The guided viewer: one window for every step with a workflow strip, checks
+and verdicts that say what a project needs next, fit settings in a dock, a
+light theme and preferences. Everything of 1.6.0rc3 (below) is part of
+1.6.0; the library API is unchanged apart from the additions listed there.
+Upgrading from 1.5.x needs nothing: projects open as they are.
+
+Changes since 1.6.0rc3:
+
+### Changed
+
+- **Example project:** it opens without open checks. Each calibration scan
+  holds tablets with different numbers of layers (a scan is not a value),
+  each tablet is its own sample, a binder content varies from tablet to
+  tablet, and the model "PLS 2 LV" (no SNV: the synthetic spectra have no
+  scatter) is rated good. An example project of 1.6.0rc3 is created again
+  when it is opened.
+- **Project tree:** items show names, sorted (ROIs by dataset, then name:
+  "T2" before "T10"), instead of names with ids; ids are in the tooltip and
+  in Properties. Reference corrections show their dataset and what they are
+  ("tablets_1.h5: dark/white references").
+- **Dataset page:** the Sensor Frame and the Spatial Profile moved from
+  the right-hand docks, where they narrowed the settings, into the page
+  beside the Spatial image. The three share the scan's rows (zoom, pan and
+  the selected row line up); the Spatial Profile is upright, and the Sensor
+  Frame shows wavelengths when the spectral axis is nm. View > Sensor Frame
+  and Spatial Profile show or hide them.
+- **Predicted vs target value:** the statistics sit in the corner (top left
+  or bottom right) where they cover no point, on a background; the axis
+  grows when no corner is free.
+
+### Fixed
+
+- **"Above white" warning:** the share of values above white counted the
+  frames the white reference was taken from, half of whose values lie above
+  their own mean, so every scan with embedded references warned (1.2 % for
+  two white frames of 80). Those frames are left out now.
+- **Leaving Values by the Model or Predict tab:** the tall ROI table stayed
+  in front (only the workflow strip put it back). Now Model brings Models to
+  the front and Predict brings Checks, each with the page's height.
+- **Preferences > Data and paths:** the Projects folder was not used, and
+  the welcome page's dialogs ignored the Datasets folder. Every project and
+  dataset file dialog now starts in its folder (unless it is missing). The
+  page shows the drive mapping applied to stored paths instead of "nothing
+  to set here".
+
+## 1.6.0rc3 (2026-11-16)
+
+Release candidate of the guided viewer: one window for every step with a
+workflow strip, checks and verdicts that say what a project needs next,
+fit settings in a dock, a light theme and preferences. For trying before
+1.6.0; the library API is unchanged apart from the additions below.
+
+### Added
+
+- **Checks and verdicts.** `Project.checks()` lists, per step of the
+  workflow, what is done and what needs attention: dataset files that are
+  not found, ROIs without a value, a value that differs within its sample,
+  an optimistic cross-validation, a model whose ROIs or values changed
+  since the fit, calibration pixels far from the model. Each check names
+  what it refers to and, where there is one, the fix. `Model.verdict()`
+  gives a model one level (good, usable with care, not usable) with its
+  reasons. Both read the project and change nothing.
+- **A guided viewer.** The window is a desktop program in one layout for
+  every step: menus hold every action (no toolbar); the **workflow strip**
+  Data → ROIs → Values → Model → Predict shows the order, where you are
+  and what is done; open checks show as a number in a round badge. The
+  Model page's fit summary starts with the verdict of the shown model;
+  the bottom panel has **Checks** (every check with its fix; passed checks
+  fold into one row),
+  the **ROI table**, **Models** (figures of merit and verdict per model)
+  and the **Log**. Built for 1920 × 1080, complete at 1536 × 864.
+- **Fit settings in a dock.** Every fit option sits in the Settings dock on
+  the right instead of a dialog: **Fit Model** (F5) fits with what it
+  shows and stays in view under the settings. The settings are in parts
+  that fold to a one-line summary (Data, Preprocessing, Bands, Model,
+  Validation, Fitting), show the selected model's settings until they are
+  edited, and a line says when they changed; **Load Model Settings** shows
+  the model's settings again. View and Prediction settings sit in the same
+  place for their steps.
+- **Said once.** A model's fold warning is in the Checks, not also in the
+  fit summary and Properties; the figures of merit are on the Model page,
+  not also in Properties; the View settings have no Project buttons (File
+  menu). No bar above the pages repeats the first check.
+- **ROI table:** the bottom panel takes about 40 % of the window while the
+  ROI table is in front, and its rows are compact.
+- **Example project:** five synthetic tablet scans with a fitted model,
+  created on first use (welcome screen, File > Open Example Project).
+- **Preferences** (Tools > Preferences): theme including follow the system,
+  interface scale for small screens, plot help, start folders,
+  defaults of the Fit and Prediction settings, export resolution, threads
+  of a fit, log file level, the keyboard shortcuts.
+- **Dataset names:** Project > Name Dataset... gives a dataset a short name
+  shown instead of its file name (`Dataset.set_label`; stored as display
+  data, projects without it open as before).
+- Empty pages invite the next action; values above the white reference
+  are counted and shown under Signal; plot titles that do not fit end in
+  an ellipsis with the whole title as tooltip.
+
+### Changed
+
+- **One number format:** figures of merit (RMSECV, RMSEE, bias, R², Q²,
+  RPD) have four significant digits everywhere: the verdict sentence of
+  `Model.verdict()` (before: RMSECV with three, Q² and RPD with two
+  decimals), the Models table, the fit summary and the plots.
+- A dimensionless target unit (`1`) is no longer printed in the viewer
+  ("Layers", not "Layers (1)").
+- **Status strip:** it names what the step works on; frame, row and band
+  only on the Dataset page, the model in the Model step.
+- **Viewer details:** the project tree counts its objects and has icons;
+  Properties is a table; ROI names on the image have a plate behind them;
+  an empty plot shows its message without axes; plot headers use line
+  icons; the ROI mosaic puts its blocks beside each other in a wide view
+  and no longer cuts the labels of narrow tiles; the workflow strip names
+  the project and the model shown.
+- **New viewer palette, dark and light.** All colours come from one table
+  of named colours: the orange of the engiNIR icon as the accent (current
+  tab, default button, selection, image crosshair, ROI outlines), cool
+  colours for data, viridis for values and a heat scale from the icon's
+  bands for distances and uncertainty. Square, compact controls. Text meets
+  WCAG AA contrast in both themes (tested). Predictions outside the
+  calibration range are violet (below) and pink (above).
+
+### Fixed
+
+- **Closing the viewer while it loads:** a background job still reading the
+  project file (ROI images, spectra) when the program ended could crash it
+  or make it hang. engiNIR now lets running jobs finish, for up to 10
+  seconds, before it exits.
+- **Model step after opening a project:** a project whose models of one
+  target use different preprocessing could show no model until one was
+  picked in the project tree. The Model step now shows the selected model,
+  else the active one, else the latest fitted, of the selected target.
+- **Project ROIs, mean spectra:** after the shown bands changed (a band
+  selection in Explore, or a fit with bands), the plot could pair the new
+  band axis with spectra still computed for the old one and log "Plot
+  table columns differ in length". It now uses the axis of its spectra.
+- Files without wavelengths no longer offer or show "nm": the spectral axis
+  is the band number.
+- Opening a dataset from the Project tree shows its image; Predict names the
+  prediction ROIs waiting and the model a prediction would use, instead of
+  "none".
+- A refit reported values as changed that had not changed, when they are
+  not exact in 32-bit precision (for example 12/7): the comparison with the
+  values the model was fitted with now allows for the stored precision.
 
 ## 1.5.2 (2026-11-13)
 

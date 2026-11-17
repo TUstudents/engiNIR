@@ -29,7 +29,7 @@ hide warnings.
   code, docs or this file disagree with a contract, the contract wins; change
   a contract only deliberately and in the same change as the code.
 - `docs/contract_coverage.md` maps every contract rule to its implementation
-  and tests, with the gap register (`G01`–`G21`). Update it when you close or
+  and tests, with the gap register (`G01`–`G34`). Update it when you close or
   open a gap.
 - `docs/hdf5_format.md` documents the project file layout.
 
@@ -51,6 +51,7 @@ bands)`).
 | `modeling/`, `prediction/` | calibration sets and model fitting; chunked prediction |
 | `visualization/` | matplotlib plots |
 | `viewer/` | PyQt6 + pyqtgraph viewer; see `docs/viewer_architecture.md` |
+| `_guidance.py` | `Project.checks()`, `Model.checks()`, `Model.verdict()`: what a project needs next, as data (checks with fixes, verdict levels); the viewer shows them and judges nothing itself |
 | `_checks.py`, `_logging.py` | validators with `log_and_raise`; Loguru setup |
 
 Boundaries:

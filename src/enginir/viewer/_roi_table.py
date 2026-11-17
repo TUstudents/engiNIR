@@ -46,6 +46,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .._logging import get_logger
+from ._ui_helpers import with_unit
 from ._state import ProjectState
 from ._theme import secondary_text_style
 
@@ -259,7 +260,7 @@ class RoiTableModel(QAbstractTableModel):
         target = self.project_state.targets.get(self.target_id(section) or "")
         if target is None:
             return None
-        return f"{target.name} ({target.unit})" if target.unit else target.name
+        return with_unit(target.name, target.unit)
 
     def data(self, index: ModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
         if not index.isValid():
@@ -469,6 +470,9 @@ class RoiTableWidget(QWidget):
         header = self.view.horizontalHeader()
         if header is not None:
             header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        rows = self.view.verticalHeader()
+        if rows is not None:  # compact rows, as the Checks and Models tables: more ROIs in view
+            rows.setDefaultSectionSize(24)
         # A header click sorts (numbers by value); the indicator starts unset, so the rows
         # keep their data file and name order until then.
         if header is not None:

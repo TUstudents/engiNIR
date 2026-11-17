@@ -265,6 +265,17 @@ class ProjectState(QObject):
         self.datasets_changed.emit()
         self.saved.emit(f"Dataset file '{os.path.basename(path)}' located")
 
+    def set_dataset_label(self, dataset_id: str, label: str) -> None:
+        """Give a dataset a short display name (``""``: its file name)."""
+        project = self._require_project("set_dataset_label")
+        ref = self.datasets.get(dataset_id)
+        if ref is None:
+            log_and_raise("Unknown dataset '{}'", dataset_id, error=KeyError)
+        Dataset(project, ref).set_label(label)
+        self._written()
+        self.datasets_changed.emit()
+        self.saved.emit(f"Dataset named '{label}'" if label else "Dataset name removed")
+
     def moved_data_files(self, old_path: str, new_path: str) -> dict[str, str]:
         """Data files not found this session that exist where ``old_path`` → ``new_path`` puts them.
 
@@ -862,6 +873,8 @@ class ViewerState(QObject):
         self.x_spectral_unit = "nm"
         self.dark_ref = None
         self.white_ref = None
+        #: Frames of this file that show the references, ``(first, last)`` included.
+        self.reference_frames: tuple[tuple[int, int], ...] = ()
         self.preprocess_filter = "none"
         self.sg_window = 11
         self.sg_polyorder = 2
@@ -961,14 +974,20 @@ class ViewerState(QObject):
 
     def set_calibration(self, *, black_level: float, white_level: float,
                         dark_ref: np.ndarray | None = None,
-                        white_ref: np.ndarray | None = None) -> None:
-        """Convert with these detector levels and references (one units_changed signal)."""
+                        white_ref: np.ndarray | None = None,
+                        reference_frames: tuple[tuple[int, int], ...] = ()) -> None:
+        """Convert with these detector levels and references (one units_changed signal).
+
+        ``reference_frames`` are the frames of this file the references were taken
+        from; they are not counted as sample values above white.
+        """
         if not np.isfinite(float(black_level)) or not np.isfinite(float(white_level)):
             log_and_raise("black_level and white_level must be finite")
         self.black_level = float(black_level)
         self.white_level = float(white_level)
         self.dark_ref = None if dark_ref is None else self._prepare_ref(dark_ref, "dark_ref")
         self.white_ref = None if white_ref is None else self._prepare_ref(white_ref, "white_ref")
+        self.reference_frames = tuple(reference_frames)
         self._image_cache = None
         self.units_changed.emit()
 
@@ -1136,6 +1155,36 @@ class ViewerState(QObject):
         explicitly requested.
         """
         return self.y_unit
+
+    def reflectance_clip_share(self) -> float | None:
+        """The share of the shown file's values above white, clipped to reflectance 1.
+
+        ``None`` for corrected files. Counted once per file and references, in
+        chunks of frames (review A8: the clipping was only in the log). The frames
+        the references were taken from are left out: half of a white reference's
+        own values lie above its mean.
+        """
+        if self.calibrated or not self.has_dataset:
+            return None
+        white = self.white_ref if (self.dark_ref is not None and self.white_ref is not None) \
+            else None
+        key = (id(self.cube), None if white is None else id(white), self.white_level,
+               self.reference_frames)
+        cached = getattr(self, "_clip_share_cache", None)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        limit = np.asarray(white if white is not None else self.white_level)
+        sample = np.ones(self.n_frames, dtype=bool)
+        for first, last in self.reference_frames:
+            sample[max(first, 0):last + 1] = False
+        above = counted = 0
+        for start in range(0, self.n_frames, 64):
+            chunk = self.cube[start:start + 64][sample[start:start + 64]]
+            above += int(np.count_nonzero(chunk > limit))
+            counted += chunk.size
+        share = above / float(counted) if counted else 0.0
+        self._clip_share_cache = (key, share)
+        return share
 
     def _to_reflectance(self, raw: np.ndarray) -> np.ndarray:
         """Convert one ``(height, n_bands)`` frame to reflectance like model training does.
@@ -1348,6 +1397,17 @@ class ViewerState(QObject):
         if self.x_spatial_unit == "mm":
             return rows * self.pixel_size_mm
         return rows
+
+    @property
+    def has_wavelengths(self) -> bool:
+        """Whether the shown file has a wavelength axis (not band indices 0 … n − 1)."""
+        values = np.asarray(self.wavelengths, dtype=float).ravel()
+        return not (values.size > 1 and np.array_equal(values, np.arange(values.size)))
+
+    def spectral_axis_label(self) -> str:
+        """``Wavelength (nm)`` or ``Band``: never "nm" for a file without wavelengths."""
+        return ("Wavelength (nm)" if self.x_spectral_unit == "nm" and self.has_wavelengths
+                else "Band")
 
     def spectral_x_axis(self) -> np.ndarray:
         if not self.has_dataset:

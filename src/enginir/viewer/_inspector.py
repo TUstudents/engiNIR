@@ -6,7 +6,9 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
+import html
+
+from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtWidgets import QLabel, QFrame, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from typing import Any
@@ -18,6 +20,7 @@ from ..io.project_store import load_model_run_artifact_refs
 from ..modeling import stored_hyperparameters
 from ..project import ModelRun
 from ._state import ProjectState
+from ._theme import tokens
 
 __all__ = ["ProjectInspector", "fit_summary"]
 
@@ -92,6 +95,51 @@ def fit_summary(model_run: ModelRun, roi_names: dict[str, str],
     return lines
 
 
+#: A line "Key: value" is a table row when its key is at most this long (a sentence
+#: with a colon stays a sentence).
+_MAX_KEY_CHARS = 28
+
+
+class _PropertiesLabel(QLabel):
+    """The lines "Key: value" as a two-column table: keys muted, values aligned.
+
+    ``text()`` stays the plain lines given to ``setText`` (what tests and
+    copies read); only the display is a table. Lines without a key span both
+    columns.
+    """
+
+    def __init__(self, text: str = "") -> None:
+        super().__init__()
+        self._plain = ""
+        self.setTextFormat(Qt.TextFormat.RichText)
+        self.setText(text)
+
+    def setText(self, a0: str | None) -> None:  # noqa: N802 (Qt API)
+        self._plain = a0 or ""
+        super().setText(self._html())
+
+    def text(self) -> str:
+        return self._plain
+
+    def _html(self) -> str:
+        muted = tokens()["text_secondary"]
+        rows = []
+        for line in self._plain.split("\n"):
+            key, separator, value = line.partition(": ")
+            if separator and 0 < len(key) <= _MAX_KEY_CHARS and value:
+                rows.append(f'<tr><td style="color:{muted}; padding-right:8px;">'
+                            f'{html.escape(key)}</td><td>{html.escape(value)}</td></tr>')
+            else:
+                rows.append(f'<tr><td colspan="2">{html.escape(line) or "&nbsp;"}</td></tr>')
+        return f'<table cellspacing="0" cellpadding="1">{"".join(rows)}</table>'
+
+    def changeEvent(self, a0: QEvent | None) -> None:  # noqa: N802 (Qt API)
+        super().changeEvent(a0)
+        if a0 is not None and a0.type() == QEvent.Type.PaletteChange \
+                and hasattr(self, "_plain"):
+            super().setText(self._html())
+
+
 class ProjectInspector(QWidget):
     """Simple selection-driven inspector for project browser objects."""
 
@@ -132,7 +180,9 @@ class ProjectInspector(QWidget):
         content_layout.setSpacing(6)
 
         self.title_label = QLabel("Inspector")
-        self.body_label = QLabel("Select a project object to inspect details.")
+        self.title_label.setObjectName("PropertiesTitle")
+        self.title_label.setWordWrap(True)
+        self.body_label = _PropertiesLabel("Select a project object to inspect details.")
         self.body_label.setWordWrap(True)
         self.body_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.body_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)

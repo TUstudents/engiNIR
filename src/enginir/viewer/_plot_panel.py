@@ -27,7 +27,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.colors import to_hex
 from matplotlib.figure import Figure
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import QEvent, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QGuiApplication, QImage, QMouseEvent, QShowEvent
 from PyQt6.QtWidgets import (
     QFileDialog,
@@ -45,6 +45,7 @@ from PyQt6.QtWidgets import (
 from .. import __version__
 from .._checks import log_and_raise
 from .._logging import get_logger
+from ._icons import icon
 from ._theme import panel_colors, print_colors
 from ._ui_helpers import style_axes
 
@@ -190,7 +191,11 @@ class PlotSpec:
 
 
 def draw_placeholder(ax: Axes, message: str, colors: Mapping[str, str]) -> None:
-    """Write an empty-state message in the middle of ``ax``."""
+    """Write an empty-state message in the middle of ``ax``, without axes.
+
+    Empty axes from 0 to 1 behind the message look like a plot without data.
+    """
+    ax.set_axis_off()
     ax.text(0.5, 0.5, message, transform=ax.transAxes, ha="center", va="center",
             color=colors["fg"], fontsize=8, wrap=True)
 
@@ -214,6 +219,41 @@ class PlotSource(Protocol):
     def print_figure(self) -> Figure:
         """A new figure of the current view in :func:`print_colors`."""
         ...
+
+
+class _ElidedLabel(QLabel):
+    """A one-line label that ends in "…" when it is too narrow, with the whole text as tooltip.
+
+    Plot titles were cut off mid-word in narrow plot slots (review A3).
+    """
+
+    def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._full = ""
+        self.setMinimumWidth(40)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.setText(text)
+
+    def setText(self, a0: str | None) -> None:  # noqa: N802 (Qt API)
+        self._full = a0 or ""
+        self.setToolTip(self._full)
+        self._elide()
+
+    def text(self) -> str:
+        return self._full
+
+    @property
+    def elided(self) -> bool:
+        return super().text() != self._full
+
+    def resizeEvent(self, a0: Any) -> None:  # noqa: N802 (Qt API)
+        super().resizeEvent(a0)
+        self._elide()
+
+    def _elide(self) -> None:
+        metrics = self.fontMetrics()
+        shown = metrics.elidedText(self._full, Qt.TextElideMode.ElideRight, max(0, self.width()))
+        QLabel.setText(self, shown)
 
 
 class PlotFrame(QWidget):
@@ -250,9 +290,9 @@ class PlotFrame(QWidget):
         self._header_layout = QHBoxLayout(self._header)
         self._header_layout.setContentsMargins(6, 0, 2, 0)
         self._header_layout.setSpacing(2)
-        self._title = QLabel(title)
+        self._title = _ElidedLabel(title)
         self._title.setStyleSheet("font-weight: 600;")
-        self._max_button = self._header_button("")
+        self._max_button = self._header_button("arrows-maximize")
         self._max_button.clicked.connect(self.maximize_toggled.emit)
         self._menu = QMenu(self)
         self._menu.setToolTipsVisible(True)
@@ -261,7 +301,7 @@ class PlotFrame(QWidget):
         self._svg_action = self._add_action("Save SVG...", lambda: self._save_image(".svg"))
         self._csv_action = self._add_action("Export CSV...", self._save_csv)
         self._copy_action = self._add_action("Copy image", self._copy_image)
-        menu_button = self._header_button("⋯")
+        menu_button = self._header_button("dots")
         menu_button.setToolTip("Export")
         menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu_button.setMenu(self._menu)
@@ -269,7 +309,7 @@ class PlotFrame(QWidget):
         self._header_layout.addWidget(self._title, 1)
         self._help_button: QToolButton | None = None
         if help_text:
-            self._help_button = self._header_button("?")
+            self._help_button = self._header_button("help")
             self._help_button.setToolTip(help_text)
             self._help_button.clicked.connect(self.show_help)
             self._header_layout.addWidget(self._help_button)
@@ -305,6 +345,11 @@ class PlotFrame(QWidget):
     def set_title(self, title: str) -> None:
         self._title.setText(title)
 
+    @property
+    def title_elided(self) -> bool:
+        """Whether the header is too narrow for the whole title (it ends in "…")."""
+        return self._title.elided
+
     def take_header(self) -> QWidget:
         """Remove the header from the frame, e.g. to use it as a dock title bar."""
         layout = self.layout()
@@ -323,19 +368,31 @@ class PlotFrame(QWidget):
 
     def add_close_button(self, close: Callable[[], None]) -> None:
         """Add a close control (for a frame used as a dock title bar)."""
-        button = self._header_button("×")
+        button = self._header_button("x")
         button.setToolTip("Close")
         button.clicked.connect(lambda _checked=False: close())
         self._header_layout.addWidget(button)
 
-    def _header_button(self, text: str) -> QToolButton:
+    def _header_button(self, icon_name: str) -> QToolButton:
+        """A header control with a line icon in the theme's colour."""
         button = QToolButton()
         button.setAutoRaise(True)
-        button.setText(text)
+        button.setProperty("icon_name", icon_name)
+        button.setIcon(icon(icon_name))
+        button.setIconSize(QSize(_HEADER_BUTTON - 6, _HEADER_BUTTON - 6))
         button.setFixedSize(_HEADER_BUTTON, _HEADER_BUTTON)
         button.setStyleSheet("QToolButton { padding: 0px; margin: 0px; }"
                              "QToolButton::menu-indicator { image: none; width: 0px; }")
         return button
+
+    def changeEvent(self, a0: QEvent | None) -> None:  # noqa: N802 (Qt API)
+        """The header icons follow the theme."""
+        super().changeEvent(a0)
+        if a0 is not None and a0.type() == QEvent.Type.PaletteChange:
+            for button in self._header.findChildren(QToolButton):
+                name = button.property("icon_name")
+                if name:
+                    button.setIcon(icon(str(name)))
 
     @property
     def is_maximized(self) -> bool:
@@ -344,7 +401,9 @@ class PlotFrame(QWidget):
     def set_maximized(self, maximized: bool) -> None:
         """Show the maximize or the restore control (the owner does the layout)."""
         self._maximized = maximized
-        self._max_button.setText("⤡" if maximized else "⤢")
+        name = "arrows-minimize" if maximized else "arrows-maximize"
+        self._max_button.setProperty("icon_name", name)
+        self._max_button.setIcon(icon(name))
         self._max_button.setToolTip("Restore (Esc)" if maximized else "Maximize")
 
     # ------------------------------------------------------------------
@@ -369,7 +428,7 @@ class PlotFrame(QWidget):
         table = self.table()
         return _NO_DATA if table is None or table.is_empty else ""
 
-    def export_image(self, path: str | Path, *, dpi: int = _IMAGE_DPI) -> None:
+    def export_image(self, path: str | Path, *, dpi: int | None = None) -> None:
         """Save the plot as PNG or SVG (by suffix) in the print style."""
         path = Path(path)
         if path.suffix.lower() not in _IMAGE_SUFFIXES:
@@ -377,6 +436,10 @@ class PlotFrame(QWidget):
                           " or ".join(_IMAGE_SUFFIXES), path.suffix)
         self._require_data()
         fig = self.print_figure()
+        if dpi is None:
+            from ._preferences import load
+
+            dpi = load().export_dpi or _IMAGE_DPI
         fig.savefig(path, dpi=dpi, facecolor=fig.get_facecolor())
         logger.info("Saved plot '{}' to {}", self.plot_id, path)
 
@@ -626,24 +689,25 @@ def print_copy(fig: Figure) -> Figure:
     """A copy of a screen figure in the print colors, for figures drawn in place.
 
     Background, axes, labels and texts take :func:`print_colors`; artists drawn
-    in the screen accent color take the print accent. Data colors (images,
-    colormaps, crosshairs) are kept.
+    in a screen series colour take the print one. Images and colour maps are
+    kept.
     """
     screen, printed = panel_colors(), print_colors()
     copy = pickle.loads(pickle.dumps(fig))
     FigureCanvasAgg(copy)
     copy.set_facecolor(printed["bg"])
-    accent = to_hex(screen["accent"])
+    swap = {to_hex(screen[key]): printed[key] for key in screen
+            if key == "accent" or key.startswith("series")}
     for ax in copy.axes:
         style_axes(ax, printed)
         for text in ax.texts:
             text.set_color(printed["fg"])
         for line in ax.lines:
-            if to_hex(line.get_color()) == accent:
-                line.set_color(printed["accent"])
+            line.set_color(swap.get(to_hex(line.get_color()), line.get_color()))
         for patch in ax.patches:
-            if to_hex(patch.get_facecolor()) == accent:
-                patch.set_facecolor(printed["accent"])
+            face = to_hex(patch.get_facecolor())
+            if face in swap:
+                patch.set_facecolor(swap[face])
     _tight_layout(copy)
     return copy
 

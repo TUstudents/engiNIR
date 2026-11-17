@@ -50,6 +50,8 @@ def _frames(viewer) -> dict:
     return {
         "explore.image": viewer._canvas_frame,
         "explore.spectrum": viewer._spectrum_panel,
+        "explore.sensor": viewer._sensor_frame,
+        "explore.spatial": viewer._spatial_frame,
         **{frame.plot_id: frame for frame in viewer._dock_frames.values()},
     }
 
@@ -129,7 +131,9 @@ def test_a_maximized_dock_covers_the_window_and_restores(viewer, qapp):
     from PyQt6.QtCore import Qt
     from PyQt6.QtTest import QTest
 
-    dock, frame = viewer._sensor_dock, viewer._dock_frames[viewer._sensor_dock]
+    dock, frame = viewer._hist_dock, viewer._dock_frames[viewer._hist_dock]
+    dock.show()
+    qapp.processEvents()
     docked_width = dock.width()
     frame.maximize_toggled.emit()
     qapp.processEvents()
@@ -174,6 +178,66 @@ def test_the_spectrum_maximizes_within_the_explore_page(viewer, qapp):
     assert not image.is_maximized and spectrum.isVisible()
 
 
+def test_sensor_frame_and_spatial_profile_share_the_image_rows(viewer, qapp):
+    """They sit beside the Spatial image on the page, and one row lines up in all three."""
+    image, sensor, spatial = viewer._canvas, viewer._sensor, viewer._spatial
+    assert viewer._sensor_frame.parent() is viewer._rows_splitter
+    assert viewer._spatial_frame.parent() is viewer._rows_splitter
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QDockWidget
+
+    right = [dock for dock in viewer.findChildren(QDockWidget) if dock.isVisible()
+             and viewer.dockWidgetArea(dock) == Qt.DockWidgetArea.RightDockWidgetArea]
+    assert right == [viewer._controls_dock], "the settings have the right side to themselves"
+    image.view_box.setYRange(2.0, 6.0, padding=0)
+    qapp.processEvents()
+    for panel in (sensor, spatial):
+        low, high = panel.view_box.viewRange()[1]
+        assert (low, high) == pytest.approx((2.0, 6.0)), "zoom follows the image's rows"
+
+    # Upright: the value along x, the row down; the red line is the row.
+    x, y = spatial._curve.getData()
+    np.testing.assert_allclose(x, viewer.state.get_spatial_profile(viewer.state.band), rtol=1e-6)
+    np.testing.assert_array_equal(y, np.arange(viewer.state.height))
+    viewer.state.set_row(5)
+    assert spatial._marker.value() == 5
+    spatial._marker.setValue(2.2)  # dragged
+    assert viewer.state.row == 2
+
+
+def test_the_sensor_frame_shows_wavelengths_like_the_spectral_profile(viewer, qapp):
+    state, sensor = viewer.state, viewer._sensor
+    state.set_x_spectral_unit("nm")
+    qapp.processEvents()
+    assert sensor._x_label == "Wavelength (nm)"
+    left, width = sensor._column_span()
+    assert left < state.wavelengths[0] < state.wavelengths[-1] < left + width
+    assert sensor._vline.value() == pytest.approx(state.wavelengths[state.band])
+    assert sensor._column_at(float(state.wavelengths[2]) + 0.1) == 2, "a click picks the band"
+    state.set_x_spectral_unit("band")
+    qapp.processEvents()
+    assert sensor._x_label == "Band" and sensor._column_span() == (-0.5, state.n_bands)
+
+
+def test_the_page_plots_close_maximize_and_come_back_from_the_view_menu(viewer, qapp):
+    sensor, spatial = viewer._sensor_frame, viewer._spatial_frame
+    action = viewer._page_plot_actions["sensor"]
+    viewer._on_page_plot_visibility_action("sensor", False)  # the header's close button
+    qapp.processEvents()
+    assert not sensor.isVisible() and spatial.isVisible() and not action.isChecked()
+    action.trigger()
+    qapp.processEvents()
+    assert sensor.isVisible() and action.isChecked()
+
+    sensor.maximize_toggled.emit()
+    qapp.processEvents()
+    assert sensor.is_maximized and not viewer._canvas_frame.isVisible() \
+        and not spatial.isVisible() and not viewer._spectrum_panel.isVisible()
+    viewer._on_explore_escape()
+    qapp.processEvents()
+    assert not sensor.is_maximized and viewer._canvas_frame.isVisible() and spatial.isVisible()
+
+
 def test_raw_count_axes_name_the_signal_in_full(viewer, qapp):
     """Terminology contract: the y axis of raw data says "Raw counts (DN)", never "DN" alone."""
     from enginir.viewer._panels import SpatialProfilePanel
@@ -183,4 +247,4 @@ def test_raw_count_axes_name_the_signal_in_full(viewer, qapp):
     assert panels
     qapp.processEvents()
     for panel in panels:
-        assert panel._ax.get_ylabel() == "Raw counts (DN)"
+        assert panel.axis_labels()[0] == "Raw counts (DN)"

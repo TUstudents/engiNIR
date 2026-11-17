@@ -188,7 +188,7 @@ the recipe is fitted inside every fold, so the folds keep their own pass
 over the pixels; they still use the kernel engine.
 
 The model stores its algorithm (``hyperparameters/algorithm``); a refit and
-**Fit Again** use it. Models from engiNIR 1.5 have none and were fitted by
+**Load Model Settings** use it. Models from engiNIR 1.5 have none and were fitted by
 NIPALS (PLS) or the full SVD (PCR), which is what a refit uses for them.
 On machines that share their cores with other work, the engine's passes
 use half the logical CPUs; set ``ENGINIR_BLAS_THREADS`` to change that.

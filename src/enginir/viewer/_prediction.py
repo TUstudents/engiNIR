@@ -11,7 +11,6 @@ import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.colorbar import Colorbar
-from matplotlib import colormaps
 from matplotlib.colors import ListedColormap
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
@@ -46,13 +45,14 @@ from ..prediction import (
 )
 from ..preprocessing import PreprocessingRecipe
 from ..project import CalibrationSpec
-from ._predict_dialogs import _MODEL_COLORS, ModelChoice, PredictMapDialog, PredictRoisDialog
+from ._predict_dialogs import ModelChoice, PredictMapDialog, PredictRoisDialog
 from ._jobs import BackgroundWorker, BusyStatusWidget, start_background_job
 from ._state import ProjectState
-from ._theme import GUIDE_COLOR, panel_colors, secondary_text_style
+from ._theme import (GUIDE_COLOR, SERIES, heat_colormap, panel_colors, secondary_text_style,
+                     value_colormap)
 from ._plot_panel import PlotColumn, PlotSpec, PlotTable, draw_placeholder, print_copy
 from ._plot_registry import register_plot
-from ._ui_helpers import LayoutState, maybe_tight_layout, style_axes
+from ._ui_helpers import FlowLayout, LayoutState, maybe_tight_layout, style_axes
 
 logger = get_logger(__name__)
 
@@ -89,7 +89,6 @@ def _array_payload_fingerprint(value: Any) -> tuple[Any, ...]:
 
 
 #: Colours of predictions below and above the map's colour range.
-_BELOW_RANGE, _ABOVE_RANGE = "#4cc3d9", "#ff5f7e"
 
 
 def shown_unit(unit: str) -> str:
@@ -364,19 +363,21 @@ class PredictionMapWidget(QWidget):
         # Each shown pixel covers ``step`` true frames and rows, starting at its index * step.
         extent = (-0.5, arr.shape[1] * step - 0.5, arr.shape[0] * step - 0.5, -0.5)
         limits = None
-        cmap: Any = "viridis" if layer == "Prediction" else "magma"
+        cmap: Any = value_colormap(colors) if layer == "Prediction" else heat_colormap()
         if layer == "Prediction interval":
             # Its own scale over the shown half-widths (they never fall below q · s, so a
             # scale from zero would hide their spread); pixels outside the model marked.
             finite = arr[np.isfinite(arr)]
             limits = ((float(finite.min()), float(finite.max()))
                       if finite.size and finite.max() > finite.min() else None)
-            cmap = colormaps["cividis"].with_extremes(bad=panel_colors()["accent"])
+            cmap = heat_colormap().with_extremes(bad=colors["series0"])
         elif layer == "Prediction":
             # The training range (or the user's limits); values outside get their own colours.
             limits = self.user_limits or payload.get("colour_range")
             if limits is not None and limits[1] > limits[0]:
-                cmap = colormaps["viridis"].with_extremes(under=_BELOW_RANGE, over=_ABOVE_RANGE)
+                # Values outside the range: violet below, pink above (not in the scale).
+                cmap = value_colormap(colors).with_extremes(under=colors["series3"],
+                                                             over=colors["series4"])
             else:
                 limits = None
         self._shown_limits = limits
@@ -412,7 +413,7 @@ class PredictionMapWidget(QWidget):
         if limit is not None:
             above = np.ma.masked_where(~(arr > limit), np.ones_like(arr))
             self._overlay = self._ax.imshow(
-                above, cmap=ListedColormap([panel_colors()["accent"]]), alpha=0.9,
+                above, cmap=ListedColormap([colors["highlight"]]), alpha=0.9,
                 origin="upper", aspect="auto", interpolation="nearest",
                 extent=(-0.5, arr.shape[1] * step - 0.5, arr.shape[0] * step - 0.5, -0.5))
         self._set_title(f"± {100 * INTERVAL_LEVEL:.0f} % prediction interval{unit_suffix}"
@@ -756,7 +757,7 @@ def _histogram_render(fig: Figure, payload: Any, colors: Any) -> None:
     rois = bool(payload.get("series"))
     for index, (name, values) in enumerate(series):
         counts, _ = np.histogram(values, bins=edges)
-        color = _MODEL_COLORS[index % len(_MODEL_COLORS)] if rois else colors["accent"]
+        color = colors[f"series{index % len(SERIES[False])}"] if rois else colors["accent"]
         ax.stairs(counts, edges, fill=len(series) == 1, color=color,
                   alpha=0.85 if len(series) == 1 else 1.0, label=name)
     unit = str(payload.get("target_unit", ""))
@@ -875,7 +876,7 @@ class PredictionView(QWidget):
         self._prediction_status = QLabel("Prediction: none")
         self._readiness_status = QLabel("Ready: fit or load a model.")
 
-        button_row = QHBoxLayout()
+        button_row = FlowLayout()
         self._btn_predict_rois = QToolButton()
         self._btn_predict_rois.setText("Predict ROIs...")
         self._btn_predict_rois.setToolTip(
@@ -897,8 +898,9 @@ class PredictionView(QWidget):
         button_row.addStretch(1)
         layout.addLayout(button_row)
 
-        exclusion_row = QHBoxLayout()
-        self._exclusion_check = QCheckBox("Exclude pixels above the DModXPS limit")
+        exclusion_row = FlowLayout()
+        # Two lines: one line is wider than the Settings column on a laptop screen.
+        self._exclusion_check = QCheckBox("Exclude pixels above the\nDModXPS limit")
         self._exclusion_check.setToolTip(
             "Leave pixels outside the model (glare, exposed substrate, direct reflections) "
             "out of every ROI statistic; recalculated without predicting again")
@@ -922,7 +924,9 @@ class PredictionView(QWidget):
         layout.addLayout(self._build_display_rows())
 
         self._service_status = BusyStatusWidget(idle_text="Service: idle", parent=self)
+        self._service_status.label.setWordWrap(True)
         layout.addWidget(self._service_status)
+        layout.addStretch(1)
         return box
 
     def _build_display_rows(self) -> QGridLayout:
@@ -937,17 +941,19 @@ class PredictionView(QWidget):
                                      "the calibration set), or your own limits (one scale over "
                                      "a series of trays); values outside get their own colors")
         self._colour_low, self._colour_high = QDoubleSpinBox(), QDoubleSpinBox()
-        for spin, prefix in ((self._colour_low, "low "), (self._colour_high, "high ")):
+        for spin in (self._colour_low, self._colour_high):
             spin.setRange(-1e6, 1e6)
             spin.setDecimals(3)
-            spin.setPrefix(prefix)
             spin.setEnabled(False)
             spin.valueChanged.connect(self._on_display_changed)
         self._colour_mode.currentIndexChanged.connect(self._on_colour_mode_changed)
         grid.addWidget(QLabel("Color scale"), 0, 0)
-        grid.addWidget(self._colour_mode, 0, 1)
-        grid.addWidget(self._colour_low, 0, 2)
-        grid.addWidget(self._colour_high, 0, 3)
+        grid.addWidget(self._colour_mode, 0, 1, 1, 2)
+        # One field per row: both in one row cut their numbers in the narrow column.
+        grid.addWidget(QLabel("Low limit"), 1, 0)
+        grid.addWidget(self._colour_low, 1, 1, 1, 2)
+        grid.addWidget(QLabel("High limit"), 2, 0)
+        grid.addWidget(self._colour_high, 2, 1, 1, 2)
         self._show_outlines = QCheckBox("ROI outlines")
         self._show_outlines.setToolTip("Outline the prediction ROIs on the map, with their mean")
         self._grey_removed = QCheckBox("Gray excluded pixels")
@@ -956,9 +962,9 @@ class PredictionView(QWidget):
         for check in (self._show_outlines, self._grey_removed):
             check.setChecked(True)
             check.toggled.connect(self._on_display_changed)
-        grid.addWidget(QLabel("Map"), 1, 0)
-        grid.addWidget(self._show_outlines, 1, 1)
-        grid.addWidget(self._grey_removed, 1, 2, 1, 2)
+        grid.addWidget(QLabel("Map"), 3, 0)
+        grid.addWidget(self._show_outlines, 3, 1, 1, 2)
+        grid.addWidget(self._grey_removed, 4, 1, 1, 2)
         self._histogram_source = QComboBox()
         self._histogram_source.addItem("ROI pixels", "rois")
         self._histogram_source.addItem("Whole map", "map")
@@ -966,9 +972,10 @@ class PredictionView(QWidget):
                                           "prediction ROIs (when there are ROI results), or "
                                           "every pixel of the shown map")
         self._histogram_source.currentIndexChanged.connect(self._on_display_changed)
-        grid.addWidget(QLabel("Histogram"), 2, 0)
-        grid.addWidget(self._histogram_source, 2, 1)
-        grid.setColumnStretch(4, 1)
+        grid.addWidget(QLabel("Histogram"), 5, 0)
+        grid.addWidget(self._histogram_source, 5, 1, 1, 2)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(2, 1)
         return grid
 
     @property
@@ -1259,6 +1266,12 @@ class PredictionView(QWidget):
                       for d, w in prediction.wavelength_warnings.items()]
         return lines
 
+    def _rois_waiting(self) -> str:
+        """Before ROI predictions: how many prediction ROIs wait (review A6), not "none"."""
+        waiting = sum(1 for roi in self.project_state.rois.values() if roi.job == "prediction")
+        return ("no prediction ROI" if not waiting else
+                f"none predicted yet ({waiting} prediction ROI{'s' if waiting != 1 else ''})")
+
     def status_text(self) -> str:
         """The status line on Predict without hovering: the shown map's data file, the
         model's signal and recipe, the model and the target."""
@@ -1469,8 +1482,12 @@ class PredictionView(QWidget):
         result = self._resolved_workspace_prediction()
         run = None if result is None else result.prediction_run
         # The chain is the map's, or else the (first) model of the ROI results.
+        # Before any prediction, the model a prediction would use (review A6: "Model: none"
+        # while the project has one).
         model_run_id = (run.model_run_id if run is not None else
-                        self._roi_predictions[0].model_run_id if self._roi_predictions else None)
+                        self._roi_predictions[0].model_run_id if self._roi_predictions else
+                        self.project_state.active_model_name
+                        or next(reversed(self.project_state.model_runs), None))
         model_run = (None if model_run_id is None
                      else self.project_state.model_runs.get(model_run_id))
         signal_domain = (None if model_run is None
@@ -1543,7 +1560,7 @@ class PredictionView(QWidget):
             "readiness": readiness_text,
             "service": self._service_status.label.text(),
             "prediction": "none" if result is None else f"map of {dataset_text}",
-            "rois": "\n".join(self.roi_summary_lines()) or (self._roi_note or "none"),
+            "rois": "\n".join(self.roi_summary_lines()) or self._roi_note or self._rois_waiting(),
             "model": model_text,
             "dataset": dataset_text,
             "calibration": calibration_text,

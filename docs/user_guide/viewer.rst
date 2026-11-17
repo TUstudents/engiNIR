@@ -62,17 +62,75 @@ X11.
 Window
 ------
 
-Around the three workspace tabs the window keeps:
+.. image:: /_static/screens/window_model_light.png
+   :alt: The engiNIR window in the Model step: menus, workflow strip, Project and
+         Properties on the left, the diagnostics in the middle, the
+         Fit settings on the right, Checks at the bottom.
+   :width: 100%
 
-- a status strip with project, dataset, signal, frame, row and band
-- the **Project Browser**, listing datasets, reference corrections, ROIs, targets,
-  values, calibration sets, input contracts, models and predictions, and the
-  **Inspector**, showing the details of the selected item
-- a **Log** dock (collapsed until opened); **Help > Log File** shows where
-  the log file is (by default ``~/.enginir/enginir.log``)
+From top to bottom:
+
+- **Menus** hold every action: File, Edit, View, Project, ROI, Model, Predict,
+  Tools and Help. The most used have shortcuts (**F5** fits, **F6** predicts
+  ROIs, **Ctrl+T** opens the ROI table); **Tools > Preferences** lists them all.
+- **The workflow strip**: Data → ROIs → Values → Model → Predict, the order
+  in which a project is built. A click opens the step. Each step shows its
+  state: a tick when done, or a warning with the number of open checks in a
+  round badge (the Checks tab lists them).
+- **Left:** the **Project** tree (datasets, reference corrections, ROIs,
+  targets, values, models, predictions, each with the number of its objects)
+  above **Properties** of the selected item, as a table. Items show their
+  names, sorted; the id of an object is in its tooltip and in Properties.
+- **Middle:** the pages of the step. In Model the fit summary starts with
+  the **verdict** of the shown model (good, usable with care, not usable);
+  its tooltip gives the reason, and the Checks tab lists what to act on.
+- **Right:** the **settings** of the step, every option in one column: View
+  settings (Data, ROIs, Values), Fit settings (Model), Prediction settings
+  (Predict). **Fit Model** stays in view under the Fit settings.
+- **Bottom:** **Checks**, **ROI table**, **Models** and **Log** as tabs.
+  Checks lists everything engiNIR checked, with a button for the fix (the
+  checks that passed are one row, **Show** unfolds them); Models
+  lists every model with RMSECV (per ROI), Q², RPD, validation and verdict.
+  The panel is low; while the **ROI table** is in front it takes about 40 % of
+  the window. Leaving the Values step brings **Models** to the front on
+  Model and **Checks** everywhere else.
+- **The status strip** names what the step works on: project, dataset and
+  signal in Data, ROIs and Values (with frame, row and band of the crosshair
+  on the Dataset page), the model with its target and calibration set in
+  Model, the map in Predict. The right end of the workflow strip names the
+  project and the model shown in every step.
+
+The checks and verdicts come from :meth:`enginir.Project.checks` and
+:meth:`enginir._workflow.Model.verdict`; a script sees the same.
+
+The window is made for 1920 × 1080 and keeps everything at 1536 × 864. On a
+smaller screen choose a smaller **Interface scale** in **Tools > Preferences**.
+Docks can be resized and closed (**View** brings them back); they stay in
+their places. **View > Reset Layout** restores the default.
+
+.. image:: /_static/screens/window_predict_compact.png
+   :alt: The Predict step at 1536 × 864 before the first prediction, inviting
+         Predict ROIs; dark theme.
+   :width: 80%
+
+**The example project** (first button of the welcome screen, or **File > Open
+Example Project**) has five synthetic tablet scans with a fitted model and
+opens without open checks: each calibration scan holds tablets with
+different numbers of layers, and each tablet is its own sample. It is
+created on first use in the settings folder; the fastest way to see how
+everything works.
+
+**Preferences** (Tools > Preferences) set the theme (dark, light or follow
+the system), the interface scale, the plot help, the folders the project and
+dataset file dialogs start in, the defaults of the Fit and Prediction
+settings, the PNG resolution of exports, the threads of a fit and the log
+file level. **Data and paths** also shows the drive mapping applied to
+stored paths (``Z:\…`` ↔ ``/mnt/z/…``); it is automatic. They belong to you,
+not to a project: a model stores what it was fitted with.
 
 A project opened without a scan shows its stored objects in every
-workspace; drawing ROIs needs a scan.
+step; drawing ROIs needs a scan. **Project > Name Dataset...** gives a
+dataset a short name ("Layer 7") that is shown instead of its file name.
 
 Explore
 -------
@@ -95,14 +153,15 @@ cursor:
      - the cube at the selected band (height × frames), raw counts
      - left
    * - **Sensor Frame**
-     - the current frame (height × bands), processed
-     - right
+     - the current frame (rows × wavelengths, or bands), processed
+     - Dataset page, beside the image
    * - **Spatial Profile**
-     - intensity along the frame at the selected band, with a draggable row
-     - right
+     - the value of each row at the selected band, upright, with a draggable
+       row line
+     - Dataset page, beside the Sensor Frame
    * - **Spectral Profile**
      - the spectrum at the selected row, with a draggable band
-     - bottom
+     - Dataset page, below
 
 Every plot has a header with its title, a maximize button and a ⋯ menu that
 saves the current view as PNG or SVG, exports the plotted values as CSV, or
@@ -130,7 +189,7 @@ conversion, then smoothing and derivatives, then scatter correction (SNV, MSC,
 EMSC, detrend).
 AsLS baseline correction, which comes before smoothing and derivatives, is available in
 scripts only (:class:`~enginir.preprocessing.PreprocessingRecipe`); a model
-fitted with it shows "AsLS" in its name, and **Fit Again...** keeps it.
+fitted with it shows "AsLS" in its name, and **Load Model Settings** keeps it.
 
 To record calibration data:
 
@@ -141,7 +200,7 @@ To record calibration data:
 4. Name the ROI and, optionally, enter its target value.
 
 For a tray of samples, **Add ROI grid** creates them in one go. The dialog
-opens at once with the defaults from **Options > ROI Grid Defaults** and
+opens at once with the defaults from **Tools > ROI Grid Defaults** and
 lays out equal ROIs in pixels, with x along frames and y along rows:
 
 - **Number**: columns (x) and rows (y).
@@ -164,7 +223,7 @@ one of them cannot be stored. Each ROI records its grid position and the grid
 layout.
 
 Changes in the dialog apply to that grid only: the next grid starts from the
-Options defaults again. Set them once for your tray holder in **Options >
+Tools defaults again. Set them once for your tray holder in **Tools >
 ROI Grid Defaults**, or press **Make defaults** in the grid dialog to keep
 the current values for every new grid (stored in your user settings).
 
@@ -192,7 +251,8 @@ from the project file alone; the datasets are not needed:
   and columns in scan order. Each tile is outlined in the color of its value,
   on the scale of the ROI mean spectra (gray without a value). Labels leave
   out what all shown ROIs share (``API_10p_L1_01`` becomes ``L1_01``);
-  text grows and shrinks with the tiles when you zoom. **View** in the plot
+  text grows and shrinks with the tiles when you zoom. In a wide view the
+  blocks stand beside each other. **View** in the plot
   header shows the tiles at their positions in the scan instead, and
   stretches the contrast of each dataset on its own instead of all tiles
   together (the default, for comparing samples). A dataset filter narrows
@@ -208,11 +268,13 @@ model fit uses. In **Raw counts (DN)** you see the stored counts. ROIs that cann
 shown in the chosen unit, for example raw counts without references in
 absorbance, are counted in the tab's status line.
 
-The docks that show the dataset at the cursor (Histogram, RAW, Sensor
-Frame, Spatial Profile) belong to the Dataset tab: on Project ROIs they are
-hidden, and they come back as you left them. The ROI table takes the
-right-hand column instead, on the ROIs shown; **View > ROI Table** brings it
-back after you closed it.
+The Spatial image, the Sensor Frame and the Spatial Profile sit side by side
+and share the rows of the scan: zooming the image zooms the other two, and
+the selected row is one line through all three. The Spectral Profile is
+below. **View > Sensor Frame**, **Spatial Profile** and **Spectral Profile**
+show or hide them; each one's header maximizes it on the page (Esc
+restores). The Histogram and RAW docks belong to the Dataset tab: on Project
+ROIs they are hidden, and they come back as you left them.
 
 A project with ROIs opens on this tab. Clicking a tile selects the ROI
 everywhere; double-clicking it opens its dataset with the ROI selected.
@@ -260,7 +322,7 @@ Model shows the selected model and its diagnostics:
   guard changed); R²Y and Q² per ROI, with the gap between them shaded; each
   component on its own (Q²ₐ per ROI, ΔR²X per pixel, the Durbin–Watson value
   of its weights; noise components gray); and R²X and R²Y per pixel.
-  **Fit Again...** opens the fit dialog with the model's settings, including
+  **Load Model Settings** fills the Fit settings with the model's settings, including
   its signal unit, to try another number
 - the **Distance** page: the distance to the model (DModX) and Hotelling T²
   of the calibration pixels, with their 0.99 limits and the share above them.
@@ -286,10 +348,18 @@ CSV, named by plot) into one folder. That includes Model pages you have not
 opened. A maximized plot stays maximized the next time the viewer opens, and
 **View > Reset Layout** restores the default layout.
 
+The viewer has a dark and a light theme (**Options**). Both use the orange
+of the engiNIR icon for the current tab, the default button, selections and
+the image crosshair; data use cool colors, so a plot never competes with the
+window around it. Target values and predictions are colored with viridis
+(perceptually even, readable with color-vision deficiencies), distances and
+uncertainty with a heat scale from the icon's bands. Exported images always
+use the light colors.
+
 Target values are typed in the **ROI table**, opened from **Target
 values...** in Model, from **ROI table** in
 Explore, or from the View menu. It opens by itself with the Project ROIs
-tab, in the right-hand column of the window, and is not shown on the Dataset tab; opened there, it takes the Sensor Frame's place as a tab. Closing
+tab, as a tab of the bottom panel, and is not shown on the Dataset tab; opened there, it is the bottom panel's tab in front. Closing
 or opening it on either tab is kept for that tab.
 
 - One row per ROI (dataset, name, pixel count, **Set**, sample) and one
@@ -317,31 +387,38 @@ or opening it on either tab is kept for that tab.
 - The table works from the project file alone; the datasets are not
   needed.
 
-**Fit Model** opens one dialog with everything the fit needs: the target,
-the signal unit, the preprocessing (it starts from the Explore preview, but
-what the dialog shows is what the model is trained with), PLS or PCR, the
-number of components, the validation and which ROIs are held out together
-(**Hold out together**: each ROI, ROIs with the same **Sample** label, or
-ROIs with the same target value). **Bands** sets **Keep** and **Exclude**
+The **Fit settings** in the Settings dock hold everything a fit needs, in
+six parts that fold to their headers (a folded part says what it holds, for
+example "all bands"): **Data** (the target, the signal unit and how many
+ROIs the model uses), **Preprocessing** (it follows changes of the Explore
+preview, but what the settings show is what the model is trained with),
+**Bands**, **Model** (PLS or PCR and the number of components),
+**Validation** (the folds and which ROIs are held out together under
+**Hold out**: each ROI, ROIs with the same **Sample** label, or ROIs with
+the same target value) and **Fitting**. **Fit Model** (F5) stays in view
+under the settings and fits with what they show. The settings show those of
+the selected model until you edit them; a line above the button then says
+that they changed, and **Load Model Settings** shows the model's settings
+again. **Bands** sets **Keep** and **Exclude**
 ranges (``1100-1350, 1500-2300``, applied after every other step), with a
 **Water bands** menu, **Select on plot...** to drag the ranges on the mean
 spectrum of the target's ROIs, and **Propose...** to run the band proposal
 with nested validation and take its ranges (:doc:`band_selection`); the
 Explore preview then shows the left-out bands as missing. **Components** takes a number, or **Auto**
 to choose it from the component curve by a rule (one SE by default; also
-lowest RMSECV (per ROI), Q² limit, F-test and Q² with look-ahead) with **drop noise**
-(the noise guard, on by default; see :doc:`fit_specification`). The dialog
-warns when the validation would be optimistic, for example when the ROIs of a
+lowest RMSECV (per ROI), Q² limit, F-test and Q² with look-ahead) with **Drop noise components**
+(the noise guard, on by default; see :doc:`fit_specification`). The
+Validation part warns when the validation would be optimistic, for example when the ROIs of a
 scan share one value but are held out in different folds. The
-**Fitting** group sets how the
+**Fitting** part sets how the
 model is fitted: the same number of pixels from every ROI (at most the
 smallest ROI, with a seed so the draw repeats), the scaling of X and Y, and
 leaving out outlying pixels by DModX (level, one or two rounds, at most a
 share of every ROI, unweighted or weighted as in SIMCA). The Project
 browser's inspector shows these settings for a stored model, with its
-algorithm (kernel PLS or NIPALS, PCA from XᵀX or by full SVD; **Fit Again**
-keeps it), the excluded pixels per ROI and the flagged ROIs. Below, the dialog counts per dataset how many ROIs have a value for the target and says why a fit cannot run
-yet; **OK** is enabled only when it can. The model uses all ROIs with a
+algorithm (kernel PLS or NIPALS, PCA from XᵀX or by full SVD; **Load Model Settings**
+keeps it), the excluded pixels per ROI and the flagged ROIs. The line under the target says how many ROIs the model uses, or why a fit
+cannot run yet (its tooltip counts the ROIs with a value per dataset). The model uses all ROIs with a
 value, from all datasets. Fitting again with the same target, ROIs and
 preprocessing reuses the stored calibration set; the calibration set and preprocessing
 are stored only together with a fitted model. Cross-validation keeps the
@@ -385,7 +462,7 @@ residual, with RMSEP (per ROI) and bias per model.
 exposed substrate and direct reflections out of every ROI statistic; the
 statistics are recalculated at once, without predicting again. It starts as
 the model was fitted: on at its level for a model fitted with DModX
-exclusion, off otherwise. Next to the level, the Controls dock shows the
+exclusion, off otherwise. Next to the level, the Prediction settings shows the
 DModX limit (DCrit) it gives for each model.
 
 **Predict Map...** predicts every pixel of one project dataset with one
@@ -402,13 +479,13 @@ warns with the largest difference. Models with MSC or EMSC apply the
 preprocessing state stored at calibration.
 
 The map's color scale is the target's range in the model's calibration values;
-predictions below and above it have their own colors (cyan, pink), so the
+predictions below and above it have their own colors (violet, pink), so the
 substrate and other material the model never saw do not flatten the scale.
-**Color scale** in the Controls dock (or **Color limits...** in the map's ⋯
+**Color scale** in the Prediction settings (or **Color limits...** in the map's ⋯
 menu) sets your own limits, for one scale over a series of trays; the color
 bar and the CSV record the scale. The prediction ROIs are outlined with
 their mean; with the pixel exclusion on, excluded pixels are grayed. **Map** in
-the Controls dock turns the outlines and the graying off. Hovering the map
+the Prediction settings turns the outlines and the graying off. Hovering the map
 shows the pixel in the status line at the bottom of the window: its frame and
 row, the prediction (and whether it is outside the color scale) with its
 95 % interval, DModXPS against DCrit (and whether the pixel is excluded), T²PS
@@ -424,7 +501,7 @@ frame and row. A value a model does not have is shown as "not available".
 The **Prediction Distribution** histogram shows the pixels behind the per-ROI
 numbers: the kept pixels of the prediction ROIs, one outline per model, and
 it follows the pixel removal. Without ROI results, or with **Histogram: Whole
-map** in the Controls dock, it shows the pixels of the shown map. Map and per-ROI results always describe the same dataset: a map
+map** in the Prediction settings, it shows the pixels of the shown map. Map and per-ROI results always describe the same dataset: a map
 of a file without prediction ROIs drops the earlier per-ROI results and says
 so; the Predict map file list shows each file's prediction ROIs.
 
@@ -495,7 +572,7 @@ keep their own.
 Datasets are shown by their file name. When several share a file name
 (scans saved as ``stream_hsi.h5`` in different folders), each is shown with
 the folder that tells them apart, e.g. ``stream_hsi.h5 (API 10% - nozzle…)``,
-in the dataset list, the ROI table, the Project ROIs tab, the fit dialog
+in the dataset list, the ROI table, the Project ROIs tab, the Fit settings
 and the browser; the full path is the tooltip.
 
 Every object in a project has a stable id, its identity. Names of ROIs,
@@ -524,7 +601,7 @@ white references recorded once. From an empty project to a model:
    file itself, or choose the reference files. Check the mean spectra and the share
    of saturated values, then **OK**: the dataset and its reference correction are
    stored together.
-3. **Draw the samples.** Set your tray holder once in **Options > ROI Grid
+3. **Draw the samples.** Set your tray holder once in **Tools > ROI Grid
    Defaults** (rows, columns, ROI size, spacing). **Add ROI grid** then
    shows the grid on the tray; correct the origin if the tray sits elsewhere,
    click empty positions, and **OK**. Every cell becomes an ROI named after the file and its position,

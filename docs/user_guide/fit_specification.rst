@@ -22,7 +22,7 @@ scaling is a model setting and is passed like ``n_components``:
        })
    model.ref.fit_specification      # the complete FitSpec, as stored
 
-The viewer's fit dialog sets the same options (**Hold out together** and
+The viewer's Fit settings sets the same options (**Hold out together** and
 the **Fitting** group), and the Project browser's inspector shows them for a
 stored model.
 

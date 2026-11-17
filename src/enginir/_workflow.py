@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
@@ -18,6 +19,7 @@ from typing import Any
 import numpy as np
 
 from ._checks import log_and_raise
+from ._guidance import Check, Verdict, model_checks, model_verdict, project_checks
 from ._logging import get_logger
 from .io import file_format, load_spectra
 from .io import project_store as store
@@ -653,6 +655,19 @@ class Project:
                            roi_id, affected)
         return affected
 
+    def checks(self, *, files: bool = True) -> list[Check]:
+        """What is done and what needs attention, per step of the workflow.
+
+        One :class:`~enginir._guidance.Check` per item, in the order data,
+        ROIs, values, model, predict: its severity (``ok``, ``info``,
+        ``attention``, ``blocking``), a sentence, the ROIs, datasets, target
+        or model it refers to and, where one exists, the
+        :class:`~enginir._guidance.Fix` that resolves it. Nothing is
+        changed. ``files=False`` skips looking for the dataset files
+        (headless-workflow contract, Guidance).
+        """
+        return project_checks(self, files=files)
+
     def missing_rois(self, sample_set_id: str) -> list[str]:
         """Ids of deleted ROIs a sample set still lists."""
         sample_set = self.workspace.sample_sets.get(sample_set_id)
@@ -965,6 +980,19 @@ class Dataset:
         project._found[self.ref.dataset_id] = DataFileCandidate(abs_path, STORED)
         return self
 
+    def set_label(self, label: str) -> Dataset:
+        """Give the dataset a short display name ("Layer 7"); ``""`` shows the file name.
+
+        A label is a mutable name like every name in a project; the dataset
+        is identified by its id (project-schema contract §5).
+        """
+        project, ws = self.project, self.project.workspace
+        label = str(label).strip()
+        store.save_dataset_label(project.path, self.ref.dataset_id, label)
+        self.ref = replace(self.ref, label=label)
+        ws.datasets[self.ref.dataset_id] = self.ref
+        return self
+
     def add_rois(self, cells: Sequence[GridCell]) -> list[TrainingROI]:
         """Store the cells of an ROI grid (see :func:`roi_grid`), all or none.
 
@@ -1071,6 +1099,21 @@ class Model:
         indices = np.atleast_1d(exclusion["pixel_indices"]).astype(np.int64)
         bounds = np.concatenate([[0], np.cumsum(counts)])
         return {roi_id: indices[bounds[i]:bounds[i + 1]] for i, roi_id in enumerate(roi_ids)}
+
+    def checks(self) -> list[Check]:
+        """The checks of this model: validation, calibration set, distance, components.
+
+        See :meth:`Project.checks`.
+        """
+        return model_checks(self)
+
+    def verdict(self) -> Verdict:
+        """The model in one level: ``good``, ``usable_with_care`` or ``not_usable``.
+
+        With one sentence, the reasons and the checks behind it
+        (model-workspace-diagnostics contract, Verdict).
+        """
+        return model_verdict(self)
 
     def refit(self, *, name: str | None = None) -> Model:
         """Fit this model again on exactly what it was fitted on, and store the new run.
@@ -1185,7 +1228,9 @@ class Model:
         for roi_id, used in zip(np.asarray(stored["roi_ids"]).astype(str),
                                 np.asarray(stored["y_true_roi"], dtype=float).reshape(-1)):
             now = assignments.get((roi_id, sample_set.target_id))
-            if now is None or not np.isclose(now.value, used, rtol=1e-9, atol=1e-12):
+            # The values are stored as float32 (about 7 digits); a tighter
+            # comparison reports values such as 12/7 as changed.
+            if now is None or not np.isclose(now.value, used, rtol=1e-6, atol=1e-12):
                 changed.append(str(roi_id))
         return changed
 
@@ -1420,7 +1465,8 @@ def data_file_labels(datasets: Mapping[str, DatasetRef], *,
                      shorten: bool = True) -> dict[str, str]:
     """A short, unique display label per dataset id (viewer identity rule).
 
-    A data file is labelled by its file name. When several data files share
+    A dataset with a label (:meth:`Dataset.set_label`) is shown by it. Otherwise a
+    data file is labelled by its file name. When several data files share
     a file name, each gets the folder that tells it apart, e.g.
     ``stream_hsi.h5 (API 10% - nozzle 0.6 mm)``: the parent folder, or more
     of the path where parent folders repeat too. Long folders are shortened
@@ -1435,6 +1481,8 @@ def data_file_labels(datasets: Mapping[str, DatasetRef], *,
     for dataset_id, parts in paths.items():
         by_name.setdefault(parts[-1].lower(), []).append(dataset_id)
     labels: dict[str, str] = {}
+    named = {dataset_id: ref.label for dataset_id, ref in datasets.items()
+             if getattr(ref, "label", "")}
     for ids in by_name.values():
         if len(ids) == 1:
             labels[ids[0]] = paths[ids[0]][-1]
@@ -1450,6 +1498,7 @@ def data_file_labels(datasets: Mapping[str, DatasetRef], *,
             short = folders
         for i in ids:
             labels[i] = f"{paths[i][-1]} ({short[i]})" if short[i] else paths[i][-1]
+    labels.update(named)
     return labels
 
 
@@ -1904,6 +1953,30 @@ def is_data_file_of(project_path: str | os.PathLike[str] | None, dataset: Datase
 def _source(reference) -> str | None:
     return None if reference is None or isinstance(reference, np.ndarray) \
         else os.path.abspath(os.fspath(reference))
+
+
+#: Provenance of a reference taken from frames of a data file (``_one_reference``).
+_FRAMES_SOURCE = re.compile(r"^(?P<path>.+) frames (?P<first>\d+)-(?P<last>\d+)$")
+
+
+def own_reference_frames(calibration: CalibrationSpec | None,
+                         path: str | os.PathLike[str] | None) -> tuple[tuple[int, int], ...]:
+    """The frames of the data file ``path`` its dark and white references were taken from.
+
+    ``(first, last)`` per reference, both included, read from the references'
+    provenance ("<file> frames <first>-<last>"); empty when the references come
+    from other files or there are none. These frames show the references
+    themselves, not the sample (e.g. not counted as above white).
+    """
+    if calibration is None or path is None:
+        return ()
+    own = os.path.normcase(os.path.abspath(os.fspath(path)))
+    frames = []
+    for source in (calibration.dark_ref_source, calibration.white_ref_source):
+        match = _FRAMES_SOURCE.match(source or "")
+        if match and os.path.normcase(os.path.abspath(match["path"])) == own:
+            frames.append((int(match["first"]), int(match["last"])))
+    return tuple(frames)
 
 
 def _frame_range(frames: tuple[int, int], n_frames: int, label: str) -> tuple[int, int]:

@@ -9,9 +9,20 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import QUrl
+from PyQt6.QtCore import QPoint, QRect, QSize, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
-from PyQt6.QtWidgets import QFileDialog, QMessageBox, QWidget
+from PyQt6.QtWidgets import (
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLayout,
+    QLayoutItem,
+    QMessageBox,
+    QSizePolicy,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from .._logging import get_logger
 from ._theme import panel_colors
@@ -40,16 +51,17 @@ def spectral_axis_label(wavelengths: Any) -> tuple[str, str]:
 
 
 def ask_save_path(parent: QWidget | None, title: str, file_filter: str, suffix: str,
-                  accepted: tuple[str, ...] = ()) -> str | None:
+                  accepted: tuple[str, ...] = (), directory: str = "") -> str | None:
     """Ask for a file to write; add ``suffix`` when the name has none of the accepted ones.
 
     File dialogs on some platforms return the typed name without the
     extension of the chosen filter, and an open dialog filtering on that
     extension would then hide the file. When the suffix is added and that
     file exists, the user confirms replacing it (the dialog only checked the
-    typed name). Returns ``None`` when cancelled.
+    typed name). The dialog opens in ``directory`` ("": Qt's default).
+    Returns ``None`` when cancelled.
     """
-    name, _ = QFileDialog.getSaveFileName(parent, title, "", file_filter)
+    name, _ = QFileDialog.getSaveFileName(parent, title, directory, file_filter)
     if not name:
         return None
     path = Path(name)
@@ -64,6 +76,16 @@ def ask_save_path(parent: QWidget | None, title: str, file_filter: str, suffix: 
         if answer != QMessageBox.StandardButton.Yes:
             return None
     return str(path)
+
+
+def with_unit(name: str, unit: str | None) -> str:
+    """``"API (%)"``; the name alone for a dimensionless unit (``1`` or empty).
+
+    The same rule as the library's verdict sentence (model-workspace-diagnostics
+    contract): a dimensionless unit is not printed.
+    """
+    unit = (unit or "").strip()
+    return name if unit in ("", "1") else f"{name} ({unit})"
 
 
 def style_axes(ax: Any, colors: Mapping[str, str] | None = None) -> None:
@@ -156,4 +178,145 @@ __all__ = [
     "reveal_in_file_manager",
     "spectral_axis_label",
     "style_axes",
+    "with_unit",
 ]
+
+
+class FlowLayout(QLayout):
+    """A row of widgets that wraps onto further lines when the width runs out.
+
+    For the setting rows of the Fit settings dock (plan gui-1.6, Phase 4): one
+    line in a wide window, two or three in the narrow dock.
+    """
+
+    def __init__(self, parent: QWidget | None = None, spacing: int = 6) -> None:
+        super().__init__(parent)
+        self._items: list[QLayoutItem] = []
+        self.setContentsMargins(0, 0, 0, 0)
+        self.setSpacing(spacing)
+
+    def addItem(self, a0: QLayoutItem | None) -> None:  # noqa: N802 (Qt API)
+        if a0 is not None:
+            self._items.append(a0)
+
+    def addStretch(self, _stretch: int = 0) -> None:  # noqa: N802 (QBoxLayout's API)
+        """Accepted for drop-in use with ``QHBoxLayout`` code; a flow has no stretch."""
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, index: int) -> QLayoutItem | None:  # noqa: N802 (Qt API)
+        return self._items[index] if 0 <= index < len(self._items) else None
+
+    def takeAt(self, index: int) -> QLayoutItem | None:  # noqa: N802 (Qt API)
+        return self._items.pop(index) if 0 <= index < len(self._items) else None
+
+    def expandingDirections(self) -> Qt.Orientation:  # noqa: N802 (Qt API)
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802 (Qt API)
+        return True
+
+    def heightForWidth(self, a0: int) -> int:  # noqa: N802 (Qt API)
+        return self._place(QRect(0, 0, a0, 0), move=False)
+
+    def setGeometry(self, a0: QRect) -> None:  # noqa: N802 (Qt API)
+        super().setGeometry(a0)
+        self._place(a0, move=True)
+
+    def sizeHint(self) -> QSize:  # noqa: N802 (Qt API)
+        # The widest item, not the one-line width: a flow asks for no more than it
+        # needs to wrap, and takes the width its parent gives (heightForWidth).
+        width = max((item.sizeHint().width() for item in self._items), default=0)
+        height = max((item.sizeHint().height() for item in self._items), default=0)
+        return QSize(width, height)
+
+    def minimumSize(self) -> QSize:  # noqa: N802 (Qt API)
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        return size
+
+    def _place(self, rect: QRect, *, move: bool) -> int:
+        x, y, line = rect.x(), rect.y(), 0
+        space = self.spacing()
+        for item in self._items:
+            if item.isEmpty():
+                continue
+            hint = item.sizeHint()
+            if x > rect.x() and x + hint.width() > rect.right() + 1:
+                x, y, line = rect.x(), y + line + space, 0
+            if move:
+                item.setGeometry(QRect(QPoint(x, y), hint))
+            x += hint.width() + space
+            line = max(line, hint.height())
+        return y + line - rect.y()
+
+
+class CollapsibleSection(QWidget):
+    """A titled part of a settings form that folds to its header.
+
+    The header shows a one-line summary of the folded settings (``set_summary``),
+    so a folded section still says what a fit would use.
+    """
+
+    #: Emitted when the section is folded or unfolded. Arg: expanded.
+    toggled = pyqtSignal(bool)
+
+    def __init__(self, title: str, content: QWidget, *, expanded: bool = True,
+                 parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._content = content
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(6)
+        self.header = QToolButton()
+        self.header.setObjectName("SectionHeader")
+        self.header.setText(title)
+        self.header.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.header.setCheckable(True)
+        self.header.setAutoRaise(True)
+        self.header.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.header.toggled.connect(self._on_toggled)
+        header.addWidget(self.header, 1)
+        layout.addLayout(header)
+        self._summary = QLabel("")
+        self._summary.setObjectName("SectionSummary")
+        self._summary.setWordWrap(True)
+        self._summary.setContentsMargins(18, 0, 0, 2)
+        layout.addWidget(self._summary)
+        layout.addWidget(content)
+        self._summary_text = ""
+        self.header.setChecked(expanded)
+        self._on_toggled(expanded)
+
+    @property
+    def title(self) -> str:
+        return self.header.text()
+
+    @property
+    def expanded(self) -> bool:
+        return self.header.isChecked()
+
+    def set_expanded(self, expanded: bool) -> None:
+        self.header.setChecked(expanded)
+
+    def set_summary(self, text: str) -> None:
+        """What the folded section holds, in a few words (shown only when folded)."""
+        self._summary_text = text
+        self._summary.setText(text)
+        self._summary.setVisible(bool(text) and not self.expanded)
+
+    @property
+    def summary(self) -> str:
+        return self._summary_text
+
+    def _on_toggled(self, expanded: bool) -> None:
+        self.header.setArrowType(Qt.ArrowType.DownArrow if expanded
+                                 else Qt.ArrowType.RightArrow)
+        self._content.setVisible(expanded)
+        self._summary.setVisible(bool(self._summary_text) and not expanded)
+        self.toggled.emit(expanded)

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import sys
 import time
 
 import h5py
 import numpy as np
 import pytest
+from PyQt6.QtCore import Qt
 
 from enginir import Project
 from enginir.io import save_hdf5
@@ -247,12 +249,11 @@ def test_tiles_loaded_in_batches_share_one_stretch_at_the_end(qapp, trays, monke
 def test_equal_values_get_the_colour_the_colour_bar_shows(qapp):
     """All ROIs at 10: the lines must take the colour of 10 on the bar, not its lowest colour.
     (A plain Normalize(10, 10) maps them to the bottom colour while the bar shows 9-11.)"""
-    from matplotlib import colormaps
     from matplotlib.colors import to_rgba
     from matplotlib.figure import Figure
 
     from enginir.viewer._project_rois import _render_means
-    from enginir.viewer._theme import panel_colors
+    from enginir.viewer._theme import panel_colors, value_colormap
 
     payload = {"means": {"a": np.ones(5), "b": np.full(5, 2.0)}, "values": {"a": 10.0, "b": 10.0},
                "wavelengths": np.arange(5.0), "axis_label": "Band", "value_label": "Layer"}
@@ -260,7 +261,7 @@ def test_equal_values_get_the_colour_the_colour_bar_shows(qapp):
     _render_means(figure, payload, panel_colors())
     ax, bar = figure.axes
     low, high = bar.get_ylim()
-    expected = colormaps["viridis"]((10.0 - low) / (high - low))
+    expected = value_colormap(panel_colors())((10.0 - low) / (high - low))
     assert all(np.allclose(to_rgba(line.get_color()), expected) for line in ax.get_lines())
     assert ax.get_xlabel() == "Band"
 
@@ -298,32 +299,34 @@ def test_data_file_docks_and_the_roi_table_follow_the_explore_tab(qapp, trays):
     project, _paths = trays
     window = _open(qapp, project)
     try:
-        tabs, docks = window._explore_tabs, (window._sensor_dock, window._spatial_dock)
+        tabs, plots = window._explore_tabs, (window._sensor_frame, window._spatial_frame)
         table = window._roi_table_dock
-        # Project ROIs: the table in the right column, alone; nothing at the cursor.
+        # Project ROIs: the table in the bottom panel; nothing at the cursor.
         assert tabs.currentWidget() is window._project_rois
-        assert not table.isHidden() and all(dock.isHidden() for dock in docks)
+        assert not table.isHidden() and not any(plot.isVisible() for plot in plots)
         assert window._roi_table._file_filter.currentIndex() == 0, "all data files"
         a_id = next(iter(project.workspace.datasets))
         window._project_rois._file_filter.setCurrentIndex(
             window._project_rois._file_filter.findData(a_id))
         assert window._roi_table._file_filter.currentData() == a_id, "follows the tab's filter"
 
-        # Data file: its docks, no table.
+        # Dataset: its plots; the table stays a tab of the bottom panel (plan gui-1.6).
         tabs.setCurrentWidget(window._data_file_page)
         qapp.processEvents()
-        assert table.isHidden() and not any(dock.isHidden() for dock in docks)
-        window._spatial_dock.hide()  # the user closes one
+        assert not table.isHidden() and all(plot.isVisible() for plot in plots)
+        assert window.dockWidgetArea(table) == Qt.DockWidgetArea.BottomDockWidgetArea
+        window._on_page_plot_visibility_action("spatial", False)  # the user closes one
         tabs.setCurrentWidget(window._project_rois)
         tabs.setCurrentWidget(window._data_file_page)
         qapp.processEvents()
-        assert not window._sensor_dock.isHidden() and window._spatial_dock.isHidden()
-        window._spatial_dock.show()
+        assert window._sensor_frame.isVisible() and not window._spatial_frame.isVisible()
+        window._page_plot_actions["spatial"].trigger()
 
-        # Asked for on the Data file tab, the table takes the Sensor Frame's slot as a tab.
+        # Asked for on the Data file tab, the table is the bottom panel's tab in front.
         window._eda_view.roi_table_requested.emit()
         qapp.processEvents()
-        assert not table.isHidden() and table in window.tabifiedDockWidgets(window._sensor_dock)
+        assert not table.isHidden() and table in window.tabifiedDockWidgets(window._checks_dock)
+        assert table.visibleRegion().isEmpty() is False
 
         # Closed on Project ROIs, it stays closed there.
         tabs.setCurrentWidget(window._project_rois)
@@ -446,24 +449,33 @@ def test_the_window_never_demands_more_width_than_the_compositor_gives(qapp, tra
         window.close()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason=(
+    "offscreen Qt on Windows has no system fonts: its fallback font is about twice as "
+    "wide as Segoe UI (a checkbox 336 px instead of 181), so widths are not real"))
 def test_every_control_row_fits_in_the_controls_dock(qapp, trays):
-    """A scroll area let the content grow taller than the dock and hid the lower rows
-    (Predict's buttons were below the visible area)."""
-    from PyQt6.QtWidgets import QScrollArea
+    """The Settings column never runs out of the dock sideways: rows wrap and drop-downs
+    shrink (plan gui-1.6); it scrolls up and down instead."""
+    from PyQt6.QtWidgets import QScrollArea, QWidget
 
     project, _paths = trays
     window = _open(qapp, project)
     try:
         _settle(qapp, window._project_rois)
-        scroll = window._controls_dock.widget()
-        assert isinstance(scroll, QScrollArea)
+        scroll = window._controls_dock.findChild(QScrollArea)
+        assert scroll is not None
         content, viewport = scroll.widget(), scroll.viewport()
         assert content is not None and viewport is not None
         for page in (window._eda_view, window._modeling_view, window._prediction_view):
             window._workspace_tabs.setCurrentWidget(page)
             window._prediction_view._readiness_status.setText("long text " * 60)
             qapp.processEvents()
-            assert content.height() <= viewport.height(), type(page).__name__
+            assert content.width() <= viewport.width(), type(page).__name__
+            for child in page.findChildren(QWidget):
+                if child.isVisible() and child.width() > 0:
+                    right = child.mapTo(content, child.rect().topRight()).x()
+                    assert right <= viewport.width() + 1, \
+                        f"{type(page).__name__}: {type(child).__name__} {child.objectName()} " \
+                        f"{getattr(child, 'text', lambda: '')()!r}"
     finally:
         _settle(qapp, window._project_rois)
         window.close()

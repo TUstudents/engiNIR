@@ -88,11 +88,11 @@ strong water bands (around 1450 and 1940 nm in the NIR; offered in the
 viewer as suggestions, never applied automatically), or regions that carry
 an interference which differs between reference correction and use.
 
-In the viewer, the fit dialog's **Bands** row has **Keep** and **Exclude**
+In the viewer, the Fit settings' **Bands** row has **Keep** and **Exclude**
 fields (``1100-1350, 1500-2300``), a **Water bands** menu, **Select on
 plot...** (drag green keep and red exclude regions on the mean spectrum of
 the target's ROIs, with the selected model's VIP or coefficients below as a
-guide) and **Propose...** (below). **Fit Again** keeps a model's ranges, and
+guide) and **Propose...** (below). **Load Model Settings** keeps a model's ranges, and
 the Explore preview shows unselected bands as missing.
 
 Proposing bands, and why the proposal needs nested validation
