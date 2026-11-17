@@ -57,7 +57,8 @@ from ._band_ranges import (
 from ._jobs import BusyStatusWidget, BackgroundWorker, start_background_job
 from ._state import ProjectState, signal_label, ViewerState
 from ._theme import secondary_text_style
-from ._ui_helpers import CollapsibleSection, FlowLayout, spectral_axis_label, with_unit
+from ._ui_helpers import (CollapsibleSection, FlowLayout, recipe_text, spectral_axis_label,
+                          with_unit)
 from ..project._ids import now_iso
 
 logger = get_logger(__name__)
@@ -1957,6 +1958,17 @@ class ModelingView(QWidget):
                 if roi_id in self.project_state.rois
             )
 
+        dataset_count = 0 if sample_set is None else len({
+            self.project_state.rois[roi_id].dataset_id for roi_id in sample_set.roi_ids
+            if roi_id in self.project_state.rois})
+        signal_text = "-"
+        if model_run is not None:
+            domain = self.project_state.signal_domains.get(model_run.signal_domain_id)
+            recipe = None if sample_set is None else \
+                self.project_state.recipes.get(sample_set.preprocessing_recipe_id)
+            if domain is not None:
+                signal_text = f"{signal_label(domain.required_signal_unit)}, {recipe_text(recipe)}"
+
         model_text = "none"
         components_text = "-"
         cv_text = "-"
@@ -1985,7 +1997,9 @@ class ModelingView(QWidget):
             "components": components_text,
             "cv": cv_text,
             "roi_count": str(roi_count),
+            "dataset_count": str(dataset_count),
             "pixel_count": str(pixel_count),
+            "signal": signal_text,
             "r2": r2_text,
             "rmsecv": rmsecv_text,
             "bias": bias_text,

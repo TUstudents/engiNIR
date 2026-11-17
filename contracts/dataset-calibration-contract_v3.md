@@ -3,7 +3,7 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.5; the file format `enginir-1.5` is the
+- Status: active contract for engiNIR 1.5 and 1.6; the file format `enginir-1.5` is the
   only format engiNIR reads and writes (`project-schema-contract_v3.md`)
 - Scope: raw `.eiff` import, reference correction ownership, input-contract compatibility, prediction-time reuse
 
@@ -384,7 +384,7 @@ Signal units of a reference correction:
   signal Explore starts with and the one `Project.fit` fits in when no other
   is chosen. It is not asked when a dataset is added; it is `Absorbance`.
   Reflectance and absorbance can both be produced from the counts at any
-  time; the shown signal is chosen in Explore and in the fit dialog
+  time; the shown signal is chosen in Explore and in the Fit settings
 - for `raw_dn`, `output_signal_unit` is `DN`: without references or levels,
   the counts give no other signal
 - for `precalibrated_import`, `output_signal_unit` states what the file holds

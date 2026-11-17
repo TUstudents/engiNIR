@@ -63,7 +63,7 @@ class _PanelBase(QWidget):
     immediately after viewer construction.
     """
 
-    #: The header title changed (e.g. the RAW panel's band).
+    #: The header title changed (e.g. the Band image panel's band).
     title_changed = pyqtSignal(str)
     plot_title = ""
 
@@ -473,7 +473,7 @@ class DC3Panel(_ImagePanel):
 
     frame_pick = pyqtSignal(int)
     row_pick = pyqtSignal(int)
-    plot_title = "RAW"
+    plot_title = "Band image"
 
     def __init__(self, state: ViewerState) -> None:
         super().__init__(state, x_label="Frame", y_label="Row")
@@ -486,12 +486,13 @@ class DC3Panel(_ImagePanel):
         if self._defer_until_visible(self._build):
             return
         if not self._state.has_dataset:
-            self._set_title("RAW")
+            self._set_title("Band image")
             self._show_empty("No dataset attached")
             return
         band = self._state.band
         self._set_image(self._state.raw_band_image(band), (self._state.frame, self._state.row))
-        self._set_title(f"RAW  band {band} ({float(self._state.wavelengths[band]):.1f} nm)")
+        wavelength = float(self._state.wavelengths[band])
+        self._set_title(f"Band image, band {band} ({wavelength:.1f} nm), raw counts (DN)")
 
     def _on_cursor_changed(self, *_) -> None:
         # Only the crosshair moves; that is cheap enough to do while hidden.

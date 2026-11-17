@@ -88,6 +88,22 @@ def with_unit(name: str, unit: str | None) -> str:
     return name if unit in ("", "1") else f"{name} ({unit})"
 
 
+def recipe_text(recipe: Any) -> str:
+    """A preprocessing recipe in words: its steps, or ``"no preprocessing"``.
+
+    ``recipe`` is a :class:`~enginir.preprocessing.PreprocessingRecipe`, its
+    stored mapping or ``None`` (not known: ``"-"``).
+    """
+    if recipe is None:
+        return "-"
+    from ..preprocessing import PreprocessingRecipe
+
+    if not isinstance(recipe, PreprocessingRecipe):
+        recipe = PreprocessingRecipe.from_dict(recipe)
+    described = recipe.describe()
+    return "no preprocessing" if described == "none" else described
+
+
 def style_axes(ax: Any, colors: Mapping[str, str] | None = None) -> None:
     """Apply the shared enginir plot styling to one matplotlib axes.
 

@@ -84,6 +84,8 @@ From top to bottom:
 - **Middle:** the pages of the step. In Model the fit summary starts with
   the **verdict** of the shown model (good, usable with care, not usable);
   its tooltip gives the reason, and the Checks tab lists what to act on.
+  The summary also names the signal and preprocessing of the model and the
+  number of datasets its ROIs come from.
 - **Right:** the **settings** of the step, every option in one column: View
   settings (Data, ROIs, Values), Fit settings (Model), Prediction settings
   (Predict). **Fit Model** stays in view under the Fit settings.
@@ -149,8 +151,8 @@ cursor:
    * - **Histogram**
      - intensity distribution of the current frame
      - left
-   * - **RAW**
-     - the cube at the selected band (height × frames), raw counts
+   * - **Band image**
+     - the cube at the selected band (height × frames), raw counts (DN)
      - left
    * - **Sensor Frame**
      - the current frame (rows × wavelengths, or bands), processed
@@ -230,7 +232,7 @@ the current values for every new grid (stored in your user settings).
 The ROI is stored at once with its raw spectra, its dark and white reference
 pixels and the reference correction in use, and appears in the browser. The status bar
 confirms each write, for example "✓ ROI 'tablet 3' saved to project".
-**Delete ROI** removes the selected ROI; **Export CSV** writes the ROI spectra
+**Delete ROI** removes the selected ROI; **Export ROI Spectra (CSV)...** writes the ROI spectra
 to a CSV file, one row per pixel with the ROI's id (``sample_id``), name and
 dataset.
 
@@ -273,7 +275,7 @@ and share the rows of the scan: zooming the image zooms the other two, and
 the selected row is one line through all three. The Spectral Profile is
 below. **View > Sensor Frame**, **Spatial Profile** and **Spectral Profile**
 show or hide them; each one's header maximizes it on the page (Esc
-restores). The Histogram and RAW docks belong to the Dataset tab: on Project
+restores). The Histogram and Band image docks belong to the Dataset tab: on Project
 ROIs they are hidden, and they come back as you left them.
 
 A project with ROIs opens on this tab. Clicking a tile selects the ROI
@@ -425,7 +427,7 @@ are stored only together with a fitted model. Cross-validation keeps the
 pixels of one ROI together (and, if chosen, the ROIs of one sample), and
 reported metrics are per ROI: held-out pixel predictions are averaged per ROI
 before RMSECV (per ROI), R², bias, RPD and RPIQ are computed. Until a model can be
-fitted, the readiness message says what is missing.
+fitted, the Checks tab and the Fit settings say what is missing.
 
 Predict
 -------

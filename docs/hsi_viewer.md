@@ -25,7 +25,7 @@ enginir.viewer
 ├── _model_diagnostics.py  ModelDiagnosticsWidget — Model workspace diagnostics surface
 ├── _browser.py      ProjectBrowser — workspace object tree
 ├── _inspector.py    ProjectInspector — selection-driven metadata surface
-├── _panels.py       HistogramPanel, RAW panel (`DC3Panel`), Sensor Frame panel (`SensorPanel`),
+├── _panels.py       HistogramPanel, Band image panel (`DC3Panel`), Sensor Frame panel (`SensorPanel`),
 │                    SpatialProfilePanel, SpectrumPanel
 ├── _plot_panel.py   PlotFrame/PlotPanel — plot header (title, maximize, PNG/SVG/CSV export)
 ├── _plot_grid.py    PlotGrid/PlotPageWidget — plot pages with slots and in-place maximize
@@ -59,7 +59,7 @@ Exports show the current view in the print colors. Each CSV holds the drawn
 values:
 
 - histogram bins
-- the RAW band and the sensor frame as matrices
+- the band image and the sensor frame as matrices
 - the profile and the spectrum as columns
 - the false-color image as one row per pixel
 
@@ -154,7 +154,7 @@ frame** after the full preprocessing pipeline has been applied.
 - Updates on: `frame_changed`, `units_changed`
 - No emitted signals
 
-### RAW panel (internal class `DC3Panel`, left dock, bottom)
+### Band image panel (internal class `DC3Panel`, left dock, bottom)
 
 Drawn with pyqtgraph, like the Sensor Frame, so that frame and band scrubbing
 only swaps the image or moves the crosshair. Exports redraw the shown view
@@ -162,7 +162,7 @@ with matplotlib. Displays a raw cross-section of the cube at the selected band:
 `cube[:, :, band].T` — spatial rows on the Y-axis, scan frames on the
 X-axis.  Yellow crosshairs mark the active `(frame, row)`.
 
-Note: RAW always shows Raw counts (DN) (no preprocessing) to provide a stable
+Note: The band image always shows Raw counts (DN) (no preprocessing) to provide a stable
 spatial navigation reference.
 
 - Updates on: `frame_changed` and `row_changed` (crosshair only),
@@ -207,7 +207,7 @@ All panels share a single `(frame, row, band)` cursor stored in
 
 | Action | Panel | Sets |
 |--------|-------|------|
-| Click | RAW | `frame`, `row` |
+| Click | Band image | `frame`, `row` |
 | Click | Sensor Frame | `row`, `band` |
 | Drag red marker | Spatial Profile | `row` |
 | Drag red marker | Spectral Profile | `band` |
@@ -229,7 +229,7 @@ The shell also keeps two persistent navigation panes:
   assignments, calibration sets, input contracts, models, and predictions
 - `Inspector` below the browser in the left dock stack for selection-driven details
 
-By default, `Histogram`, `RAW`, and `Log` stay collapsed until opened
+By default, `Histogram`, `Band image`, and `Log` stay collapsed until opened
 explicitly from the View menu.
 
 ### Explore workspace

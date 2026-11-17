@@ -3,7 +3,7 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.5; the file format `enginir-1.5` is the
+- Status: active contract for engiNIR 1.5 and 1.6; the file format `enginir-1.5` is the
   only format engiNIR reads and writes (Compatibility policy)
 - Scope: project-level persistence structure, object ids, relationships, required HDF5 groups, the compatibility policy
 
@@ -446,7 +446,7 @@ The schema must support two distinct read patterns in v3:
 
 Required v3 rule:
 
-- project/browser/inspector/workspace open must be metadata-first by default
+- project/browser/Properties/workspace open must be metadata-first by default
 
 That means the canonical reader must support loading:
 
@@ -837,7 +837,10 @@ Extra-field tolerance covers additions, never older files. In particular:
 
 - a file with another `FileSchemaVersion` is refused, whatever it contains
 - there are no aliases for earlier field names or values
-- a missing core field is refused; nothing is filled from a default
+- a missing core field is refused; nothing is filled from a default, with
+  one exception: a model without `hyperparameters/algorithm` (written
+  before engiNIR 1.6) reads `nipals` (PLS) or `svd` (PCR)
+  (`sample-set-model-run-contract_v3.md` §7; removed in 2.0)
 - objects are never transformed during project open
 - writes emit only the current format and do not preserve unknown extras
 - warning messages identify the project location and extra field names; repeated

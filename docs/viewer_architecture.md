@@ -19,13 +19,13 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_preferences.py` | `Preferences` (stored per user in `preferences.json`, never in a project), `PreferencesDialog` (Tools > Preferences: Appearance, Data and paths, Fitting defaults, Prediction defaults, Plots and export, Performance, Logging, Keyboard); the interface scale (`QT_SCALE_FACTOR`) and BLAS threads act through the environment |
 | `_state.py` | `ViewerState` (UI) + `ProjectState` (Qt adapter over `enginir.Project`) |
 | `_canvas.py` | `FalseColourCanvas` (pyqtgraph image surface, crosshair, ROI draw/selection) |
-| `_panels.py` | Explore plots: Histogram and Spectrum (matplotlib); RAW and Sensor Frame (pyqtgraph `_ImagePanel`); Spatial Profile (pyqtgraph, upright) |
+| `_panels.py` | Explore plots: Histogram and Spectrum (matplotlib); Band image and Sensor Frame (pyqtgraph `_ImagePanel`); Spatial Profile (pyqtgraph, upright) |
 | `_viewer.py` | `HSIViewer(QMainWindow)`: menus (every action; no toolbar), the workflow strip, Project and Properties on the left, the Settings dock on the right (the workspace controls; the Model workspace's fit settings are the embedded fit form), the bottom panel (Checks, ROI table, Models, Log as tabs), status strip, workspace host; `run_fix` runs the fix a check offers |
 | `_welcome.py` | Launcher window with recent files list and startup routing |
 | `_recent.py` | MRU file list (`~/.config/enginir/recent.json`) |
 | `_eda.py` | `EDAView` — signal, preprocessing and ROI controls (project actions are menu items) |
 | `_attachment.py` | Project/dataset binding validation |
-| `_modeling.py` | `ModelingView` — target, target values (ROI table), the fit dialog (components or Auto with a rule; Fitting group: pixel subsample, scaling, DModX exclusion → `FitSpec` and hyperparameters) and Fit again (dialog preset from a stored run; the preset recipe's AsLS fields and `sg_edges` are kept, as the dialog has no controls for them, and so is the stored algorithm, which the dialog adds to its hyperparameters for the same model type); `_component_payload` adds curve, loadings, CoeffCS, VIP, selectivity ratio, mean spectrum and calibration distances to the diagnostics payload; the fit dialog's Bands row (keep/exclude text, water-band menu, Select on plot, Propose) feeds the recipe and, after OK, the Explore preview (`ViewerState.bands_keep/bands_exclude`); `_roi_score_payload` passes the ROI scores the fit stored (`diagnostics/roi_scores`) and never rebuilds them from pixel counts; in the window the form is embedded (`embed_fit_settings`): foldable parts, the selected model's settings until they are edited, and the actions (`take_fit_footer`: changed line, Load Model Settings, Fit Model) placed under the scrolling settings by the window. `_app`'s dialog centring skips it (it centres windows only) |
+| `_modeling.py` | `ModelingView` — target, target values (ROI table) and the Fit settings: `FitModelRunDialog`, embedded in the Settings dock (`embed_fit_settings`), not opened as a dialog: foldable parts Data, Preprocessing, Bands, Model, Validation, Fitting (components or Auto with a rule; pixel subsample, scaling, DModX exclusion → `FitSpec` and hyperparameters), the selected model's settings until they are edited, and the actions (`take_fit_footer`: changed line, Load Model Settings, Fit Model) placed under the scrolling settings by the window. Load Model Settings presets the form from a stored run; the preset recipe's AsLS fields and `sg_edges` are kept, as the form has no controls for them, and so is the stored algorithm, which the form adds to its hyperparameters for the same model type. The Bands part (keep/exclude text, water-band menu, Select on Plot, Propose) feeds the recipe and the Explore preview (`ViewerState.bands_keep/bands_exclude`); `workspace_summary` gives the Fit summary (with the signal and preprocessing and the dataset count); `_component_payload` adds curve, loadings, CoeffCS, VIP, selectivity ratio, mean spectrum and calibration distances to the diagnostics payload; `_roi_score_payload` passes the ROI scores the fit stored (`diagnostics/roi_scores`) and never rebuilds them from pixel counts. `_app`'s dialog centring skips the embedded form (it centres windows only) |
 | `_model_diagnostics.py` | Model workspace diagnostics surface (Spectral page: coefficients, CoeffCS, loadings, VIP, VIP sorted, selectivity ratio; lines over wavelength break at band-selection gaps) |
 | `_band_ranges.py` | `BandRangeDialog` (drag keep/exclude ranges on the mean spectrum of the target's ROIs, loaded in a job, with the selected model's VIP or coefficients as a guide) and `ProposeBandsDialog` (runs `Project.propose_bands` in a job, progress through a polled counter, cancel flag) |
 | `_prediction.py` | `PredictionView` (Predict ROIs and Predict map jobs, the ROI predictions of the session and their statistics for the current DModXPS exclusion, recalculated without predicting again) and `PredictionMapWidget` (color scale from the calibration range or user limits, ROI outlines, excluded pixels grayed, the Prediction interval layer of the 95 % pixel prediction intervals) |
@@ -37,7 +37,7 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_data_helpers.py` | Dataset-shape and spectral array helpers shared by viewer workflows |
 | `_project_rois.py` | `ProjectRoisView` (Explore's Project ROIs tab), `RoiMosaic` (stored ROI pixels as tiles, a `PlotSource`; `mosaic_layout` places them in a compact grid from `grid_cells` or at their scan positions, with room for text drawn in mosaic units; outlines in the value color; stretch shared or per dataset), specs `explore.roi_means`/`explore.roi_pixels` fed by `enginir.modeling.roi_spectrum_summaries`. Tiles arrive in background batches of 40 and are drawn incrementally with the stretch of the first batch, then re-stretched once together; target and value changes update the labels in place (coalesced), without a new layout |
 | `_roi_table.py` | `RoiTableModel`/`RoiTableWidget`: sample labels and target values of all ROIs (a Sample column, one column per target), Enter-to-next-row editing, column paste, dataset and missing-value filters; labels are written through `ProjectState.set_roi_samples` → `Project.save_roi_sample` |
-| `_roi_grid.py` | `RoiGridDialog`: a grid of equal ROIs by number, size, origin and spacing (`roi_grid`), empty-position buttons, a live preview on the canvas (outside cells red); `GridDefaultsDialog` (Options > ROI Grid Defaults) and the shared `GridGeometryForm` |
+| `_roi_grid.py` | `RoiGridDialog`: a grid of equal ROIs by number, size, origin and spacing (`roi_grid`), empty-position buttons, a live preview on the canvas (outside cells red); `GridDefaultsDialog` (Tools > ROI Grid Defaults...) and the shared `GridGeometryForm` |
 | `_grid_settings.py` | `GridDefaults` every new grid starts with, in the user settings (`roi_grid.json`) |
 | `_data_files.py` | `AddDataFileDialog` and `DataFileRequest`: the reference correction of a dataset added to a project (reference files, frame ranges, shared references, levels, raw) |
 | `_ui_helpers.py` | Shared plot styling and figure-layout helpers; `FlowLayout` (rows that wrap) and `CollapsibleSection` (a part of a settings form that folds to its header and a one-line summary) |
@@ -149,8 +149,8 @@ Wired in `_viewer.py:_wire_signals()`:
 
 **Panel → State:**
 ```
-RAW panel (`DC3Panel`).frame_pick     → ViewerState.set_frame
-RAW panel (`DC3Panel`).row_pick       → ViewerState.set_row
+Band image panel (`DC3Panel`).frame_pick     → ViewerState.set_frame
+Band image panel (`DC3Panel`).row_pick       → ViewerState.set_row
 Sensor Frame panel (`SensorPanel`).row_pick    → ViewerState.set_row
 Sensor Frame panel (`SensorPanel`).band_pick   → ViewerState.set_band
 SpatialProfilePanel.row_pick  → ViewerState.set_row
@@ -295,7 +295,7 @@ frame, signal unit, or preprocessing parameters.
   `SetNoConstraint`: Qt would otherwise make the sum of the docks' minimum
   widths the window's minimum, and a compositor that configures a smaller
   maximized size (WSLg) ends the connection when the buffer is larger. The
-  Controls dock content sits in a horizontal scroll area for the same reason.
+  Settings dock content sits in a scroll area for the same reason.
   `tests/test_project_rois.py` checks that no workspace sets a minimum size.
 
 ### Process exit
@@ -321,7 +321,7 @@ Plots that update their artists in place (the Explore panels in
 implement `PlotSource` (`plot_table()`, `print_figure()`) and are shown in a
 `PlotFrame`:
 
-- The RAW and Sensor Frame panels (`_ImagePanel`) and the Spatial Profile
+- The Band image and Sensor Frame panels (`_ImagePanel`) and the Spatial Profile
   draw with pyqtgraph and build their print figure by redrawing the shown
   view with matplotlib. The Sensor Frame and the Spatial Profile follow the
   canvas's rows (`link_rows(canvas.view_box)`: a pyqtgraph Y link), so the
@@ -355,7 +355,7 @@ implement `PlotSource` (`plot_table()`, `print_figure()`) and are shown in a
   (`_sensor_frame`, `_spatial_frame`), shown or hidden with the View menu
   switches in `_page_plot_actions` and maximized within the page like the
   image and the spectrum (`_apply_explore_page_layout`). The data-file docks
-  (Histogram, RAW) are shown only on Explore's Dataset tab. `_sync_data_file_docks()` runs on
+  (Histogram, Band image) are shown only on Explore's Dataset tab. `_sync_data_file_docks()` runs on
   every workspace and Explore tab change; the user's choice per dock lives in
   `_explore_plot_visibility` and is recorded from `isHidden()` (a dock behind
   another dock's tab is not visible but still shown). The ROI table follows

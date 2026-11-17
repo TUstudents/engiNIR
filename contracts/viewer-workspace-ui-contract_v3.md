@@ -3,7 +3,7 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.5; the file format `enginir-1.5` is the
+- Status: active contract for engiNIR 1.5 and 1.6; the file format `enginir-1.5` is the
   only format engiNIR reads and writes (`project-schema-contract_v3.md`)
 - Scope: viewer workspace structure, phase-specific panels and controls, global status/progress behavior, project-only vs dataset-attached behavior
 
@@ -26,7 +26,8 @@ just a generic image shell with extra buttons.
   - `Explore`
   - `Model`
   - `Predict`
-- v3 primary navigation is tab-based
+- the primary navigation is the workflow strip (engiNIR 1.6): it opens the
+  three workspaces, whose own tab bar is not shown
 - workspace structure is contract-level behavior, not a styling detail
 - each workspace has one primary task and one primary content region
 - global context must remain visible regardless of workspace
@@ -188,19 +189,22 @@ workspaces.
 
 v3 requires a persistent project browser in the left column or left sidebar.
 
-Minimum required object groups:
+Required object groups (engiNIR 1.6), each with its count:
 
-- datasets
-- reference corrections
-- ROIs
-- targets
-- calibration sets
-- models
-- prediction runs
+- `Datasets`
+- `Reference corrections`
+- `ROIs`
+- `Targets`
+- `Target values`
+- `Models`: each model shows its calibration set and its input contract
+  beneath it; calibration sets and input contracts that no model uses
+  follow the models, marked "(no model)"
+- `Predictions`: the predictions stored by the low-level writers (the viewer
+  stores none; Result handling of `prediction-runtime-contract_v3.md`)
 
 Minimum required behavior:
 
-- selecting an object updates the current inspector/context view
+- selecting an object shows it in `Properties`, the dock below the browser
 - the project itself shows its file format and software: `FileSchemaVersion`,
   `FileCreator`, `FileWriter`, `created_at` and `updated_at` in local time
 - opening a file of another format shows one message naming its format (and
@@ -276,7 +280,7 @@ Stable ids are the only identity of project objects
 
 - every selection, link, write and export refers to objects by id: the
   browser, the ROI table, the Project ROIs tab, the canvas, the Model plots,
-  the fit dialog and the Predict workspace carry ids, never names
+  the Fit settings and the Predict workspace carry ids, never names
 - the viewer never resolves a name to an object; it does not call the
   name-based facade functions (`Project.roi`, `.target`, `.model`,
   `set_value`, `fit`, `Dataset.add_roi`, …), which exist for scripts
@@ -286,10 +290,11 @@ Stable ids are the only identity of project objects
 - a dataset is shown by its file name; when several datasets of the
   project share a file name, each is shown as `file name (folder)`, with the
   full path as tooltip. This label is used wherever a dataset is shown: the
-  dataset list, the ROI table, the Project ROIs tab, the fit dialog, the
+  dataset list, the ROI table, the Project ROIs tab, the Fit settings, the
   browser and messages
 - where ROI names may repeat, each ROI is told apart by more than its name:
-  the ROI table shows its dataset label, the mosaic groups ROIs by dataset, the browser shows the id (dataset label as tooltip), the inspector
+  the ROI table shows its dataset label, the mosaic groups ROIs by dataset,
+  the browser's tooltip gives the dataset label and the id, `Properties`
   shows id and dataset, and Model plots select ROIs by id
 - every export of ROI data carries the ROI id next to its name, including
   Explore's ROI spectra export
@@ -330,7 +335,7 @@ Primary content region, as two tabs:
 Secondary content region:
 
 - in `Dataset`: sensor frame, spectral profile, spatial profile, histogram,
-  DC3 / band slice
+  band image (one band of the raw counts (DN))
 - in `Project ROIs`: the mean spectra of the shown ROIs and the pixel spectra
   of the selected ROI, both in the current signal unit and preprocessing
   preview, converted with each ROI's own stored references
@@ -339,7 +344,7 @@ Required visual elements:
 
 - spatial image
 - histogram
-- DC3/band-slice view
+- band image
 - sensor-frame view
 - spatial profile
 - spectral profile
@@ -360,8 +365,8 @@ Required controls:
 - signal unit selection
 - preprocessing preview controls
 - axis controls
-- ROI creation, single and as a grid (the grid dialog opens with the Options
-  defaults and shows the cells on the image, outside cells in red); both dialogs have a **Prediction only**
+- ROI creation, single and as a grid (the grid dialog opens with the defaults of
+  Tools > ROI Grid Defaults... and shows the cells on the image, outside cells in red); both dialogs have a **Prediction only**
   checkbox that sets the ROIs' `job` and remembers the last choice per dataset (user settings); prediction ROIs are marked in the ROI table (the Set
   column), the browser, the mosaic (dashed outline) and the ROI spectra
   (dashed lines, still colored by value); counts of ROIs with a value name
@@ -386,8 +391,8 @@ Required behavior:
   spectral axis of the settings (wavelengths or bands). They are part of the
   page, not docks: the Settings column is never covered or narrowed by a
   plot (decided 2026-11-16)
-- the docks that show the dataset at the cursor (histogram, DC3/band
-  slice) are shown only in `Dataset`; in `Project ROIs`, Model and Predict
+- the docks that show the dataset at the cursor (histogram, band
+  image) are shown only in `Dataset`; in `Project ROIs`, Model and Predict
   they are hidden, and returning to `Dataset` restores the ones the user had
   shown
 - the ROI table is shown with `Project ROIs` (a tab of the bottom panel)
@@ -476,7 +481,7 @@ Required controls:
   preprocessing, model,
   components (a number, or **Auto** with a rule, the noise guard (on by
   default) and a maximum: `sample-set-model-run-contract_v3.md` §7.4; the
-  dialog and the Model readiness line warn, before fitting, when the chosen
+  Fit settings warn, before fitting, when the chosen
   grouping gives fewer than 7 fold groups or a dataset's ROIs share one
   target value while they are held out in different folds (the fold
   warnings of §7.4; the Fit settings show this line only while they differ
@@ -491,37 +496,38 @@ Required controls:
   residuals (§7); it builds or reuses the calibration set of all calibration ROIs
   with a value for the target, from all datasets; the counts, fold
   warnings and readiness consider calibration ROIs only
-- **Fit again...** opens the fit dialog with every choice of the selected
-  model (target, signal unit, preprocessing, model, components, scaling,
-  folds, pixel subsample with its full seed range, exclusion), e.g. to fit
-  with another number of components; the signal unit is the model's, not
-  the one Explore shows; the
-  stored recipe's AsLS fields and `sg_edges` are kept (the dialog has no
+- **Load Model Settings** fills the Fit settings with every choice of the
+  selected model (target, signal unit, preprocessing, model, components,
+  scaling, folds, pixel subsample with its full seed range, exclusion, and
+  the numerical algorithm), e.g. to fit with another number of components;
+  the signal unit is the model's, not the one Explore shows; the stored
+  recipe's AsLS fields and `sg_edges` are kept (the Fit settings have no
   controls for them and cannot add AsLS; a recipe with AsLS is labeled
   "AsLS")
-- Savitzky-Golay in the fit dialog and in Explore drops the edge bands
+- Savitzky-Golay in the Fit settings and in Explore drops the edge bands
   (`sg_edges = drop`, the default of new recipes); in the Explore preview
   of preprocessed spectra (spectrum, sensor frame, histogram) the dropped
   bands are missing (blank), so band indices stay those of the dataset;
   the Project ROIs spectra are drawn on the recipe's output axis
-- band selection (engiNIR 1.4): the fit dialog has **Keep**
+- band selection (engiNIR 1.4): the Fit settings have **Keep**
   and **Exclude** band ranges (`project-schema-contract_v3.md`, Object identity rules §4) as
   editable text (`1100-1350, 1500-2300`, in nm, or band numbers without
-  wavelengths) and a **Select on Plot...** dialog: the mean spectrum of the
+  wavelengths) and a **Select on Plot...** dialog (also Model > **Select Bands on
+  Plot...**): the mean spectrum of the
   calibration set's ROIs on the recipe's axis after Savitzky-Golay, with the
   selected model's VIP (PLS) or coefficients as a guide when one is
   selected, where dragged regions become keep or exclude ranges. The
   common NIR water bands (1400-1500 and 1900-2000 nm) are offered as
   suggestions and added to Exclude only when clicked, never automatically.
-  **Fit again...** keeps the stored ranges. In the Explore preview,
+  **Load Model Settings** keeps the stored ranges. In the Explore preview,
   unselected bands are missing (blank) like dropped Savitzky-Golay edges
-- **Propose bands...** (PLS and PCR, engiNIR 1.4) runs the forward iPLS proposal with nested validation
+- **Propose...** in the Bands part of the Fit settings, or Model > **Propose Bands...** (PLS and PCR, engiNIR 1.4) runs the forward iPLS proposal with nested validation
   (`headless-workflow-contract_v3.md`, Band proposal) on the chosen
   target and recipe, with its cost estimate, progress and cancel; it shows
   the proposed ranges, the RMSECV (per ROI) over the steps, the nested RMSECV (per ROI) and the
-  RMSECV (per ROI) with all bands, and can put the ranges into the fit dialog as keep
+  RMSECV (per ROI) with all bands, and can put the ranges into the Fit settings as keep
   ranges. The proposal is not stored
-- the inspector shows how a model was fitted: folds and fold groups,
+- `Properties` shows how a model was fitted: folds and fold groups,
   pixel subsample, scaling, exclusion settings, excluded pixels per ROI,
   flagged ROIs and DCrit, and the software versions of the fit
   (`software`)
@@ -607,7 +613,8 @@ Required controls:
   range, or own low and high limits; the map's ⋯ menu sets the same), ROI
   outlines and grayed excluded pixels on the map, and the histogram's pixels
   (the ROI pixels or the whole map)
-- the Controls dock holds the controls and the progress, not the summary's
+- the Settings dock (`Prediction settings`) holds the controls and the
+  progress, not the summary's
   status texts
 
 Required prediction-map interaction:
@@ -616,7 +623,7 @@ Required prediction-map interaction:
   `Row` on y
 - a color scale/legend must be visible for numeric prediction values; the
   scale is the target's range in the model's calibration values, values outside
-  in their own colors, or limits the user sets (Controls dock or ⋯ menu);
+  in their own colors, or limits the user sets (Prediction settings or ⋯ menu);
   the color bar and the CSV record the scale
 - the prediction ROIs of the shown dataset are drawn on the map with their
   mean; with the exclusion on, excluded pixels are grayed
@@ -763,7 +770,7 @@ Must prioritize:
 - spectral profile
 - spatial profile
 - histogram
-- DC3/band slice
+- band image
 
 ### Model
 
@@ -862,7 +869,7 @@ Required behavior:
   panels. The grid may be organized in named pages, shown as sub-tabs inside
   the workspace.
 - Panels snap into the slots their page defines. Free-floating plot windows
-  are not the layout model, and the top-level tabs remain the primary
+  are not the layout model, and the workflow strip remains the primary
   navigation.
 - Users can maximize and export panels. They cannot change which plot occupies
   which slot (see the model diagnostics contract, non-goals).
@@ -1051,7 +1058,8 @@ The UI satisfies this contract only if all of the following are true:
 
 - there is an explicit visible active-workspace concept
 - the active workspace is one of `Explore`, `Model`, or `Predict`
-- top-level navigation is tab-based
+- top-level navigation is the workflow strip (Data, ROIs, Values, Model,
+  Predict), which opens the three workspaces
 - there is a persistent project browser
 - project-only vs dataset-attached state is visible
 - dataset-derived actions are disabled or blocked before invalid execution

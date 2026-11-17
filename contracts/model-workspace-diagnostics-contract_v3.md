@@ -3,7 +3,7 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.5; the file format `enginir-1.5` is the
+- Status: active contract for engiNIR 1.5 and 1.6; the file format `enginir-1.5` is the
   only format engiNIR reads and writes (`project-schema-contract_v3.md`)
 - Scope: `Model` workspace visual hierarchy, required diagnostics, PLS/PCR plot contract, persistence expectations for reopening saved models
 
@@ -50,29 +50,39 @@ interpretability wins.
 
 ## Layout contract
 
-The `Model` workspace must expose three functional regions:
+The `Model` workspace uses the window frame of
+`viewer-workspace-ui-contract_v3.md` (engiNIR 1.6) and has three functional
+regions:
 
-1. left control area
-2. center primary diagnostics area
-3. right summary and secondary diagnostics area
+1. the Fit settings, in the Settings dock at the right of the window
+2. the center primary diagnostics area: the pages of plot panels
+3. the summary column beside the pages: fit summary and metrics
+
+Targets and target values are not part of the workspace: targets are
+defined from Project > **Targets...** and the Target row of the Fit
+settings, values are edited in the ROI table (the Values step of the
+workflow strip, or the ROI table tab of the bottom panel).
 
 Required meanings:
 
-### Left control area
+### Fit settings
 
 Must contain:
 
-- target selection / definition entry point
-- target assignment entry point (the ROI table)
-- fit-model entry point: one dialog with target, signal unit, preprocessing,
-  model, components and CV. It builds or reuses the calibration set (all ROIs with
-  a value for the target, from all datasets), so there is no separate
-  calibration-set build step. The preprocessing defaults to the Explore preview,
-  but is shown and chosen in the dialog, never taken silently.
+- the target, chosen in the Target row
+- the fit itself: target, signal unit, preprocessing, bands, model,
+  components, validation and the Fitting group in foldable parts, with
+  **Fit Model** at the foot (`viewer-workspace-ui-contract_v3.md`, Model
+  workspace). A fit builds or reuses the calibration set (all calibration ROIs
+  with a value for the target, from all datasets), so there is no separate
+  calibration-set build step. The preprocessing follows the Explore preview,
+  but is shown and chosen in the Fit settings, never taken silently.
 - fit preflight / readiness state, including the number of labeled ROIs per
   dataset and the ROIs left out (for example by a different wavelength
-  axis)
-- fit hyperparameters and CV controls
+  axis); what the project still needs is in the Checks tab
+  (`headless-workflow-contract_v3.md`, Guidance)
+- **Load Model Settings**, which fills the Fit settings with the selected
+  model's choices
 
 ### Center primary diagnostics area
 
@@ -153,12 +163,13 @@ labels are not contract-frozen; their order and content are. New diagnostics
 add slots or pages and must not displace `Predicted vs target value` from the
 first slot of the first page.
 
-### Right summary / secondary diagnostics area
+### Summary column
 
 Must contain:
 
-- fit summary
+- fit summary (with the verdict in its first line)
 - calibration-set summary
+- the metrics per ROI and per pixel
 
 Required v3 secondary diagnostics, shown as panels on the center pages:
 
@@ -188,21 +199,23 @@ header (Plot panel policy); the user guide carries the same text.
 
 ## Required fit summary
 
-The `Model` workspace must display the following current-run summary fields:
+The fit summary of the `Model` workspace displays these fields of the model
+shown:
 
-- target name
-- target unit
-- calibration set id or label
+- the verdict (`Model.verdict()`, Verdict below)
+- target name, with its unit
+- calibration set label
 - model type
 - number of components
 - CV specification
-- input-contract / preprocessing context
+- signal unit and preprocessing (the input contract's signal and the recipe)
 - ROI count, and the number of datasets they come from
 - pixel count
-- readiness state
 
-If no fitted run exists yet, the summary must still show the current intended
-fit context and block reasons.
+Readiness is not a summary field (engiNIR 1.6): before a fit, the Fit
+settings say what the fit will use and warn about the fold groups, and the
+Checks tab says what blocks the fit. Without a model the pages show their
+empty state, which names the next action.
 
 ## Required metrics
 
@@ -266,7 +279,7 @@ Required annotations:
 Recommended behavior:
 
 - point selection should map back to the originating ROI in the project browser
-- selected ROI should propagate to the inspector
+- selected ROI should propagate to `Properties`
 
 ## Required primary plot: residuals
 
@@ -418,12 +431,12 @@ Forbidden behavior:
 
 ## Selection and coordination
 
-The `Model` workspace must coordinate with the persistent browser/inspector.
+The `Model` workspace must coordinate with the persistent project browser and `Properties`.
 
 Required behavior:
 
 - selecting a `ModelRun` in the browser updates the diagnostics workspace
-- selecting a plotted ROI point should update browser/inspector selection when feasible
+- selecting a plotted ROI point should update the browser selection and `Properties` when feasible
 - browser selection remains authoritative when an explicit object is selected
 
 ## Empty and preflight states

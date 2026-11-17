@@ -3,7 +3,7 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.5; the file format `enginir-1.5` is the
+- Status: active contract for engiNIR 1.5 and 1.6; the file format `enginir-1.5` is the
   only format engiNIR reads and writes (`project-schema-contract_v3.md`)
 - Scope: the Qt-free public API surface for project-backed scientific
   workflows — creation, persistence, hydration, calibration-set building, model

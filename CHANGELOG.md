@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased
+
+The contracts follow the 1.6 viewer; a few viewer fixes found on the way.
+
+### Changed
+
+- The contracts describe the 1.6 window: the workflow strip as the
+  navigation, the Fit settings and **Load Model Settings** instead of the
+  fit dialog and **Fit Again...**, the Settings dock (Prediction settings
+  on Predict), the project browser's groups and `Properties`, the Model
+  workspace's regions and fit summary, and Tools > ROI Grid Defaults. Every
+  contract says it is active for engiNIR 1.5 and 1.6; the project schema
+  names the stored-model `algorithm` default as its one exception.
+- The fit summary names the model's signal and preprocessing and the number
+  of datasets of its ROIs; the hidden Readiness box is gone (the Checks tab
+  and the Fit settings say what blocks a fit).
+- The Explore dock "RAW" is now **Band image** ("Band image, band 32
+  (1352.4 nm), raw counts (DN)").
+- The ROI spectra export is **Export ROI Spectra (CSV)...** on its button
+  and in the File menu, as in the ROI menu.
+- A recipe without steps reads "no preprocessing" in the Predict chain and
+  status line (was "none").
+- The README follows the 1.6 viewer, with new screenshots of the example
+  project; its guarantees are two guiding principles.
+
+### Added
+
+- Documentation: **Regulatory context**, what engiNIR guarantees and which
+  evidence it supplies for ICH Q2(R2), Q12 and Q14, USP <1039> and <1119>
+  and the FDA guidance, and what it does not cover (21 CFR Part 11, system
+  validation, a validation report).
+
+### Fixed
+
+- A project opened without a dataset showed its ROIs in raw counts (DN);
+  Explore now starts with the working signal of the ROIs' reference
+  corrections (Absorbance for dark/white references), as with a dataset.
+
 ## 1.6.0 (2026-11-17)
 
 The guided viewer: one window for every step with a workflow strip, checks

@@ -110,10 +110,10 @@ def test_titles_are_in_the_headers_and_follow_the_band(viewer, qapp):
             continue
         assert all(not ax.get_title() for ax in frame.print_figure().axes), plot_id
     raw = frames["explore.raw"]
-    assert raw.title.startswith("RAW  band 3 ")
+    assert raw.title.startswith("Band image, band 3 ")
     viewer.state.set_band(5)
     qapp.processEvents()
-    assert raw.title.startswith("RAW  band 5 ")
+    assert raw.title.startswith("Band image, band 5 ")
 
 
 def test_a_panel_without_data_cannot_be_exported(qapp):

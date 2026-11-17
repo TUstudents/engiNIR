@@ -43,7 +43,6 @@ from ..prediction import (
     preflight_prediction,
     roi_prediction_statistics,
 )
-from ..preprocessing import PreprocessingRecipe
 from ..project import CalibrationSpec
 from ._predict_dialogs import ModelChoice, PredictMapDialog, PredictRoisDialog
 from ._jobs import BackgroundWorker, BusyStatusWidget, start_background_job
@@ -53,6 +52,7 @@ from ._theme import (GUIDE_COLOR, SERIES, heat_colormap, panel_colors, secondary
 from ._plot_panel import PlotColumn, PlotSpec, PlotTable, draw_placeholder, print_copy
 from ._plot_registry import register_plot
 from ._ui_helpers import FlowLayout, LayoutState, maybe_tight_layout, style_axes
+from ._ui_helpers import recipe_text as describe_recipe
 
 logger = get_logger(__name__)
 
@@ -1050,10 +1050,8 @@ class PredictionView(QWidget):
             name = run.name or f"{run.model_type} model"
             sample_set = state.sample_sets.get(run.sample_set_id)
             domain = state.signal_domains.get(run.signal_domain_id)
-            recipe = "none"
-            if sample_set is not None and sample_set.preprocessing_recipe_id in state.recipes:
-                recipe = PreprocessingRecipe.from_dict(
-                    state.recipes[sample_set.preprocessing_recipe_id]).describe()
+            recipe = describe_recipe(None if sample_set is None else
+                                     state.recipes.get(sample_set.preprocessing_recipe_id))
             unit = "?" if domain is None else domain.required_signal_unit
             chain = (f"the dataset's reference correction → {unit} → {recipe} → {name}; "
                      f"fitted with {self._training_calibration(run)}")
@@ -1507,10 +1505,9 @@ class PredictionView(QWidget):
         if model_run is not None:
             model_text = self._model_name(model_run.model_run_id)
             sample_set = self.project_state.sample_sets.get(model_run.sample_set_id)
-            if sample_set is not None and sample_set.preprocessing_recipe_id in \
-                    self.project_state.recipes:
-                recipe_text = PreprocessingRecipe.from_dict(
-                    self.project_state.recipes[sample_set.preprocessing_recipe_id]).describe()
+            if sample_set is not None:
+                recipe_text = describe_recipe(
+                    self.project_state.recipes.get(sample_set.preprocessing_recipe_id))
 
         dataset_text = "none"
         calibration_text = "none"

@@ -1,7 +1,7 @@
 """ROI grid dialogs: a tray of equal ROIs laid out by number, size, origin and spacing.
 
 The cells come from :func:`enginir._workflow.roi_grid`, the same rule scripts
-use. :class:`RoiGridDialog` starts from the defaults of Options > ROI Grid
+use. :class:`RoiGridDialog` starts from the defaults of Tools > ROI Grid
 Defaults (:class:`GridDefaultsDialog`); its changes apply to that grid only.
 Every change is reported through :attr:`RoiGridDialog.preview_changed`, so
 the image shows the cells while the dialog is open. Clicking a cell button

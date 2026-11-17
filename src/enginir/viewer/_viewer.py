@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, TypeVar
+from collections import Counter
 import os
 import time
 from functools import partial
@@ -526,11 +527,14 @@ class HSIViewer(QMainWindow):
         self._model_card_model_value = QLabel("none")
         self._model_card_components_value = QLabel("-")
         self._model_card_cv_value = QLabel("-")
+        self._model_card_signal_value = QLabel("-")
         self._model_card_roi_count_value = QLabel("0")
+        self._model_card_dataset_count_value = QLabel("0")
         self._model_card_pixel_count_value = QLabel("0")
 
         for label in (self._model_card_target_value, self._model_card_sample_set_value,
-                      self._model_card_model_value, self._model_card_cv_value):
+                      self._model_card_model_value, self._model_card_cv_value,
+                      self._model_card_signal_value):
             label.setWordWrap(True)  # long values wrap instead of being cut off
         # The library's verdict of the model shown (the Checks tab has the reasons).
         verdict_row = QWidget()
@@ -549,7 +553,9 @@ class HSIViewer(QMainWindow):
         summary_layout.addRow("Model", self._model_card_model_value)
         summary_layout.addRow("Components", self._model_card_components_value)
         summary_layout.addRow("Validation", self._model_card_cv_value)
+        summary_layout.addRow("Signal, preprocessing", self._model_card_signal_value)
         summary_layout.addRow("ROIs", self._model_card_roi_count_value)
+        summary_layout.addRow("Datasets", self._model_card_dataset_count_value)
         summary_layout.addRow("Pixels", self._model_card_pixel_count_value)
 
         # Two levels (model-workspace-diagnostics contract): ROI means, single pixels.
@@ -571,21 +577,10 @@ class HSIViewer(QMainWindow):
         self._model_metric_bias_value = QLabel("-")
         self._model_metric_rows: list[str] = []
 
-        readiness_box = QGroupBox("Readiness")
-        # The guide bar above the page says what is ready and what to do next.
-        readiness_box.setVisible(False)
-        readiness_layout = QVBoxLayout(readiness_box)
-        readiness_layout.setContentsMargins(8, 8, 8, 8)
-        readiness_layout.setSpacing(4)
-        self._model_readiness_body = QLabel("Ready: define or select a target.")
-        self._model_readiness_body.setWordWrap(True)
-        readiness_layout.addWidget(self._model_readiness_body)
-
         layout.addWidget(self._model_content_title)
         text_layout.addWidget(summary_box)
         text_layout.addWidget(metrics_box)
         text_layout.addWidget(pixel_box)
-        text_layout.addWidget(readiness_box)
         text_layout.addStretch(1)
 
         self._model_workspace_splitter.addWidget(self._model_diagnostics_widget)
@@ -812,7 +807,7 @@ class HSIViewer(QMainWindow):
             self._inspector_dock,
             Qt.Orientation.Vertical,
         )
-        # Left docks - Inspector above collapsed Histogram/RAW utilities
+        # Left docks - Properties above the collapsed Histogram and Band image docks
         self._dock_frames: dict[QDockWidget, PlotFrame] = {}
         self._maximized_dock: QDockWidget | None = None
         self._hist_dock = self._plot_dock("Histogram", "HistogramDock", self._hist,
@@ -820,7 +815,7 @@ class HSIViewer(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._hist_dock)
         self.splitDockWidget(self._inspector_dock, self._hist_dock, Qt.Orientation.Vertical)
 
-        self._dc3_dock = self._plot_dock("RAW", "DC3Dock", self._dc3, "explore.raw")
+        self._dc3_dock = self._plot_dock("Band image", "DC3Dock", self._dc3, "explore.raw")
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._dc3_dock)
         self.splitDockWidget(self._hist_dock, self._dc3_dock, Qt.Orientation.Vertical)
         self._hist_dock.hide()
@@ -1481,13 +1476,14 @@ class HSIViewer(QMainWindow):
         self._model_card_model_value.setText(model_summary["model"])
         self._model_card_components_value.setText(model_summary["components"])
         self._model_card_cv_value.setText(model_summary["cv"])
+        self._model_card_signal_value.setText(model_summary["signal"])
         self._model_card_roi_count_value.setText(model_summary["roi_count"])
+        self._model_card_dataset_count_value.setText(model_summary["dataset_count"])
         self._model_card_pixel_count_value.setText(model_summary["pixel_count"])
         self._model_metric_r2_value.setText(model_summary["r2"])
         self._model_metric_rmsecv_value.setText(model_summary["rmsecv"])
         self._model_metric_bias_value.setText(model_summary["bias"])
         self._set_metric_rows(model_summary)
-        self._model_readiness_body.setText(model_summary["readiness"])
         self._update_verdict_row()
         model_diagnostics_widget.update_data(
             self._modeling_view.workspace_diagnostics_payload(),
@@ -1617,7 +1613,9 @@ class HSIViewer(QMainWindow):
                     f"Model: {self._model_card_model_value.text()}",
                     f"Components: {self._model_card_components_value.text()}",
                     f"Validation: {self._model_card_cv_value.text()}",
+                    f"Signal, preprocessing: {self._model_card_signal_value.text()}",
                     f"ROIs: {self._model_card_roi_count_value.text()}",
+                    f"Datasets: {self._model_card_dataset_count_value.text()}",
                     f"Pixels: {self._model_card_pixel_count_value.text()}",
                 ],
             )
@@ -2197,7 +2195,7 @@ class HSIViewer(QMainWindow):
 
         m.addSeparator()
 
-        act = _add_required_action(m, "Export CSV...")
+        act = _add_required_action(m, "Export ROI Spectra (CSV)...")
         act.triggered.connect(self._eda_view.export_csv_btn_clicked)
         act = _add_required_action(m, "Export Plots...")
         act.setToolTip("Save every plot of the current workspace as PNG and CSV")
@@ -2469,6 +2467,12 @@ class HSIViewer(QMainWindow):
         dataset_id = self._eda_view.shown_dataset_id()
         if dataset_id is None:
             self._eda_view.set_signal_choices(viewable_signal_units(None))
+            # No dataset shown (Project ROIs): start with the working signal of the
+            # stored ROIs' reference corrections, not with the raw counts
+            # (dataset-calibration contract, Signal units of a reference correction).
+            unit = self._stored_rois_working_signal()
+            if unit is not None and self._eda_view.chosen_signal is None:
+                self.state.set_y_unit(unit)
             return
         calibration = self.project_state.active_calibration(dataset_id)
         levels, unit = _calibration_view(calibration, self.state.meta)
@@ -2479,6 +2483,14 @@ class HSIViewer(QMainWindow):
             **levels, reference_frames=own_reference_frames(calibration, self._cube_path))
         self.state.set_y_unit(unit)
         self._eda_view.set_signal_choices(allowed)
+
+    def _stored_rois_working_signal(self) -> str | None:
+        """The working signal most of the stored ROIs' reference corrections give, if any."""
+        state = self.project_state
+        units = Counter(
+            calibration.output_signal_unit for roi in state.rois.values()
+            if (calibration := state.calibrations.get(roi.calibration_id)) is not None)
+        return units.most_common(1)[0][0] if units else None
 
     def _registered_dataset_id(self, path: str) -> str | None:
         return self.project_state.dataset_id_of(path)

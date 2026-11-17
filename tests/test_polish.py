@@ -424,3 +424,20 @@ def test_the_example_opens_without_open_checks_and_a_good_model(example):
                    if check.severity in ("attention", "blocked")]
     assert open_checks == []
     assert project.model("PLS 2 LV").verdict().level == "good"
+
+
+def test_a_project_without_a_shown_dataset_starts_in_the_working_signal(qapp, window):
+    """Project ROIs show the ROIs in their reference correction's signal, not raw counts."""
+    assert window._eda_view.shown_dataset_id() is None
+    assert window.state.y_unit == "Absorbance"
+    assert "Signal: Absorbance" in window._status_label.text()
+    # No dataset levels are claimed: the ROIs are converted with their own references.
+    assert window._eda_view._signal_info.text() == "each ROI with its own reference correction"
+
+
+def test_the_fit_summary_names_signal_preprocessing_and_datasets(qapp, window):
+    window.show_step("model")
+    qapp.processEvents()
+    window._refresh_model_workspace_content()
+    assert window._model_card_signal_value.text() == "Absorbance, no preprocessing"
+    assert window._model_card_dataset_count_value.text() == "4"

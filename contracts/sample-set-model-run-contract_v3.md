@@ -3,7 +3,7 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.5; the file format `enginir-1.5` is the
+- Status: active contract for engiNIR 1.5 and 1.6; the file format `enginir-1.5` is the
   only format engiNIR reads and writes (`project-schema-contract_v3.md`)
 - Scope: sample-building, fitting semantics, grouped validation, model identity, v3 PLS/PCR fitting behavior
 
@@ -509,7 +509,7 @@ as `algorithm` (plan `plans/kernel-pls.md`, decided 2026-11-13):
 - A stored model without `algorithm` (models of 1.5 projects) reads
   `nipals` (PLS) or `svd` (PCR). This is the one compatibility rule of the
   key; `nipals` and `svd` are removed in 2.0.
-- A refit and "Fit Again" use the stored algorithm, so a refit reproduces
+- A refit and "Load Model Settings" followed by "Fit Model" use the stored algorithm, so a refit reproduces
   the model exactly.
 
 The algorithm does not change what a model means: the definitions of §5,

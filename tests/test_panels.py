@@ -108,7 +108,7 @@ def test_image_panels_pick_the_clicked_pixel_and_follow_the_cursor(qapp, state):
     assert panel._data is data, "a cursor move does not rebuild the band image"
     assert (panel._vline.value(), panel._hline.value()) == (3, 1)
     state.set_band(4)
-    assert panel.plot_title.startswith("RAW  band 4 ")
+    assert panel.plot_title.startswith("Band image, band 4 ")
     np.testing.assert_array_equal(panel._data, state.raw_band_image(4))
 
 

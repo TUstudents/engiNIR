@@ -289,7 +289,7 @@ class EDAView(QWidget):
         place(btn_table)
 
         btn_export = QToolButton()
-        btn_export.setText("Export CSV")
+        btn_export.setText("Export ROI Spectra (CSV)...")
         btn_export.clicked.connect(self.export_csv_btn_clicked)
         place(btn_export)
 
@@ -315,6 +315,8 @@ class EDAView(QWidget):
             button.setChecked(True)
         if state.y_unit == "DN" or state.calibrated:
             msg = ""
+        elif not state.has_dataset:
+            msg = "each ROI with its own reference correction"
         elif state.dark_ref is not None and state.white_ref is not None:
             msg = "from the dark/white references"
         else:
@@ -376,7 +378,7 @@ class EDAView(QWidget):
         self.state.set_x_spatial_unit("mm" if mm else "pixel")
 
     def export_csv_btn_clicked(self) -> None:
-        path = ask_save_path(self, "Export CSV", "CSV (*.csv)", ".csv")
+        path = ask_save_path(self, "Export ROI spectra (CSV)", "CSV (*.csv)", ".csv")
         if not path:
             return
         try:
@@ -384,9 +386,9 @@ class EDAView(QWidget):
         except ValueError as exc:
             message = str(exc)
             if message == "No ROIs defined yet.":
-                QMessageBox.information(self, "Export CSV", message)
+                QMessageBox.information(self, "Export ROI spectra", message)
                 return
-            QMessageBox.warning(self, "Export CSV failed", message)
+            QMessageBox.warning(self, "Export of ROI spectra failed", message)
 
     def export_csv(self, path: str) -> None:
         if self.project_state.project_path is None:
