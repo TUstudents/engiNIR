@@ -299,28 +299,28 @@ def test_data_file_docks_and_the_roi_table_follow_the_explore_tab(qapp, trays):
     project, _paths = trays
     window = _open(qapp, project)
     try:
-        tabs, docks = window._explore_tabs, (window._sensor_dock, window._spatial_dock)
+        tabs, plots = window._explore_tabs, (window._sensor_frame, window._spatial_frame)
         table = window._roi_table_dock
         # Project ROIs: the table in the bottom panel; nothing at the cursor.
         assert tabs.currentWidget() is window._project_rois
-        assert not table.isHidden() and all(dock.isHidden() for dock in docks)
+        assert not table.isHidden() and not any(plot.isVisible() for plot in plots)
         assert window._roi_table._file_filter.currentIndex() == 0, "all data files"
         a_id = next(iter(project.workspace.datasets))
         window._project_rois._file_filter.setCurrentIndex(
             window._project_rois._file_filter.findData(a_id))
         assert window._roi_table._file_filter.currentData() == a_id, "follows the tab's filter"
 
-        # Data file: its docks; the table stays a tab of the bottom panel (plan gui-1.6).
+        # Dataset: its plots; the table stays a tab of the bottom panel (plan gui-1.6).
         tabs.setCurrentWidget(window._data_file_page)
         qapp.processEvents()
-        assert not table.isHidden() and not any(dock.isHidden() for dock in docks)
+        assert not table.isHidden() and all(plot.isVisible() for plot in plots)
         assert window.dockWidgetArea(table) == Qt.DockWidgetArea.BottomDockWidgetArea
-        window._spatial_dock.hide()  # the user closes one
+        window._on_page_plot_visibility_action("spatial", False)  # the user closes one
         tabs.setCurrentWidget(window._project_rois)
         tabs.setCurrentWidget(window._data_file_page)
         qapp.processEvents()
-        assert not window._sensor_dock.isHidden() and window._spatial_dock.isHidden()
-        window._spatial_dock.show()
+        assert window._sensor_frame.isVisible() and not window._spatial_frame.isVisible()
+        window._page_plot_actions["spatial"].trigger()
 
         # Asked for on the Data file tab, the table is the bottom panel's tab in front.
         window._eda_view.roi_table_requested.emit()

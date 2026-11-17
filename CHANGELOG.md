@@ -16,9 +16,22 @@ Changes since 1.6.0rc3.
   "T2" before "T10"), instead of names with ids; ids are in the tooltip and
   in Properties. Reference corrections show their dataset and what they are
   ("tablets_1.h5: dark/white references").
+- **Dataset page:** the Sensor Frame and the Spatial Profile moved from
+  the right-hand docks, where they narrowed the settings, into the page
+  beside the Spatial image. The three share the scan's rows (zoom, pan and
+  the selected row line up); the Spatial Profile is upright, and the Sensor
+  Frame shows wavelengths when the spectral axis is nm. View > Sensor Frame
+  and Spatial Profile show or hide them.
 - **Predicted vs target value:** the statistics sit in the corner (top left
   or bottom right) where they cover no point, on a background; the axis
   grows when no corner is free.
+
+### Fixed
+
+- **"Above white" warning:** the share of values above white counted the
+  frames the white reference was taken from, half of whose values lie above
+  their own mean, so every scan with embedded references warned (1.2 % for
+  two white frames of 80). Those frames are left out now.
 
 ## 1.6.0rc3 (2026-11-16)
 

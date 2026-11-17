@@ -17,6 +17,7 @@ from collections.abc import Callable
 import numpy as np
 import pyqtgraph as pg
 from pyqtgraph.GraphicsScene import GraphicsScene
+from pyqtgraph.graphicsItems.ViewBox.ViewBox import ViewBox
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -207,6 +208,10 @@ class _ImagePanel(_PanelBase):
         super().__init__(state, defer_initial_hidden_refresh=defer_initial_hidden_refresh)
         self._x_label, self._y_label = x_label, y_label
         self._data: np.ndarray | None = None
+        #: The x value of each column (wavelengths), or ``None`` for column numbers.
+        self._x_values: np.ndarray | None = None
+        #: The rows follow another view (the Spatial image): no own vertical range.
+        self._rows_linked = False
         self._crosshair = (0.0, 0.0)
         self._levels: tuple[float, float] = (0.0, 1.0)
 
@@ -245,25 +250,77 @@ class _ImagePanel(_PanelBase):
 
     # -- drawing --------------------------------------------------------
 
-    def _set_image(self, data: np.ndarray, crosshair: tuple[float, float]) -> None:
-        """Show ``data`` (rows x columns) with its own value range and the crosshair."""
-        new_shape = self._data is None or self._data.shape != data.shape
+    def _set_image(self, data: np.ndarray, crosshair: tuple[float, float],
+                   x_values: np.ndarray | None = None) -> None:
+        """Show ``data`` (rows x columns) with its own value range and the crosshair.
+
+        ``crosshair`` is ``(column, row)``. With ``x_values`` (one per column, e.g.
+        wavelengths) the columns are drawn at those values (evenly spaced from the
+        first to the last) instead of at their numbers.
+        """
+        if x_values is not None and (x_values.size != data.shape[1] or x_values.size < 2):
+            x_values = None
+        new_shape = (self._data is None or self._data.shape != data.shape
+                     or (x_values is None) != (self._x_values is None)
+                     or (x_values is not None and self._x_values is not None
+                         and not np.array_equal(x_values, self._x_values)))
         self._data = data
+        self._x_values = None if x_values is None else np.asarray(x_values, dtype=float)
         finite = data[np.isfinite(data)] if data.size else data
         self._levels = ((float(finite.min()), float(finite.max())) if finite.size
                         else (0.0, 1.0))
         self._image.setImage(data, levels=self._levels, autoLevels=False)
-        self._image.setRect(QRectF(-0.5, -0.5, data.shape[1], data.shape[0]))
+        left, width = self._column_span()
+        self._image.setRect(QRectF(left, -0.5, width, data.shape[0]))
         self._set_crosshair(*crosshair)
         if new_shape:
-            self._view.autoRange(padding=0.02)
+            if self._rows_linked:
+                self._view.setXRange(left, left + width, padding=0.02)
+            else:
+                self._view.autoRange(padding=0.02)
         self._stack.setCurrentWidget(self._plot_widget)
         self._has_drawn_once = True
 
-    def _set_crosshair(self, x: float, y: float) -> None:
-        self._crosshair = (float(x), float(y))
+    def _column_span(self) -> tuple[float, float]:
+        """Left edge and width of the image along x (columns or their x values)."""
+        columns = 0 if self._data is None else self._data.shape[1]
+        if self._x_values is None:
+            return -0.5, float(columns)
+        first, last = float(self._x_values[0]), float(self._x_values[-1])
+        step = (last - first) / (columns - 1)
+        return first - step / 2, step * columns
+
+    def _x_of(self, column: float) -> float:
+        if self._x_values is None:
+            return float(column)
+        index = int(np.clip(round(column), 0, self._x_values.size - 1))
+        return float(self._x_values[index])
+
+    def _column_at(self, x: float) -> int:
+        columns = 0 if self._data is None else self._data.shape[1]
+        if self._x_values is None:
+            return int(np.clip(round(x), 0, max(columns - 1, 0)))
+        return int(np.argmin(np.abs(self._x_values - x)))
+
+    def link_rows(self, view: ViewBox) -> None:
+        """Show the rows of ``view`` (zoom and pan follow it), e.g. the Spatial image's."""
+        self._rows_linked = True
+        self._view.setYLink(view)
+
+    @property
+    def view_box(self) -> ViewBox:
+        return self._view
+
+    def _set_crosshair(self, column: float, row: float) -> None:
+        x = self._x_of(column)
+        self._crosshair = (x, float(row))
         self._vline.setPos(x)
-        self._hline.setPos(y)
+        self._hline.setPos(row)
+
+    def _set_labels(self, x_label: str, y_label: str) -> None:
+        if (x_label, y_label) != (self._x_label, self._y_label):
+            self._x_label, self._y_label = x_label, y_label
+            self.restyle_theme()
 
     def _show_empty(self, message: str) -> None:
         self._data = None
@@ -293,8 +350,8 @@ class _ImagePanel(_PanelBase):
         if scene_pos is None or not self._view.sceneBoundingRect().contains(scene_pos()):
             return
         point = self._view.mapSceneToView(scene_pos())
-        rows, columns = self._data.shape
-        column = int(np.clip(round(point.x()), 0, columns - 1))
+        rows = self._data.shape[0]
+        column = self._column_at(point.x())
         row = int(np.clip(round(point.y()), 0, rows - 1))
         self._picked(column, row)
 
@@ -312,8 +369,11 @@ class _ImagePanel(_PanelBase):
         ax = fig.add_subplot(111)
         style_axes(ax, colors)
         if self._data is not None:
+            left, width = self._column_span()
+            rows = self._data.shape[0]
             ax.imshow(self._data, aspect="auto", origin="upper", interpolation="nearest",
-                      cmap=heat_colormap(), vmin=self._levels[0], vmax=self._levels[1])
+                      cmap=heat_colormap(), vmin=self._levels[0], vmax=self._levels[1],
+                      extent=(left, left + width, rows - 0.5, -0.5))
             ax.axvline(self._crosshair[0], color="yellow", linewidth=0.8)
             ax.axhline(self._crosshair[1], color="yellow", linewidth=0.8)
             (x0, x1), (y0, y1) = self._view.viewRange()
@@ -470,7 +530,7 @@ class SensorPanel(_ImagePanel):
     plot_title = "Sensor frame"
 
     def __init__(self, state: ViewerState) -> None:
-        super().__init__(state, x_label="Band", y_label="Cross-track",
+        super().__init__(state, x_label="Band", y_label="Row",
                          defer_initial_hidden_refresh=False)
         self._build()
         state.frame_changed.connect(self._build)
@@ -485,7 +545,12 @@ class SensorPanel(_ImagePanel):
         if not self._state.has_dataset:
             self._show_empty("No dataset attached")
             return
-        self._set_image(self._state.current_frame_image(), (self._state.band, self._state.row))
+        # Wavelengths along x when the Spectral axis is nm, as in the Spectral profile.
+        label = self._state.spectral_axis_label()
+        self._set_labels(label, "Row")
+        x_values = None if label == "Band" else self._state.spectral_x_axis()
+        self._set_image(self._state.current_frame_image(), (self._state.band, self._state.row),
+                        x_values)
 
     def _on_cursor_changed(self, *_) -> None:
         if self._data is not None:
@@ -507,12 +572,16 @@ class SensorPanel(_ImagePanel):
 # ------------------------------------------------------------------
 
 
-class SpatialProfilePanel(_BasePanelWidget):
-    """Spatial profile: get_spatial_profile(band) with a draggable row marker.
+class SpatialProfilePanel(_PanelBase):
+    """Spatial profile: the shown frame's values per row at the band, upright.
+
+    Rows run down, as in the Spatial image and the Sensor frame, so one row
+    reads across all three (``link_rows``); the value runs along x. The red line
+    marks the row and can be dragged.
 
     Emits
     -----
-    row_pick(int): user dragged or clicked the marker to a new row
+    row_pick(int): user dragged the row line to a new row
     """
 
     row_pick = pyqtSignal(int)
@@ -520,104 +589,144 @@ class SpatialProfilePanel(_BasePanelWidget):
 
     def __init__(self, state: ViewerState) -> None:
         super().__init__(state, defer_initial_hidden_refresh=False)
-        self._line = None
-        self._marker = None
-        self._drag_cid: int | None = None
-
+        self._rows_linked = False
+        self._values: np.ndarray | None = None
+        self._plot_widget = pg.PlotWidget()
+        plot = self._plot_widget.getPlotItem()
+        if plot is None:
+            log_and_raise("PyQtGraph plot item unavailable for the spatial profile",
+                          error=RuntimeError)
+        self._plot = plot
+        self._plot.setMenuEnabled(False)
+        self._plot.hideButtons()
+        self._view = self._plot.getViewBox()
+        self._view.invertY(True)
+        self._view.setMouseEnabled(x=False, y=False)
+        for name in ("bottom", "left"):  # values as they are, not "(x0.001)"
+            self._plot.getAxis(name).enableAutoSIPrefix(False)
+        self._curve = pg.PlotDataItem()
+        self._plot.addItem(self._curve)
+        self._marker = pg.InfiniteLine(angle=0, movable=True)
+        self._marker.sigPositionChanged.connect(self._on_marker_moved)
+        self._plot.addItem(self._marker)
+        self._message = QLabel("")
+        self._message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._stack = QStackedLayout(self)
+        self._stack.setContentsMargins(0, 0, 0, 0)
+        self._stack.addWidget(self._plot_widget)
+        self._stack.addWidget(self._message)
+        self.restyle_theme()
         self._build()
-
-        state.frame_changed.connect(self._refresh_profile)
-        state.band_changed.connect(self._refresh_profile)
-        state.units_changed.connect(self._refresh_profile)
+        state.frame_changed.connect(self._build)
+        state.band_changed.connect(self._build)
+        state.units_changed.connect(self._build)
         state.row_changed.connect(self._on_row_changed)
 
-        self._canvas.mpl_connect("button_press_event", self._on_press)
-        self._canvas.mpl_connect("button_release_event", self._on_release)
+    def link_rows(self, view: ViewBox) -> None:
+        """Show the rows of ``view`` (zoom and pan follow it), e.g. the Spatial image's."""
+        self._rows_linked = True
+        self._view.setYLink(view)
 
-    def _build(self, *_) -> None:
-        if self._defer_until_visible(self._build):
-            return
+    @property
+    def view_box(self) -> ViewBox:
+        return self._view
+
+    def _row_label(self) -> str:
+        return "Row (mm)" if self._state.x_spatial_unit == "mm" else "Row (pixel)"
+
+    def _build(self, *_: object) -> None:
         if not self._state.has_dataset:
-            self._line = None
-            self._marker = None
-            self._show_empty("No dataset attached")
+            self._values = None
+            self._message.setText("No dataset attached")
+            self._stack.setCurrentWidget(self._message)
+            self._has_drawn_once = True
             return
-        colors = panel_colors()
-        self._ax.clear()
-        self._style_ax()
+        values = np.asarray(self._state.get_spatial_profile(self._state.band), dtype=float)
+        rows = np.arange(values.size, dtype=float)
+        self._values = values
+        self._curve.setData(values, rows)
+        self._marker.blockSignals(True)
+        self._marker.setPos(self._state.row)
+        self._marker.blockSignals(False)
+        # Rows stay in pixels (shared with the images); in mm only the labels scale.
+        left = self._plot.getAxis("left")
+        left.setScale(self._state.pixel_size_mm if self._state.x_spatial_unit == "mm" else 1.0)
+        self.restyle_theme()
+        finite = values[np.isfinite(values)]
+        if finite.size:
+            low, high = float(finite.min()), float(finite.max())
+            pad = 0.05 * (high - low) if high > low else 1.0
+            self._view.setXRange(low - pad, high + pad, padding=0)
+        if not self._rows_linked:
+            self._view.setYRange(-0.5, values.size - 0.5, padding=0.02)
+        self._stack.setCurrentWidget(self._plot_widget)
+        self._has_drawn_once = True
 
-        x = self._state.spatial_x_axis()
-        y = self._state.get_spatial_profile(self._state.band)
-        (self._line,) = self._ax.plot(x, y, color=colors["accent"], linewidth=1)
+    def _on_row_changed(self, row: int) -> None:
+        self._marker.blockSignals(True)
+        self._marker.setPos(row)
+        self._marker.blockSignals(False)
 
-        xr = x[self._state.row]
-        self._marker = self._ax.axvline(xr, color="red", linewidth=1.5)
-
-        xlabel = "Row (mm)" if self._state.x_spatial_unit == "mm" else "Row (pixel)"
-        self._ax.set_xlabel(xlabel, color=colors["fg"], fontsize=8)
-        self._ax.set_ylabel(signal_label(self._state.y_unit_effective), color=colors["fg"], fontsize=8)
-        self._draw_idle()
-
-    def _refresh_profile(self, *_) -> None:
-        if self._defer_until_visible(self._refresh_profile):
+    def _on_marker_moved(self, *_: object) -> None:
+        if self._values is None:
             return
-        if self._line is None or self._marker is None:
-            self._build()
+        position = self._marker.value()
+        if not isinstance(position, (int, float)):
             return
-        colors = panel_colors()
-        x = self._state.spatial_x_axis()
-        y = self._state.get_spatial_profile(self._state.band)
-        self._line.set_data(x, y)
-        self._line.set_color(colors["accent"])
-        self._marker.set_xdata([x[self._state.row], x[self._state.row]])
-        xlabel = "Row (mm)" if self._state.x_spatial_unit == "mm" else "Row (pixel)"
-        self._ax.set_xlabel(xlabel, color=colors["fg"], fontsize=8)
-        self._ax.set_ylabel(signal_label(self._state.y_unit_effective), color=colors["fg"], fontsize=8)
-        self._ax.relim()
-        self._ax.autoscale_view()
-        self._draw_idle()
+        row = int(np.clip(round(float(position)), 0, self._values.size - 1))
+        if row != self._state.row:
+            self.row_pick.emit(row)
 
     def restyle_theme(self) -> None:
-        super().restyle_theme()
-        self._refresh_profile()
+        colors = panel_colors()
+        self._plot_widget.setBackground(colors["bg"])
+        self._message.setStyleSheet(f"color: {colors['fg']};")
+        self._curve.setPen(pg.mkPen(colors["accent"], width=1))
+        self._marker.setPen(pg.mkPen(tokens()["error"], width=1.5))
+        axis_color = QColor(colors["fg"])
+        axis_color.setAlpha(160)
+        labels = {"bottom": signal_label(self._state.y_unit_effective),
+                  "left": self._row_label()}
+        for name, label in labels.items():
+            axis = self._plot.getAxis(name)
+            axis.setPen(pg.mkPen(axis_color))
+            axis.setTextPen(pg.mkPen(colors["fg"]))
+            self._plot.setLabel(name, label, color=colors["fg"])
+
+    def axis_labels(self) -> tuple[str, str]:
+        """``(value label, row label)`` as shown."""
+        return signal_label(self._state.y_unit_effective), self._row_label()
 
     def plot_table(self) -> PlotTable | None:
-        if self._line is None:
+        if self._values is None:
             return None
-        x, y = self._line.get_data()
+        x = self._state.spatial_x_axis()
         position = ("row_mm", "mm") if self._state.x_spatial_unit == "mm" else ("row", "")
         return PlotTable(columns=(PlotColumn(position[0], np.asarray(x), position[1]),
-                                  PlotColumn("value", np.asarray(y),
+                                  PlotColumn("value", self._values,
                                              self._state.y_unit_effective)),
                          metadata=self._metadata("frame", "band"))
 
-    def _on_row_changed(self, r: int) -> None:
-        if self._marker is not None:
-            x = self._state.spatial_x_axis()
-            self._marker.set_xdata([x[r], x[r]])
-            self._draw_idle()
-
-    def _on_press(self, event) -> None:
-        if not self._state.has_dataset:
-            return
-        if event.inaxes != self._ax:
-            return
-        if self._drag_cid is not None:
-            self._canvas.mpl_disconnect(self._drag_cid)
-        self._drag_cid = self._canvas.mpl_connect("motion_notify_event", self._on_drag)
-
-    def _on_drag(self, event) -> None:
-        if event.inaxes != self._ax or event.xdata is None:
-            return
-        x = self._state.spatial_x_axis()
-        r = int(np.argmin(np.abs(x - event.xdata)))
-        r = int(np.clip(r, 0, self._state.height - 1))
-        self.row_pick.emit(r)
-
-    def _on_release(self, _event) -> None:
-        if self._drag_cid is not None:
-            self._canvas.mpl_disconnect(self._drag_cid)
-            self._drag_cid = None
+    def print_figure(self) -> Figure:
+        """The shown profile (upright, rows down) redrawn in the print colors."""
+        colors = print_colors()
+        fig = Figure(figsize=(max(self.width(), 200) / 100, max(self.height(), 150) / 100),
+                     facecolor=colors["bg"])
+        FigureCanvasAgg(fig)
+        ax = fig.add_subplot(111)
+        style_axes(ax, colors)
+        if self._values is not None:
+            rows = self._state.spatial_x_axis()
+            ax.plot(self._values, rows, color=colors["accent"], linewidth=1)
+            scale = rows[1] if rows.size > 1 else 1.0
+            ax.axhline(self._state.row * scale, color="red", linewidth=1.2)
+            (_x0, _x1), (y0, y1) = self._view.viewRange()
+            ax.set_ylim(y1 * scale, y0 * scale)  # rows grow downwards, as on screen
+        value_label, row_label = self.axis_labels()
+        ax.set_xlabel(value_label, color=colors["fg"])
+        ax.set_ylabel(row_label, color=colors["fg"])
+        fig.tight_layout()
+        return fig
 
 
 # ------------------------------------------------------------------

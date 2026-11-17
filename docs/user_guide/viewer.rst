@@ -150,14 +150,15 @@ cursor:
      - the cube at the selected band (height × frames), raw counts
      - left
    * - **Sensor Frame**
-     - the current frame (height × bands), processed
-     - right
+     - the current frame (rows × wavelengths, or bands), processed
+     - Dataset page, beside the image
    * - **Spatial Profile**
-     - intensity along the frame at the selected band, with a draggable row
-     - right
+     - the value of each row at the selected band, upright, with a draggable
+       row line
+     - Dataset page, beside the Sensor Frame
    * - **Spectral Profile**
      - the spectrum at the selected row, with a draggable band
-     - bottom
+     - Dataset page, below
 
 Every plot has a header with its title, a maximize button and a ⋯ menu that
 saves the current view as PNG or SVG, exports the plotted values as CSV, or
@@ -264,11 +265,13 @@ model fit uses. In **Raw counts (DN)** you see the stored counts. ROIs that cann
 shown in the chosen unit, for example raw counts without references in
 absorbance, are counted in the tab's status line.
 
-The docks that show the dataset at the cursor (Histogram, RAW, Sensor
-Frame, Spatial Profile) belong to the Dataset tab: on Project ROIs they are
-hidden, and they come back as you left them. The ROI table takes the
-right-hand column instead, on the ROIs shown; **View > ROI Table** brings it
-back after you closed it.
+The Spatial image, the Sensor Frame and the Spatial Profile sit side by side
+and share the rows of the scan: zooming the image zooms the other two, and
+the selected row is one line through all three. The Spectral Profile is
+below. **View > Sensor Frame**, **Spatial Profile** and **Spectral Profile**
+show or hide them; each one's header maximizes it on the page (Esc
+restores). The Histogram and RAW docks belong to the Dataset tab: on Project
+ROIs they are hidden, and they come back as you left them.
 
 A project with ROIs opens on this tab. Clicking a tile selects the ROI
 everywhere; double-clicking it opens its dataset with the ROI selected.
@@ -353,7 +356,7 @@ use the light colors.
 Target values are typed in the **ROI table**, opened from **Target
 values...** in Model, from **ROI table** in
 Explore, or from the View menu. It opens by itself with the Project ROIs
-tab, in the right-hand column of the window, and is not shown on the Dataset tab; opened there, it takes the Sensor Frame's place as a tab. Closing
+tab, as a tab of the bottom panel, and is not shown on the Dataset tab; opened there, it is the bottom panel's tab in front. Closing
 or opening it on either tab is kept for that tab.
 
 - One row per ROI (dataset, name, pixel count, **Set**, sample) and one

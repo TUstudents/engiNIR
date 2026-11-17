@@ -145,3 +145,31 @@ def test_opening_a_dataset_from_the_project_tree_shows_its_image(qapp, tmp_path)
         assert window._eda_view.shown_dataset_id() == scan.ref.dataset_id
     finally:
         window.close()
+
+
+def test_the_reference_frames_are_not_counted_above_white(qapp, tmp_path):
+    """Half of a white reference's own values lie above its mean: those frames show
+    the reference, not the sample (the example showed "1.2 % above white")."""
+    from enginir._example import create_example_project
+    from enginir._workflow import own_reference_frames
+    from enginir.viewer import open_project
+
+    project = Project.open(create_example_project(tmp_path))
+    dataset = next(iter(project.workspace.datasets.values()))
+    calibration = project.dataset(dataset_id=dataset.dataset_id).calibration
+    n_frames = dataset.cube_shape[0]
+    assert own_reference_frames(calibration, dataset.source_path) \
+        == ((0, 1), (n_frames - 2, n_frames - 1))
+    assert own_reference_frames(calibration, tmp_path / "other.h5") == ()
+
+    window = open_project(project.path)
+    try:
+        window.show_dataset(dataset.dataset_id)
+        window.wait_for_data_file()
+        window.state.set_y_unit("Reflectance")
+        qapp.processEvents()
+        assert window.state.reference_frames == ((0, 1), (n_frames - 2, n_frames - 1))
+        assert window.state.reflectance_clip_share() == 0.0
+        assert "clipped" not in window._eda_view._signal_info.text()
+    finally:
+        window.close()

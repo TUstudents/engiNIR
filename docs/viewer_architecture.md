@@ -19,7 +19,7 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_preferences.py` | `Preferences` (stored per user in `preferences.json`, never in a project), `PreferencesDialog` (Tools > Preferences: Appearance, Data and paths, Fitting defaults, Prediction defaults, Plots and export, Performance, Logging, Keyboard); the interface scale (`QT_SCALE_FACTOR`) and BLAS threads act through the environment |
 | `_state.py` | `ViewerState` (UI) + `ProjectState` (Qt adapter over `enginir.Project`) |
 | `_canvas.py` | `FalseColourCanvas` (pyqtgraph image surface, crosshair, ROI draw/selection) |
-| `_panels.py` | Exploration dock widgets: Histogram, Spatial and Spectrum (matplotlib); RAW and Sensor Frame (pyqtgraph `_ImagePanel`) |
+| `_panels.py` | Explore plots: Histogram and Spectrum (matplotlib); RAW and Sensor Frame (pyqtgraph `_ImagePanel`); Spatial Profile (pyqtgraph, upright) |
 | `_viewer.py` | `HSIViewer(QMainWindow)`: menus (every action; no toolbar), the workflow strip, Project and Properties on the left, the Settings dock on the right (the workspace controls; the Model workspace's fit settings are the embedded fit form), the bottom panel (Checks, ROI table, Models, Log as tabs), status strip, workspace host; `run_fix` runs the fix a check offers |
 | `_welcome.py` | Launcher window with recent files list and startup routing |
 | `_recent.py` | MRU file list (`~/.config/enginir/recent.json`) |
@@ -321,8 +321,11 @@ Plots that update their artists in place (the Explore panels in
 implement `PlotSource` (`plot_table()`, `print_figure()`) and are shown in a
 `PlotFrame`:
 
-- The RAW and Sensor Frame panels (`_ImagePanel`) draw with pyqtgraph and
-  build their print figure by redrawing the shown image with matplotlib.
+- The RAW and Sensor Frame panels (`_ImagePanel`) and the Spatial Profile
+  draw with pyqtgraph and build their print figure by redrawing the shown
+  view with matplotlib. The Sensor Frame and the Spatial Profile follow the
+  canvas's rows (`link_rows(canvas.view_box)`: a pyqtgraph Y link), so the
+  three plots of the Dataset page's top row (`_rows_splitter`) line up.
 - The other `_panels.py` panels build their print figure with `print_copy` (a pickled copy of
   the screen figure, recoloured).
 - The canvas redraws its current view with matplotlib.
@@ -348,15 +351,18 @@ implement `PlotSource` (`plot_table()`, `print_figure()`) and are shown in a
   histogram.
 - The dock frames give their header to the dock as its title bar.
   `HSIViewer` handles maximize for the Explore page and for the docks.
-- The data-file docks (Histogram, RAW, Sensor Frame, Spatial Profile) are
-  shown only on Explore's Dataset tab. `_sync_data_file_docks()` runs on
+- The Sensor Frame and Spatial Profile are frames of the Dataset page
+  (`_sensor_frame`, `_spatial_frame`), shown or hidden with the View menu
+  switches in `_page_plot_actions` and maximized within the page like the
+  image and the spectrum (`_apply_explore_page_layout`). The data-file docks
+  (Histogram, RAW) are shown only on Explore's Dataset tab. `_sync_data_file_docks()` runs on
   every workspace and Explore tab change; the user's choice per dock lives in
   `_explore_plot_visibility` and is recorded from `isHidden()` (a dock behind
   another dock's tab is not visible but still shown). The ROI table follows
   the Explore tab the same way (`_sync_roi_table()`, choice per tab in
   `_roi_table_visibility`: shown on Project ROIs, hidden on Dataset);
-  Model and Predict leave it as it is. `_place_roi_table()` tabs a docked
-  table with the Sensor Frame on the Dataset tab. The table's dataset
+  Model and Predict leave it as it is. The table is a tab of
+  the bottom panel. The table's dataset
   filter follows the page (`_roi_table_data_file()`).
 
 `ModelDiagnosticsWidget` wraps the grid of the `"Model"` workspace, with the

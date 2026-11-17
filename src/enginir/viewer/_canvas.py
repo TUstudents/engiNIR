@@ -162,6 +162,11 @@ class FalseColourCanvas(QWidget):
         self._vline.setVisible(True)
         self._hline.setVisible(True)
 
+    @property
+    def view_box(self) -> ViewBox:
+        """The image's view; the Sensor frame and the Spatial profile follow its rows."""
+        return self._view
+
     def reset_view(self) -> None:
         """Reset zoom and pan so the full image is visible again."""
         self._view.autoRange(padding=0.02)

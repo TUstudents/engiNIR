@@ -678,7 +678,7 @@ def test_profile_axes_fit_their_labels_after_a_file_is_shown(qapp, tmp_path):
         assert window.state.y_unit == "Absorbance"
         for _ in range(5):
             qapp.processEvents()
-        for panel in (window._spectrum, window._spatial):
+        for panel in (window._spectrum,):  # the Spatial profile is pyqtgraph: it fits itself
             figure = panel.figure
             figure.canvas.draw()
             renderer = figure.canvas.get_renderer()

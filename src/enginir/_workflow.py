@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
@@ -1952,6 +1953,30 @@ def is_data_file_of(project_path: str | os.PathLike[str] | None, dataset: Datase
 def _source(reference) -> str | None:
     return None if reference is None or isinstance(reference, np.ndarray) \
         else os.path.abspath(os.fspath(reference))
+
+
+#: Provenance of a reference taken from frames of a data file (``_one_reference``).
+_FRAMES_SOURCE = re.compile(r"^(?P<path>.+) frames (?P<first>\d+)-(?P<last>\d+)$")
+
+
+def own_reference_frames(calibration: CalibrationSpec | None,
+                         path: str | os.PathLike[str] | None) -> tuple[tuple[int, int], ...]:
+    """The frames of the data file ``path`` its dark and white references were taken from.
+
+    ``(first, last)`` per reference, both included, read from the references'
+    provenance ("<file> frames <first>-<last>"); empty when the references come
+    from other files or there are none. These frames show the references
+    themselves, not the sample (e.g. not counted as above white).
+    """
+    if calibration is None or path is None:
+        return ()
+    own = os.path.normcase(os.path.abspath(os.fspath(path)))
+    frames = []
+    for source in (calibration.dark_ref_source, calibration.white_ref_source):
+        match = _FRAMES_SOURCE.match(source or "")
+        if match and os.path.normcase(os.path.abspath(match["path"])) == own:
+            frames.append((int(match["first"]), int(match["last"])))
+    return tuple(frames)
 
 
 def _frame_range(frames: tuple[int, int], n_frames: int, label: str) -> tuple[int, int]:

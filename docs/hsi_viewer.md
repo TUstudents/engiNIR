@@ -169,18 +169,20 @@ spatial navigation reference.
   `band_changed` (new band image)
 - **Click** → emits `frame_pick(int)`, `row_pick(int)`
 
-### Sensor frame panel (internal class `SensorPanel`, right dock, top)
+### Sensor frame panel (internal class `SensorPanel`, Dataset page, beside the image)
 
 Displays the processed current frame: `current_frame_image()` — height ×
-n_bands.  Yellow crosshairs mark the active `(row, band)`; drawn with pyqtgraph.
+n_bands, along wavelengths when the spectral axis is nm. Crosshairs mark the
+active `(row, band)`; drawn with pyqtgraph; its rows follow the image's.
 
 - Updates on: `frame_changed`, `units_changed` (full rebuild)
 - **Click** → emits `row_pick(int)`, `band_pick(int)`
 
-### SpatialProfilePanel (right dock, middle)
+### SpatialProfilePanel (Dataset page, beside the sensor frame)
 
-Plots processed `intensity vs. row` for the selected band.  A red vertical
-marker shows the active row and can be dragged.
+Plots the processed value of each row for the selected band, upright (rows
+down, as in the image; drawn with pyqtgraph, rows follow the image's). A red
+horizontal line shows the active row and can be dragged.
 
 - Updates on: `frame_changed`, `band_changed`, `units_changed` (full rebuild);
   `row_changed` (marker only)

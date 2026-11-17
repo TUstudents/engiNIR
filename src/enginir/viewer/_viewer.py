@@ -41,7 +41,7 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup, QFont, QCloseEvent, QKeySequence, QShortcut
 
 from .._checks import log_and_raise
-from .._workflow import read_header
+from .._workflow import own_reference_frames, read_header
 from ..project import CalibrationSpec, viewable_signal_units
 from .._logging import add_log_sink, get_logger, log_file_path, remove_log_sink
 from ..io import load_spectra
@@ -359,7 +359,40 @@ class HSIViewer(QMainWindow):
         self._canvas_frame.add_header_widget(self._btn_reset_image_view)
         self._canvas_frame.maximize_toggled.connect(
             lambda: self._toggle_explore_maximized("image"))
-        central_layout.addWidget(self._canvas_frame, 1)
+        # The rows of the scan, read across: the Sensor frame (bands x rows) and the
+        # Spatial profile (value x row) beside the image share its row axis, so one
+        # row lines up in all three (user decision 2026-11-16; they were docks
+        # between the page and the settings before).
+        self._sensor = SensorPanel(self.state)
+        self._spatial = SpatialProfilePanel(self.state)
+        self._sensor.link_rows(self._canvas.view_box)
+        self._spatial.link_rows(self._canvas.view_box)
+        for panel in (self._sensor, self._spatial):
+            # As small as the image: the page, not a dock minimum, sets their height,
+            # so the bottom panel can still grow for the ROI table.
+            panel.setMinimumSize(120, 60)
+        self._sensor_frame = self._explore_frame(self._sensor, "explore.sensor")
+        self._spatial_frame = self._explore_frame(self._spatial, "explore.spatial")
+        self._sensor_frame.maximize_toggled.connect(
+            lambda: self._toggle_explore_maximized("sensor"))
+        self._spatial_frame.maximize_toggled.connect(
+            lambda: self._toggle_explore_maximized("spatial"))
+        self._sensor_frame.add_close_button(
+            lambda: self._on_page_plot_visibility_action("sensor", False))
+        self._spatial_frame.add_close_button(
+            lambda: self._on_page_plot_visibility_action("spatial", False))
+        self._rows_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._rows_splitter.setObjectName("RowsSplitter")
+        self._rows_splitter.setChildrenCollapsible(False)
+        for index, (frame, stretch) in enumerate(((self._canvas_frame, 5),
+                                                  (self._sensor_frame, 2),
+                                                  (self._spatial_frame, 1))):
+            self._rows_splitter.addWidget(frame)
+            self._rows_splitter.setStretchFactor(index, stretch)
+        # The profile's header (title and three buttons) must fit: never under 180 px.
+        self._spatial_frame.setMinimumWidth(180)
+        self._rows_splitter.setSizes([600, 260, 180])
+        central_layout.addWidget(self._rows_splitter, 1)
 
         self._spectrum_panel = self._explore_frame(self._spectrum, "explore.spectrum")
         self._spectrum_panel.setObjectName("SpectrumPanelContainer")
@@ -380,6 +413,15 @@ class HSIViewer(QMainWindow):
         self._spectrum_toggle_action.triggered.connect(
             self._on_spectrum_panel_visibility_action
         )
+        #: View menu switches of the Dataset page's plots (spectrum, sensor, spatial).
+        self._page_plot_actions: dict[str, QAction] = {"spectrum": self._spectrum_toggle_action}
+        for name, title in (("sensor", "Sensor Frame"), ("spatial", "Spatial Profile")):
+            action = QAction(title, self)
+            action.setCheckable(True)
+            action.setChecked(True)
+            action.triggered.connect(
+                lambda visible, name=name: self._on_page_plot_visibility_action(name, visible))
+            self._page_plot_actions[name] = action
 
         self._model_diagnostics_widget = None
         self._predict_map_widget = None
@@ -751,8 +793,6 @@ class HSIViewer(QMainWindow):
         s = self.state
         self._hist = HistogramPanel(s)
         self._dc3 = DC3Panel(s)
-        self._sensor = SensorPanel(s)
-        self._spatial = SpatialProfilePanel(s)
         self._project_browser = ProjectBrowser(self.project_state)
         self._inspector = ProjectInspector(self.project_state)
 
@@ -786,16 +826,6 @@ class HSIViewer(QMainWindow):
         self._hist_dock.hide()
         self._dc3_dock.hide()
 
-        # Right docks - Sensor Frame above Spatial Profile
-        self._sensor_dock = self._plot_dock("Sensor frame", "SensorDock", self._sensor,
-                                            "explore.sensor")
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._sensor_dock)
-
-        self._spatial_dock = self._plot_dock("Spatial profile", "SpatialProfileDock",
-                                             self._spatial, "explore.spatial")
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._spatial_dock)
-        self.splitDockWidget(self._sensor_dock, self._spatial_dock, Qt.Orientation.Vertical)
-
         # ROI table: target values of all ROIs; available in every workspace.
         self._roi_table = RoiTableWidget(self.project_state)
         self._roi_table.roi_selected.connect(self._on_canvas_roi_selected)
@@ -815,8 +845,7 @@ class HSIViewer(QMainWindow):
         self._roi_table_dock.visibilityChanged.connect(self._schedule_bottom_dock_resize)
 
         #: Docks that show the data file at the cursor: only on Explore's Data file tab.
-        self._data_file_docks = {"histogram": self._hist_dock, "raw": self._dc3_dock,
-                                 "sensor": self._sensor_dock, "spatial": self._spatial_dock}
+        self._data_file_docks = {"histogram": self._hist_dock, "raw": self._dc3_dock}
         self._default_explore_plot_visibility = {
             "histogram": False,
             "raw": False,
@@ -911,8 +940,13 @@ class HSIViewer(QMainWindow):
 
     def _apply_explore_page_layout(self) -> None:
         maximized = self._explore_maximized
-        self._canvas_frame.setVisible(maximized != "spectrum")
+        shown = self._explore_plot_visibility
+        self._rows_splitter.setVisible(maximized != "spectrum")
+        self._canvas_frame.setVisible(maximized in (None, "image"))
         self._canvas_frame.set_maximized(maximized == "image")
+        for name, frame in (("sensor", self._sensor_frame), ("spatial", self._spatial_frame)):
+            frame.setVisible(shown[name] and maximized in (None, name))
+            frame.set_maximized(maximized == name)
         self._spectrum_panel.set_maximized(maximized == "spectrum")
         if maximized == "spectrum":
             self._spectrum_panel.setMinimumHeight(0)
@@ -922,7 +956,7 @@ class HSIViewer(QMainWindow):
             self._spectrum_panel.setMaximumHeight(_SPECTRUM_PANEL_HEIGHT)
         explore = self._workspace_tabs.currentWidget() is self._eda_view
         self._spectrum_panel.setVisible(
-            explore and self._explore_plot_visibility["spectrum"] and maximized != "image")
+            explore and shown["spectrum"] and maximized in (None, "spectrum"))
         self._explore_escape.setEnabled(maximized is not None)
 
     @staticmethod
@@ -1004,9 +1038,8 @@ class HSIViewer(QMainWindow):
             self._workspace_tabs.currentChanged.connect(self._sync_fit_footer)
         self._controls_dock.setWidget(column)
         self._configure_controls_dock_height()
+        # The Settings column has the right side to itself; no plot covers it.
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._controls_dock)
-        # The Settings column is the outermost on the right, beside the data-file plots.
-        self.splitDockWidget(self._sensor_dock, self._controls_dock, Qt.Orientation.Horizontal)
         self._refresh_workspace_content_pages()
 
     def _sync_fit_footer(self, *_args: Any) -> None:
@@ -1399,10 +1432,11 @@ class HSIViewer(QMainWindow):
         self._sync_data_file_docks()
         self._follow_roi_table_filter()
         self._apply_explore_page_layout()
-        self._spectrum_toggle_action.setEnabled(is_explore)
-        self._spectrum_toggle_action.blockSignals(True)
-        self._spectrum_toggle_action.setChecked(self._explore_plot_visibility["spectrum"])
-        self._spectrum_toggle_action.blockSignals(False)
+        for name, action in self._page_plot_actions.items():
+            action.setEnabled(is_explore)
+            action.blockSignals(True)
+            action.setChecked(self._explore_plot_visibility[name])
+            action.blockSignals(False)
         self._restore_bottom_dock_sizes()
         self._schedule_bottom_dock_resize()
 
@@ -1553,8 +1587,17 @@ class HSIViewer(QMainWindow):
         self._schedule_bottom_dock_resize()
 
     def _on_spectrum_panel_visibility_action(self, visible: bool) -> None:
-        self._on_explore_plot_visibility_changed("spectrum", visible)
-        if not visible and self._explore_maximized == "spectrum":
+        self._on_page_plot_visibility_action("spectrum", visible)
+
+    def _on_page_plot_visibility_action(self, name: str, visible: bool) -> None:
+        """A View menu switch of a Dataset page plot (or its header's close button)."""
+        self._on_explore_plot_visibility_changed(name, visible)
+        action = getattr(self, "_page_plot_actions", {}).get(name)
+        if action is not None and action.isChecked() != visible:
+            action.blockSignals(True)
+            action.setChecked(visible)
+            action.blockSignals(False)
+        if not visible and self._explore_maximized == name:
             self._restore_maximized_plots()
         self._apply_explore_page_layout()
 
@@ -2431,7 +2474,8 @@ class HSIViewer(QMainWindow):
         allowed = viewable_signal_units(calibration)
         if self._eda_view.chosen_signal in allowed:
             unit = str(self._eda_view.chosen_signal)
-        self.state.set_calibration(**levels)
+        self.state.set_calibration(
+            **levels, reference_frames=own_reference_frames(calibration, self._cube_path))
         self.state.set_y_unit(unit)
         self._eda_view.set_signal_choices(allowed)
 
@@ -2557,15 +2601,14 @@ class HSIViewer(QMainWindow):
             self._log_dock,
             self._hist_dock,
             self._dc3_dock,
-            self._sensor_dock,
-            self._spatial_dock,
             self._roi_table_dock,
         ):
             action = _require_qt_object(
                 dock.toggleViewAction(), f"{dock.windowTitle()} toggle action"
             )
             m.addAction(action)
-        m.addAction(self._spectrum_toggle_action)
+        for action in self._page_plot_actions.values():
+            m.addAction(action)
         m.addSeparator()
         theme_menu = _add_required_menu(m, "Theme")
         theme_group = QActionGroup(self)
@@ -2653,8 +2696,8 @@ class HSIViewer(QMainWindow):
         if current is self._prediction_view:
             self._ensure_predict_content_page()
             return list(self._predict_graph_panel.panels.values())
-        frames: list[PlotFrame] = [self._canvas_frame, self._spectrum_panel,
-                                   *self._dock_frames.values()]
+        frames: list[PlotFrame] = [self._canvas_frame, self._sensor_frame, self._spatial_frame,
+                                   self._spectrum_panel, *self._dock_frames.values()]
         if self._project_rois is not None:
             frames += [self._project_rois.mosaic_frame, self._project_rois.means,
                        self._project_rois.pixels]

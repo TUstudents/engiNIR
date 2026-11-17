@@ -378,13 +378,20 @@ Required behavior:
 
 - a project with ROIs opens on `Project ROIs`; that tab works in project-only
   mode and with every dataset missing
+- `Dataset` shows the spatial image, the sensor frame and the spatial
+  profile side by side, sharing the image's row axis (zoom, pan and the
+  selected row line up in all three; the spatial profile is upright, value
+  along x), and the spectral profile below; the sensor frame's x axis is the
+  spectral axis of the settings (wavelengths or bands). They are part of the
+  page, not docks: the Settings column is never covered or narrowed by a
+  plot (decided 2026-11-16)
 - the docks that show the dataset at the cursor (histogram, DC3/band
-  slice, sensor frame, spatial profile) are shown only in `Dataset`; in
-  `Project ROIs`, Model and Predict they are hidden, and returning to
-  `Dataset` restores the ones the user had shown
-- the ROI table is shown with `Project ROIs` (the right dock column alone)
-  and not in `Dataset`; opened there, it takes the sensor frame's place as
-  a tab. The user's choice per tab is kept; Model and Predict leave it as it
+  slice) are shown only in `Dataset`; in `Project ROIs`, Model and Predict
+  they are hidden, and returning to `Dataset` restores the ones the user had
+  shown
+- the ROI table is shown with `Project ROIs` (a tab of the bottom panel)
+  and not in `Dataset`; opened there, it is the bottom panel's tab in
+  front. The user's choice per tab is kept; Model and Predict leave it as it
   is. It shows the ROIs of the page (the shown dataset in `Dataset`, the
   tab's dataset filter in `Project ROIs`, all datasets in Model and
   Predict)
