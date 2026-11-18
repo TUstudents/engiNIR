@@ -77,6 +77,9 @@ the SIMCA workset and test set mapping, reflectance "nominally" 0 to 1,
 
 ## Deferred to 2.0
 
+Brought forward (user, 2026-11-18): the rename below is planned for 1.7.0,
+format `enginir-1.7`, in `plans/format-1.7-reference-correction.md`.
+
 **Rename the stored "calibration" names** (user, 2026-11-11): in the project
 file, "calibration" means the reference correction, which clashes with model
 calibration. A huge refactor, so it goes on the list for 2.0. Measured on
