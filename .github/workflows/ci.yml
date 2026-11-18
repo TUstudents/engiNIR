@@ -56,6 +56,23 @@ jobs:
       - name: Tests
         run: uv run python -X faulthandler -m pytest -q
 
+  macos:
+    # The viewer and the library on macOS (Apple Silicon), which the installation
+    # guide promises; the suite only, as on Windows (lint, types and docs run on
+    # Linux).
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.13"
+      - run: uv sync --all-extras
+      - name: Tests
+        run: uv run python -X faulthandler -m pytest -q
+
   windows-install:
     # The install a novice runs (plan windows-1.5.2, Phase 5), on a clean machine
     # in Windows PowerShell 5.1: no setup-uv, so the script installs uv itself.
