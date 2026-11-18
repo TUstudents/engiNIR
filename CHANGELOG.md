@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.7.0rc2 (unreleased)
+## 1.7.0rc2 (2026-11-19)
 
 The second release candidate of 1.7.0: everything of 1.7.0rc1 (below), and
 viewer windows are deleted when they close.
