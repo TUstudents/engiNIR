@@ -1,6 +1,64 @@
 # Changelog
 
-## Unreleased
+## Unreleased (1.7.0)
+
+The project format changes to `enginir-1.7`: in the file and the Python API,
+"calibration" no longer names the dark/white reference correction, only
+model calibration. **Projects of engiNIR 1.5.1 to 1.6.1 (format
+`enginir-1.5`) must be converted once** with `enginir-migrate SOURCE
+TARGET`. Opening one names the command. The conversion writes a new file,
+keeps every dataset, ROI, value, model and id, and the converted model
+predicts exactly as before. **Scripts must use the new names below;** the
+old ones are gone (no aliases).
+
+### Changed
+
+- Project format `enginir-1.7` (`FileSchemaVersion`). Stored names:
+
+  | `enginir-1.5` | `enginir-1.7` |
+  |---|---|
+  | `datasets/{id}/calibrations/` | `datasets/{id}/reference_corrections/` |
+  | `@active_calibration_id` | `@active_reference_correction_id` |
+  | `@calibration_id` (ROIs, prediction runs) | `@reference_correction_id` |
+  | `rois/{id}/calibration_refs/` | `rois/{id}/reference_spectra/` |
+  | `@required_calibration_mode` | `@required_correction_mode` |
+  | `@calibrated_input_allowed` | `@corrected_input_allowed` |
+  | mode `precalibrated_import` | `already_corrected` |
+
+- Python API (`enginir`, `enginir.project`, `enginir.io`,
+  `enginir.prediction`):
+
+  | Before | Now |
+  |---|---|
+  | `CalibrationSpec` | `ReferenceCorrection` |
+  | `CalibrationStats` | `ReferenceCorrectionStats` |
+  | `CALIBRATION_MODES` | `CORRECTION_MODES` |
+  | `calibration_id`, `active_calibration_id(s)` (fields, keywords) | `reference_correction_id`, `active_reference_correction_id(s)` |
+  | `calibration=` (keyword of the prediction and conversion functions) | `reference_correction=` |
+  | `Dataset.calibration` | `Dataset.reference_correction` |
+  | `Project.save_calibration` | `Project.save_reference_correction` |
+  | `workspace.calibrations` | `workspace.reference_corrections` |
+  | `make_calibration`, `resolve_calibration`, `resolve_prediction_calibration` | `make_reference_correction`, `resolve_reference_correction`, `resolve_prediction_reference_correction` |
+  | `check_calibration_signal_domain_compatibility` | `check_reference_correction_compatibility` |
+  | `save_calibration_spec`, `iter_roi_calibration_refs` (`enginir.io.project_store`) | `save_reference_correction`, `iter_roi_reference_spectra` |
+  | `SignalDomainContract.required_calibration_mode`, `.calibrated_input_allowed` | `.required_correction_mode`, `.corrected_input_allowed` |
+  | mode value `"precalibrated_import"` | `"already_corrected"` |
+  | progress phase `"calibrating"` | `"correcting"` |
+  | prediction provenance `calibration_id`, `calibration_mode` | `reference_correction_id`, `correction_mode` |
+
+- Library messages say "reference correction" where they meant it
+  (e.g. "Reference correction '…' has no dark/white reference").
+- The contract `dataset-calibration-contract_v3.md` is renamed
+  `dataset-reference-correction-contract_v3.md`.
+
+### Added
+
+- `enginir-migrate SOURCE TARGET` and `enginir.io.migrate_project`: convert
+  an `enginir-1.5` project into a new `enginir-1.7` file (user guide, I/O,
+  "Projects from engiNIR 1.5 and 1.6"). The source is never changed; the
+  result is read with the strict reader before it is kept.
+- A test that no stored name and no public name says "calibration" for the
+  reference correction (gap G36, closed).
 
 ### Fixed
 

@@ -1,8 +1,11 @@
 # Plan: project format enginir-1.7, "calibration" renamed to "reference correction"
 
-Status: decided (user, 2026-11-18): D1 to D8 below. In progress on branch
+Status: decided (user, 2026-11-18): D1 to D8 below. Implemented on branch
 `format-1.7`: Phase 0 (05e8b63), Phase 1 (29f096a), Phases 2 and 3 in one
-commit (the store and the API share every name).
+commit (7ce1f0c; the store and the API share every name), Phase 4
+(1119aa4), Phase 5 (the guard test; G36 closed), Phase 6 without the
+release (CHANGELOG; the packages hold no test data, checked). The version
+bump, tag and release wait for the user.
 
 ## Goal
 
