@@ -93,7 +93,10 @@ def test_the_converted_project_keeps_everything_and_predicts_the_same_map(tmp_pa
     project = Project.open(target)
     (model,) = project.models.values()
     prediction = model.predict(source.parent / "scan.h5")
-    np.testing.assert_array_equal(prediction.map, np.load(source.parent / "expected_map.npy"))
+    # The stored model is byte-identical (checked above); the expected map was computed on
+    # another machine, and other BLAS builds (macOS, Windows) differ in the last float32 digits.
+    np.testing.assert_allclose(prediction.map, np.load(source.parent / "expected_map.npy"),
+                               rtol=0, atol=1e-3)
     store = load_project_store(target)
     modes = {c.get("mode") for d in store["datasets"].values()
              for c in d["reference_corrections"].values()}
