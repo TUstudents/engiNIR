@@ -1,4 +1,4 @@
-"""The words of the viewer and the glossary follow the terminology contract (Enforcement)."""
+"""The words of the viewer, the glossary, the stored names and the public API follow the terminology contract."""
 
 from __future__ import annotations
 
@@ -6,6 +6,8 @@ import ast
 from collections.abc import Iterator
 from pathlib import Path
 import re
+
+from tests._scans import every_stored_object_project
 
 
 # -- The viewer speaks the terminology contract (``contracts/terminology_v3.md``, Enforcement) ----
@@ -266,3 +268,91 @@ def glossary_terms() -> set[str]:
 def test_the_glossary_has_an_entry_for_every_term_of_the_contract():
     missing = contract_terms() - glossary_terms()
     assert not missing, f"terms of contracts/terminology_v3.md without a glossary entry: {missing}"
+
+
+# -- Stored and public names: "calibration" means model calibration only (G36) --------------
+
+#: Public names (or name.parameter) that contain "calibrat" in the model-calibration sense.
+MODEL_CALIBRATION_NAMES = {
+    "enginir.validation.hotelling_t2(calibration_scores)":
+        "the scores of the calibration samples, against which new scores are judged",
+}
+#: Stored values that contain "calibrat": the ROI set (roi-target contract, `job`).
+MODEL_CALIBRATION_VALUES = {"job": {"calibration"}}
+
+_PUBLIC_MODULES = ("enginir", "enginir.io", "enginir.project", "enginir.prediction",
+                   "enginir.modeling", "enginir.validation", "enginir.preprocessing",
+                   "enginir.models", "enginir.visualization", "enginir._workflow")
+
+
+def stored_calibration_names(path) -> list[str]:
+    """Group, dataset and attribute names, and attribute values, that say "calibrat"."""
+    import h5py
+
+    found: list[str] = []
+    with h5py.File(path, "r") as f:
+        def visit(name, obj):
+            if "calibrat" in name.rsplit("/", 1)[-1].lower():
+                found.append(name)
+            for key, value in obj.attrs.items():
+                text = value.decode() if isinstance(value, bytes) else str(value)
+                if "calibrat" in key.lower():
+                    found.append(f"{name}@{key}")
+                elif ("calibrat" in text.lower() and not re.search(r"[/\\]", text)  # not paths
+                      and text not in MODEL_CALIBRATION_VALUES.get(key, ())):
+                    found.append(f"{name}@{key} = {text}")
+        f.visititems(visit)
+    return found
+
+
+def public_calibration_names() -> set[str]:
+    """Public names, attributes and parameters of the library that say "calibrat"."""
+    import importlib
+    import inspect
+
+    def parameters(obj) -> list[str]:
+        try:
+            return list(inspect.signature(obj).parameters)
+        except (TypeError, ValueError):
+            return []
+
+    found: set[str] = set()
+    for module_name in _PUBLIC_MODULES:
+        module = importlib.import_module(module_name)
+        for name in getattr(module, "__all__", []):
+            obj = getattr(module, name)
+            members = [(name, obj)]
+            if inspect.isclass(obj):
+                members += [(f"{name}.{attribute}", getattr(obj, attribute))
+                            for attribute in dir(obj) if not attribute.startswith("_")]
+            for label, member in members:
+                if "calibrat" in label.lower():
+                    found.add(f"{module_name}.{label}")
+                found.update(f"{module_name}.{label}({parameter})" for parameter in parameters(member)
+                             if "calibrat" in parameter.lower())
+    return {name.replace("enginir._workflow.", "enginir.") for name in found}
+
+
+def test_no_stored_name_says_calibration_for_the_reference_correction(tmp_path):
+    """Format enginir-1.7: a freshly written project names the reference correction so."""
+    path = every_stored_object_project(tmp_path)
+    assert stored_calibration_names(path) == []
+
+
+def test_an_old_stored_name_is_found(tmp_path):
+    """Fault injection: the check above sees an old name in groups, attributes and values."""
+    import h5py
+
+    path = every_stored_object_project(tmp_path)
+    with h5py.File(path, "r+") as f:
+        roi = next(iter(f["rois"].values()))
+        roi.attrs["calibration_id"] = "x"
+        roi.create_group("calibration_refs")
+        next(iter(f["signal_domains"].values())).attrs["required_correction_mode"] = "precalibrated_import"
+    found = stored_calibration_names(path)
+    assert len(found) == 3, found
+
+
+def test_no_public_name_says_calibration_for_the_reference_correction():
+    """Every public name with "calibrat" means model calibration, with a reason."""
+    assert public_calibration_names() == set(MODEL_CALIBRATION_NAMES)
