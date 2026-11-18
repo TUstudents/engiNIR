@@ -117,7 +117,7 @@ def build(directory: Path) -> Reference:
     rois, assignments, raw = [], [], {}
     for k, name in enumerate(names):
         frames = (k * FRAMES_PER_ROI, (k + 1) * FRAMES_PER_ROI - 1)
-        roi, spectra, refs = make_roi(dataset.ref, dataset.calibration, name=name, frames=frames,
+        roi, spectra, refs = make_roi(dataset.ref, dataset.reference_correction, name=name, frames=frames,
                                       rows=(0, ROWS - 1),
                                       pixels=read_frames(str(cube_path), *frames))
         roi = replace(roi, roi_id=roi_id(name))
@@ -153,9 +153,9 @@ def absorbance(reference: Reference, names: list[str]) -> dict[str, np.ndarray]:
                             target_assignments=ws.target_assignments, target_id=target_id,
                             preprocessing_recipe_id="none", roi_ids=[roi_id(n) for n in names])
     domain = SignalDomainContract.for_training_data(
-        dataset=next(iter(ws.datasets.values())), calibration=next(iter(ws.calibrations.values())),
+        dataset=next(iter(ws.datasets.values())), reference_correction=next(iter(ws.reference_corrections.values())),
         required_signal_unit="Absorbance")
-    X = _signal_domain_matrix(reference.project.path, data, ws.datasets, ws.calibrations,
+    X = _signal_domain_matrix(reference.project.path, data, ws.datasets, ws.reference_corrections,
                               ws.rois, domain)
     return {name: X[data.roi_slices[roi_id(name)]] for name in names}
 

@@ -128,7 +128,7 @@ this profile and should be added explicitly when needed.
 HDF5 project files
 ------------------
 
-A project file (HDF5, format ``enginir-1.5``) records a whole analysis:
+A project file (HDF5, format ``enginir-1.7``) records a whole analysis:
 
 - project metadata and schema version
 - dataset references
@@ -143,13 +143,35 @@ A project file (HDF5, format ``enginir-1.5``) records a whole analysis:
 
 See :doc:`/hdf5_format` for the schema overview and object layout.
 
+Projects from engiNIR 1.5 and 1.6
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+engiNIR 1.7 reads only its own format, ``enginir-1.7``. A project written by
+engiNIR 1.5.1 to 1.6.1 (format ``enginir-1.5``) is refused when you open it;
+the message names the command that converts it into a new file:
+
+.. code-block:: bash
+
+   enginir-migrate "tablets.h5" "tablets (enginir-1.7).h5"
+
+or, from Python, :func:`enginir.io.migrate_project`. The conversion renames
+the stored names of the reference correction, which said "calibration" in
+``enginir-1.5`` (``calibrations/`` becomes ``reference_corrections/``,
+``calibration_id`` becomes ``reference_correction_id``, and so on; the table
+is in :doc:`/hdf5_format`). Nothing else changes: every dataset, ROI, value,
+model and id is kept, and the converted model predicts exactly as before.
+The original file is never changed. Keep the new file in the same folder,
+so that its data files are found next to it.
+
+Projects written before engiNIR 1.5 cannot be converted; create them again.
+
 .. code-block:: python
 
    import numpy as np
    from enginir.io import (
        create_project,
        save_dataset_ref,
-       save_calibration_spec,
+       save_reference_correction,
        save_training_roi,
        save_target_definition,
        save_target_assignment,
@@ -175,7 +197,7 @@ See :doc:`/hdf5_format` for the schema overview and object layout.
            "loader_metadata": {"instrument": "EVK AlphaVision"},
        },
    )
-   save_calibration_spec(
+   save_reference_correction(
        "project.h5",
        "dataset_1",
        "cal_1",
@@ -192,7 +214,7 @@ See :doc:`/hdf5_format` for the schema overview and object layout.
        "roi_1",
        {
            "dataset_id": "dataset_1",
-           "calibration_id": "cal_1",
+           "reference_correction_id": "cal_1",
            "name": "ROI 1",
            "source_file": "/data/train_a.eiff",
            "n_pixels": 12,
@@ -201,7 +223,7 @@ See :doc:`/hdf5_format` for the schema overview and object layout.
            "wavelengths": wavelengths,
            "provenance": {
                "dataset_id": "dataset_1",
-               "calibration_id": "cal_1",
+               "reference_correction_id": "cal_1",
                "signal_unit": "Absorbance",
                "preview_recipe_summary": "SNV preview only",
                "created_at": "2026-04-02T10:02:00+00:00",
@@ -298,7 +320,7 @@ them:
 
    workspace = hydrate_project_store(load_project_store("project.h5"))
    roi = workspace.rois["roi_1"]
-   calibration = workspace.calibrations[roi.calibration_id]
+   reference_correction = workspace.reference_corrections[roi.reference_correction_id]
    spectra = roi.load_spectra("project.h5")   # (n_pixels, n_bands), read on demand
 
 Invalid stored values raise a :class:`ValueError` that names the object's

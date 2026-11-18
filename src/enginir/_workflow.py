@@ -1,6 +1,6 @@
 """The project workflow in a few calls: datasets, ROIs, targets, models, predictions.
 
-:class:`Project` creates the bookkeeping objects (calibrations, sample sets,
+:class:`Project` creates the bookkeeping objects (reference corrections, sample sets,
 signal domains, stored recipes, provenance) itself and writes everything
 through the validated project store. Its rules are the "Project Facade Rules"
 of ``contracts/headless-workflow-contract_v3.md``.
@@ -40,7 +40,7 @@ from .prediction import (
 )
 from .preprocessing import PreprocessingRecipe
 from .project import (
-    CalibrationSpec,
+    ReferenceCorrection,
     DatasetRef,
     FitSpec,
     ModelRun,
@@ -74,9 +74,9 @@ logger = get_logger(__name__)
 __all__ = ["DEFAULT_BLACK_LEVEL", "DEFAULT_WHITE_LEVEL", "Dataset", "GridCell", "Model",
            "Prediction", "Project", "StoredPrediction", "check_data_file_location", "data_file_labels",
            "is_data_file_of",
-           "make_calibration", "make_roi", "read_frames", "read_header",
-           "recipe_id_for", "resolve_calibration", "resolve_dataset",
-           "resolve_prediction_calibration", "resolve_sample_set", "resolve_signal_domain",
+           "make_reference_correction", "make_roi", "read_frames", "read_header",
+           "recipe_id_for", "resolve_reference_correction", "resolve_dataset",
+           "resolve_prediction_reference_correction", "resolve_sample_set", "resolve_signal_domain",
            "roi_grid"]
 
 #: Dark and white detector levels of EVK cameras, used when a dataset is
@@ -231,7 +231,7 @@ class Project:
         black_level: float | None = None,
         white_level: float | None = None,
     ) -> Dataset:
-        """Register a data file with its calibration.
+        """Register a data file with its reference correction.
 
         Parameters
         ----------
@@ -256,7 +256,7 @@ class Project:
         references_from:
             A registered data file whose dark and white references this file
             uses too (one reference set for a session). Its arrays are copied
-            into this file's own calibration. Not combined with the other
+            into this file's own reference correction. Not combined with the other
             reference arguments.
         black_level, white_level:
             Detector levels for raw counts calibrated without references,
@@ -269,15 +269,15 @@ class Project:
 
         Notes
         -----
-        The dataset and its calibration are validated completely before
-        either is written. Re-registering a file with another calibration
+        The dataset and its reference correction are validated completely before
+        either is written. Re-registering a file with another reference correction
         makes that the active one; ROIs drawn before keep theirs.
         """
-        dataset, calibration, new_dataset, new_calibration = self._resolve_dataset(
+        dataset, reference_correction, new_dataset, new_reference_correction = self._resolve_dataset(
             path, dark=dark, white=white, unit=unit, dark_frames=dark_frames,
             white_frames=white_frames, references_from=references_from,
             black_level=black_level, white_level=white_level)
-        self._write_dataset(dataset, calibration, new_dataset, new_calibration)
+        self._write_dataset(dataset, reference_correction, new_dataset, new_reference_correction)
         return Dataset(self, self.workspace.datasets[dataset.dataset_id])
 
     def add_target(self, name: str, *, unit: str, value_type: str = "float",
@@ -392,7 +392,7 @@ class Project:
                                        ws.signal_domains)
         return propose_bands(
             project_path=self.path, sample_set=sample_set, datasets=ws.datasets,
-            calibrations=ws.calibrations, rois=ws.rois,
+            reference_corrections=ws.reference_corrections, rois=ws.rois,
             target_assignments=ws.target_assignments, recipes=recipes,
             signal_domains={**ws.signal_domains, domain.signal_domain_id: domain},
             signal_domain_id=domain.signal_domain_id, model_type=model,
@@ -465,7 +465,7 @@ class Project:
                                        ws.signal_domains)
         result = fit_model_run(
             project_path=self.path, sample_set=sample_set, datasets=ws.datasets,
-            calibrations=ws.calibrations, rois=ws.rois,
+            reference_corrections=ws.reference_corrections, rois=ws.rois,
             target_assignments=ws.target_assignments, recipes=recipes,
             signal_domains={**ws.signal_domains, domain.signal_domain_id: domain},
             signal_domain_id=domain.signal_domain_id, model_type=model,
@@ -474,7 +474,7 @@ class Project:
         run = replace(result.model_run,
                       name=name or self.default_model_name(result.model_run, recipe_obj))
         validate_project_relationships(
-            datasets=ws.datasets, calibrations=ws.calibrations, rois=ws.rois,
+            datasets=ws.datasets, reference_corrections=ws.reference_corrections, rois=ws.rois,
             targets=ws.targets, target_assignments=ws.target_assignments.values(),
             recipes=recipes, signal_domains={domain.signal_domain_id: domain},
             sample_sets={sample_set.sample_set_id: sample_set},
@@ -510,12 +510,12 @@ class Project:
         store.save_dataset_ref(self.path, dataset.dataset_id, dataset.to_dict())
         self.workspace.datasets[dataset.dataset_id] = dataset
 
-    def save_calibration(self, calibration: CalibrationSpec) -> None:
-        """Store a calibration of a stored dataset and make it the dataset's active one."""
-        store.save_calibration_spec(self.path, calibration.dataset_id,
-                                    calibration.calibration_id, calibration.to_dict())
-        self.workspace.calibrations[calibration.calibration_id] = calibration
-        self.workspace.active_calibration_ids[calibration.dataset_id] = calibration.calibration_id
+    def save_reference_correction(self, reference_correction: ReferenceCorrection) -> None:
+        """Store a reference correction of a stored dataset and make it the dataset's active one."""
+        store.save_reference_correction(self.path, reference_correction.dataset_id,
+                                    reference_correction.reference_correction_id, reference_correction.to_dict())
+        self.workspace.reference_corrections[reference_correction.reference_correction_id] = reference_correction
+        self.workspace.active_reference_correction_ids[reference_correction.dataset_id] = reference_correction.reference_correction_id
 
     def save_target(self, target: TargetDefinition) -> None:
         """Store a target definition."""
@@ -543,7 +543,7 @@ class Project:
     def save_roi(self, roi: TrainingROI, spectra: np.ndarray, *,
                  dark_ref_spectra: np.ndarray | None = None,
                  white_ref_spectra: np.ndarray | None = None) -> None:
-        """Store an ROI of a stored dataset and calibration with its spectra."""
+        """Store an ROI of a stored dataset and reference correction with its spectra."""
         self._validate(rois={roi.roi_id: roi}, target_assignments=[])
         store.save_training_roi(self.path, roi.roi_id, roi.to_dict(), spectra,
                                 dark_ref_spectra=dark_ref_spectra,
@@ -615,7 +615,7 @@ class Project:
         ws = self.workspace
         # Strict for the new sample set, stale sample sets already stored are allowed.
         validate_project_relationships(
-            datasets=ws.datasets, calibrations=ws.calibrations, rois=ws.rois,
+            datasets=ws.datasets, reference_corrections=ws.reference_corrections, rois=ws.rois,
             targets=ws.targets, target_assignments=ws.target_assignments.values(),
             recipes=ws.recipes, signal_domains=ws.signal_domains,
             sample_sets={sample_set.sample_set_id: sample_set}, model_runs={}, predictions={})
@@ -689,9 +689,9 @@ class Project:
         """Check the references of ``objects`` together with everything stored."""
         ws = self.workspace
         graph: dict[str, Any] = dict(
-            datasets=ws.datasets, calibrations=ws.calibrations, rois=ws.rois,
+            datasets=ws.datasets, reference_corrections=ws.reference_corrections, rois=ws.rois,
             targets=ws.targets, target_assignments=ws.target_assignments.values(),
-            active_calibration_ids=ws.active_calibration_ids, recipes=ws.recipes,
+            active_reference_correction_ids=ws.active_reference_correction_ids, recipes=ws.recipes,
             signal_domains=ws.signal_domains, sample_sets=ws.sample_sets,
             model_runs=ws.model_runs, predictions=ws.predictions,
             allow_stale_sample_set_rois=True)
@@ -702,7 +702,7 @@ class Project:
                 merged = dict(ws.target_assignments)
                 merged.update({(a.roi_id, a.target_id): a for a in value})
                 graph[key] = list(merged.values())
-            elif isinstance(value, dict) and key != "active_calibration_ids":
+            elif isinstance(value, dict) and key != "active_reference_correction_ids":
                 graph[key] = {**graph[key], **value}
             else:
                 graph[key] = value
@@ -769,12 +769,12 @@ class Project:
 
     def _resolve_dataset(self, path, *, dark, white, unit, dark_frames=None, white_frames=None,
                          references_from=None, black_level=None, white_level=None):
-        """Return ``(dataset, calibration, dataset_is_new, calibration_is_new)``, writing nothing."""
+        """Return ``(dataset, reference_correction, dataset_is_new, reference_correction_is_new)``, writing nothing."""
         ws = self.workspace
         levels_given = black_level is not None or white_level is not None
         if levels_given and any(value is not None for value in (
                 dark, white, dark_frames, white_frames, references_from)):
-            log_and_raise("Detector levels calibrate without references; do not combine "
+            log_and_raise("Detector levels correct without references; do not combine "
                           "black_level/white_level with dark/white references")
         abs_path = _native_path(path)
         data = read_header(abs_path)
@@ -791,8 +791,8 @@ class Project:
                 for file, frames, label in ((dark, dark_frames, "dark"),
                                             (white, white_frames, "white")))
         (dark_ref, dark_source), (white_ref, white_source) = references
-        candidate = make_calibration(
-            dataset, unit=unit, precalibrated=np.dtype(data.X.dtype).kind == "f",
+        candidate = make_reference_correction(
+            dataset, unit=unit, already_corrected=np.dtype(data.X.dtype).kind == "f",
             dark=dark_ref, white=white_ref, dark_source=dark_source, white_source=white_source,
             black_level=data.meta.get("black_level") if black_level is None else black_level,
             white_level=data.meta.get("white_level") if white_level is None else white_level)
@@ -800,8 +800,8 @@ class Project:
                 and not candidate.white_level > candidate.black_level:
             log_and_raise("The white level ({:g}) must be above the black level ({:g})",
                           candidate.white_level, candidate.black_level)
-        calibration, new_calibration = resolve_calibration(dataset, ws.calibrations, candidate)
-        return dataset, calibration, new_dataset, new_calibration
+        reference_correction, new_reference_correction = resolve_reference_correction(dataset, ws.reference_corrections, candidate)
+        return dataset, reference_correction, new_dataset, new_reference_correction
 
     @staticmethod
     def _one_reference(abs_path, file, frames, sensor, n_frames, label):
@@ -820,22 +820,22 @@ class Project:
     def _references_of(self, path, sensor):
         """The dark and white references of another registered data file, with their sources."""
         shared = self.dataset(path)
-        source, calibration = shared.ref, shared.calibration
-        if calibration.dark_ref_data is None or calibration.white_ref_data is None:
+        source, reference_correction = shared.ref, shared.reference_correction
+        if reference_correction.dark_ref_data is None or reference_correction.white_ref_data is None:
             log_and_raise("{} has no dark and white reference spectra to share",
                           source.source_path, depth=2)
         origin = f"references of {source.source_path}"
-        return ((_reference(calibration.dark_ref_data, sensor, "dark"),
-                 calibration.dark_ref_source or origin),
-                (_reference(calibration.white_ref_data, sensor, "white"),
-                 calibration.white_ref_source or origin))
+        return ((_reference(reference_correction.dark_ref_data, sensor, "dark"),
+                 reference_correction.dark_ref_source or origin),
+                (_reference(reference_correction.white_ref_data, sensor, "white"),
+                 reference_correction.white_ref_source or origin))
 
-    def _write_dataset(self, dataset, calibration, new_dataset, new_calibration) -> None:
+    def _write_dataset(self, dataset, reference_correction, new_dataset, new_reference_correction) -> None:
         if new_dataset:
             self.save_dataset(dataset)
-        if new_calibration or (self.workspace.active_calibration_ids.get(dataset.dataset_id)
-                               != calibration.calibration_id):
-            self.save_calibration(calibration)
+        if new_reference_correction or (self.workspace.active_reference_correction_ids.get(dataset.dataset_id)
+                               != reference_correction.reference_correction_id):
+            self.save_reference_correction(reference_correction)
 
     def _training_signal_domain(self, sample_set: SampleSet) -> SignalDomainContract:
         """The one signal domain of all training ROIs, refusing ROIs that need different ones."""
@@ -843,10 +843,10 @@ class Project:
         domains: list[SignalDomainContract] = []
         for roi_id in sample_set.roi_ids:
             roi = ws.rois[roi_id]
-            calibration = ws.calibrations[roi.calibration_id]
+            reference_correction = ws.reference_corrections[roi.reference_correction_id]
             domain = SignalDomainContract.for_training_data(
-                dataset=ws.datasets[roi.dataset_id], calibration=calibration,
-                required_signal_unit=calibration.output_signal_unit)
+                dataset=ws.datasets[roi.dataset_id], reference_correction=reference_correction,
+                required_signal_unit=reference_correction.output_signal_unit)
             if domains and not _same_signal_domain(domains[0], domain):
                 log_and_raise("ROI '{}' was recorded with a different signal (format, unit, "
                               "reference correction or wavelengths) than ROI '{}'; one model needs one "
@@ -883,14 +883,14 @@ class Project:
 
 
 class Dataset:
-    """A registered data file with its active calibration."""
+    """A registered data file with its active reference correction."""
 
     def __init__(self, project: Project, ref: DatasetRef) -> None:
         self.project = project
         self.ref = ref
 
     def __repr__(self) -> str:
-        return f"Dataset({self.path!r}, shape={self.ref.cube_shape}, {self.calibration.mode})"
+        return f"Dataset({self.path!r}, shape={self.ref.cube_shape}, {self.reference_correction.mode})"
 
     @property
     def path(self) -> str:
@@ -898,10 +898,10 @@ class Dataset:
         return self.project.data_file(self.ref.dataset_id) or self.ref.source_path
 
     @property
-    def calibration(self) -> CalibrationSpec:
-        """The calibration new ROIs of this dataset are recorded with."""
+    def reference_correction(self) -> ReferenceCorrection:
+        """The reference correction new ROIs of this dataset are recorded with."""
         ws = self.project.workspace
-        return ws.calibrations[ws.active_calibration_ids[self.ref.dataset_id]]
+        return ws.reference_corrections[ws.active_reference_correction_ids[self.ref.dataset_id]]
 
     @property
     def rois(self) -> dict[str, TrainingROI]:
@@ -937,7 +937,7 @@ class Dataset:
         targets = {target_name: project.target(target_name) for target_name in values or {}}
         n_frames = self.ref.cube_shape[0]
         first, last = _index_range(frames, n_frames, "frames")
-        roi, spectra, refs = make_roi(self.ref, self.calibration, name=name,
+        roi, spectra, refs = make_roi(self.ref, self.reference_correction, name=name,
                                       frames=(first, last), rows=rows,
                                       pixels=read_frames(self.path, first, last), job=job)
         created_at = roi.created_at
@@ -945,7 +945,7 @@ class Dataset:
                                         value=float(values[target_name]), assigned_at=created_at)
                        for target_name, target in targets.items()] if values else []
         validate_project_relationships(
-            datasets=ws.datasets, calibrations=ws.calibrations, rois={roi.roi_id: roi},
+            datasets=ws.datasets, reference_corrections=ws.reference_corrections, rois={roi.roi_id: roi},
             targets=ws.targets, target_assignments=assignments, recipes={}, signal_domains={},
             sample_sets={}, model_runs={}, predictions={})
 
@@ -1018,7 +1018,7 @@ class Dataset:
         first = min(_index_range(cell.frames, n_frames, "frames")[0] for cell in cells)
         last = max(_index_range(cell.frames, n_frames, "frames")[1] for cell in cells)
         pixels = read_frames(self.path, first, last)
-        built = [make_roi(self.ref, self.calibration, name=cell.name, frames=cell.frames,
+        built = [make_roi(self.ref, self.reference_correction, name=cell.name, frames=cell.frames,
                           rows=cell.rows, pixels=pixels[cell.frames[0] - first:
                                                         cell.frames[1] - first + 1],
                           grid_cell=cell)
@@ -1157,7 +1157,7 @@ class Model:
         hyperparameters = stored_hyperparameters(self.ref.model_type, self.ref.hyperparameters)
         result = fit_model_run(
             project_path=project.path, sample_set=sample_set, datasets=ws.datasets,
-            calibrations=ws.calibrations, rois=ws.rois,
+            reference_corrections=ws.reference_corrections, rois=ws.rois,
             target_assignments=ws.target_assignments, recipes=ws.recipes,
             signal_domains=ws.signal_domains, signal_domain_id=self.ref.signal_domain_id,
             model_type=self.ref.model_type, hyperparameters=hyperparameters,
@@ -1241,7 +1241,7 @@ class Model:
                      exclude_dmodx: float | bool | None = None) -> RoiPredictionSummary:
         """Predict the prediction ROIs from the project file alone, with per-ROI statistics.
 
-        Each ROI's stored pixels are converted with its own calibration (as the
+        Each ROI's stored pixels are converted with its own reference correction (as the
         fit does), preprocessed with the model's recipe and predicted; no data
         file is read and nothing is written (prediction-runtime contract,
         Prediction ROIs). The result is logged once.
@@ -1285,7 +1285,7 @@ class Model:
             log_and_raise("No prediction ROIs to predict; mark ROIs with job='prediction'")
         return predict_rois(
             project_path=self.project.path, model_run=self.ref, model_name=self.name,
-            rois=chosen, datasets=ws.datasets, calibrations=ws.calibrations,
+            rois=chosen, datasets=ws.datasets, reference_corrections=ws.reference_corrections,
             signal_domains=ws.signal_domains, recipes=ws.recipes, sample_sets=ws.sample_sets)
 
     def predict(self, path: str | os.PathLike[str], *,
@@ -1294,10 +1294,10 @@ class Model:
                 checksum: bool = False) -> Prediction:
         """Predict the target for every spectrum of a data file, in memory.
 
-        The file and its calibration are resolved as by
+        The file and its reference correction are resolved as by
         :meth:`Project.add_dataset`, in the model's signal unit, but nothing
         is written to the project: a registered file reuses its stored
-        calibration, a new file gets one in memory. Compatibility with the
+        reference correction, a new file gets one in memory. Compatibility with the
         model is checked before the data are read. The prediction is logged
         once (model, data file with size and modification time, summary);
         ``checksum=True`` adds the SHA-256 of the data file.
@@ -1321,15 +1321,15 @@ class Model:
                 log_and_raise("Not predicted: {}; add the file again under another path, or "
                               "locate the dataset's own file", mismatch)
         if registered is not None and dark is None and white is None:
-            # A registered file is predicted with its own active calibration, the one its
+            # A registered file is predicted with its own active reference correction, the one its
             # ROIs were recorded with (not a new one from the detector levels).
             dataset = registered
-            calibration = ws.calibrations[ws.active_calibration_ids[registered.dataset_id]]
+            reference_correction = ws.reference_corrections[ws.active_reference_correction_ids[registered.dataset_id]]
         else:
-            dataset, calibration, _new_dataset, _new_calibration = project._resolve_dataset(
+            dataset, reference_correction, _new_dataset, _new_reference_correction = project._resolve_dataset(
                 path, dark=dark, white=white, unit=domain.required_signal_unit)
         common: dict[str, Any] = dict(project_path=project.path, model_run=self.ref, signal_domain=domain,
-                      recipe=recipe, dataset=dataset, calibration=calibration,
+                      recipe=recipe, dataset=dataset, reference_correction=reference_correction,
                       model_registry={})
         preflight_prediction(**common)
         result: PredictionResult = predict_with_model_run(
@@ -1798,7 +1798,7 @@ def resolve_dataset(
             data_path=abs_path, spectral_data=data, dataset_id=dataset_id,
             import_timestamp=created_at), True
     # Wavelength values are metadata, not a compatibility gate (see the
-    # dataset-calibration contract); the modality is compared when the file states it.
+    # dataset-reference-correction contract); the modality is compared when the file states it.
     checks = [("format", file_format(abs_path), registered.source_format),
               ("shape", tuple(data.cube_shape), registered.cube_shape)]
     if data.meta.get("source_modality"):
@@ -1810,11 +1810,11 @@ def resolve_dataset(
     return registered, False
 
 
-def make_calibration(
+def make_reference_correction(
     dataset: DatasetRef,
     *,
     unit: str,
-    precalibrated: bool,
+    already_corrected: bool,
     dark: np.ndarray | None = None,
     white: np.ndarray | None = None,
     dark_source: str | None = None,
@@ -1822,8 +1822,8 @@ def make_calibration(
     black_level: float | None = None,
     white_level: float | None = None,
     created_at: str | None = None,
-) -> CalibrationSpec:
-    """Build the calibration of ``dataset`` by the contract rules.
+) -> ReferenceCorrection:
+    """Build the reference correction of ``dataset`` by the contract rules.
 
     ``unit="DN"`` keeps raw counts; precalibrated (floating-point) data are
     imported as they are; otherwise counts are calibrated with the dark and
@@ -1838,8 +1838,8 @@ def make_calibration(
                                   black_level=None, white_level=None)
     if unit == "DN":
         mode = "raw_dn"
-    elif precalibrated:
-        mode = "precalibrated_import"
+    elif already_corrected:
+        mode = "already_corrected"
     else:
         mode = "dark_white_reference"
         if dark is not None and white is not None:
@@ -1850,50 +1850,50 @@ def make_calibration(
             fields.update(
                 black_level=float(DEFAULT_BLACK_LEVEL if black_level is None else black_level),
                 white_level=float(DEFAULT_WHITE_LEVEL if white_level is None else white_level))
-    return CalibrationSpec(calibration_id=new_id(), dataset_id=dataset.dataset_id, mode=mode,
+    return ReferenceCorrection(reference_correction_id=new_id(), dataset_id=dataset.dataset_id, mode=mode,
                            output_signal_unit=unit, created_at=created_at or now_iso(), **fields)
 
 
-def resolve_calibration(
+def resolve_reference_correction(
     dataset: DatasetRef,
-    calibrations: Mapping[str, CalibrationSpec],
-    calibration: CalibrationSpec,
-) -> tuple[CalibrationSpec, bool]:
-    """Return the stored calibration with the content of ``calibration``, or it; and whether it is new.
+    reference_corrections: Mapping[str, ReferenceCorrection],
+    reference_correction: ReferenceCorrection,
+) -> tuple[ReferenceCorrection, bool]:
+    """Return the stored reference correction with the content of ``reference_correction``, or it; and whether it is new.
 
-    ``calibration`` is moved to ``dataset`` (and given an id if it has none).
+    ``reference_correction`` is moved to ``dataset`` (and given an id if it has none).
     """
-    candidate = replace(calibration, dataset_id=dataset.dataset_id,
-                        calibration_id=calibration.calibration_id or new_id(),
-                        created_at=calibration.created_at or now_iso())
-    existing = next((cal for cal in calibrations.values() if cal.same_content_as(candidate)),
+    candidate = replace(reference_correction, dataset_id=dataset.dataset_id,
+                        reference_correction_id=reference_correction.reference_correction_id or new_id(),
+                        created_at=reference_correction.created_at or now_iso())
+    existing = next((cal for cal in reference_corrections.values() if cal.same_content_as(candidate)),
                     None)
     return (existing, False) if existing is not None else (candidate, True)
 
 
-def resolve_prediction_calibration(
+def resolve_prediction_reference_correction(
     dataset: DatasetRef,
-    calibrations: Mapping[str, CalibrationSpec],
-    active_calibration_ids: Mapping[str, str],
-    calibration: CalibrationSpec | None,
-) -> tuple[CalibrationSpec, bool]:
-    """The calibration to predict ``dataset`` with, and whether it is new.
+    reference_corrections: Mapping[str, ReferenceCorrection],
+    active_reference_correction_ids: Mapping[str, str],
+    reference_correction: ReferenceCorrection | None,
+) -> tuple[ReferenceCorrection, bool]:
+    """The reference correction to predict ``dataset`` with, and whether it is new.
 
-    An explicit ``calibration`` is resolved like :func:`resolve_calibration`;
-    otherwise the dataset's active calibration is used.
+    An explicit ``reference_correction`` is resolved like :func:`resolve_reference_correction`;
+    otherwise the dataset's active reference correction is used.
     """
-    if calibration is not None:
-        return resolve_calibration(dataset, calibrations, calibration)
-    active_id = active_calibration_ids.get(dataset.dataset_id)
-    if active_id and active_id in calibrations:
-        return calibrations[active_id], False
+    if reference_correction is not None:
+        return resolve_reference_correction(dataset, reference_corrections, reference_correction)
+    active_id = active_reference_correction_ids.get(dataset.dataset_id)
+    if active_id and active_id in reference_corrections:
+        return reference_corrections[active_id], False
     log_and_raise("Prediction dataset '{}' has no reference correction yet; explicit reference correction required",
                   dataset.dataset_id)
 
 
 def make_roi(
     dataset: DatasetRef,
-    calibration: CalibrationSpec,
+    reference_correction: ReferenceCorrection,
     *,
     name: str,
     frames: tuple[int, int],
@@ -1908,7 +1908,7 @@ def make_roi(
 
     ``frames`` and ``rows`` are inclusive ``(first, last)`` ranges; ``pixels``
     holds exactly the frames ``frames``. Returns the ROI, its spectra
-    ``(n_pixels, n_bands)`` in the file's dtype and, for calibrations with
+    ``(n_pixels, n_bands)`` in the file's dtype and, for reference corrections with
     reference spectra, the matching dark and white reference pixels.
     ``preview_recipe`` records the preprocessing shown while the ROI was
     drawn; ``grid_cell`` records the grid position and layout of an ROI made
@@ -1922,21 +1922,21 @@ def make_roi(
                       f0, f1, f1 - f0 + 1)
     spectra = np.asarray(pixels)[:, r0:r1 + 1].reshape(-1, n_bands)
     refs: tuple[np.ndarray, np.ndarray] | None = None
-    if calibration.dark_ref_data is not None and calibration.white_ref_data is not None:
+    if reference_correction.dark_ref_data is not None and reference_correction.white_ref_data is not None:
         def pixels_of(ref: np.ndarray) -> np.ndarray:
             return np.tile(np.asarray(ref, dtype=np.float32)[r0:r1 + 1], (f1 - f0 + 1, 1))
 
-        refs = (pixels_of(calibration.dark_ref_data), pixels_of(calibration.white_ref_data))
+        refs = (pixels_of(reference_correction.dark_ref_data), pixels_of(reference_correction.white_ref_data))
     created_at = created_at or now_iso()
     recipe = preview_recipe or PreprocessingRecipe()
     roi = TrainingROI(
         roi_id=new_id(), job=check_roi_job(job), dataset_id=dataset.dataset_id,
-        calibration_id=calibration.calibration_id, name=name,
+        reference_correction_id=reference_correction.reference_correction_id, name=name,
         wavelengths=dataset.wavelengths, n_pixels=int(spectra.shape[0]),
         spatial_bounds=(f0, f1, r0, r1), source_file=dataset.source_path, created_at=created_at,
         provenance={"dataset_id": dataset.dataset_id,
-                    "calibration_id": calibration.calibration_id,
-                    "signal_unit": calibration.output_signal_unit,
+                    "reference_correction_id": reference_correction.reference_correction_id,
+                    "signal_unit": reference_correction.output_signal_unit,
                     "preview_recipe_summary": _recipe_label(recipe) if preview_recipe else "none",
                     "created_at": created_at, **(recipe.to_dict() if preview_recipe else {}),
                     **({"grid_position": grid_cell.position, "grid": grid_cell.grid}
@@ -1982,7 +1982,7 @@ def _source(reference) -> str | None:
 _FRAMES_SOURCE = re.compile(r"^(?P<path>.+) frames (?P<first>\d+)-(?P<last>\d+)$")
 
 
-def own_reference_frames(calibration: CalibrationSpec | None,
+def own_reference_frames(reference_correction: ReferenceCorrection | None,
                          path: str | os.PathLike[str] | None) -> tuple[tuple[int, int], ...]:
     """The frames of the data file ``path`` its dark and white references were taken from.
 
@@ -1991,11 +1991,11 @@ def own_reference_frames(calibration: CalibrationSpec | None,
     from other files or there are none. These frames show the references
     themselves, not the sample (e.g. not counted as above white).
     """
-    if calibration is None or path is None:
+    if reference_correction is None or path is None:
         return ()
     own = os.path.normcase(os.path.abspath(os.fspath(path)))
     frames = []
-    for source in (calibration.dark_ref_source, calibration.white_ref_source):
+    for source in (reference_correction.dark_ref_source, reference_correction.white_ref_source):
         match = _FRAMES_SOURCE.match(source or "")
         if match and os.path.normcase(os.path.abspath(match["path"])) == own:
             frames.append((int(match["first"]), int(match["last"])))

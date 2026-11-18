@@ -8,7 +8,7 @@ implementation and tests.
 
 Current contracts:
 
-- `dataset-calibration-contract_v3.md`
+- `dataset-reference-correction-contract_v3.md`
 - `headless-workflow-contract_v3.md`
 - `model-workspace-diagnostics-contract_v3.md`
 - `project-dataset-attachment-contract_v3.md`

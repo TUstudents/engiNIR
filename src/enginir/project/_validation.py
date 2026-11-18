@@ -10,7 +10,7 @@ from enginir._logging import get_logger
 
 from ._fit_spec import FitSpec, fold_groups_problem
 from ._models import (
-    CalibrationSpec,
+    ReferenceCorrection,
     DatasetRef,
     ModelRun,
     PredictionRun,
@@ -31,11 +31,11 @@ class ProjectRelationshipError(ValueError):
 def validate_project_relationships(
     *,
     datasets: Mapping[str, DatasetRef],
-    calibrations: Mapping[str, CalibrationSpec],
+    reference_corrections: Mapping[str, ReferenceCorrection],
     rois: Mapping[str, TrainingROI],
     targets: Mapping[str, TargetDefinition],
     target_assignments: Iterable[TargetAssignment],
-    active_calibration_ids: Mapping[str, str] | None = None,
+    active_reference_correction_ids: Mapping[str, str] | None = None,
     recipes: Collection[str],
     signal_domains: Mapping[str, SignalDomainContract],
     sample_sets: Mapping[str, SampleSet],
@@ -47,14 +47,14 @@ def validate_project_relationships(
 
     Parameters
     ----------
-    datasets, calibrations, rois, targets, signal_domains, sample_sets, model_runs, predictions:
+    datasets, reference_corrections, rois, targets, signal_domains, sample_sets, model_runs, predictions:
         Objects keyed by their id. Pass only the objects to check together
         with everything they reference (e.g. one new sample set and empty
         ``model_runs``).
     target_assignments:
         Target assignments.
-    active_calibration_ids:
-        Optional ``{dataset_id: calibration_id}``.
+    active_reference_correction_ids:
+        Optional ``{dataset_id: reference_correction_id}``.
     recipes:
         Ids of the stored preprocessing recipes (a mapping keyed by id works).
     allow_stale_sample_set_rois:
@@ -67,14 +67,14 @@ def validate_project_relationships(
     Raises
     ------
     ProjectRelationshipError
-        On the first broken reference: a missing object, a calibration of
+        On the first broken reference: a missing object, a reference correction of
         another dataset, a dictionary key differing from the object's id, two
         assignments of one target to one ROI, or a sample set whose ROIs come
         from datasets it does not list.
     """
     for label, objects, id_field in (
         ("dataset", datasets, "dataset_id"),
-        ("calibration", calibrations, "calibration_id"),
+        ("reference correction", reference_corrections, "reference_correction_id"),
         ("roi", rois, "roi_id"),
         ("target", targets, "target_id"),
         ("signal domain", signal_domains, "signal_domain_id"),
@@ -87,17 +87,17 @@ def validate_project_relationships(
                 _fail("{} key '{}' differs from its {} '{}'", label, key, id_field,
                       getattr(item, id_field))
 
-    for calibration in calibrations.values():
-        _require(calibration.dataset_id, datasets, "Calibration", calibration.calibration_id,
+    for reference_correction in reference_corrections.values():
+        _require(reference_correction.dataset_id, datasets, "Calibration", reference_correction.reference_correction_id,
                  "dataset_id")
-    for dataset_id, calibration_id in (active_calibration_ids or {}).items():
-        _require(dataset_id, datasets, "Active calibration entry", dataset_id, "dataset_id")
-        _require_owned_calibration("Dataset", dataset_id, dataset_id, calibration_id,
-                                   calibrations)
+    for dataset_id, reference_correction_id in (active_reference_correction_ids or {}).items():
+        _require(dataset_id, datasets, "Active reference correction entry", dataset_id, "dataset_id")
+        _require_owned_reference_correction("Dataset", dataset_id, dataset_id, reference_correction_id,
+                                   reference_corrections)
     for roi in rois.values():
         _require(roi.dataset_id, datasets, "ROI", roi.roi_id, "dataset_id")
-        _require_owned_calibration("ROI", roi.roi_id, roi.dataset_id, roi.calibration_id,
-                                   calibrations)
+        _require_owned_reference_correction("ROI", roi.roi_id, roi.dataset_id, roi.reference_correction_id,
+                                   reference_corrections)
     assigned: set[tuple[str, str]] = set()
     for assignment in target_assignments:
         _require(assignment.roi_id, rois, "Target assignment", assignment.target_id, "roi_id")
@@ -130,8 +130,8 @@ def validate_project_relationships(
     for prediction in predictions.values():
         owner = prediction.prediction_run_id
         _require(prediction.dataset_id, datasets, "PredictionRun", owner, "dataset_id")
-        _require_owned_calibration("PredictionRun", owner, prediction.dataset_id,
-                                   prediction.calibration_id, calibrations)
+        _require_owned_reference_correction("PredictionRun", owner, prediction.dataset_id,
+                                   prediction.reference_correction_id, reference_corrections)
         _require(prediction.model_run_id, model_runs, "PredictionRun", owner, "model_run_id")
         _require(prediction.signal_domain_id, signal_domains, "PredictionRun", owner,
                  "signal_domain_id")
@@ -188,14 +188,14 @@ def _require(value: str, existing: Collection[str], owner_kind: str, owner_id: s
         _fail("{} '{}' references missing {} '{}'", owner_kind, owner_id, field, value)
 
 
-def _require_owned_calibration(owner_kind: str, owner_id: str, dataset_id: str,
-                               calibration_id: str,
-                               calibrations: Mapping[str, CalibrationSpec]) -> None:
-    _require(calibration_id, calibrations, owner_kind, owner_id, "calibration_id")
-    owner_dataset = calibrations[calibration_id].dataset_id
+def _require_owned_reference_correction(owner_kind: str, owner_id: str, dataset_id: str,
+                               reference_correction_id: str,
+                               reference_corrections: Mapping[str, ReferenceCorrection]) -> None:
+    _require(reference_correction_id, reference_corrections, owner_kind, owner_id, "reference_correction_id")
+    owner_dataset = reference_corrections[reference_correction_id].dataset_id
     if owner_dataset != dataset_id:
-        _fail("{} '{}' uses calibration '{}' of dataset '{}' instead of dataset '{}'",
-              owner_kind, owner_id, calibration_id, owner_dataset, dataset_id)
+        _fail("{} '{}' uses reference correction '{}' of dataset '{}' instead of dataset '{}'",
+              owner_kind, owner_id, reference_correction_id, owner_dataset, dataset_id)
 
 
 def _fail(message: str, *args: Any) -> NoReturn:

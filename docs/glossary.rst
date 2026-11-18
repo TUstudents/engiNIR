@@ -61,8 +61,9 @@ Signal
       Converting raw counts to reflectance with dark and white references or
       with detector levels. Elsewhere: HSI vendors *reflectance
       calibration*; related: ENVI *Flat Field Correction*, *Empirical Line*.
-      API and project file: ``CalibrationSpec``, ``calibration_id``,
-      ``/calibrations/`` (to be renamed in 2.0).
+      API and project file: ``ReferenceCorrection``, ``reference_correction_id``,
+      ``/reference_corrections/`` (since 1.7; ``CalibrationSpec``,
+      ``calibration_id`` and ``/calibrations/`` before).
 
    Reflectance
       The reference-corrected signal R, nominally between 0 and 1.

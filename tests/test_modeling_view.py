@@ -39,8 +39,8 @@ def state_and_project(tmp_path):
             n_bands=cube.shape[-1],
         )
     )
-    project.set_active_calibration(
-        build.calibration(calibration_id="cal_1", dataset_id="dataset_1")
+    project.set_active_reference_correction(
+        build.reference_correction(reference_correction_id="cal_1", dataset_id="dataset_1")
     )
     return state, project
 
@@ -86,9 +86,9 @@ def test_new_roi_dialog_rejects_non_finite_target_value(qapp, state_and_project,
 
 def _labelled_rois(state, project, values=(3.2, 3.8), *, unlabelled=0):
     """A Reflectance calibration, target ``moisture`` and one ROI per value (plus unlabelled)."""
-    project.set_active_calibration(
-        build.calibration(
-            calibration_id="cal_reflectance",
+    project.set_active_reference_correction(
+        build.reference_correction(
+            reference_correction_id="cal_reflectance",
             dataset_id="dataset_1",
             mode="dark_white_reference",
             black_level=128.0,
@@ -106,12 +106,12 @@ def _labelled_rois(state, project, values=(3.2, 3.8), *, unlabelled=0):
                 state.wavelengths.astype('float32'),
                 roi_id=roi_id,
                 dataset_id="dataset_1",
-                calibration_id="cal_reflectance",
+                reference_correction_id="cal_reflectance",
                 name=roi_id,
                 n_pixels=4,
                 spatial_bounds=(index, index, 0, 3),
                 source_file="/tmp/cube.eiff",
-                provenance=build.roi_provenance(calibration_id="cal_reflectance"),
+                provenance=build.roi_provenance(reference_correction_id="cal_reflectance"),
             ),
             np.arange(32 * index, 32 * (index + 1), dtype=np.uint16).reshape(4, 8),
         )

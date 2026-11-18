@@ -110,7 +110,7 @@ def test_mean_spectra_match_the_fit_conversion_and_follow_the_signal_unit(qapp, 
         payload = view.means.payload
         ws = project.workspace
         expected, _ = roi_spectrum_summaries(project.path, list(ws.rois.values()),
-                                             datasets=ws.datasets, calibrations=ws.calibrations,
+                                             datasets=ws.datasets, reference_corrections=ws.reference_corrections,
                                              signal_unit="Absorbance")
         a1 = project.roi("tray_a-A1").roi_id
         np.testing.assert_allclose(payload["means"][a1], expected[a1].mean)
@@ -180,7 +180,7 @@ def test_raw_counts_are_shown_in_dn_and_skipped_rois_are_explained(trays, tmp_pa
     ws = project.workspace
     summaries, skipped = roi_spectrum_summaries(project.path, list(ws.rois.values()),
                                                 datasets=ws.datasets,
-                                                calibrations=ws.calibrations, signal_unit="DN")
+                                                reference_corrections=ws.reference_corrections, signal_unit="DN")
     a1 = project.roi("tray_a-A1")
     from enginir.io.project_store import load_roi_spectra
 
@@ -194,7 +194,7 @@ def test_raw_counts_are_shown_in_dn_and_skipped_rois_are_explained(trays, tmp_pa
     ws = project.workspace
     _summaries, skipped = roi_spectrum_summaries(project.path, list(ws.rois.values()),
                                                  datasets=ws.datasets,
-                                                 calibrations=ws.calibrations, signal_unit="DN")
+                                                 reference_corrections=ws.reference_corrections, signal_unit="DN")
     assert skipped == {project.roi("F1").roi_id: "precalibrated data has no raw counts"}
 
 

@@ -136,7 +136,7 @@ def test_the_fit_draws_the_pixels_of_the_simca_reference_table(tmp_path):
     ws = project.workspace
     result = fit_model_run(
         project_path=project.path, sample_set=ws.sample_sets[model.ref.sample_set_id],
-        datasets=ws.datasets, calibrations=ws.calibrations, rois=ws.rois,
+        datasets=ws.datasets, reference_corrections=ws.reference_corrections, rois=ws.rois,
         target_assignments=ws.target_assignments, recipes=ws.recipes,
         signal_domains=ws.signal_domains, signal_domain_id=model.ref.signal_domain_id,
         model_type="PLS", hyperparameters={"n_components": 1},

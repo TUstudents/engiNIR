@@ -1,4 +1,4 @@
-"""EDA view widgets for dataset controls, calibration, and ROI persistence."""
+"""EDA view widgets for dataset controls, reference correction, and ROI persistence."""
 
 from __future__ import annotations
 
@@ -28,10 +28,10 @@ from PyQt6.QtWidgets import (
 
 from .._checks import log_and_raise
 from .._logging import get_logger
-from .._workflow import make_calibration, make_roi, resolve_calibration, resolve_dataset
+from .._workflow import make_reference_correction, make_roi, resolve_reference_correction, resolve_dataset
 from ..io import SpectralData, save_csv
 from ..io.project_store import load_project_store, load_roi_spectra_batch
-from ..project import CalibrationSpec, DatasetRef, TargetDefinition
+from ..project import ReferenceCorrection, DatasetRef, TargetDefinition
 from ._attachment import confirm_project_dataset_binding
 from ._data_helpers import wavelength_axes_match
 from ..io import file_format
@@ -592,9 +592,9 @@ class EDAView(QWidget):
             return
         if context is None:
             return
-        dataset, calibration = context
+        dataset, reference_correction = context
         try:
-            built = [make_roi(dataset, calibration, name=cell.name, frames=cell.frames,
+            built = [make_roi(dataset, reference_correction, name=cell.name, frames=cell.frames,
                               rows=cell.rows,
                               pixels=self.state.cube[cell.frames[0]:cell.frames[1] + 1],
                               preview_recipe=self.state.recipe, grid_cell=cell, job=job)
@@ -658,9 +658,9 @@ class EDAView(QWidget):
             logger.error("Dataset context error while creating ROI: {}", exc)
             QMessageBox.warning(self, "Dataset context error", str(exc))
             return
-        if context is None:  # the user declined a calibration change
+        if context is None:  # the user declined a reference correction change
             return
-        dataset, calibration = context
+        dataset, reference_correction = context
 
         dlg = NewROIDialog(
             f0,
@@ -678,7 +678,7 @@ class EDAView(QWidget):
 
         left, right, top, bottom = self.state._normalized_roi_bounds(f0, f1, r0, r1)
         roi, spectra, refs = make_roi(
-            dataset, calibration, name=dlg.roi_name, frames=(left, right), rows=(top, bottom),
+            dataset, reference_correction, name=dlg.roi_name, frames=(left, right), rows=(top, bottom),
             pixels=self.state.cube[left:right + 1], preview_recipe=self.state.recipe,
             job=dlg.job)
         self.project_state.add_roi(roi, spectra,
@@ -700,11 +700,11 @@ class EDAView(QWidget):
                 )
             )
 
-    def _ensure_current_dataset_context(self) -> tuple[DatasetRef, CalibrationSpec] | None:
-        """Register the attached dataset and its current calibration (or reuse them).
+    def _ensure_current_dataset_context(self) -> tuple[DatasetRef, ReferenceCorrection] | None:
+        """Register the attached dataset and its current reference correction (or reuse them).
 
-        ``None`` when the user declines replacing the calibration of a data file
-        that has ROIs (dataset-calibration contract).
+        ``None`` when the user declines replacing the reference correction of a data file
+        that has ROIs (dataset-reference-correction contract).
         """
         cube_path = self._cube_path_provider()
         if not self._dataset_attached_provider() or not cube_path:
@@ -713,20 +713,20 @@ class EDAView(QWidget):
         dataset, is_new = resolve_dataset(
             project_state.datasets, cube_path, SpectralData(state.cube, state.wavelengths, state.meta),
             project_path=project_state.project_path)
-        active = None if is_new else project_state.active_calibration(dataset.dataset_id)
-        if active is not None and _shows_calibration(state, active):
-            # The image shows the data file's own calibration (restored when it was
+        active = None if is_new else project_state.active_reference_correction(dataset.dataset_id)
+        if active is not None and _shows_reference_correction(state, active):
+            # The image shows the data file's own reference correction (restored when it was
             # shown): keep it, with its reference sources. The signal unit in
             # Explore is only a preview and does not replace it.
             return dataset, active
         has_refs = state.dark_ref is not None and state.white_ref is not None
-        candidate = make_calibration(
-            dataset, unit=str(state.y_unit_effective), precalibrated=state.calibrated,
+        candidate = make_reference_correction(
+            dataset, unit=str(state.y_unit_effective), already_corrected=state.calibrated,
             dark=state.dark_ref if has_refs else None, white=state.white_ref if has_refs else None,
             black_level=state.black_level, white_level=state.white_level)
-        calibration, is_new_calibration = resolve_calibration(dataset, project_state.calibrations,
+        reference_correction, is_new_reference_correction = resolve_reference_correction(dataset, project_state.reference_corrections,
                                                               candidate)
-        if active is not None and calibration.calibration_id != active.calibration_id:
+        if active is not None and reference_correction.reference_correction_id != active.reference_correction_id:
             n_rois = sum(roi.dataset_id == dataset.dataset_id for roi in project_state.rois.values())
             if n_rois and QMessageBox.question(
                     self, "New reference correction",
@@ -740,25 +740,25 @@ class EDAView(QWidget):
                 return None
         if is_new:
             project_state.register_dataset(dataset)
-        if is_new_calibration or active is None or calibration.calibration_id != \
-                active.calibration_id:
-            project_state.set_active_calibration(calibration)
-        return project_state.datasets[dataset.dataset_id], calibration
+        if is_new_reference_correction or active is None or reference_correction.reference_correction_id != \
+                active.reference_correction_id:
+            project_state.set_active_reference_correction(reference_correction)
+        return project_state.datasets[dataset.dataset_id], reference_correction
 
 
-def _shows_calibration(state: ViewerState, calibration: CalibrationSpec) -> bool:
-    """Whether the viewer converts with exactly the reference context of ``calibration``."""
-    if calibration.mode == "precalibrated_import":
+def _shows_reference_correction(state: ViewerState, reference_correction: ReferenceCorrection) -> bool:
+    """Whether the viewer converts with exactly the reference context of ``reference_correction``."""
+    if reference_correction.mode == "already_corrected":
         return bool(state.calibrated)
     has_refs = state.dark_ref is not None and state.white_ref is not None
-    if calibration.dark_ref_data is not None and calibration.white_ref_data is not None:
+    if reference_correction.dark_ref_data is not None and reference_correction.white_ref_data is not None:
         return has_refs and np.array_equal(
-            np.asarray(state.dark_ref, dtype=np.float32), calibration.dark_ref_data
+            np.asarray(state.dark_ref, dtype=np.float32), reference_correction.dark_ref_data
         ) and np.array_equal(np.asarray(state.white_ref, dtype=np.float32),
-                             calibration.white_ref_data)
-    if calibration.black_level is not None and calibration.white_level is not None:
-        return not has_refs and float(state.black_level) == float(calibration.black_level) \
-            and float(state.white_level) == float(calibration.white_level)
+                             reference_correction.white_ref_data)
+    if reference_correction.black_level is not None and reference_correction.white_level is not None:
+        return not has_refs and float(state.black_level) == float(reference_correction.black_level) \
+            and float(state.white_level) == float(reference_correction.white_level)
     return not has_refs and state.y_unit_effective == "DN"  # raw_dn
 
 

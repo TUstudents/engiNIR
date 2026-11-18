@@ -80,11 +80,11 @@ in the viewer follow the same rules.
 
 .. autofunction:: enginir._workflow.resolve_dataset
 
-.. autofunction:: enginir._workflow.make_calibration
+.. autofunction:: enginir._workflow.make_reference_correction
 
-.. autofunction:: enginir._workflow.resolve_calibration
+.. autofunction:: enginir._workflow.resolve_reference_correction
 
-.. autofunction:: enginir._workflow.resolve_prediction_calibration
+.. autofunction:: enginir._workflow.resolve_prediction_reference_correction
 
 .. autofunction:: enginir._workflow.make_roi
 

@@ -42,7 +42,7 @@ bands)`).
 
 | Package | Contents |
 |---|---|
-| `enginir.Project` (`_workflow.py`) | the workflow facade: datasets, targets, ROIs, `fit`, `predict`, addressed by name; plus the shared rules `resolve_dataset`, `make_calibration`, `resolve_calibration`, `resolve_prediction_calibration`, `make_roi`, `resolve_sample_set`, `resolve_signal_domain`, `recipe_id_for` |
+| `enginir.Project` (`_workflow.py`) | the workflow facade: datasets, targets, ROIs, `fit`, `predict`, addressed by name; plus the shared rules `resolve_dataset`, `make_reference_correction`, `resolve_reference_correction`, `resolve_prediction_reference_correction`, `make_roi`, `resolve_sample_set`, `resolve_signal_domain`, `recipe_id_for` |
 | `io/` | file readers (`load_spectra` dispatches by extension; every loader returns `SpectralData`), project store (`project_store.py`, groups in `_hdf5_groups.py`) |
 | `project/` | typed project objects, hydration, relationship validation, signal conversion |
 | `preprocessing/` | SNV, MSC, EMSC, Savitzky-Golay, Detrend, Smoother; `PreprocessingRecipe` |

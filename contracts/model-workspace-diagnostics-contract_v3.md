@@ -3,8 +3,8 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.5 and 1.6; the file format `enginir-1.5` is the
-  only format engiNIR reads and writes (`project-schema-contract_v3.md`)
+- Status: active contract for engiNIR 1.7; the file format `enginir-1.7` is the
+  only format engiNIR reads and writes (project-schema contract, Compatibility policy)
 - Scope: `Model` workspace visual hierarchy, required diagnostics, PLS/PCR plot contract, persistence expectations for reopening saved models
 
 ## Goal
@@ -34,7 +34,7 @@ This contract depends on:
 
 - `viewer-workspace-ui-contract_v3.md`
 - `sample-set-model-run-contract_v3.md`
-- `dataset-calibration-contract_v3.md`
+- `dataset-reference-correction-contract_v3.md`
 
 If this contract conflicts with a looser UI convenience, scientific
 interpretability wins.

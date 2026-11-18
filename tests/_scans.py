@@ -176,3 +176,42 @@ EVIDENCE = {
     "r2x_cum": np.cumsum([0.713, 0.147, 0.048, 0.029, 0.044, 0.004, 0.003, 0.001, 0.002,
                           0.001, 0.001, 0.0, 0.001, 0.0, 0.0]),
 }
+
+
+def every_stored_object_project(tmp_path):
+    """A project with every kind of stored object, written by the current writers.
+
+    References from files (so ROIs store reference spectra), an already corrected
+    dataset with a prediction ROI, a fitted model and one stored prediction run
+    (written by the low-level service, as a script stores one). Returns the path.
+    """
+    from enginir import PreprocessingRecipe
+    from enginir.prediction import predict_with_model_run
+
+    scan = scan_file(tmp_path / "scan.h5")
+    save_hdf5(tmp_path / "dark.h5", np.full((2, HEIGHT, N_BANDS), 100, np.uint16),
+              np.linspace(1000, 1600, N_BANDS))
+    save_hdf5(tmp_path / "white.h5", np.full((2, HEIGHT, N_BANDS), 3500, np.uint16),
+              np.linspace(1000, 1600, N_BANDS))
+    project = Project.create(tmp_path / "every.h5")
+    dataset = project.add_dataset(scan, dark=tmp_path / "dark.h5", white=tmp_path / "white.h5")
+    project.add_target("API", unit="%")
+    for i, value in enumerate(CONTENT):
+        first = FRAMES_PER_SAMPLE * i
+        dataset.add_roi(f"s{i}", frames=(first, first + FRAMES_PER_SAMPLE - 1),
+                        rows=(0, HEIGHT - 1), values={"API": value})
+    model = project.fit("API", recipe=PreprocessingRecipe(snv=True), n_components=2)
+    corrected = project.add_dataset(scan_file(tmp_path / "corrected.h5", dtype=np.float32),
+                                    unit="Absorbance")
+    corrected.add_roi("p0", frames=(0, FRAMES_PER_SAMPLE - 1), rows=(0, HEIGHT - 1),
+                      values={"API": float(CONTENT[0])}, job="prediction")
+    ws = project.workspace
+    recipe_id = ws.sample_sets[model.ref.sample_set_id].preprocessing_recipe_id
+    predict_with_model_run(
+        project_path=project.path, model_run=model.ref,
+        signal_domain=ws.signal_domains[model.ref.signal_domain_id],
+        recipe=PreprocessingRecipe.from_dict(ws.recipes[recipe_id]), dataset=dataset.ref,
+        reference_correction=dataset.reference_correction, model_registry={},
+        data_path=scan, preprocessing_recipe_id=recipe_id,
+        prediction_run_id="stored-prediction", persist_artifacts=True)
+    return project.path

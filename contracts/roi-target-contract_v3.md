@@ -3,8 +3,8 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.5 and 1.6; the file format `enginir-1.5` is the
-  only format engiNIR reads and writes (`project-schema-contract_v3.md`)
+- Status: active contract for engiNIR 1.7; the file format `enginir-1.7` is the
+  only format engiNIR reads and writes (project-schema contract, Compatibility policy)
 - Scope: persisted calibration ROIs, target definitions, target assignments, ROI provenance, modeling selection semantics
 
 ## Goal
@@ -80,7 +80,7 @@ Required fields:
 - `wavelengths`
 - `source_file`
 - `created_at`
-- `calibration_id`
+- `reference_correction_id`
 - `provenance`
 - `job`: `calibration` or `prediction` (`terminology_v3.md`, Calibration
   and Prediction). A `prediction` ROI marks a sample to be predicted (e.g. a
@@ -144,7 +144,7 @@ ROI provenance records extraction-time scientific context.
 Required provenance fields:
 
 - `dataset_id`
-- `calibration_id`
+- `reference_correction_id`
 - `signal_unit`
 - `preview_recipe_summary`
 - `created_at`
@@ -152,7 +152,7 @@ Required provenance fields:
 Required provenance invariants:
 
 - `dataset_id` equals the owning ROI's `dataset_id`
-- `calibration_id` equals the owning ROI's `calibration_id`
+- `reference_correction_id` equals the owning ROI's `reference_correction_id`
 - `signal_unit` is one of `DN`, `Reflectance`, or `Absorbance`
 - `preview_recipe_summary` and `created_at` are non-empty
 
@@ -441,7 +441,7 @@ v3 persistence decision:
 - `wavelengths`
 - `source_file`
 - `created_at`
-- `calibration_id`
+- `reference_correction_id`
 - provenance
 - `sample`, when set
 - raw spectra storage
@@ -450,7 +450,7 @@ v3 persistence decision:
 Required creation-time invariants for newly created ROIs:
 
 - `dataset_id` must reference a real attached dataset context
-- `calibration_id` must reference the active reference correction for that dataset
+- `reference_correction_id` must reference the active reference correction for that dataset
 - `source_file` must be non-empty
 - ROI identity must not depend on the display name
 
@@ -476,7 +476,7 @@ v3 requires project-internal groups shaped like:
 
 ```text
 /rois/{roi_id}/
-  /calibration_refs/
+  /reference_spectra/
     dark
     white
 /targets/{target_id}/
@@ -486,7 +486,7 @@ v3 requires project-internal groups shaped like:
 Minimum expectation:
 
 - ROI metadata and spectra are persisted inside `/rois/`
-- ROI-local reference correction reference snapshots, when present, are persisted inside `/rois/{roi_id}/calibration_refs/`
+- ROI-local reference correction reference snapshots, when present, are persisted inside `/rois/{roi_id}/reference_spectra/`
 - target definitions are persisted independently from ROIs
 - target assignments are persisted independently from both ROI identity and target identity
 

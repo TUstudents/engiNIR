@@ -1056,12 +1056,12 @@ class ProjectRoisView(QWidget):
             return
         state, project = self.state, self.project_state
         path, unit, recipe = str(project.project_path), str(state.y_unit), state.recipe
-        datasets, calibrations = dict(project.datasets), dict(project.calibrations)
+        datasets, reference_corrections = dict(project.datasets), dict(project.reference_corrections)
         self._spectra_stale = False
 
         def compute() -> Any:
             return roi_spectrum_summaries(path, rois, datasets=datasets,
-                                          calibrations=calibrations, signal_unit=unit,
+                                          reference_corrections=reference_corrections, signal_unit=unit,
                                           recipe=recipe)
 
         def done() -> None:

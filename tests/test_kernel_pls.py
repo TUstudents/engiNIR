@@ -69,7 +69,7 @@ def _both(project, *, model="PLS", recipe=None, n_components=3, fit_spec=None, r
             hyperparameters["algorithm"] = algorithm
         results.append(fit_model_run(
             project_path=project.path, sample_set=ws.sample_sets[first.ref.sample_set_id],
-            datasets=ws.datasets, calibrations=ws.calibrations, rois=ws.rois,
+            datasets=ws.datasets, reference_corrections=ws.reference_corrections, rois=ws.rois,
             target_assignments=ws.target_assignments, recipes=ws.recipes,
             signal_domains=ws.signal_domains, signal_domain_id=first.ref.signal_domain_id,
             model_type=model, hyperparameters=hyperparameters,

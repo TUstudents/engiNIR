@@ -111,7 +111,7 @@ ProjectState
 
 ``ProjectState`` is the viewer's Qt adapter over :class:`enginir.Project`.
 It mirrors the project's collections, keyed by stable id (``datasets``,
-``active_calibration_ids``, ``calibrations``, ``rois``, ``targets``,
+``active_reference_correction_ids``, ``reference_corrections``, ``rois``, ``targets``,
 ``target_assignments``, ``recipes``, ``signal_domains``, ``sample_sets``,
 ``model_runs``), stores every change through the project and emits a signal
 for it. ``predictions`` holds the predictions of the session in memory (the
@@ -120,8 +120,8 @@ window writes, every other window of the process on the same project
 re-reads it (``reload``) on the next event-loop pass.
 
 .. autoclass:: enginir.viewer.ProjectState
-   :members: new_project, open_project, reload, locate_data_file, register_dataset, set_active_calibration, define_target, assign_target_to_roi, add_roi, register_recipe, register_signal_domain, create_sample_set, build_sample_set, register_model_run, fit_model_run, predict_dataset, add_prediction, remove_roi, get_target_assignment
-   :exclude-members: staticMetaObject, project_loaded, datasets_changed, calibrations_changed, rois_changed, targets_changed, target_assignments_changed, recipes_changed, signal_domains_changed, sample_sets_changed, model_runs_changed, predictions_changed, model_fitted, active_model_changed, prediction_completed
+   :members: new_project, open_project, reload, locate_data_file, register_dataset, set_active_reference_correction, define_target, assign_target_to_roi, add_roi, register_recipe, register_signal_domain, create_sample_set, build_sample_set, register_model_run, fit_model_run, predict_dataset, add_prediction, remove_roi, get_target_assignment
+   :exclude-members: staticMetaObject, project_loaded, datasets_changed, reference_corrections_changed, rois_changed, targets_changed, target_assignments_changed, recipes_changed, signal_domains_changed, sample_sets_changed, model_runs_changed, predictions_changed, model_fitted, active_model_changed, prediction_completed
 
 EDA view
 --------
@@ -183,7 +183,7 @@ Prediction view
 .. autoclass:: enginir.viewer._prediction.PredictionView
    :no-members:
 
-.. autofunction:: enginir.viewer._prediction.describe_calibration
+.. autofunction:: enginir.viewer._prediction.describe_reference_correction
 
 .. automodule:: enginir.viewer._predict_dialogs
    :no-members:
@@ -271,7 +271,7 @@ HSIViewer
 
 .. autoclass:: enginir.viewer._viewer.HSIViewer
    :members: show, export_csv, export_workspace_plots, workspace_plot_frames, reset_layout,
-             add_data_file, show_data_file, wait_for_data_file, apply_shown_calibration,
+             add_data_file, show_data_file, wait_for_data_file, apply_shown_reference_correction,
              locate_data_file, show_roi_table, show_project_rois, open_roi
 
 Datasets

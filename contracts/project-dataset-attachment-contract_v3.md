@@ -3,8 +3,8 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.5 and 1.6; the file format `enginir-1.5` is the
-  only format engiNIR reads and writes (`project-schema-contract_v3.md`)
+- Status: active contract for engiNIR 1.7; the file format `enginir-1.7` is the
+  only format engiNIR reads and writes (project-schema contract, Compatibility policy)
 - Scope: viewer/project workflow states, dataset attachment, datasets of a project, project-only behavior, mismatch validation, eager-write semantics
 
 ## Goal
@@ -108,7 +108,7 @@ Forbidden:
 
 - create ROIs
 - synthesize `DatasetRef` from placeholder viewer state
-- synthesize `CalibrationSpec` from placeholder viewer state
+- synthesize `ReferenceCorrection` from placeholder viewer state
 - perform any dataset-derived mutation
 
 ### 3. Project-attached + dataset-attached
@@ -145,7 +145,7 @@ Therefore:
 must never be used to create:
 
 - `DatasetRef`
-- `CalibrationSpec`
+- `ReferenceCorrection`
 - `TrainingROI`
 - `SampleSet` built from current viewer data
 
@@ -182,7 +182,7 @@ Creating a project file must create an empty scientific workspace only.
 Required behavior:
 
 - create all top-level v3 groups
-- write `project_meta` with `FileSchemaVersion = "enginir-1.5"`,
+- write `project_meta` with `FileSchemaVersion = "enginir-1.7"`,
   `FileCreator`, `FileWriter` and the timestamps
   (`project-schema-contract_v3.md`, Object identity rules §1)
 - do not create any dataset implicitly
@@ -268,7 +268,7 @@ Behavior:
 ## Datasets of a project
 
 A project registers every dataset its ROIs come from (`DatasetRef`), each
-with its own active reference correction (`dataset-calibration-contract_v3.md`).
+with its own active reference correction (`dataset-reference-correction-contract_v3.md`).
 
 ### Adding a dataset
 
@@ -286,7 +286,7 @@ Required behavior:
   - detector levels (black and white) without references: the file's own
     levels, else the instrument defaults; for counts this is the preselected
     choice, so references are always chosen deliberately
-- the `DatasetRef` and its `CalibrationSpec` are written together, before any
+- the `DatasetRef` and its `ReferenceCorrection` are written together, before any
   ROI is drawn; if either fails, neither is written
 - the added file becomes the shown dataset
 - a dataset is never opened in a separate window without the project
@@ -400,7 +400,7 @@ Creating a `TrainingROI` requires:
 Required invariants:
 
 - every new ROI must reference an existing `DatasetRef`
-- every new ROI must reference an existing `CalibrationSpec`
+- every new ROI must reference an existing `ReferenceCorrection`
 - `source_file` must not be empty
 - ROI provenance must come from real dataset context, not placeholder viewer state
 
@@ -455,7 +455,7 @@ Required behavior:
 
 - show a clear warning/error dialog
 - do not persist partial objects before validation completes
-- do not leave orphan `DatasetRef`, `CalibrationSpec`, `SignalDomainContract`, or `PreprocessingRecipe` objects behind on failure
+- do not leave orphan `DatasetRef`, `ReferenceCorrection`, `SignalDomainContract`, or `PreprocessingRecipe` objects behind on failure
 
 Orphan definition for this rule:
 

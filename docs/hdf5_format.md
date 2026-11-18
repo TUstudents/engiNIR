@@ -3,7 +3,7 @@
 enginir uses HDF5 for two distinct storage shapes:
 
 1. **Simple spectral files** via `save_hdf5()` / `load_hdf5()`
-2. **Project files** (format `enginir-1.5`) via the project-file API in `enginir.io`
+2. **Project files** (format `enginir-1.7`) via the project-file API in `enginir.io`
 
 This page is the concrete on-disk reference for the current implementation. For
 scientific workflow semantics, read it together with the v3 contracts in
@@ -67,7 +67,7 @@ file is detected and rejected with an error pointing to `load_project_store()`. 
 
 ---
 
-## 2. Project files (format `enginir-1.5`)
+## 2. Project files (format `enginir-1.7`)
 
 A v3 project file is the persistent scientific workspace. It stores first-class
 objects and relationships keyed by stable ids, not by labels.
@@ -75,15 +75,22 @@ objects and relationships keyed by stable ids, not by labels.
 Project file format (`/project_meta/@FileSchemaVersion`):
 
 ```text
-enginir-1.5
+enginir-1.7
 ```
 
-engiNIR 1.5 reads and writes only this format. A file with any other
-format, or without `FileSchemaVersion` (every project written before 1.5,
-which stored `schema_version = "viewer-v3"`), is refused with one message;
-there is no migration or repair. The format changes only when a field
-becomes required, is removed or changes meaning; later releases keep
-writing `enginir-1.5` while it does not.
+engiNIR 1.7 reads and writes only this format. A file with any other
+format, or without `FileSchemaVersion`, is refused with one message. A
+project in the previous format `enginir-1.5` (engiNIR 1.5.1 to 1.6.1) is
+converted into a new file by `enginir-migrate SOURCE TARGET`, which renames
+the stored names of the reference correction (`calibrations/` →
+`reference_corrections/`, `calibration_id` → `reference_correction_id`,
+`calibration_refs` → `reference_spectra`, `precalibrated_import` →
+`already_corrected`, and the input contract's `required_correction_mode`
+and `corrected_input_allowed`) and changes nothing else; projects written
+before 1.5 (`schema_version = "viewer-v3"`) must be created again. The
+format changes only when a field becomes required, is removed, is renamed
+or changes meaning; later releases keep writing `enginir-1.7` while it
+does not.
 
 ### 2.1. Required top-level structure
 
@@ -142,7 +149,7 @@ Default compression for dataset writes is `gzip`.
 files before reading project objects:
 
 - missing `/project_meta`
-- `project_meta/@FileSchemaVersion` other than `enginir-1.5`, or missing
+- `project_meta/@FileSchemaVersion` other than `enginir-1.7`, or missing
   (checked first, before anything else is read)
 - any missing required top-level object group
 - a missing or malformed **core** field: ids and references, datasets and
@@ -184,8 +191,8 @@ load_project_store(
 By default, these stay disk-backed:
 
 - `/rois/{roi_id}/spectra`
-- `/rois/{roi_id}/calibration_refs/dark`
-- `/rois/{roi_id}/calibration_refs/white`
+- `/rois/{roi_id}/reference_spectra/dark`
+- `/rois/{roi_id}/reference_spectra/white`
 
 Nested arrays under `artifact_refs` also stay disk-backed by default:
 
@@ -199,7 +206,7 @@ inspector panels, and summaries.
 Explicit lazy-load helpers:
 
 - `load_roi_spectra()`, `load_roi_spectra_batch()`, `load_roi_spectra_matrix()`
-- `iter_roi_calibration_refs()`
+- `iter_roi_reference_spectra()`
 - `load_model_run_artifact_refs()` (optionally only selected `keys`)
 - `load_model_run_prediction_artifact()`
 - `load_prediction_run_artifact_refs()` (optionally only selected `keys`)
@@ -209,7 +216,7 @@ Explicit lazy-load helpers:
 
 ## 3. Object layouts
 
-The following layouts describe the fields of the `enginir-1.5` format.
+The following layouts describe the fields of the `enginir-1.7` format.
 Writers write every field shown, except those marked "optional"; a value
 that is not defined in a case is NaN (numbers), an empty string or an empty
 array. The reader refuses a file with a missing core field and tolerates
@@ -221,7 +228,7 @@ ignored.
 ```text
 /project_meta/
 ├── @project_id
-├── @FileSchemaVersion       "enginir-1.5", the file format; set once
+├── @FileSchemaVersion       "enginir-1.7", the file format; set once
 ├── @FileCreator             "engiNIR <version>" that created the file; set once
 ├── @FileWriter              "engiNIR <version>" that last wrote the file; every write
 ├── @created_at              set once
@@ -247,11 +254,11 @@ offset and microseconds, e.g. `2026-11-12T09:56:05.852000+00:00`.
 ├── @cube_shape              (n_frames, height, n_bands)
 ├── @n_bands
 ├── @import_timestamp
-├── @active_calibration_id   the dataset's reference correction (written with the dataset)
+├── @active_reference_correction_id   the dataset's reference correction (written with the dataset)
 ├── wavelengths              float32, shape (n_bands,), in nm (a cm-1 or µm axis converted; see below)
 ├── loader_metadata/         the reader's metadata; @x_units "nm" and @x_units_in_file after a conversion
-└── calibrations/{calibration_id}/
-    ├── @mode                raw_dn | dark_white_reference | precalibrated_import
+└── reference_corrections/{reference_correction_id}/
+    ├── @mode                raw_dn | dark_white_reference | already_corrected
     ├── @output_signal_unit  DN | Reflectance | Absorbance
     ├── @dark_ref_source     empty string when the mode does not use it
     ├── @white_ref_source    empty string when the mode does not use it
@@ -272,18 +279,18 @@ is refused. A reference correction id belongs to one dataset, and a stored
 reference correction is never changed: the writer refuses an id of another
 dataset and different content under a stored id.
 
-Object ids are taken from the HDF5 path (`{dataset_id}`, `{calibration_id}`,
+Object ids are taken from the HDF5 path (`{dataset_id}`, `{reference_correction_id}`,
 ...). Writers do not need to store them as attributes; a stored id attribute
 (for example `@dataset_id` on a reference correction written from `to_dict()`) is
 accepted when it equals the path id and rejected when it contradicts it. An
-`@active_calibration_id` must name a reference correction of the same dataset.
+`@active_reference_correction_id` must name a reference correction of the same dataset.
 
 ### 3.3. ROIs
 
 ```text
 /rois/{roi_id}/
 ├── @dataset_id
-├── @calibration_id
+├── @reference_correction_id
 ├── @name                   mutable display label
 ├── @sample                 sample label (mutable; empty string: none); ROIs with equal
 │                           labels are one physical sample for fold groups
@@ -295,7 +302,7 @@ accepted when it equals the path id and rejected when it contradicts it. An
 ├── @spatial_bounds         (x0, x1, y0, y1)
 ├── wavelengths             float32, shape (n_bands,)
 ├── spectra                 raw ROI matrix, shape (n_pixels, n_bands)
-├── calibration_refs/       optional ROI-local extraction references
+├── reference_spectra/       optional ROI-local extraction references
 │   ├── dark
 │   └── white
 └── provenance/
@@ -304,7 +311,7 @@ accepted when it equals the path id and rejected when it contradicts it. An
 `spectra` is the persisted raw ROI matrix and remains the scientific truth for
 ROI extraction in v3. It keeps the source dtype: uint16 for Raw counts (DN) sources,
 float32 for already corrected floating sources (float values are never truncated
-to integers). Already corrected ROIs store no `calibration_refs/`, because their
+to integers). Already corrected ROIs store no `reference_spectra/`, because their
 reference correction mode carries no dark/white reference context. Target values do
 not live on ROIs.
 
@@ -383,10 +390,10 @@ restores these values without fitting on prediction data.
 ├── @input_format
 ├── @source_modality
 ├── @required_signal_unit
-├── @required_calibration_mode
+├── @required_correction_mode
 ├── @requires_dark_ref
 ├── @requires_white_ref
-├── @calibrated_input_allowed
+├── @corrected_input_allowed
 ├── @n_bands
 ├── wavelengths
 ├── @wavelength_tolerance_nm
@@ -692,7 +699,7 @@ flagged_roi_ids          string array, ROIs with more pixels above DCrit than ma
 ```text
 /predictions/{prediction_run_id}/     a stored prediction (only when a script stores one)
 ├── @dataset_id                    core
-├── @calibration_id                core
+├── @reference_correction_id                core
 ├── @model_run_id                  core
 ├── @signal_domain_id              core
 ├── @preprocessing_recipe_id       core
@@ -757,7 +764,7 @@ later write updates `FileWriter` and `updated_at`. Object
 helpers replace the existing group for the same id:
 
 - `save_dataset_ref()`
-- `save_calibration_spec()`
+- `save_reference_correction()`
 - `save_training_roi()`
 - `save_roi_job()`, `save_roi_sample()` (labels, in place)
 - `save_target_definition()`
@@ -791,7 +798,7 @@ from enginir.io import load_project_store
 
 store = load_project_store("project.h5")
 print(store["project_meta"]["FileSchemaVersion"], store["project_meta"]["FileWriter"])
-print(store["datasets"]["dataset_1"]["active_calibration_id"])
+print(store["datasets"]["dataset_1"]["active_reference_correction_id"])
 print(store["rois"]["roi_1"]["dataset_id"])
 ```
 
@@ -841,7 +848,7 @@ initialize_prediction_run_artifacts(
     "prediction_run_1",
     {
         "dataset_id": "dataset_1",
-        "calibration_id": "cal_1",
+        "reference_correction_id": "cal_1",
         "model_run_id": "model_run_1",
         "signal_domain_id": "signal_domain_1",
         "preprocessing_recipe_id": "recipe_1",

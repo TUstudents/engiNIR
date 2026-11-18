@@ -14,14 +14,14 @@ from enginir.io.project_store import (
     discard_prediction_run_artifacts,
     finalize_prediction_run_artifacts,
     initialize_prediction_run_artifacts,
-    iter_roi_calibration_refs,
+    iter_roi_reference_spectra,
     load_model_run_prediction_artifact,
     load_prediction_run_artifact_refs,
     load_prediction_spatial_map_preview,
     load_project_store,
     load_roi_spectra_batch,
     open_prediction_run_artifact_writer,
-    save_calibration_spec,
+    save_reference_correction,
     save_dataset_ref,
     save_model_run,
     save_prediction_run,
@@ -88,7 +88,7 @@ def _seed_dataset_context(
             "import_timestamp": "2026-03-28T10:00:00+00:00",
         },
     )
-    save_calibration_spec(
+    save_reference_correction(
         path,
         "dataset_1",
         "cal_1",
@@ -115,7 +115,7 @@ def _roi_payload(
 ) -> dict:
     return {
         "dataset_id": "dataset_1",
-        "calibration_id": "cal_1",
+        "reference_correction_id": "cal_1",
         "name": name,
         "wavelengths": wavelengths,
         "source_file": source_file,
@@ -125,7 +125,7 @@ def _roi_payload(
         "created_at": "2026-03-28T10:00:00+00:00",
         "provenance": {
             "dataset_id": "dataset_1",
-            "calibration_id": "cal_1",
+            "reference_correction_id": "cal_1",
             "signal_unit": "DN",
             "preview_recipe_summary": "none",
             "created_at": "2026-03-28T10:00:00+00:00",
@@ -160,10 +160,10 @@ def test_v3_project_store_round_trip_and_skip_flags(project_path, rng, wavelengt
             "input_format": "eiff",
             "source_modality": "nir_hsi",
             "required_signal_unit": "Absorbance",
-            "required_calibration_mode": "dark_white_reference",
+            "required_correction_mode": "dark_white_reference",
             "requires_dark_ref": True,
             "requires_white_ref": True,
-            "calibrated_input_allowed": False,
+            "corrected_input_allowed": False,
             "n_bands": len(wavelengths),
             "wavelengths": wavelengths,
             "wavelength_tolerance_nm": 0.0,
@@ -248,7 +248,7 @@ def test_v3_project_store_round_trip_and_skip_flags(project_path, rng, wavelengt
         "prediction_run_1",
         {
             "dataset_id": "dataset_1",
-            "calibration_id": "cal_1",
+            "reference_correction_id": "cal_1",
             "model_run_id": "model_run_1",
             "signal_domain_id": "signal_domain_1",
             "preprocessing_recipe_id": "recipe_1",
@@ -269,18 +269,18 @@ def test_v3_project_store_round_trip_and_skip_flags(project_path, rng, wavelengt
     trimmed_store = load_project_store(project_path)
 
     meta = full_store["project_meta"]
-    assert meta["FileSchemaVersion"] == "enginir-1.5"
+    assert meta["FileSchemaVersion"] == "enginir-1.7"
     assert meta["FileCreator"].startswith("engiNIR ") and meta["FileWriter"].startswith("engiNIR ")
     assert "schema_version" not in meta
-    assert full_store["datasets"]["dataset_1"]["active_calibration_id"] == "cal_1"
+    assert full_store["datasets"]["dataset_1"]["active_reference_correction_id"] == "cal_1"
     assert full_store["targets"]["target_moisture"]["name"] == "moisture"
     assert full_store["recipes"]["recipe_1"]["filter"] == "sg_d1"
     np.testing.assert_array_equal(full_store["rois"]["roi_1"]["spectra"], spectra)
-    np.testing.assert_allclose(full_store["rois"]["roi_1"]["calibration_refs"]["dark"], dark_refs)
-    np.testing.assert_allclose(full_store["rois"]["roi_1"]["calibration_refs"]["white"], white_refs)
+    np.testing.assert_allclose(full_store["rois"]["roi_1"]["reference_spectra"]["dark"], dark_refs)
+    np.testing.assert_allclose(full_store["rois"]["roi_1"]["reference_spectra"]["white"], white_refs)
     assert "spectra" not in trimmed_store["rois"]["roi_1"]
-    assert trimmed_store["rois"]["roi_1"].get("calibration_refs") == {}
-    loaded_refs = dict(iter_roi_calibration_refs(project_path, ["roi_1"]))
+    assert trimmed_store["rois"]["roi_1"].get("reference_spectra") == {}
+    loaded_refs = dict(iter_roi_reference_spectra(project_path, ["roi_1"]))
     assert loaded_refs["roi_1"] is not None
     loaded_dark, loaded_white = loaded_refs["roi_1"]
     np.testing.assert_allclose(loaded_dark, dark_refs)
@@ -341,7 +341,7 @@ def test_incremental_prediction_artifacts_are_staged_then_moved(project_path):
     create_project(project_path)
     payload = {
         "dataset_id": "dataset_1",
-        "calibration_id": "cal_1",
+        "reference_correction_id": "cal_1",
         "model_run_id": "model_run_1",
         "signal_domain_id": "signal_domain_1",
         "preprocessing_recipe_id": "recipe_1",
@@ -422,14 +422,14 @@ def test_hydration_rejects_calibration_id_collision_across_datasets(project_path
            "created_at": "2026-03-28T11:01:00+00:00"}
     # The writer refuses the id of another dataset's reference correction ...
     with pytest.raises(ValueError, match="already belongs to dataset 'dataset_1'"):
-        save_calibration_spec(project_path, "dataset_2", "cal_1", raw)
+        save_reference_correction(project_path, "dataset_2", "cal_1", raw)
     hydrate_project_store(load_project_store(project_path))
 
     # ... and the reader refuses a file that has one anyway.
     with h5py.File(project_path, "r+") as handle:
-        group = handle["datasets/dataset_2"].create_group("calibrations")
-        handle.copy(handle["datasets/dataset_1/calibrations/cal_1"], group, "cal_1")
-        handle["datasets/dataset_2"].attrs["active_calibration_id"] = "cal_1"
+        group = handle["datasets/dataset_2"].create_group("reference_corrections")
+        handle.copy(handle["datasets/dataset_1/reference_corrections/cal_1"], group, "cal_1")
+        handle["datasets/dataset_2"].attrs["active_reference_correction_id"] = "cal_1"
     with pytest.raises(ValueError, match="is already used by dataset"):
         hydrate_project_store(load_project_store(project_path))
 
@@ -437,14 +437,14 @@ def test_hydration_rejects_calibration_id_collision_across_datasets(project_path
 def test_a_stored_reference_correction_is_never_changed(project_path, wavelengths):
     create_project(project_path)
     _seed_dataset_context(project_path, wavelengths)
-    stored = load_project_store(project_path)["datasets"]["dataset_1"]["calibrations"]["cal_1"]
+    stored = load_project_store(project_path)["datasets"]["dataset_1"]["reference_corrections"]["cal_1"]
     payload = {key: value for key, value in stored.items()}
-    save_calibration_spec(project_path, "dataset_1", "cal_1", payload)  # identical: allowed
+    save_reference_correction(project_path, "dataset_1", "cal_1", payload)  # identical: allowed
     with pytest.raises(ValueError, match="Refusing to overwrite reference correction"):
-        save_calibration_spec(project_path, "dataset_1", "cal_1",
+        save_reference_correction(project_path, "dataset_1", "cal_1",
                               {**payload, "created_at": "2026-03-29T00:00:00+00:00"})
     with pytest.raises(KeyError, match="dataset 'dataset_9' is not in"):
-        save_calibration_spec(project_path, "dataset_9", "cal_9", payload)
+        save_reference_correction(project_path, "dataset_9", "cal_9", payload)
 
 
 def test_hydration_rejects_dangling_or_foreign_active_calibration_id(project_path, wavelengths):
@@ -452,8 +452,8 @@ def test_hydration_rejects_dangling_or_foreign_active_calibration_id(project_pat
     _seed_dataset_context(project_path, wavelengths)
 
     with h5py.File(project_path, "r+") as handle:
-        handle["datasets/dataset_1"].attrs["active_calibration_id"] = "cal_missing"
-    with pytest.raises(ValueError, match="references missing calibration_id"):
+        handle["datasets/dataset_1"].attrs["active_reference_correction_id"] = "cal_missing"
+    with pytest.raises(ValueError, match="references missing reference_correction_id"):
         hydrate_project_store(load_project_store(project_path))
 
     save_dataset_ref(
@@ -470,7 +470,7 @@ def test_hydration_rejects_dangling_or_foreign_active_calibration_id(project_pat
             "import_timestamp": "2026-03-28T11:00:00+00:00",
         },
     )
-    save_calibration_spec(
+    save_reference_correction(
         project_path,
         "dataset_2",
         "cal_2",
@@ -481,7 +481,7 @@ def test_hydration_rejects_dangling_or_foreign_active_calibration_id(project_pat
         },
     )
     with h5py.File(project_path, "r+") as handle:
-        handle["datasets/dataset_1"].attrs["active_calibration_id"] = "cal_2"
+        handle["datasets/dataset_1"].attrs["active_reference_correction_id"] = "cal_2"
     with pytest.raises(ValueError, match="of dataset 'dataset_2'"):
         hydrate_project_store(load_project_store(project_path))
 
@@ -543,7 +543,7 @@ def test_a_project_of_an_earlier_format_is_refused_with_one_message(tmp_path):
         meta = handle.create_group("project_meta")
         meta.attrs["schema_version"] = "viewer-v3"
 
-    with pytest.raises(ValueError, match="format 'viewer-v3'.*'enginir-1.5'.*created again"):
+    with pytest.raises(ValueError, match="format 'viewer-v3'.*'enginir-1.7'.*created again"):
         load_project_store(path)
 
 
@@ -751,9 +751,9 @@ def test_load_project_store_rejects_corrupt_roi_arrays(project_path, wavelengths
 
     with h5py.File(project_path, "r+") as handle:
         handle["rois/roi_1"].attrs["n_pixels"] = 2
-        refs = handle["rois/roi_1"].create_group("calibration_refs")
+        refs = handle["rois/roi_1"].create_group("reference_spectra")
         refs.create_dataset("dark", data=np.zeros((1, 2), dtype=np.float32))
-    with pytest.raises(ValueError, match="calibration_refs/dark shape"):
+    with pytest.raises(ValueError, match="reference_spectra/dark shape"):
         load_project_store(project_path)
 
 
@@ -853,7 +853,7 @@ def test_load_model_run_prediction_artifact_reads_only_lightweight_payload(proje
 
 def test_resaving_unchanged_objects_is_a_no_op(tmp_path, wavelengths):
     from enginir.io.project_store import (
-        save_calibration_spec,
+        save_reference_correction,
         save_dataset_ref,
         save_model_run,
         save_target_definition,
@@ -872,7 +872,7 @@ def test_resaving_unchanged_objects_is_a_no_op(tmp_path, wavelengths):
                "n_bands": 50, "wavelengths": wavelengths, "loader_metadata": {},
                "import_timestamp": "2026-01-01T00:00:00+00:00"}
     save_dataset_ref(project_path, "dataset_1", dataset)
-    save_calibration_spec(project_path, "dataset_1", "cal_1", {
+    save_reference_correction(project_path, "dataset_1", "cal_1", {
         "mode": "dark_white_reference", "black_level": 100.0, "white_level": 3000.0,
         "output_signal_unit": "Reflectance", "created_at": "2026-01-01T00:00:00+00:00"})
     save_dataset_ref(project_path, "dataset_1", dataset)
@@ -889,7 +889,7 @@ def test_resaving_unchanged_objects_is_a_no_op(tmp_path, wavelengths):
 
     store = load_project_store(project_path)
     assert store["targets"]["target_1"]["name"] == "renamed"
-    assert "cal_1" in store["datasets"]["dataset_1"]["calibrations"]
+    assert "cal_1" in store["datasets"]["dataset_1"]["reference_corrections"]
     with pytest.raises(ValueError, match="Refusing to overwrite"):
         save_target_definition(project_path, "target_1", {**target, "unit": "%"})
 
@@ -957,13 +957,13 @@ def test_writers_refuse_payloads_that_hydration_would_reject(project_path, chang
 
 
 def test_child_object_writers_validate_too(project_path, wavelengths):
-    from enginir.io.project_store import save_calibration_spec, save_target_assignment
+    from enginir.io.project_store import save_reference_correction, save_target_assignment
 
     create_project(project_path)
     _seed_dataset_context(project_path, wavelengths, source_file="/data/a.eiff")
 
     with pytest.raises(ValueError, match="mode"):
-        save_calibration_spec(project_path, "dataset_1", "cal_x", {
+        save_reference_correction(project_path, "dataset_1", "cal_x", {
             "mode": "guess", "output_signal_unit": "Reflectance",
             "created_at": "2026-01-01T00:00:00+00:00"})
     with pytest.raises(ValueError, match="assigned_at"):
@@ -971,11 +971,11 @@ def test_child_object_writers_validate_too(project_path, wavelengths):
                                {"value": 1.0, "assigned_at": "now"})
 
     store = load_project_store(project_path)
-    assert "cal_x" not in store["datasets"]["dataset_1"]["calibrations"]
+    assert "cal_x" not in store["datasets"]["dataset_1"]["reference_corrections"]
     assert "roi_1" not in store["target_assignments"].get("target_1", {})
 
 
-# -- The project file format ``enginir-1.5``: a strict core and tolerant display data ----
+# -- The project file format ``enginir-1.7``: a strict core and tolerant display data ----
 
 
 #: Core fields of the format, as HDF5 paths: ``group@attribute`` or a
@@ -989,13 +989,13 @@ CORE_FIELDS = (
     "project_meta@updated_at",
     *(f"datasets/{{dataset}}@{name}" for name in (
         "source_path", "source_format", "source_modality", "cube_shape", "n_bands",
-        "import_timestamp", "active_calibration_id")),
+        "import_timestamp", "active_reference_correction_id")),
     "datasets/{dataset}/wavelengths",
     "datasets/{dataset}/loader_metadata",
-    *(f"datasets/{{dataset}}/calibrations/{{calibration}}@{name}" for name in (
+    *(f"datasets/{{dataset}}/reference_corrections/{{reference_correction}}@{name}" for name in (
         "mode", "output_signal_unit", "created_at")),
     *(f"rois/{{roi}}@{name}" for name in (
-        "dataset_id", "calibration_id", "name", "n_pixels", "created_at", "spatial_bounds",
+        "dataset_id", "reference_correction_id", "name", "n_pixels", "created_at", "spatial_bounds",
         "source_file", "job")),
     "rois/{roi}/wavelengths",
     "rois/{roi}/spectra",
@@ -1010,8 +1010,8 @@ CORE_FIELDS = (
     "recipes/{recipe}/bands_keep",
     "recipes/{recipe}/bands_exclude",
     *(f"signal_domains/{{signal_domain}}@{name}" for name in (
-        "input_format", "source_modality", "required_signal_unit", "required_calibration_mode",
-        "requires_dark_ref", "requires_white_ref", "calibrated_input_allowed", "n_bands",
+        "input_format", "source_modality", "required_signal_unit", "required_correction_mode",
+        "requires_dark_ref", "requires_white_ref", "corrected_input_allowed", "n_bands",
         "wavelength_tolerance_nm", "band_mapping_policy", "output_dtype", "created_at")),
     "signal_domains/{signal_domain}/wavelengths",
     *(f"sample_sets/{{sample_set}}@{name}" for name in (
@@ -1051,7 +1051,7 @@ def complete_project(tmp_path_factory):
     roi = next(iter(ws.rois))
     ids = {
         "dataset": next(iter(ws.datasets)),
-        "calibration": next(iter(ws.calibrations)),
+        "reference_correction": next(iter(ws.reference_corrections)),
         "roi": roi,
         "target": next(iter(ws.targets)),
         "recipe": next(iter(ws.recipes)),
@@ -1141,7 +1141,7 @@ def test_the_inspector_shows_the_file_format_and_its_writers(complete_project, q
     inspector.show_default()
 
     text = inspector.body_label.text()
-    assert "File format: enginir-1.5" in text
+    assert "File format: enginir-1.7" in text
     assert "Created by: engiNIR " in text and "Last written by: engiNIR " in text
 
 
@@ -1185,7 +1185,7 @@ def test_values_of_earlier_formats_are_refused(complete_project, tmp_path, field
     domain = next(iter(ws.signal_domains.values()))
     with pytest.raises(ValueError, match="source_format"):
         check_signal_domain_compatibility(dataset=next(iter(ws.datasets.values())),
-                                          calibration=next(iter(ws.calibrations.values())),
+                                          reference_correction=next(iter(ws.reference_corrections.values())),
                                           signal_domain=domain)
 
 

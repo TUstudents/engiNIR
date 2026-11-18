@@ -11,13 +11,13 @@ from PyQt6.QtCore import QEvent, Qt, QTimer
 from PyQt6.QtWidgets import QFrame, QSizePolicy, QTreeWidget, QTreeWidgetItem, QWidget
 
 from .._guidance import figure_text
-from ..project import CalibrationSpec
+from ..project import ReferenceCorrection
 from ._icons import icon
 from ._state import ProjectState, signal_label
 from ._ui_helpers import with_unit
 
 #: The icon of each section of the project tree.
-_SECTION_ICONS = {"datasets": "database", "calibrations": "adjustments-horizontal",
+_SECTION_ICONS = {"datasets": "database", "reference_corrections": "adjustments-horizontal",
                   "rois": "grid-dots", "targets": "target",
                   "target_assignments": "list-details", "model_runs": "chart-dots",
                   "predictions": "map"}
@@ -35,7 +35,7 @@ class ProjectBrowser(QTreeWidget):
 
     _SECTION_ORDER = [
         ("datasets", "Datasets"),
-        ("calibrations", "Reference corrections"),
+        ("reference_corrections", "Reference corrections"),
         ("rois", "ROIs"),
         ("targets", "Targets"),
         ("target_assignments", "Target values"),
@@ -44,7 +44,7 @@ class ProjectBrowser(QTreeWidget):
     ]
     _KIND_TO_SECTION = {
         "dataset": "datasets",
-        "calibration": "calibrations",
+        "reference_correction": "reference_corrections",
         "roi": "rois",
         "target": "targets",
         "target_assignment": "target_assignments",
@@ -81,7 +81,7 @@ class ProjectBrowser(QTreeWidget):
 
         self.project_state.project_loaded.connect(self.schedule_refresh)
         self.project_state.datasets_changed.connect(self.schedule_refresh)
-        self.project_state.calibrations_changed.connect(self.schedule_refresh)
+        self.project_state.reference_corrections_changed.connect(self.schedule_refresh)
         self.project_state.rois_changed.connect(self.schedule_refresh)
         self.project_state.targets_changed.connect(self.schedule_refresh)
         self.project_state.target_assignments_changed.connect(self.schedule_refresh)
@@ -109,7 +109,7 @@ class ProjectBrowser(QTreeWidget):
             section.takeChildren()
 
         self._populate_datasets()
-        self._populate_calibrations()
+        self._populate_reference_corrections()
         self._populate_rois()
         self._populate_targets()
         self._populate_target_assignments()
@@ -126,7 +126,7 @@ class ProjectBrowser(QTreeWidget):
     def _label_sections(self) -> None:
         """Each section with the number of its objects and its icon (in the theme's colour)."""
         state = self.project_state
-        counts = {"datasets": len(state.datasets), "calibrations": len(state.calibrations),
+        counts = {"datasets": len(state.datasets), "reference_corrections": len(state.reference_corrections),
                   "rois": len(state.rois), "targets": len(state.targets),
                   "target_assignments": len(state.target_assignments),
                   "model_runs": len(state.model_runs), "predictions": len(state.predictions)}
@@ -220,18 +220,18 @@ class ProjectBrowser(QTreeWidget):
             item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "dataset", "id": dataset_id})
             section.addChild(item)
 
-    def _populate_calibrations(self) -> None:
-        section = self._sections["calibrations"]
+    def _populate_reference_corrections(self) -> None:
+        section = self._sections["reference_corrections"]
         state = self.project_state
 
-        def file_of(calibration_id: str) -> str:
-            return state.data_file_label(state.calibrations[calibration_id].dataset_id)
+        def file_of(reference_correction_id: str) -> str:
+            return state.data_file_label(state.reference_corrections[reference_correction_id].dataset_id)
 
-        for calibration_id in sorted(state.calibrations, key=lambda c: file_of(c).casefold()):
-            calibration = state.calibrations[calibration_id]
-            item = QTreeWidgetItem([f"{file_of(calibration_id)}: {correction_text(calibration)}"])
-            item.setToolTip(0, _with_id("Reference correction", calibration_id))
-            item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "calibration", "id": calibration_id})
+        for reference_correction_id in sorted(state.reference_corrections, key=lambda c: file_of(c).casefold()):
+            reference_correction = state.reference_corrections[reference_correction_id]
+            item = QTreeWidgetItem([f"{file_of(reference_correction_id)}: {correction_text(reference_correction)}"])
+            item.setToolTip(0, _with_id("Reference correction", reference_correction_id))
+            item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "reference_correction", "id": reference_correction_id})
             section.addChild(item)
 
     def _populate_rois(self) -> None:
@@ -338,14 +338,14 @@ class ProjectBrowser(QTreeWidget):
             section.addChild(item)
 
 
-def correction_text(calibration: CalibrationSpec) -> str:
+def correction_text(reference_correction: ReferenceCorrection) -> str:
     """A reference correction as people say it (terminology contract, Reference correction)."""
-    if calibration.mode == "dark_white_reference":
-        if calibration.black_level is not None and calibration.white_level is not None:
-            return (f"detector levels {calibration.black_level:g} / "
-                    f"{calibration.white_level:g}")
+    if reference_correction.mode == "dark_white_reference":
+        if reference_correction.black_level is not None and reference_correction.white_level is not None:
+            return (f"detector levels {reference_correction.black_level:g} / "
+                    f"{reference_correction.white_level:g}")
         return "dark/white references"
-    if calibration.mode == "precalibrated_import":
+    if reference_correction.mode == "already_corrected":
         return "already corrected"
     return "none (raw counts)"
 

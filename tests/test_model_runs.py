@@ -14,7 +14,7 @@ from enginir.io.project_store import (
     load_model_run_prediction_artifact,
     load_project_store,
     load_roi_band_images,
-    save_calibration_spec,
+    save_reference_correction,
     save_dataset_ref,
     save_preprocessing_recipe,
     save_signal_domain_contract,
@@ -58,7 +58,7 @@ def _create_model_project(path: str, *, seed_rois: bool = True) -> None:
             "import_timestamp": "2026-04-02T10:00:00+00:00",
         },
     )
-    save_calibration_spec(
+    save_reference_correction(
         path,
         "dataset_1",
         "cal_1",
@@ -93,10 +93,10 @@ def _create_model_project(path: str, *, seed_rois: bool = True) -> None:
             "input_format": "eiff",
             "source_modality": "nir_hsi",
             "required_signal_unit": "Absorbance",
-            "required_calibration_mode": "dark_white_reference",
+            "required_correction_mode": "dark_white_reference",
             "requires_dark_ref": True,
             "requires_white_ref": True,
-            "calibrated_input_allowed": False,
+            "corrected_input_allowed": False,
             "n_bands": 3,
             "wavelengths": wavelengths,
             "wavelength_tolerance_nm": 0.0,
@@ -121,7 +121,7 @@ def _create_model_project(path: str, *, seed_rois: bool = True) -> None:
             roi_id,
             {
                 "dataset_id": "dataset_1",
-                "calibration_id": "cal_1",
+                "reference_correction_id": "cal_1",
                 "name": roi_id.upper(),
                 "source_file": "/data/train.eiff",
                 "job": "calibration",
@@ -215,7 +215,7 @@ def test_project_state_fit_model_run_uses_roi_local_reference_snapshots(tmp_path
         dtype=np.float32,
     )
     full_white = full_dark + 100.0
-    save_calibration_spec(
+    save_reference_correction(
         project_path,
         "dataset_1",
         "cal_roi_refs",
@@ -241,7 +241,7 @@ def test_project_state_fit_model_run_uses_roi_local_reference_snapshots(tmp_path
             roi_id,
             {
                 "dataset_id": "dataset_1",
-                "calibration_id": "cal_roi_refs",
+                "reference_correction_id": "cal_roi_refs",
                 "name": roi_id.upper(),
                 "source_file": "/data/train.eiff",
                 "job": "calibration",
@@ -250,7 +250,7 @@ def test_project_state_fit_model_run_uses_roi_local_reference_snapshots(tmp_path
                 "spatial_bounds": (index, index, 0, 1),
                 "wavelengths": wavelengths,
                 "provenance": roi_provenance(
-                    calibration_id="cal_roi_refs",
+                    reference_correction_id="cal_roi_refs",
                     created_at=f"2026-04-02T10:0{4 + index}:00+00:00"
                 ),
             },
@@ -451,7 +451,7 @@ def test_fit_model_run_uses_roi_aggregated_primary_metrics(tmp_path, monkeypatch
         project_path=project_path,
         sample_set=sample_set_data.sample_set,
         datasets=state.datasets,
-        calibrations=state.calibrations,
+        reference_corrections=state.reference_corrections,
         rois=state.rois,
         target_assignments=state.target_assignments,
         recipes=state.recipes,
@@ -527,7 +527,7 @@ def test_fit_model_run_preprocesses_stateless_recipe_once_before_cv(tmp_path, mo
         project_path=project_path,
         sample_set=sample_set_data.sample_set,
         datasets=state.datasets,
-        calibrations=state.calibrations,
+        reference_corrections=state.reference_corrections,
         rois=state.rois,
         target_assignments=state.target_assignments,
         recipes=state.recipes,
@@ -574,7 +574,7 @@ def test_fit_model_run_rejects_cross_validation_that_ignores_roi_groups(tmp_path
         fit_model_run(
             project_path=str(tmp_path / "unused.h5"),
             sample_set=None,  # type: ignore[arg-type]
-            datasets={}, calibrations={}, rois={}, target_assignments={}, recipes={},
+            datasets={}, reference_corrections={}, rois={}, target_assignments={}, recipes={},
             signal_domains={}, signal_domain_id="sd", model_type="PLS", cv="loo",
         )
 
@@ -606,7 +606,7 @@ def test_model_run_working_arrays_are_float32(tmp_path, qapp):
 
 def _fit_kwargs(project_path, state, sample_set, **overrides):
     return {"project_path": project_path, "sample_set": sample_set, "datasets": state.datasets,
-            "calibrations": state.calibrations, "rois": state.rois,
+            "reference_corrections": state.reference_corrections, "rois": state.rois,
             "target_assignments": state.target_assignments, "recipes": state.recipes,
             "signal_domains": state.signal_domains, "signal_domain_id": "signal_domain_1",
             "model_type": "PLS", "hyperparameters": {"n_components": 1}, **overrides}
@@ -710,7 +710,7 @@ def _create_phase5_project(path: str, *, mismatch_second_roi: bool = False) -> N
             "import_timestamp": "2026-04-02T10:00:00+00:00",
         },
     )
-    save_calibration_spec(
+    save_reference_correction(
         path,
         "dataset_1",
         "cal_1",
@@ -742,7 +742,7 @@ def _create_phase5_project(path: str, *, mismatch_second_roi: bool = False) -> N
         "roi_1",
         {
             "dataset_id": "dataset_1",
-            "calibration_id": "cal_1",
+            "reference_correction_id": "cal_1",
             "name": "ROI 1",
             "source_file": "/data/train.eiff",
             "job": "calibration",
@@ -759,7 +759,7 @@ def _create_phase5_project(path: str, *, mismatch_second_roi: bool = False) -> N
         "roi_2",
         {
             "dataset_id": "dataset_1",
-            "calibration_id": "cal_1",
+            "reference_correction_id": "cal_1",
             "name": "ROI 2",
             "source_file": "/data/train.eiff",
             "job": "calibration",
@@ -776,7 +776,7 @@ def _create_phase5_project(path: str, *, mismatch_second_roi: bool = False) -> N
         "roi_3",
         {
             "dataset_id": "dataset_1",
-            "calibration_id": "cal_1",
+            "reference_correction_id": "cal_1",
             "name": "ROI 3",
             "source_file": "/data/train.eiff",
             "job": "calibration",
@@ -960,7 +960,7 @@ def test_band_images_rebuild_each_roi_patch_from_the_project(project):
 def _summaries(project_obj, unit, recipe=None):
     ws = project_obj.workspace
     return roi_spectrum_summaries(project_obj.path, list(ws.rois.values()), datasets=ws.datasets,
-                                  calibrations=ws.calibrations, signal_unit=unit, recipe=recipe)
+                                  reference_corrections=ws.reference_corrections, signal_unit=unit, recipe=recipe)
 
 
 def test_means_follow_the_fit_conversion_and_skip_incompatible_rois(project):

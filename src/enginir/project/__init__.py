@@ -1,6 +1,6 @@
 """Typed objects of the engiNIR project workspace (headless, Qt-free).
 
-A project records datasets with their calibrations, ROIs with their reference
+A project records datasets with their reference corrections, ROIs with their reference
 target values, preprocessing recipes, sample sets, fitted model runs and
 prediction runs. :mod:`enginir.io.project_store` reads and writes them as
 plain dicts; this package turns those dicts into validated objects
@@ -13,7 +13,7 @@ training and prediction. The normative specification is in
 
 from ._fit_spec import FitSpec
 from ._models import (
-    CalibrationSpec,
+    ReferenceCorrection,
     DatasetRef,
     ModelRun,
     PredictionRun,
@@ -24,9 +24,9 @@ from ._models import (
     TrainingROI,
 )
 from ._signal_domain import (
-    CalibrationStats,
+    ReferenceCorrectionStats,
     SignalDomainCompatibilityError,
-    check_calibration_signal_domain_compatibility,
+    check_reference_correction_compatibility,
     check_signal_domain_compatibility,
     transform_spectra_to_signal_domain,
     viewable_signal_units,
@@ -35,9 +35,9 @@ from ._validation import ProjectRelationshipError, validate_project_relationship
 from ._hydration import ProjectWorkspace, hydrate_project_store
 
 __all__ = [
-    "CalibrationSpec",
+    "ReferenceCorrection",
     "FitSpec",
-    "CalibrationStats",
+    "ReferenceCorrectionStats",
     "DatasetRef",
     "ModelRun",
     "PredictionRun",
@@ -49,7 +49,7 @@ __all__ = [
     "TargetAssignment",
     "TargetDefinition",
     "TrainingROI",
-    "check_calibration_signal_domain_compatibility",
+    "check_reference_correction_compatibility",
     "check_signal_domain_compatibility",
     "hydrate_project_store",
     "transform_spectra_to_signal_domain",

@@ -1,7 +1,7 @@
 """Predicting prediction ROIs from the project file (prediction-runtime contract, Prediction ROIs).
 
 :func:`predict_rois` predicts the stored pixels of ROIs with one model run:
-each ROI is converted with its own calibration and stored references as model
+each ROI is converted with its own reference correction and stored references as model
 fitting does (:func:`enginir.modeling.roi_to_signal_domain`), checked and
 preprocessed by the same preflight and recipe steps as a scan
 (:func:`~enginir.prediction.preflight_prediction`), and predicted with
@@ -22,13 +22,13 @@ import numpy as np
 from .._checks import log_and_raise
 from .._logging import get_logger
 from ..io.project_store import (
-    iter_roi_calibration_refs,
+    iter_roi_reference_spectra,
     load_model_run_artifact_refs,
     load_roi_spectra_batch,
 )
 from ..preprocessing import PreprocessingRecipe
 from ..project import (
-    CalibrationSpec,
+    ReferenceCorrection,
     DatasetRef,
     ModelRun,
     SampleSet,
@@ -140,7 +140,7 @@ def predict_rois(
     model_name: str,
     rois: Sequence[TrainingROI],
     datasets: Mapping[str, DatasetRef],
-    calibrations: Mapping[str, CalibrationSpec],
+    reference_corrections: Mapping[str, ReferenceCorrection],
     signal_domains: Mapping[str, SignalDomainContract],
     recipes: Mapping[str, dict[str, Any]],
     sample_sets: Mapping[str, SampleSet],
@@ -148,7 +148,7 @@ def predict_rois(
 ) -> RoiPrediction:
     """Predict the stored pixels of ``rois`` with ``model_run`` (contract, Prediction ROIs).
 
-    Each ROI uses its own calibration and stored references; an ROI that does
+    Each ROI uses its own reference correction and stored references; an ROI that does
     not fit the model is refused with the reason, the others are predicted.
     The saved model is used (with its projection data, so the pixels get
     DModXPS and T²PS). Nothing is written to the project.
@@ -173,23 +173,23 @@ def predict_rois(
     for roi in rois:
         if cancelled():
             break
-        key = (roi.dataset_id, roi.calibration_id)
+        key = (roi.dataset_id, roi.reference_correction_id)
         try:
             if key not in preflights:
                 preflights[key] = preflight_prediction(
                     project_path=project_path, model_run=model_run, signal_domain=domain,
                     recipe=recipe, dataset=datasets[roi.dataset_id],
-                    calibration=calibrations[roi.calibration_id], model_registry={})
+                    reference_correction=reference_corrections[roi.reference_correction_id], model_registry={})
                 warning = preflights[key].wavelength_warning
                 if warning and roi.dataset_id not in result.wavelength_warnings:
                     result.wavelength_warnings[roi.dataset_id] = str(warning)
             preflight = preflights[key]
             spectra_key = f"/rois/{roi.roi_id}/spectra"
             raw = load_roi_spectra_batch(project_path, [spectra_key])[spectra_key]
-            snapshot = next(iter(iter_roi_calibration_refs(project_path, [roi.roi_id])))[1]
+            snapshot = next(iter(iter_roi_reference_spectra(project_path, [roi.roi_id])))[1]
             signal = roi_to_signal_domain(
                 raw, roi=roi, dataset=datasets[roi.dataset_id],
-                calibration=calibrations[roi.calibration_id], snapshot=snapshot,
+                reference_correction=reference_corrections[roi.reference_correction_id], snapshot=snapshot,
                 signal_domain=domain)
         except (ValueError, KeyError) as exc:
             result.refused[roi.roi_id] = str(exc)

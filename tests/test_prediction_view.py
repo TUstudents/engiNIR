@@ -221,13 +221,13 @@ def _session_result(run_id, spatial_map, *, dmodx=None, t2=None, diagnostics=Non
         cube_shape=(frames, height, 3),
         n_bands=3,
     )
-    calibration = build.calibration(calibration_id="cal_1", dataset_id="dataset_1")
+    reference_correction = build.reference_correction(reference_correction_id="cal_1", dataset_id="dataset_1")
     run = PredictionRun(prediction_run_id=run_id, dataset_id="dataset_1",
-                        calibration_id="cal_1", model_run_id="model_1",
+                        reference_correction_id="cal_1", model_run_id="model_1",
                         signal_domain_id="signal_domain_1", preprocessing_recipe_id="recipe_1",
                         artifact_refs=dict(artifact_refs or {"spatial_map_shape": (frames, height)}),
                         created_at="2026-11-07T10:00:00+00:00")
-    return PredictionResult(dataset=dataset, calibration=calibration, prediction_run=run,
+    return PredictionResult(dataset=dataset, reference_correction=reference_correction, prediction_run=run,
                             y_pred=spatial_map.reshape(-1), spatial_map=spatial_map,
                             t2=None if t2 is None else t2.reshape(-1),
                             dmodx=None if dmodx is None else dmodx.reshape(-1),
@@ -365,7 +365,7 @@ def test_predict_map_shows_the_map_and_the_rois_of_its_file(qapp, fitted_tray, m
     wait_until(qapp, lambda: bool(state.predictions) and bool(view._roi_predictions),
                 timeout=30)
     summary = view.workspace_summary()
-    assert summary["model"] == model.name and "dark/white references" in summary["calibration"]
+    assert summary["model"] == model.name and "dark/white references" in summary["reference_correction"]
     payload = view.roi_results_payload()
     names = {row["roi"] for row in payload["roi_rows"]}
     assert names == {"t08", "t09", "t10"}
@@ -612,7 +612,7 @@ def test_the_summary_names_file_and_model_once_and_controls_change_the_map(
     summary = view.workspace_summary()
     assert summary["headline"].startswith("Map of tray.h5 with " + model.name)
     shown = "\n".join(summary[key] for key in ("headline", "rois", "signal", "target",
-                                                 "calibration", "map_shape", "clipping"))
+                                                 "reference_correction", "map_shape", "clipping"))
     assert shown.count("tray.h5") == 1 and shown.count(model.name) == 1
     assert "Map: tray.h5" in view.status_text() and model.name in view.status_text()
 

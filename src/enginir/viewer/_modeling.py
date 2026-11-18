@@ -1169,7 +1169,7 @@ class ModelingView(QWidget):
         self.project_state.project_loaded.connect(self._invalidate_diagnostics_cache)
         self.project_state.project_loaded.connect(self._sync_selected_target)
         self.project_state.datasets_changed.connect(self._update_readiness_status)
-        self.project_state.calibrations_changed.connect(self._update_readiness_status)
+        self.project_state.reference_corrections_changed.connect(self._update_readiness_status)
         self.project_state.targets_changed.connect(self._sync_selected_target)
         self.project_state.rois_changed.connect(self._invalidate_diagnostics_cache)
         self.project_state.rois_changed.connect(self._update_readiness_status)
@@ -1611,12 +1611,12 @@ class ModelingView(QWidget):
         path = state.project_path
         if not rois or path is None:
             return None
-        datasets, calibrations = dict(state.datasets), dict(state.calibrations)
+        datasets, reference_corrections = dict(state.datasets), dict(state.reference_corrections)
         from ..modeling import roi_spectrum_summaries
 
         def load() -> tuple[np.ndarray, np.ndarray]:
             summaries, skipped = roi_spectrum_summaries(
-                str(path), rois, datasets=datasets, calibrations=calibrations,
+                str(path), rois, datasets=datasets, reference_corrections=reference_corrections,
                 signal_unit=signal_unit, recipe=recipe)
             if not summaries:
                 log_and_raise("No ROI gives {} spectra: {}", signal_unit,
@@ -1696,7 +1696,7 @@ class ModelingView(QWidget):
         resolved_signal_domains = dict(self.project_state.signal_domains)
         resolved_signal_domains[signal_domain.signal_domain_id] = signal_domain
         datasets = dict(self.project_state.datasets)
-        calibrations = dict(self.project_state.calibrations)
+        reference_corrections = dict(self.project_state.reference_corrections)
         rois = dict(self.project_state.rois)
         target_assignments = dict(self.project_state.target_assignments)
         recipes = dict(self.project_state.recipes)
@@ -1715,7 +1715,7 @@ class ModelingView(QWidget):
                 project_path=project_path,
                 sample_set=sample_set,
                 datasets=datasets,
-                calibrations=calibrations,
+                reference_corrections=reference_corrections,
                 rois=rois,
                 target_assignments=target_assignments,
                 recipes=recipes,
@@ -1856,29 +1856,29 @@ class ModelingView(QWidget):
         stale_message = self._stale_message(sample_set)
         if stale_message is not None:
             log_and_raise("{}", stale_message)
-        # Opening the project validated that every ROI's dataset and calibration exist.
+        # Opening the project validated that every ROI's dataset and reference correction exist.
         roi = self.project_state.rois[sample_set.roi_ids[0]]
         return SignalDomainContract.for_training_data(
             dataset=self.project_state.datasets[roi.dataset_id],
-            calibration=self.project_state.calibrations[roi.calibration_id],
+            reference_correction=self.project_state.reference_corrections[roi.reference_correction_id],
             required_signal_unit=required_signal_unit,
         )
 
     def _signal_unit_mismatch(self, sample_set: SampleSet, required_signal_unit: str
                               ) -> str | None:
-        """Why the ROIs' calibration cannot be modelled in ``required_signal_unit``, if so.
+        """Why the ROIs' reference correction cannot be modelled in ``required_signal_unit``, if so.
 
         A model in raw counts (DN) needs raw-count data; data with references,
         detector levels or calibrated values are modelled as reflectance or
-        absorbance (dataset-calibration contract). Asked before a signal domain
+        absorbance (dataset-reference-correction contract). Asked before a signal domain
         is built, so a readiness check does not log a refused domain as an error.
         """
         roi = self.project_state.rois.get(sample_set.roi_ids[0]) if sample_set.roi_ids else None
-        calibration = None if roi is None else self.project_state.calibrations.get(
-            roi.calibration_id)
-        if calibration is None:
+        reference_correction = None if roi is None else self.project_state.reference_corrections.get(
+            roi.reference_correction_id)
+        if reference_correction is None:
             return None
-        if (required_signal_unit == "DN") == (calibration.mode == "raw_dn"):
+        if (required_signal_unit == "DN") == (reference_correction.mode == "raw_dn"):
             return None
         if required_signal_unit == "DN":
             return ("models on raw counts (DN) need datasets without reference correction; "
@@ -2541,20 +2541,20 @@ class ModelingView(QWidget):
             if roi_id not in self.project_state.rois:
                 return f"SampleSet '{sample_set_id}' references missing roi_id '{roi_id}'"
             roi = self.project_state.rois[roi_id]
-            context_key = (roi.dataset_id, roi.calibration_id)
+            context_key = (roi.dataset_id, roi.reference_correction_id)
             if context_key in checked_contexts:
                 continue
             checked_contexts.add(context_key)
             if roi.dataset_id not in self.project_state.datasets:
                 return f"ROI '{roi.roi_id}' references unknown dataset_id '{roi.dataset_id}'"
-            if roi.calibration_id not in self.project_state.calibrations:
+            if roi.reference_correction_id not in self.project_state.reference_corrections:
                 return (
-                    f"ROI '{roi.roi_id}' references unknown calibration_id '{roi.calibration_id}'"
+                    f"ROI '{roi.roi_id}' references unknown reference_correction_id '{roi.reference_correction_id}'"
                 )
             try:
                 check_signal_domain_compatibility(
                     dataset=self.project_state.datasets[roi.dataset_id],
-                    calibration=self.project_state.calibrations[roi.calibration_id],
+                    reference_correction=self.project_state.reference_corrections[roi.reference_correction_id],
                     signal_domain=signal_domain,
                 )
             except ValueError as exc:

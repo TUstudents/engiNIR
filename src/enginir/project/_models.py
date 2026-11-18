@@ -30,7 +30,7 @@ from ._fit_spec import FitSpec
 logger = get_logger(__name__)
 
 SIGNAL_UNITS = ("DN", "Reflectance", "Absorbance")
-CALIBRATION_MODES = ("raw_dn", "dark_white_reference", "precalibrated_import")
+CORRECTION_MODES = ("raw_dn", "dark_white_reference", "already_corrected")
 MODEL_TYPES = ("PLS", "PCR")
 #: The only allowed value of each modeling-semantics field of a :class:`SampleSet`.
 SAMPLE_SET_SEMANTICS = {
@@ -180,7 +180,7 @@ class SerializableModel:
 
 
 # ---------------------------------------------------------------------------
-# Datasets and calibrations
+# Datasets and reference corrections
 # ---------------------------------------------------------------------------
 
 
@@ -253,7 +253,7 @@ class DatasetRef(SerializableModel):
 
 
 @dataclass(slots=True, eq=False)
-class CalibrationSpec(SerializableModel):
+class ReferenceCorrection(SerializableModel):
     """How the raw spectra of one dataset are converted to physical units.
 
     ``mode`` selects the conversion:
@@ -266,17 +266,17 @@ class CalibrationSpec(SerializableModel):
         dark/white reference arrays or scalar ``black_level``/``white_level``
         (not both), optionally converted to absorbance ``-log10(R)``.
         ``output_signal_unit`` is ``"Reflectance"`` or ``"Absorbance"``.
-    ``"precalibrated_import"``
+    ``"already_corrected"``
         Spectra are already reflectance or absorbance. No reference context
         may be stored.
 
     Attributes
     ----------
-    calibration_id : str
+    reference_correction_id : str
         Stable id, unique within the project. Empty only for an unbound
         template that receives its ids before it is stored.
     dataset_id : str
-        Dataset the calibration belongs to (empty for an unbound template).
+        Dataset the reference correction belongs to (empty for an unbound template).
     mode : str
         One of the modes above.
     dark_ref_source, white_ref_source : str or None
@@ -293,7 +293,7 @@ class CalibrationSpec(SerializableModel):
         ISO 8601 creation time.
     """
 
-    calibration_id: str
+    reference_correction_id: str
     dataset_id: str
     mode: str
     dark_ref_source: str | None
@@ -307,10 +307,10 @@ class CalibrationSpec(SerializableModel):
 
     def __post_init__(self) -> None:
         # Empty ids mark an unbound template (e.g. from the prediction dialog) that
-        # receives its ids before it is stored; stored calibrations always have ids.
-        self.calibration_id = _text(self.calibration_id, "calibration_id", required=False)
+        # receives its ids before it is stored; stored reference corrections always have ids.
+        self.reference_correction_id = _text(self.reference_correction_id, "reference_correction_id", required=False)
         self.dataset_id = _text(self.dataset_id, "dataset_id", required=False)
-        self.mode = _choice(self.mode, "mode", CALIBRATION_MODES)
+        self.mode = _choice(self.mode, "mode", CORRECTION_MODES)
         self.output_signal_unit = _signal_unit(self.output_signal_unit, "output_signal_unit")
         self.created_at = _timestamp(self.created_at, "created_at")
         self.dark_ref_source = _optional_text(self.dark_ref_source, "dark_ref_source")
@@ -323,13 +323,13 @@ class CalibrationSpec(SerializableModel):
             setattr(self, name, None if value is None else check_real(value, name))
         self._check_mode()
 
-    def same_content_as(self, other: CalibrationSpec) -> bool:
-        """Whether ``other`` is the same executable calibration of the same dataset.
+    def same_content_as(self, other: ReferenceCorrection) -> bool:
+        """Whether ``other`` is the same executable reference correction of the same dataset.
 
         Compares the dataset, mode, output unit, reference provenance, scalar
         levels and reference arrays; ids and creation times are ignored. An
-        explicit calibration that matches an existing one must reuse it
-        instead of creating a duplicate (dataset-calibration contract).
+        explicit reference correction that matches an existing one must reuse it
+        instead of creating a duplicate (dataset-reference-correction contract).
         """
         scalars = ("dataset_id", "mode", "output_signal_unit", "dark_ref_source",
                    "white_ref_source", "black_level", "white_level")
@@ -351,29 +351,29 @@ class CalibrationSpec(SerializableModel):
                               ("black_level", "white_level")):
             if (getattr(self, first) is None) != (getattr(self, second) is None):
                 log_and_raise("Reference correction '{}': {} and {} must be set together",
-                              self.calibration_id, first, second)
+                              self.reference_correction_id, first, second)
         if self.mode != "dark_white_reference":
             expected_units = ("DN",) if self.mode == "raw_dn" else ("Reflectance", "Absorbance")
             if self.output_signal_unit not in expected_units:
                 log_and_raise("Reference correction '{}': mode {!r} requires output_signal_unit in {}",
-                              self.calibration_id, self.mode, list(expected_units))
+                              self.reference_correction_id, self.mode, list(expected_units))
             if has_paths or has_arrays or has_levels:
                 log_and_raise("Reference correction '{}': mode {!r} must not store reference context",
-                              self.calibration_id, self.mode)
+                              self.reference_correction_id, self.mode)
             return
         if self.output_signal_unit == "DN":
             log_and_raise("Reference correction '{}': mode 'dark_white_reference' produces "
-                          "Reflectance or Absorbance, not raw counts (DN)", self.calibration_id)
+                          "Reflectance or Absorbance, not raw counts (DN)", self.reference_correction_id)
         if has_arrays == has_levels:
             log_and_raise("Reference correction '{}' needs either reference arrays or scalar levels "
-                          "(exactly one of them)", self.calibration_id)
+                          "(exactly one of them)", self.reference_correction_id)
         if has_paths and not has_arrays:
             log_and_raise("Reference correction '{}': reference source paths are provenance only and "
-                          "need the reference arrays", self.calibration_id)
+                          "need the reference arrays", self.reference_correction_id)
         if (self.dark_ref_data is not None and self.white_ref_data is not None
                 and self.dark_ref_data.shape != self.white_ref_data.shape):
             log_and_raise("Reference correction '{}': dark and white reference arrays differ in shape",
-                          self.calibration_id)
+                          self.reference_correction_id)
 
 
 # ---------------------------------------------------------------------------
@@ -420,8 +420,8 @@ class TrainingROI(SerializableModel):
     ----------
     roi_id : str
         Stable id.
-    dataset_id, calibration_id : str
-        Dataset the pixels were taken from and the calibration active then.
+    dataset_id, reference_correction_id : str
+        Dataset the pixels were taken from and the reference correction active then.
     name : str
         Display name (may be changed).
     wavelengths : numpy.ndarray of float32
@@ -435,7 +435,7 @@ class TrainingROI(SerializableModel):
     created_at : str
         ISO 8601 creation time.
     provenance : dict
-        Capture context with at least ``dataset_id`` and ``calibration_id``
+        Capture context with at least ``dataset_id`` and ``reference_correction_id``
         (matching the ROI), ``signal_unit``, ``preview_recipe_summary`` and
         ``created_at``.
     sample : str or None
@@ -450,7 +450,7 @@ class TrainingROI(SerializableModel):
 
     roi_id: str
     dataset_id: str
-    calibration_id: str
+    reference_correction_id: str
     name: str
     wavelengths: np.ndarray
     n_pixels: int
@@ -466,7 +466,7 @@ class TrainingROI(SerializableModel):
         self.sample = sample_label(self.sample)
         self.job = check_roi_job(self.job)
         self.dataset_id = _text(self.dataset_id, "dataset_id")
-        self.calibration_id = _text(self.calibration_id, "calibration_id")
+        self.reference_correction_id = _text(self.reference_correction_id, "reference_correction_id")
         self.name = _text(self.name, "name")
         self.n_pixels = check_integer(self.n_pixels, "n_pixels", minimum=1)
         self.wavelengths = _wavelengths(self.wavelengths, "wavelengths")
@@ -480,14 +480,14 @@ class TrainingROI(SerializableModel):
         self.provenance = self._checked_provenance(_mapping(self.provenance, "provenance"))
 
     def _checked_provenance(self, provenance: dict[str, Any]) -> dict[str, Any]:
-        required = ("dataset_id", "calibration_id", "signal_unit", "preview_recipe_summary",
+        required = ("dataset_id", "reference_correction_id", "signal_unit", "preview_recipe_summary",
                     "created_at")
         missing = [key for key in required if key not in provenance]
         if missing:
             log_and_raise("ROI '{}': provenance is missing {}", self.roi_id, missing)
         for key in required:
             provenance[key] = _text(provenance[key], f"provenance {key}")
-        for key in ("dataset_id", "calibration_id"):
+        for key in ("dataset_id", "reference_correction_id"):
             if provenance[key] != getattr(self, key):
                 log_and_raise("ROI '{}': provenance {} {!r} differs from the ROI's {!r}",
                               self.roi_id, key, provenance[key], getattr(self, key))
@@ -589,12 +589,12 @@ class SignalDomainContract(SerializableModel):
         Measurement modality, e.g. ``"NIR"``.
     required_signal_unit : str
         ``"DN"``, ``"Reflectance"`` or ``"Absorbance"``.
-    required_calibration_mode : str
-        Calibration mode of the training data.
+    required_correction_mode : str
+        Reference correction mode of the training data.
     requires_dark_ref, requires_white_ref : bool
         Whether prediction data need dark/white reference context; only
         allowed for ``"dark_white_reference"``.
-    calibrated_input_allowed : bool
+    corrected_input_allowed : bool
         Whether precalibrated input may be used.
     n_bands : int
         Number of bands.
@@ -614,10 +614,10 @@ class SignalDomainContract(SerializableModel):
     input_format: str
     source_modality: str
     required_signal_unit: str
-    required_calibration_mode: str
+    required_correction_mode: str
     requires_dark_ref: bool
     requires_white_ref: bool
-    calibrated_input_allowed: bool
+    corrected_input_allowed: bool
     n_bands: int
     wavelengths: np.ndarray
     wavelength_tolerance_nm: float
@@ -631,23 +631,23 @@ class SignalDomainContract(SerializableModel):
         self.source_modality = _text(self.source_modality, "source_modality")
         self.required_signal_unit = _signal_unit(self.required_signal_unit,
                                                  "required_signal_unit")
-        self.required_calibration_mode = _choice(
-            self.required_calibration_mode, "required_calibration_mode", CALIBRATION_MODES
+        self.required_correction_mode = _choice(
+            self.required_correction_mode, "required_correction_mode", CORRECTION_MODES
         )
         self.requires_dark_ref = _flag(self.requires_dark_ref, "requires_dark_ref")
         self.requires_white_ref = _flag(self.requires_white_ref, "requires_white_ref")
-        self.calibrated_input_allowed = _flag(self.calibrated_input_allowed,
-                                              "calibrated_input_allowed")
-        produces_dn = self.required_calibration_mode == "raw_dn"
+        self.corrected_input_allowed = _flag(self.corrected_input_allowed,
+                                              "corrected_input_allowed")
+        produces_dn = self.required_correction_mode == "raw_dn"
         if produces_dn != (self.required_signal_unit == "DN"):
             log_and_raise("Input contract '{}': reference correction mode {!r} cannot produce {!r} spectra",
-                          self.signal_domain_id, self.required_calibration_mode,
+                          self.signal_domain_id, self.required_correction_mode,
                           self.required_signal_unit)
         if ((self.requires_dark_ref or self.requires_white_ref)
-                and self.required_calibration_mode != "dark_white_reference"):
+                and self.required_correction_mode != "dark_white_reference"):
             log_and_raise("Input contract '{}': reference requirements need reference correction mode "
                           "'dark_white_reference', got {!r}", self.signal_domain_id,
-                          self.required_calibration_mode)
+                          self.required_correction_mode)
         self.n_bands = check_integer(self.n_bands, "n_bands", minimum=1)
         self.wavelengths = _wavelengths(self.wavelengths, "wavelengths", size=self.n_bands)
         self.wavelength_tolerance_nm = check_real(self.wavelength_tolerance_nm,
@@ -665,38 +665,38 @@ class SignalDomainContract(SerializableModel):
         cls,
         *,
         dataset: DatasetRef,
-        calibration: CalibrationSpec,
+        reference_correction: ReferenceCorrection,
         required_signal_unit: str,
         signal_domain_id: str | None = None,
         created_at: str | None = None,
     ) -> SignalDomainContract:
-        """Return the contract of a model trained on ``dataset`` with ``calibration``.
+        """Return the contract of a model trained on ``dataset`` with ``reference_correction``.
 
-        Follows the writer rules of the dataset-calibration contract: the
-        dataset's format, modality, bands and wavelengths; the calibration's
-        mode; dark/white references required when the calibration has any
+        Follows the writer rules of the dataset-reference-correction contract: the
+        dataset's format, modality, bands and wavelengths; the reference correction's
+        mode; dark/white references required when the reference correction has any
         reference context; precalibrated input allowed exactly when the
         training data were precalibrated; an ``"exact"`` band mapping, a
         wavelength tolerance of 0 and ``float32`` output.
         """
         from ._ids import new_id, now_iso
 
-        if calibration.dataset_id != dataset.dataset_id:
+        if reference_correction.dataset_id != dataset.dataset_id:
             log_and_raise("Reference correction '{}' belongs to dataset '{}', not '{}'",
-                          calibration.calibration_id, calibration.dataset_id, dataset.dataset_id)
+                          reference_correction.reference_correction_id, reference_correction.dataset_id, dataset.dataset_id)
         has_dark = any(value is not None for value in (
-            calibration.dark_ref_source, calibration.dark_ref_data, calibration.black_level))
+            reference_correction.dark_ref_source, reference_correction.dark_ref_data, reference_correction.black_level))
         has_white = any(value is not None for value in (
-            calibration.white_ref_source, calibration.white_ref_data, calibration.white_level))
+            reference_correction.white_ref_source, reference_correction.white_ref_data, reference_correction.white_level))
         return cls(
             signal_domain_id=signal_domain_id or new_id(),
             input_format=dataset.source_format,
             source_modality=dataset.source_modality,
             required_signal_unit=required_signal_unit,
-            required_calibration_mode=calibration.mode,
+            required_correction_mode=reference_correction.mode,
             requires_dark_ref=has_dark,
             requires_white_ref=has_white,
-            calibrated_input_allowed=calibration.mode == "precalibrated_import",
+            corrected_input_allowed=reference_correction.mode == "already_corrected",
             n_bands=dataset.n_bands,
             wavelengths=dataset.wavelengths,
             wavelength_tolerance_nm=0.0,
@@ -889,8 +889,8 @@ class PredictionRun(SerializableModel):
     ----------
     prediction_run_id : str
         Stable id.
-    dataset_id, calibration_id : str
-        Predicted dataset and the calibration used.
+    dataset_id, reference_correction_id : str
+        Predicted dataset and the reference correction used.
     model_run_id, signal_domain_id, preprocessing_recipe_id : str
         Model and the spectral domain and recipe it was applied with.
     artifact_refs : dict
@@ -901,7 +901,7 @@ class PredictionRun(SerializableModel):
 
     prediction_run_id: str
     dataset_id: str
-    calibration_id: str
+    reference_correction_id: str
     model_run_id: str
     signal_domain_id: str
     preprocessing_recipe_id: str
@@ -909,7 +909,7 @@ class PredictionRun(SerializableModel):
     created_at: str
 
     def __post_init__(self) -> None:
-        for name in ("prediction_run_id", "dataset_id", "calibration_id", "model_run_id",
+        for name in ("prediction_run_id", "dataset_id", "reference_correction_id", "model_run_id",
                      "signal_domain_id", "preprocessing_recipe_id", "created_at"):
             setattr(self, name, _text(getattr(self, name), name))
         self.artifact_refs = _mapping(self.artifact_refs, "artifact_refs")
@@ -919,11 +919,11 @@ __all__ = [
     "check_software",
     "software_versions",
     "validate_project_meta",
-    "CALIBRATION_MODES",
+    "CORRECTION_MODES",
     "MODEL_TYPES",
     "SAMPLE_SET_SEMANTICS",
     "SIGNAL_UNITS",
-    "CalibrationSpec",
+    "ReferenceCorrection",
     "DatasetRef",
     "ModelRun",
     "PredictionRun",

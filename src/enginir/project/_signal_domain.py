@@ -5,7 +5,7 @@ Training (:func:`enginir.modeling.fit_model_run`) and prediction
 :func:`transform_spectra_to_signal_domain`, so a model always sees spectra
 computed in exactly the same way.
 
-For a ``"dark_white_reference"`` calibration, raw detector counts ``x`` are
+For a ``"dark_white_reference"`` reference correction, raw detector counts ``x`` are
 converted to reflectance
 
 .. math:: R = \\operatorname{clip}\\left(\\frac{x - d}{w - d},\\ 10^{-6},\\ 1\\right)
@@ -13,7 +13,7 @@ converted to reflectance
 with the dark and white references ``d`` and ``w`` (per band, per sensor
 pixel, or scalar levels), and optionally to absorbance :math:`A = -\\log_{10} R`.
 Denominators ``|w - d| < 1e-10`` are replaced by ``+/-1e-10``. Clipping and
-replaced denominators are counted in :class:`CalibrationStats` and logged.
+replaced denominators are counted in :class:`ReferenceCorrectionStats` and logged.
 All results are ``float32``. Raw spectra stay in their source dtype until
 this conversion, which allocates at most one float32 working array; float32
 input that needs no conversion is returned without a copy.
@@ -29,7 +29,7 @@ import numpy as np
 from enginir._checks import log_and_raise
 from enginir._logging import get_logger
 
-from ._models import CalibrationSpec, DatasetRef, SignalDomainContract
+from ._models import ReferenceCorrection, DatasetRef, SignalDomainContract
 
 logger = get_logger(__name__)
 
@@ -40,11 +40,11 @@ _WORKING_DTYPE = np.float32
 
 
 class SignalDomainCompatibilityError(ValueError):
-    """A dataset or calibration cannot produce the spectra a model was trained on."""
+    """A dataset or reference correction cannot produce the spectra a model was trained on."""
 
 
 @dataclass(slots=True)
-class CalibrationStats:
+class ReferenceCorrectionStats:
     """Counters of a signal-domain conversion, accumulated over calls.
 
     Attributes
@@ -59,7 +59,7 @@ class CalibrationStats:
     clip_high_count: int = 0
     near_zero_denominator_count: int = 0
     # Denominator w - d of the reference arrays it was computed from, reused
-    # across chunks of the same calibration.
+    # across chunks of the same reference correction.
     _denominator: np.ndarray | None = field(default=None, repr=False)
     _denominator_source: tuple[np.ndarray, np.ndarray] | None = field(default=None, repr=False)
 
@@ -71,16 +71,16 @@ def _fail(message: str, *args: Any) -> NoReturn:
 def check_signal_domain_compatibility(
     *,
     dataset: DatasetRef,
-    calibration: CalibrationSpec,
+    reference_correction: ReferenceCorrection,
     signal_domain: SignalDomainContract,
 ) -> None:
-    """Check that ``dataset`` with ``calibration`` can produce ``signal_domain`` spectra.
+    """Check that ``dataset`` with ``reference_correction`` can produce ``signal_domain`` spectra.
 
     The source format, modality and band count of the dataset must match the
     contract, embedded dark/white references must be one spectrum
     ``(n_bands,)`` or one per sensor pixel ``(height, n_bands)`` of the
-    dataset, and the calibration must pass
-    :func:`check_calibration_signal_domain_compatibility`.
+    dataset, and the reference correction must pass
+    :func:`check_reference_correction_compatibility`.
 
     Raises
     ------
@@ -98,26 +98,26 @@ def check_signal_domain_compatibility(
     if dataset.n_bands != signal_domain.n_bands:
         _fail("Dataset '{}' has n_bands={}, but the model requires n_bands={}",
               dataset.dataset_id, dataset.n_bands, signal_domain.n_bands)
-    if calibration.dark_ref_data is not None:
+    if reference_correction.dark_ref_data is not None:
         allowed = ((dataset.n_bands,), (dataset.cube_shape[1], dataset.n_bands))
-        if calibration.dark_ref_data.shape not in allowed:
-            _fail("Calibration '{}' references have shape {}, but dataset '{}' needs {} or {}",
-                  calibration.calibration_id, calibration.dark_ref_data.shape,
+        if reference_correction.dark_ref_data.shape not in allowed:
+            _fail("Reference correction '{}' references have shape {}, but dataset '{}' needs {} or {}",
+                  reference_correction.reference_correction_id, reference_correction.dark_ref_data.shape,
                   dataset.dataset_id, *allowed)
-    check_calibration_signal_domain_compatibility(calibration=calibration,
+    check_reference_correction_compatibility(reference_correction=reference_correction,
                                                   signal_domain=signal_domain)
 
 
-def check_calibration_signal_domain_compatibility(
+def check_reference_correction_compatibility(
     *,
-    calibration: CalibrationSpec,
+    reference_correction: ReferenceCorrection,
     signal_domain: SignalDomainContract,
 ) -> None:
-    """Check that ``calibration`` can produce the signal unit ``signal_domain`` requires.
+    """Check that ``reference_correction`` can produce the signal unit ``signal_domain`` requires.
 
-    The calibration mode must equal the required mode (or be
-    ``"precalibrated_import"`` where the contract allows calibrated input),
-    required dark/white references must be present, and the calibration's
+    The reference correction mode must equal the required mode (or be
+    ``"already_corrected"`` where the contract allows calibrated input),
+    required dark/white references must be present, and the reference correction's
     output unit must equal the required unit or convert to it (reflectance and
     absorbance convert into each other).
 
@@ -125,21 +125,21 @@ def check_calibration_signal_domain_compatibility(
     ------
     SignalDomainCompatibilityError
     """
-    mode = calibration.mode
-    mode_ok = mode == signal_domain.required_calibration_mode or (
-        mode == "precalibrated_import" and signal_domain.calibrated_input_allowed
+    mode = reference_correction.mode
+    mode_ok = mode == signal_domain.required_correction_mode or (
+        mode == "already_corrected" and signal_domain.corrected_input_allowed
     )
     if not mode_ok:
-        _fail("Calibration '{}' has mode={!r}, but the model requires "
-              "required_calibration_mode={!r}", calibration.calibration_id, mode,
-              signal_domain.required_calibration_mode)
+        _fail("Reference correction '{}' has mode={!r}, but the model requires "
+              "required_correction_mode={!r}", reference_correction.reference_correction_id, mode,
+              signal_domain.required_correction_mode)
     if mode == "dark_white_reference":
-        has_references = calibration.dark_ref_data is not None or calibration.black_level is not None
+        has_references = reference_correction.dark_ref_data is not None or reference_correction.black_level is not None
         if (signal_domain.requires_dark_ref or signal_domain.requires_white_ref) and not has_references:
-            _fail("Calibration '{}' has no dark/white reference", calibration.calibration_id)
-    if not _can_produce(calibration.output_signal_unit, signal_domain.required_signal_unit):
-        _fail("Calibration '{}' produces {!r} and cannot provide required_signal_unit={!r}",
-              calibration.calibration_id, calibration.output_signal_unit,
+            _fail("Reference correction '{}' has no dark/white reference", reference_correction.reference_correction_id)
+    if not _can_produce(reference_correction.output_signal_unit, signal_domain.required_signal_unit):
+        _fail("Reference correction '{}' produces {!r} and cannot provide required_signal_unit={!r}",
+              reference_correction.reference_correction_id, reference_correction.output_signal_unit,
               signal_domain.required_signal_unit)
 
 
@@ -147,24 +147,24 @@ def transform_spectra_to_signal_domain(
     raw_spectra: np.ndarray,
     *,
     dataset: DatasetRef,
-    calibration: CalibrationSpec,
+    reference_correction: ReferenceCorrection,
     signal_domain: SignalDomainContract,
     spatial_shape: tuple[int, int] | None = None,
-    stats: CalibrationStats | None = None,
+    stats: ReferenceCorrectionStats | None = None,
     check_compatibility: bool = True,
     per_spectrum_references: bool = False,
 ) -> np.ndarray:
-    """Calibrate raw spectra and convert them to the model's signal unit.
+    """Correct raw spectra and convert them to the model's signal unit.
 
     Parameters
     ----------
     raw_spectra:
         Spectra as stored (e.g. uint16 counts), shape ``(n_spectra, n_bands)``.
-    dataset, calibration, signal_domain:
-        Source dataset, its calibration and the model's signal-domain contract.
+    dataset, reference_correction, signal_domain:
+        Source dataset, its reference correction and the model's signal-domain contract.
     spatial_shape:
         ``(n_frames, height)`` of the rows of ``raw_spectra``. Needed when the
-        calibration stores one reference spectrum per sensor pixel,
+        reference correction stores one reference spectrum per sensor pixel,
         ``(height, n_bands)``. If omitted, the rows are taken to be whole
         frames of the dataset (``height = dataset.cube_shape[1]``), starting
         at a frame boundary.
@@ -174,10 +174,10 @@ def transform_spectra_to_signal_domain(
         Run :func:`check_signal_domain_compatibility` first. Callers that
         convert many chunks of one dataset check once and pass ``False``.
     per_spectrum_references:
-        If ``True``, the calibration's reference arrays hold one spectrum per
+        If ``True``, the reference correction's reference arrays hold one spectrum per
         row of ``raw_spectra`` (e.g. the reference snapshot stored with an
         ROI) and must have its shape. Combine with
-        ``check_compatibility=False`` after checking the dataset calibration
+        ``check_compatibility=False`` after checking the dataset reference correction
         itself.
 
     Returns
@@ -192,25 +192,25 @@ def transform_spectra_to_signal_domain(
         If ``raw_spectra`` is not a finite real 2-D array.
     """
     if check_compatibility:
-        check_signal_domain_compatibility(dataset=dataset, calibration=calibration,
+        check_signal_domain_compatibility(dataset=dataset, reference_correction=reference_correction,
                                           signal_domain=signal_domain)
     raw = _raw_matrix(raw_spectra)
     if spatial_shape is None:
         spatial_shape = _whole_frames_spatial_shape(raw, dataset)
-    stats = CalibrationStats() if stats is None else stats
+    stats = ReferenceCorrectionStats() if stats is None else stats
 
-    if calibration.mode == "dark_white_reference":
-        signal = _reflectance(raw, calibration, spatial_shape, stats, per_spectrum_references)
+    if reference_correction.mode == "dark_white_reference":
+        signal = _reflectance(raw, reference_correction, spatial_shape, stats, per_spectrum_references)
         unit = "Reflectance"
     else:
         # Raw counts are converted to float32 here, once; float32 input is not copied.
         signal = np.asarray(raw, dtype=_WORKING_DTYPE)
-        unit = calibration.output_signal_unit
+        unit = reference_correction.output_signal_unit
     target = signal_domain.required_signal_unit
     if unit != target and np.shares_memory(signal, raw):
         signal = signal.copy()  # the unit conversion below works in place
     if unit == "Reflectance" and target == "Absorbance":
-        _reflectance_to_absorbance(signal, calibration, stats)
+        _reflectance_to_absorbance(signal, reference_correction, stats)
     elif unit == "Absorbance" and target == "Reflectance":
         np.negative(signal, out=signal)
         np.power(_WORKING_DTYPE(10.0), signal, out=signal)
@@ -219,18 +219,18 @@ def transform_spectra_to_signal_domain(
     return signal
 
 
-def viewable_signal_units(calibration: CalibrationSpec | None) -> tuple[str, ...]:
-    """The signal units the stored spectra of ``calibration`` can be shown in.
+def viewable_signal_units(reference_correction: ReferenceCorrection | None) -> tuple[str, ...]:
+    """The signal units the stored spectra of ``reference_correction`` can be shown in.
 
     Raw counts are always stored, so ``DN`` shows them as they are;
-    reflectance and absorbance are computed from them with the calibration's
+    reflectance and absorbance are computed from them with the reference correction's
     references or detector levels at any time. ``raw_dn`` has neither, so it
     gives counts only. Precalibrated data hold no counts.
-    ``None`` (no calibration yet) allows all three.
+    ``None`` (no reference correction yet) allows all three.
     """
-    if calibration is None or calibration.mode == "dark_white_reference":
+    if reference_correction is None or reference_correction.mode == "dark_white_reference":
         return ("DN", "Reflectance", "Absorbance")
-    if calibration.mode == "raw_dn":
+    if reference_correction.mode == "raw_dn":
         return ("DN",)
     return ("Reflectance", "Absorbance")
 
@@ -261,41 +261,41 @@ def _whole_frames_spatial_shape(raw: np.ndarray, dataset: DatasetRef) -> tuple[i
 
 def _reflectance(
     raw: np.ndarray,
-    calibration: CalibrationSpec,
+    reference_correction: ReferenceCorrection,
     spatial_shape: tuple[int, int] | None,
-    stats: CalibrationStats,
+    stats: ReferenceCorrectionStats,
     per_spectrum_references: bool,
 ) -> np.ndarray:
     """Return clipped reflectance ``(raw - d) / (w - d)`` as float32."""
     out = np.empty(raw.shape, dtype=_WORKING_DTYPE)
-    if calibration.dark_ref_data is not None and calibration.white_ref_data is not None:
-        dark = calibration.dark_ref_data
-        white = calibration.white_ref_data
+    if reference_correction.dark_ref_data is not None and reference_correction.white_ref_data is not None:
+        dark = reference_correction.dark_ref_data
+        white = reference_correction.white_ref_data
         cached = stats._denominator_source
         if stats._denominator is None or cached is None or cached[0] is not dark \
                 or cached[1] is not white:
-            stats._denominator = _safe_denominator(white - dark, calibration, stats)
+            stats._denominator = _safe_denominator(white - dark, reference_correction, stats)
             stats._denominator_source = (dark, white)
         denominator = stats._denominator
-        rows_shape = _reference_layout(raw, dark, spatial_shape, calibration,
+        rows_shape = _reference_layout(raw, dark, spatial_shape, reference_correction,
                                        per_spectrum_references)
         np.subtract(raw.reshape(rows_shape), dark, out=out.reshape(rows_shape))
         np.divide(out.reshape(rows_shape), denominator, out=out.reshape(rows_shape))
-    elif calibration.black_level is not None and calibration.white_level is not None:
+    elif reference_correction.black_level is not None and reference_correction.white_level is not None:
         denominator = _safe_denominator(
-            np.asarray(calibration.white_level - calibration.black_level, dtype=_WORKING_DTYPE),
-            calibration, stats,
+            np.asarray(reference_correction.white_level - reference_correction.black_level, dtype=_WORKING_DTYPE),
+            reference_correction, stats,
         )
-        np.subtract(raw, _WORKING_DTYPE(calibration.black_level), out=out)
+        np.subtract(raw, _WORKING_DTYPE(reference_correction.black_level), out=out)
         np.divide(out, denominator, out=out)
     else:
-        _fail("Calibration '{}' has no dark/white reference", calibration.calibration_id)
-    _clip_reflectance(out, calibration, stats)
+        _fail("Reference correction '{}' has no dark/white reference", reference_correction.reference_correction_id)
+    _clip_reflectance(out, reference_correction, stats)
     return out
 
 
 def _safe_denominator(
-    denominator: np.ndarray, calibration: CalibrationSpec, stats: CalibrationStats
+    denominator: np.ndarray, reference_correction: ReferenceCorrection, stats: ReferenceCorrectionStats
 ) -> np.ndarray:
     denominator = np.asarray(denominator, dtype=_WORKING_DTYPE)
     small = np.abs(denominator) < _EPS
@@ -303,7 +303,7 @@ def _safe_denominator(
     if n_small:
         stats.near_zero_denominator_count += n_small
         logger.warning("Reference correction '{}': {} white - dark value(s) are near zero; using +/-{}",
-                       calibration.calibration_id, n_small, float(_EPS))
+                       reference_correction.reference_correction_id, n_small, float(_EPS))
         denominator = np.where(small, np.where(denominator >= 0, _EPS, -_EPS), denominator)
     return denominator.astype(_WORKING_DTYPE, copy=False)
 
@@ -312,7 +312,7 @@ def _reference_layout(
     raw: np.ndarray,
     reference: np.ndarray,
     spatial_shape: tuple[int, int] | None,
-    calibration: CalibrationSpec,
+    reference_correction: ReferenceCorrection,
     per_spectrum_references: bool,
 ) -> tuple[int, ...]:
     """Return the shape to view ``raw`` in so that ``reference`` broadcasts against it.
@@ -324,19 +324,19 @@ def _reference_layout(
     n_bands = raw.shape[1]
     if per_spectrum_references:
         if reference.shape != raw.shape:
-            _fail("Calibration '{}' per-spectrum references of shape {} do not match spectra "
-                  "of shape {}", calibration.calibration_id, reference.shape, raw.shape)
+            _fail("Reference correction '{}' per-spectrum references of shape {} do not match spectra "
+                  "of shape {}", reference_correction.reference_correction_id, reference.shape, raw.shape)
         return raw.shape
     if reference.shape == (n_bands,):
         return raw.shape
     if spatial_shape is None:
-        _fail("Calibration '{}' has references of shape {} for spectra of shape {}; the "
-              "spectra's spatial layout is needed", calibration.calibration_id,
+        _fail("Reference correction '{}' has references of shape {} for spectra of shape {}; the "
+              "spectra's spatial layout is needed", reference_correction.reference_correction_id,
               reference.shape, raw.shape)
     n_frames, height = spatial_shape
     if n_frames * height != raw.shape[0] or reference.shape != (height, n_bands):
-        _fail("Calibration '{}' references of shape {} do not fit spectra of shape {} with "
-              "spatial layout {}", calibration.calibration_id, reference.shape, raw.shape,
+        _fail("Reference correction '{}' references of shape {} do not fit spectra of shape {} with "
+              "spatial layout {}", reference_correction.reference_correction_id, reference.shape, raw.shape,
               spatial_shape)
     return (n_frames, height, n_bands)
 
@@ -346,33 +346,33 @@ _REPORTED_CLIPS: set[tuple[str, tuple[int, ...], int, int]] = set()
 _MAX_REPORTED_CLIPS = 10_000
 
 
-def _clip_reflectance(out: np.ndarray, calibration: CalibrationSpec,
-                      stats: CalibrationStats) -> None:
+def _clip_reflectance(out: np.ndarray, reference_correction: ReferenceCorrection,
+                      stats: ReferenceCorrectionStats) -> None:
     n_low = int(np.count_nonzero(out < REFLECTANCE_MIN))
     n_high = int(np.count_nonzero(out > REFLECTANCE_MAX))
     stats.clip_low_count += n_low
     stats.clip_high_count += n_high
     if n_low or n_high:
         # The viewer converts the same ROI on every redraw: warn once per result, repeat in debug.
-        key = (calibration.calibration_id, out.shape, n_low, n_high)
+        key = (reference_correction.reference_correction_id, out.shape, n_low, n_high)
         log = logger.debug if key in _REPORTED_CLIPS else logger.warning
         if len(_REPORTED_CLIPS) < _MAX_REPORTED_CLIPS:
             _REPORTED_CLIPS.add(key)
-        log("Calibration '{}': clipped {} reflectance value(s) below {:g} and {} above {:g} "
-            "(spectra of shape {})", calibration.calibration_id, n_low, float(REFLECTANCE_MIN),
+        log("Reference correction '{}': clipped {} reflectance value(s) below {:g} and {} above {:g} "
+            "(spectra of shape {})", reference_correction.reference_correction_id, n_low, float(REFLECTANCE_MIN),
             n_high, float(REFLECTANCE_MAX), out.shape)
     np.clip(out, REFLECTANCE_MIN, REFLECTANCE_MAX, out=out)
 
 
-def _reflectance_to_absorbance(reflectance: np.ndarray, calibration: CalibrationSpec,
-                               stats: CalibrationStats) -> None:
+def _reflectance_to_absorbance(reflectance: np.ndarray, reference_correction: ReferenceCorrection,
+                               stats: ReferenceCorrectionStats) -> None:
     # Clipped dark/white reflectance is already >= REFLECTANCE_MIN; precalibrated
     # reflectance may not be, and log10 needs a positive floor.
     n_low = int(np.count_nonzero(reflectance < REFLECTANCE_MIN))
     if n_low:
         stats.clip_low_count += n_low
         logger.warning("Reference correction '{}': raised {} reflectance value(s) below {} to {} before "
-                       "converting to absorbance", calibration.calibration_id, n_low,
+                       "converting to absorbance", reference_correction.reference_correction_id, n_low,
                        float(REFLECTANCE_MIN), float(REFLECTANCE_MIN))
     np.maximum(reflectance, REFLECTANCE_MIN, out=reflectance)
     np.log10(reflectance, out=reflectance)
@@ -382,9 +382,9 @@ def _reflectance_to_absorbance(reflectance: np.ndarray, calibration: Calibration
 __all__ = [
     "REFLECTANCE_MAX",
     "REFLECTANCE_MIN",
-    "CalibrationStats",
+    "ReferenceCorrectionStats",
     "SignalDomainCompatibilityError",
-    "check_calibration_signal_domain_compatibility",
+    "check_reference_correction_compatibility",
     "check_signal_domain_compatibility",
     "transform_spectra_to_signal_domain",
     "viewable_signal_units",

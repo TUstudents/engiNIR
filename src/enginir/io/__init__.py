@@ -40,6 +40,7 @@ from .spc_io import load_spc, SPCError
 from .jcamp_io import load_jcamp, JCAMPError
 from .envi_io import iter_envi_frame_chunks, load_envi, save_envi, ENVIError
 from .hdf5_io import iter_hdf5_frame_chunks, load_hdf5, save_hdf5
+from ._migrate import migrate_project
 from .project_store import (
     FILE_SCHEMA_VERSION,
     PredictionArtifactWriter,
@@ -49,7 +50,7 @@ from .project_store import (
     has_prediction_run,
     finalize_prediction_run_artifacts,
     initialize_prediction_run_artifacts,
-    iter_roi_calibration_refs,
+    iter_roi_reference_spectra,
     load_model_run_artifact_refs,
     load_model_run_prediction_artifact,
     load_prediction_run_artifact_refs,
@@ -60,7 +61,7 @@ from .project_store import (
     load_roi_spectra_matrix,
     open_prediction_run_artifact_writer,
     remove_roi_from_project,
-    save_calibration_spec,
+    save_reference_correction,
     save_dataset_ref,
     save_model_run,
     save_prediction_run,
@@ -164,6 +165,7 @@ __all__ = [
     "save_hdf5",
     # project files
     "FILE_SCHEMA_VERSION",
+    "migrate_project",
     "PredictionArtifactWriter",
     "create_project",
     "discard_prediction_run_artifacts",
@@ -171,7 +173,7 @@ __all__ = [
     "has_prediction_run",
     "finalize_prediction_run_artifacts",
     "initialize_prediction_run_artifacts",
-    "iter_roi_calibration_refs",
+    "iter_roi_reference_spectra",
     "load_model_run_artifact_refs",
     "load_model_run_prediction_artifact",
     "load_prediction_run_artifact_refs",
@@ -182,7 +184,7 @@ __all__ = [
     "load_roi_spectra_matrix",
     "open_prediction_run_artifact_writer",
     "remove_roi_from_project",
-    "save_calibration_spec",
+    "save_reference_correction",
     "save_dataset_ref",
     "save_model_run",
     "save_prediction_run",

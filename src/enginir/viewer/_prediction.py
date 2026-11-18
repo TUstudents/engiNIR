@@ -42,7 +42,7 @@ from ..prediction import (
     preflight_prediction,
     roi_prediction_statistics,
 )
-from ..project import CalibrationSpec
+from ..project import ReferenceCorrection
 from ._predict_dialogs import ModelChoice, PredictMapDialog, PredictRoisDialog
 from ._jobs import BackgroundWorker, BusyStatusWidget, start_background_job
 from ._state import ProjectState
@@ -57,8 +57,8 @@ logger = get_logger(__name__)
 
 
 #: Shown names of prediction phases whose id is not a term (terminology contract:
-#: the ``calibrating`` phase applies the reference correction).
-_PHASE_LABELS = {"calibrating": "Reference correction"}
+#: the ``correcting`` phase applies the reference correction).
+_PHASE_LABELS = {"correcting": "Reference correction"}
 
 
 def _phase_label(phase: str) -> str:
@@ -103,16 +103,16 @@ def _ordinal(number: int) -> str:
     return f"{number}{suffix}"
 
 
-def describe_calibration(calibration: CalibrationSpec) -> str:
-    """A calibration in words, e.g. "detector levels 128 / 3500" or "dark/white references"."""
-    if calibration.mode == "raw_dn":
+def describe_reference_correction(reference_correction: ReferenceCorrection) -> str:
+    """A reference correction in words, e.g. "detector levels 128 / 3500" or "dark/white references"."""
+    if reference_correction.mode == "raw_dn":
         return "raw counts"
-    if calibration.mode == "precalibrated_import":
-        return f"already corrected {calibration.output_signal_unit.lower()} values"
-    if calibration.dark_ref_data is not None or calibration.dark_ref_source is not None:
+    if reference_correction.mode == "already_corrected":
+        return f"already corrected {reference_correction.output_signal_unit.lower()} values"
+    if reference_correction.dark_ref_data is not None or reference_correction.dark_ref_source is not None:
         return "dark/white references"
-    if calibration.black_level is not None and calibration.white_level is not None:
-        return f"detector levels {calibration.black_level:g} / {calibration.white_level:g}"
+    if reference_correction.black_level is not None and reference_correction.white_level is not None:
+        return f"detector levels {reference_correction.black_level:g} / {reference_correction.white_level:g}"
     return "references"
 
 
@@ -1053,18 +1053,18 @@ class PredictionView(QWidget):
                                      state.recipes.get(sample_set.preprocessing_recipe_id))
             unit = "?" if domain is None else domain.required_signal_unit
             chain = (f"the dataset's reference correction → {unit} → {recipe} → {name}; "
-                     f"fitted with {self._training_calibration(run)}")
+                     f"fitted with {self._training_reference_correction(run)}")
             choices.append(ModelChoice(model_run_id, name, chain))
         return choices
 
-    def _training_calibration(self, run: Any) -> str:
+    def _training_reference_correction(self, run: Any) -> str:
         """How the model's training ROIs were calibrated, in words."""
         state = self.project_state
         sample_set = state.sample_sets.get(run.sample_set_id)
-        texts = {describe_calibration(state.calibrations[state.rois[roi_id].calibration_id])
+        texts = {describe_reference_correction(state.reference_corrections[state.rois[roi_id].reference_correction_id])
                  for roi_id in (sample_set.roi_ids if sample_set is not None else ())
                  if roi_id in state.rois
-                 and state.rois[roi_id].calibration_id in state.calibrations}
+                 and state.rois[roi_id].reference_correction_id in state.reference_corrections}
         return " / ".join(sorted(texts)) or "unknown reference correction"
 
     def _default_model_id(self) -> str | None:
@@ -1113,7 +1113,7 @@ class PredictionView(QWidget):
         project_path = str(state.project_path)
         cancel_event = Event()
         self._job_cancel_event = cancel_event
-        snapshot = {"datasets": dict(state.datasets), "calibrations": dict(state.calibrations),
+        snapshot = {"datasets": dict(state.datasets), "reference_corrections": dict(state.reference_corrections),
                     "signal_domains": dict(state.signal_domains),
                     "recipes": dict(state.recipes), "sample_sets": dict(state.sample_sets)}
         runs = [(state.model_runs[model_id], self._model_name(model_id))
@@ -1347,8 +1347,8 @@ class PredictionView(QWidget):
         """Why ``dataset_id`` cannot be predicted with the model, or ``None``."""
         state = self.project_state
         dataset = state.datasets.get(dataset_id)
-        calibration = state.active_calibration(dataset_id)
-        if dataset is None or calibration is None:
+        reference_correction = state.active_reference_correction(dataset_id)
+        if dataset is None or reference_correction is None:
             return "the dataset has no reference correction in the project"
         if state.data_file(dataset_id) is None:
             return f"{dataset.source_path} was not found (Locate file... in Explore)"
@@ -1356,7 +1356,7 @@ class PredictionView(QWidget):
             context = state.build_prediction_job_context(model_run_id=model_run_id)
             preflight_prediction(project_path=context.project_path, model_run=context.model_run,
                                  signal_domain=context.signal_domain, recipe=context.recipe,
-                                 dataset=dataset, calibration=calibration,
+                                 dataset=dataset, reference_correction=reference_correction,
                                  model_registry=context.model_registry, prefer_saved_model=True)
         except Exception as exc:  # every refusal is shown, not raised
             return str(exc)
@@ -1398,14 +1398,14 @@ class PredictionView(QWidget):
         dataset = state.datasets[dataset_id]
         # Where the data file is this session (next to the project, via a drive mapping).
         data_path = state.data_file(dataset_id) or dataset.source_path
-        calibration = state.active_calibration(dataset_id)
-        if calibration is None:
+        reference_correction = state.active_reference_correction(dataset_id)
+        if reference_correction is None:
             QMessageBox.warning(self, "Prediction failed", "The dataset has no reference correction.")
             return
         rois = [roi for roi in state.rois.values()
                 if roi.job == "prediction" and roi.dataset_id == dataset_id]
         name = self._model_name(model_run_id)
-        snapshot = {"datasets": dict(state.datasets), "calibrations": dict(state.calibrations),
+        snapshot = {"datasets": dict(state.datasets), "reference_corrections": dict(state.reference_corrections),
                     "signal_domains": dict(state.signal_domains),
                     "recipes": dict(state.recipes), "sample_sets": dict(state.sample_sets)}
         cancel_event = Event()
@@ -1423,7 +1423,7 @@ class PredictionView(QWidget):
             result = predict_with_model_run(
                 project_path=context.project_path, model_run=context.model_run,
                 signal_domain=context.signal_domain, recipe=context.recipe, dataset=dataset,
-                calibration=calibration, model_registry=context.model_registry,
+                reference_correction=reference_correction, model_registry=context.model_registry,
                 data_path=data_path,
                 preprocessing_recipe_id=context.preprocessing_recipe_id,
                 progress_callback=emit_progress, cancel_callback=cancel_event.is_set,
@@ -1509,12 +1509,12 @@ class PredictionView(QWidget):
                     self.project_state.recipes.get(sample_set.preprocessing_recipe_id))
 
         dataset_text = "none"
-        calibration_text = "none"
+        reference_correction_text = "none"
         if result is not None:
             dataset_text = (self.project_state.data_file_label(result.dataset.dataset_id)
                             if result.dataset.dataset_id in self.project_state.datasets
                             else Path(result.dataset.source_path).name or "none")
-            calibration_text = describe_calibration(result.calibration)
+            reference_correction_text = describe_reference_correction(result.reference_correction)
 
         format_text = "-"
         signal_text = "-"
@@ -1559,7 +1559,7 @@ class PredictionView(QWidget):
             "rois": "\n".join(self.roi_summary_lines()) or self._roi_note or self._rois_waiting(),
             "model": model_text,
             "dataset": dataset_text,
-            "calibration": calibration_text,
+            "reference_correction": reference_correction_text,
             "target": target_text,
             "format": format_text,
             "signal": signal_text,
@@ -1580,8 +1580,8 @@ class PredictionView(QWidget):
         run = result.prediction_run
         provenance.update(model_run_id=run.model_run_id,
                           signal_domain_id=run.signal_domain_id,
-                          signal_unit=result.calibration.output_signal_unit,
-                          calibration_mode=result.calibration.mode,
+                          signal_unit=result.reference_correction.output_signal_unit,
+                          correction_mode=result.reference_correction.mode,
                           data_file=result.dataset.source_path,
                           predicted_at=str(result.provenance.get("created_at", "")))
         model_run = self.project_state.model_runs.get(run.model_run_id)
@@ -1816,4 +1816,4 @@ class PredictionView(QWidget):
         return predictions[next(reversed(predictions))] if predictions else None
 
 
-__all__ = ["PredictionMapWidget", "PredictionView", "describe_calibration"]
+__all__ = ["PredictionMapWidget", "PredictionView", "describe_reference_correction"]

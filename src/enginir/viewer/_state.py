@@ -23,10 +23,10 @@ from .._workflow import (
     data_file_labels,
     is_data_file_of,
     resolve_dataset,
-    resolve_prediction_calibration,
+    resolve_prediction_reference_correction,
 )
 from ..project import (
-    CalibrationSpec,
+    ReferenceCorrection,
     DatasetRef,
     ModelRun,
     SampleSet,
@@ -87,8 +87,8 @@ class PredictionJobContext:
     preprocessing_recipe_id: str
     recipe: PreprocessingRecipe
     datasets: dict[str, DatasetRef]
-    calibrations: dict[str, CalibrationSpec]
-    active_calibration_ids: dict[str, str]
+    reference_corrections: dict[str, ReferenceCorrection]
+    active_reference_correction_ids: dict[str, str]
     model_registry: dict[str, Any]
 
 
@@ -115,7 +115,7 @@ class ProjectState(QObject):
 
     project_loaded = pyqtSignal()
     datasets_changed = pyqtSignal()
-    calibrations_changed = pyqtSignal()
+    reference_corrections_changed = pyqtSignal()
     rois_changed = pyqtSignal()
     targets_changed = pyqtSignal()
     target_assignments_changed = pyqtSignal()
@@ -138,8 +138,8 @@ class ProjectState(QObject):
         self.project_path: str | None = None
         self.project_meta: dict[str, Any] = {}
         self.datasets: dict[str, DatasetRef] = {}
-        self.active_calibration_ids: dict[str, str] = {}
-        self.calibrations: dict[str, CalibrationSpec] = {}
+        self.active_reference_correction_ids: dict[str, str] = {}
+        self.reference_corrections: dict[str, ReferenceCorrection] = {}
         self.rois: dict[str, TrainingROI] = {}
         self.targets: dict[str, TargetDefinition] = {}
         self.target_assignments: dict[tuple[str, str], TargetAssignment] = {}
@@ -234,18 +234,18 @@ class ProjectState(QObject):
         self._written()
         self.datasets_changed.emit()
 
-    def add_data_file(self, path: str, **calibration: Any) -> str:
-        """Register a data file with its calibration, or recalibrate a registered one.
+    def add_data_file(self, path: str, **reference_correction: Any) -> str:
+        """Register a data file with its reference correction, or change the reference correction of a registered one.
 
-        ``calibration`` are the reference keywords of
+        ``reference_correction`` are the reference keywords of
         :meth:`enginir.Project.add_dataset`. Returns the dataset id.
         """
         project = self._require_project("add_data_file")
         known = set(self.datasets)
-        dataset_id = project.add_dataset(path, **calibration).ref.dataset_id
+        dataset_id = project.add_dataset(path, **reference_correction).ref.dataset_id
         self._written()
         self.datasets_changed.emit()
-        self.calibrations_changed.emit()
+        self.reference_corrections_changed.emit()
         name = os.path.basename(str(path))
         self.saved.emit(f"Dataset '{name}' added to project" if dataset_id not in known
                         else f"Reference correction of '{name}' saved to project")
@@ -316,15 +316,15 @@ class ProjectState(QObject):
         """:meth:`data_file_label` with the folder in full, for lists with room."""
         return data_file_labels(self.datasets, shorten=False).get(dataset_id, dataset_id)
 
-    def active_calibration(self, dataset_id: str) -> CalibrationSpec | None:
-        """The active calibration of a registered dataset, if any."""
-        return self.calibrations.get(self.active_calibration_ids.get(dataset_id, ""))
+    def active_reference_correction(self, dataset_id: str) -> ReferenceCorrection | None:
+        """The active reference correction of a registered dataset, if any."""
+        return self.reference_corrections.get(self.active_reference_correction_ids.get(dataset_id, ""))
 
-    def set_active_calibration(self, calibration: CalibrationSpec) -> None:
-        """Persist a calibration and make it its dataset's active one."""
-        self._require_project("set_active_calibration").save_calibration(calibration)
+    def set_active_reference_correction(self, reference_correction: ReferenceCorrection) -> None:
+        """Persist a reference correction and make it its dataset's active one."""
+        self._require_project("set_active_reference_correction").save_reference_correction(reference_correction)
         self._written()
-        self.calibrations_changed.emit()
+        self.reference_corrections_changed.emit()
 
     def define_target(self, target: TargetDefinition) -> None:
         """Persist a target definition."""
@@ -517,7 +517,7 @@ class ProjectState(QObject):
             project_path=project.path,
             sample_set=sample_set,
             datasets=self.datasets,
-            calibrations=self.calibrations,
+            reference_corrections=self.reference_corrections,
             rois=self.rois,
             target_assignments=self.target_assignments,
             recipes=self.recipes,
@@ -581,8 +581,8 @@ class ProjectState(QObject):
             preprocessing_recipe_id=recipe_id,
             recipe=PreprocessingRecipe.from_dict(self.recipes[recipe_id]),
             datasets=dict(self.datasets),
-            calibrations=dict(self.calibrations),
-            active_calibration_ids=dict(self.active_calibration_ids),
+            reference_corrections=dict(self.reference_corrections),
+            active_reference_correction_ids=dict(self.active_reference_correction_ids),
             model_registry=dict(self.model_registry),
         )
 
@@ -610,13 +610,13 @@ class ProjectState(QObject):
         *,
         model_run_id: str,
         data_path: str,
-        calibration: CalibrationSpec | None = None,
+        reference_correction: ReferenceCorrection | None = None,
         dataset_id: str | None = None,
         prediction_run_id: str | None = None,
         created_at: str | None = None,
         loader_kwargs: dict[str, Any] | None = None,
     ) -> PredictionResult:
-        """Resolve the dataset and calibration and predict in memory; nothing is written.
+        """Resolve the dataset and reference correction and predict in memory; nothing is written.
 
         The result (with the DModXPS and T²PS maps when the saved model has
         projection data) is kept for this session (:meth:`add_prediction`).
@@ -626,15 +626,15 @@ class ProjectState(QObject):
         dataset, _ = resolve_dataset(context.datasets, data_path, spectral_data,
                                      dataset_id=dataset_id, created_at=created_at,
                                      project_path=context.project_path)
-        resolved_calibration, _ = resolve_prediction_calibration(
-            dataset, context.calibrations, context.active_calibration_ids, calibration)
+        resolved_reference_correction, _ = resolve_prediction_reference_correction(
+            dataset, context.reference_corrections, context.active_reference_correction_ids, reference_correction)
         result = predict_with_model_run(
             project_path=context.project_path,
             model_run=context.model_run,
             signal_domain=context.signal_domain,
             recipe=context.recipe,
             dataset=dataset,
-            calibration=resolved_calibration,
+            reference_correction=resolved_reference_correction,
             model_registry=context.model_registry,
             data_path=data_path,
             spectral_data=spectral_data,
@@ -718,8 +718,8 @@ class ProjectState(QObject):
         ws = self.project.workspace
         self.project_meta = ws.project_meta
         self.datasets = dict(ws.datasets)
-        self.active_calibration_ids = dict(ws.active_calibration_ids)
-        self.calibrations = dict(ws.calibrations)
+        self.active_reference_correction_ids = dict(ws.active_reference_correction_ids)
+        self.reference_corrections = dict(ws.reference_corrections)
         self.rois = dict(ws.rois)
         self.targets = dict(ws.targets)
         self.target_assignments = dict(ws.target_assignments)
@@ -731,7 +731,7 @@ class ProjectState(QObject):
 
     def _emit_workspace_signals(self) -> None:
         self.datasets_changed.emit()
-        self.calibrations_changed.emit()
+        self.reference_corrections_changed.emit()
         self.rois_changed.emit()
         self.targets_changed.emit()
         self.target_assignments_changed.emit()
@@ -976,7 +976,7 @@ class ViewerState(QObject):
         if self.x_spatial_unit == "mm":
             self.units_changed.emit()
 
-    def set_calibration(self, *, black_level: float, white_level: float,
+    def set_reference_correction(self, *, black_level: float, white_level: float,
                         dark_ref: np.ndarray | None = None,
                         white_ref: np.ndarray | None = None,
                         reference_frames: tuple[tuple[int, int], ...] = ()) -> None:
@@ -1144,8 +1144,8 @@ class ViewerState(QObject):
     def calibrated(self) -> bool:
         """Whether the cube holds a precalibrated signal (a floating-point cube).
 
-        Precalibrated cubes are persisted with ``precalibrated_import``
-        calibrations; integer cubes are raw detector counts.
+        Precalibrated cubes are persisted with ``already_corrected``
+        reference corrections; integer cubes are raw detector counts.
         """
         return self.cube.dtype.kind == "f"
 
@@ -1194,7 +1194,7 @@ class ViewerState(QObject):
         """Convert one ``(height, n_bands)`` frame to reflectance like model training does.
 
         The conversion matches :func:`enginir.project.transform_spectra_to_signal_domain`
-        for the calibration the viewer persists with an ROI:
+        for the reference_correction the viewer persists with an ROI:
 
         1. Precalibrated (floating) cubes are used as they are.
         2. Raw counts with dark/white reference spectra: ``(raw - d) / (w - d)``.

@@ -16,14 +16,14 @@ T0 = "2026-04-02T10:00:00+00:00"
 def roi_provenance(
     *,
     dataset_id: str = "dataset_1",
-    calibration_id: str = "cal_1",
+    reference_correction_id: str = "cal_1",
     signal_unit: str = "DN",
     created_at: str = "2026-04-02T10:05:00+00:00",
 ) -> dict[str, str]:
     """Return the required ROI provenance fields."""
     return {
         "dataset_id": dataset_id,
-        "calibration_id": calibration_id,
+        "reference_correction_id": reference_correction_id,
         "signal_unit": signal_unit,
         "preview_recipe_summary": "none",
         "created_at": created_at,
@@ -88,16 +88,16 @@ def dataset(wavelengths: Any, dataset_id: str = "dataset_1", **fields: Any):
     return DatasetRef(**values)
 
 
-def calibration(dataset_id: str = "dataset_1", calibration_id: str = "cal_1", **fields: Any):
+def reference_correction(dataset_id: str = "dataset_1", reference_correction_id: str = "cal_1", **fields: Any):
     """A reference correction; raw counts unless ``fields`` say otherwise."""
-    from enginir.project import CalibrationSpec
+    from enginir.project import ReferenceCorrection
 
     values: dict[str, Any] = dict(
-        calibration_id=calibration_id, dataset_id=dataset_id, mode="raw_dn",
+        reference_correction_id=reference_correction_id, dataset_id=dataset_id, mode="raw_dn",
         dark_ref_source=None, white_ref_source=None, dark_ref_data=None, white_ref_data=None,
         black_level=None, white_level=None, output_signal_unit="DN", created_at=T0)
     values.update(fields)
-    return CalibrationSpec(**values)
+    return ReferenceCorrection(**values)
 
 
 def target(target_id: str = "target_1", name: str = "moisture", **fields: Any):
@@ -123,8 +123,8 @@ def signal_domain(wavelengths: Any, signal_domain_id: str = "signal_1", **fields
     wavelengths = np.asarray(wavelengths, dtype=np.float32)
     values: dict[str, Any] = dict(
         signal_domain_id=signal_domain_id, input_format="eiff", source_modality="nir_hsi",
-        required_signal_unit="DN", required_calibration_mode="raw_dn",
-        requires_dark_ref=False, requires_white_ref=False, calibrated_input_allowed=True,
+        required_signal_unit="DN", required_correction_mode="raw_dn",
+        requires_dark_ref=False, requires_white_ref=False, corrected_input_allowed=True,
         n_bands=wavelengths.size, wavelengths=wavelengths, wavelength_tolerance_nm=0.0,
         band_mapping_policy="exact", output_dtype="float32", created_at=T0)
     values.update(fields)
@@ -132,15 +132,15 @@ def signal_domain(wavelengths: Any, signal_domain_id: str = "signal_1", **fields
 
 
 def roi(wavelengths: Any, roi_id: str = "roi_1", dataset_id: str = "dataset_1",
-        calibration_id: str = "cal_1", *, n_pixels: int = 4,
+        reference_correction_id: str = "cal_1", *, n_pixels: int = 4,
         spatial_bounds: tuple[int, int, int, int] = (0, 1, 0, 1), **fields: Any):
     from enginir.viewer._state import TrainingROI
 
     values: dict[str, Any] = dict(
-        roi_id=roi_id, dataset_id=dataset_id, calibration_id=calibration_id, name=roi_id,
+        roi_id=roi_id, dataset_id=dataset_id, reference_correction_id=reference_correction_id, name=roi_id,
         wavelengths=np.asarray(wavelengths, dtype=np.float32), n_pixels=n_pixels,
         spatial_bounds=spatial_bounds, source_file=f"/tmp/{dataset_id}.eiff", created_at=T0,
-        provenance=roi_provenance(dataset_id=dataset_id, calibration_id=calibration_id))
+        provenance=roi_provenance(dataset_id=dataset_id, reference_correction_id=reference_correction_id))
     values.update(fields)
     return TrainingROI(**values)
 
@@ -178,7 +178,7 @@ def write_model_project(path: str) -> None:
     """Datasets, references, ROIs and a fitted PLS model of three bands (low-level writers)."""
     from enginir.io.project_store import (
         create_project,
-        save_calibration_spec,
+        save_reference_correction,
         save_dataset_ref,
         save_preprocessing_recipe,
         save_signal_domain_contract,
@@ -202,7 +202,7 @@ def write_model_project(path: str) -> None:
             "import_timestamp": "2026-04-02T10:00:00+00:00",
         },
     )
-    save_calibration_spec(
+    save_reference_correction(
         path,
         "dataset_train",
         "cal_train",
@@ -242,10 +242,10 @@ def write_model_project(path: str) -> None:
             "input_format": "hdf5",
             "source_modality": "nir_hsi",
             "required_signal_unit": "Absorbance",
-            "required_calibration_mode": "dark_white_reference",
+            "required_correction_mode": "dark_white_reference",
             "requires_dark_ref": True,
             "requires_white_ref": True,
-            "calibrated_input_allowed": False,
+            "corrected_input_allowed": False,
             "n_bands": 3,
             "wavelengths": wavelengths,
             "wavelength_tolerance_nm": 0.0,
@@ -267,7 +267,7 @@ def write_model_project(path: str) -> None:
             roi_id,
             {
                 "dataset_id": "dataset_train",
-                "calibration_id": "cal_train",
+                "reference_correction_id": "cal_train",
                 "name": roi_id.upper(),
                 "source_file": "/data/train.h5",
                 "job": "calibration",
@@ -277,7 +277,7 @@ def write_model_project(path: str) -> None:
                 "wavelengths": wavelengths,
                 "provenance": roi_provenance(
                     dataset_id="dataset_train",
-                    calibration_id="cal_train",
+                    reference_correction_id="cal_train",
                     created_at=f"2026-04-02T10:0{4 + index}:00+00:00"
                 ),
             },
@@ -311,7 +311,7 @@ def write_prediction_cube(path: str, *, wavelengths: np.ndarray) -> None:
 
 
 __all__ = [
-    "T0", "assignment", "calibration", "dataset", "model_run", "prediction_model_payload",
-    "projection_payload", "recipe_payload", "roi", "roi_provenance", "sample_set",
-    "signal_domain", "target", "write_model_project", "write_prediction_cube",
+    "T0", "assignment", "dataset", "model_run", "prediction_model_payload",
+    "projection_payload", "recipe_payload", "reference_correction", "roi",
+    "roi_provenance", "sample_set", "signal_domain", "target", "write_model_project", "write_prediction_cube",
 ]

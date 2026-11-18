@@ -39,7 +39,7 @@ _ALGORITHMS = {"kernel": "kernel PLS (from XᵀX)", "nipals": "NIPALS",
 #: Reference correction modes as people say them (terminology contract, Reference correction).
 _CORRECTION_MODES = {"raw_dn": "none (raw counts)",
                      "dark_white_reference": "dark/white references or detector levels",
-                     "precalibrated_import": "already corrected"}
+                     "already_corrected": "already corrected"}
 
 
 def _local_time(value: Any) -> str:
@@ -145,7 +145,7 @@ class ProjectInspector(QWidget):
 
     _SECTION_ENTRIES = {
         "datasets": lambda state: sorted(state.datasets),
-        "calibrations": lambda state: sorted(state.calibrations),
+        "reference_corrections": lambda state: sorted(state.reference_corrections),
         "rois": lambda state: sorted(state.rois),
         "targets": lambda state: sorted(state.targets),
         "target_assignments": lambda state: sorted(
@@ -235,7 +235,7 @@ class ProjectInspector(QWidget):
     def _item_handlers(self) -> dict[str, Callable[[str], None]]:
         return {
             "dataset": self._show_dataset,
-            "calibration": self._show_calibration,
+            "reference_correction": self._show_reference_correction,
             "roi": self._show_roi,
             "target": self._show_target,
             "sample_set": self._show_sample_set,
@@ -281,21 +281,21 @@ class ProjectInspector(QWidget):
             )
         )
 
-    def _show_calibration(self, calibration_id: str) -> None:
-        calibration = self.project_state.calibrations.get(calibration_id)
-        if calibration is None:
+    def _show_reference_correction(self, reference_correction_id: str) -> None:
+        reference_correction = self.project_state.reference_corrections.get(reference_correction_id)
+        if reference_correction is None:
             self.show_default()
             return
         self.title_label.setText("Reference correction")
         self.body_label.setText(
             "\n".join(
                 [
-                    f"ID: {calibration.calibration_id}",
-                    f"Dataset: {calibration.dataset_id}",
-                    f"Mode: {_CORRECTION_MODES.get(calibration.mode, calibration.mode)}",
-                    f"Output unit: {calibration.output_signal_unit}",
-                    f"Has dark context: {calibration.dark_ref_source is not None or calibration.dark_ref_data is not None or calibration.black_level is not None}",
-                    f"Has white context: {calibration.white_ref_source is not None or calibration.white_ref_data is not None or calibration.white_level is not None}",
+                    f"ID: {reference_correction.reference_correction_id}",
+                    f"Dataset: {reference_correction.dataset_id}",
+                    f"Mode: {_CORRECTION_MODES.get(reference_correction.mode, reference_correction.mode)}",
+                    f"Output unit: {reference_correction.output_signal_unit}",
+                    f"Has dark context: {reference_correction.dark_ref_source is not None or reference_correction.dark_ref_data is not None or reference_correction.black_level is not None}",
+                    f"Has white context: {reference_correction.white_ref_source is not None or reference_correction.white_ref_data is not None or reference_correction.white_level is not None}",
                 ]
             )
         )
@@ -326,7 +326,7 @@ class ProjectInspector(QWidget):
                     f"Name: {roi.name or 'unnamed'}",
                     f"Dataset: {self.project_state.data_file_label(roi.dataset_id)}",
                     f"Dataset ID: {roi.dataset_id}",
-                    f"Reference correction ID: {roi.calibration_id}",
+                    f"Reference correction ID: {roi.reference_correction_id}",
                     f"Pixels: {roi.n_pixels}",
                     f"Bounds: {roi.spatial_bounds}",
                     f"Target assignments: {assignment_text}",
@@ -390,9 +390,9 @@ class ProjectInspector(QWidget):
                     f"ID: {signal_domain.signal_domain_id}",
                     f"Input: {signal_domain.input_format} | {signal_domain.source_modality}",
                     f"Signal unit: {signal_domain.required_signal_unit}",
-                    f"Reference correction: {_CORRECTION_MODES.get(signal_domain.required_calibration_mode, signal_domain.required_calibration_mode)}",
+                    f"Reference correction: {_CORRECTION_MODES.get(signal_domain.required_correction_mode, signal_domain.required_correction_mode)}",
                     f"Requires refs: dark={signal_domain.requires_dark_ref}, white={signal_domain.requires_white_ref}",
-                    f"Corrected input allowed: {signal_domain.calibrated_input_allowed}",
+                    f"Corrected input allowed: {signal_domain.corrected_input_allowed}",
                     f"Bands: {signal_domain.n_bands}",
                     f"Band mapping: {signal_domain.band_mapping_policy}",
                 ]
@@ -449,8 +449,8 @@ class ProjectInspector(QWidget):
         lines = [
             "Not stored: predictions live in this session only.",
             f"Dataset file: {result.dataset.source_path}",
-            f"Reference correction: {_CORRECTION_MODES.get(result.calibration.mode, result.calibration.mode)}"
-            f" -> {result.calibration.output_signal_unit}",
+            f"Reference correction: {_CORRECTION_MODES.get(result.reference_correction.mode, result.reference_correction.mode)}"
+            f" -> {result.reference_correction.output_signal_unit}",
             f"Model: {model_run.name if model_run is not None and model_run.name else run.model_run_id}",
             f"Spatial map: {map_shape}",
         ]

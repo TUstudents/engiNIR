@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from enginir.project import (
-    CalibrationSpec,
+    ReferenceCorrection,
     DatasetRef,
     ModelRun,
     PredictionRun,
@@ -58,9 +58,9 @@ def valid_project_graph(wavelengths):
                 import_timestamp="2026-04-02T10:00:00+00:00",
             )
         },
-        "calibrations": {
-            "cal_1": CalibrationSpec(
-                calibration_id="cal_1",
+        "reference_corrections": {
+            "cal_1": ReferenceCorrection(
+                reference_correction_id="cal_1",
                 dataset_id="dataset_1",
                 mode="dark_white_reference",
                 dark_ref_source=None,
@@ -77,7 +77,7 @@ def valid_project_graph(wavelengths):
             "roi_1": TrainingROI(
                 roi_id="roi_1",
                 dataset_id="dataset_1",
-                calibration_id="cal_1",
+                reference_correction_id="cal_1",
                 name="ROI 1",
                 wavelengths=wavelengths,
                 n_pixels=12,
@@ -112,10 +112,10 @@ def valid_project_graph(wavelengths):
                 input_format="eiff",
                 source_modality="nir_hsi",
                 required_signal_unit="Absorbance",
-                required_calibration_mode="dark_white_reference",
+                required_correction_mode="dark_white_reference",
                 requires_dark_ref=True,
                 requires_white_ref=True,
-                calibrated_input_allowed=False,
+                corrected_input_allowed=False,
                 n_bands=50,
                 wavelengths=wavelengths,
                 wavelength_tolerance_nm=0.0,
@@ -158,7 +158,7 @@ def valid_project_graph(wavelengths):
             "prediction_run_1": PredictionRun(
                 prediction_run_id="prediction_run_1",
                 dataset_id="dataset_1",
-                calibration_id="cal_1",
+                reference_correction_id="cal_1",
                 model_run_id="model_run_1",
                 signal_domain_id="signal_domain_1",
                 preprocessing_recipe_id="recipe_1",
@@ -182,8 +182,8 @@ def test_project_models_round_trip_representative_instances(wavelengths):
             loader_metadata={"sensor": "AlphaVision"},
             import_timestamp="2026-04-02T10:00:00+00:00",
         ),
-        CalibrationSpec(
-            calibration_id="cal_1",
+        ReferenceCorrection(
+            reference_correction_id="cal_1",
             dataset_id="dataset_1",
             mode="dark_white_reference",
             dark_ref_source=None,
@@ -198,7 +198,7 @@ def test_project_models_round_trip_representative_instances(wavelengths):
         TrainingROI(
             roi_id="roi_1",
             dataset_id="dataset_1",
-            calibration_id="cal_1",
+            reference_correction_id="cal_1",
             name="ROI 1",
             wavelengths=wavelengths,
             n_pixels=12,
@@ -212,10 +212,10 @@ def test_project_models_round_trip_representative_instances(wavelengths):
             input_format="eiff",
             source_modality="nir_hsi",
             required_signal_unit="Absorbance",
-            required_calibration_mode="dark_white_reference",
+            required_correction_mode="dark_white_reference",
             requires_dark_ref=True,
             requires_white_ref=True,
-            calibrated_input_allowed=False,
+            corrected_input_allowed=False,
             n_bands=50,
             wavelengths=wavelengths,
             wavelength_tolerance_nm=0.0,
@@ -226,7 +226,7 @@ def test_project_models_round_trip_representative_instances(wavelengths):
         PredictionRun(
             prediction_run_id="prediction_run_1",
             dataset_id="dataset_1",
-            calibration_id="cal_1",
+            reference_correction_id="cal_1",
             model_run_id="model_run_1",
             signal_domain_id="signal_domain_1",
             preprocessing_recipe_id="recipe_1",
@@ -259,22 +259,22 @@ def test_validate_project_relationships_allows_stale_sample_set_rois_when_reques
 def test_validate_project_relationships_checks_active_calibration_ids(valid_project_graph):
     graph = copy.deepcopy(valid_project_graph)
 
-    validate_project_relationships(**graph, active_calibration_ids={"dataset_1": "cal_1"})
+    validate_project_relationships(**graph, active_reference_correction_ids={"dataset_1": "cal_1"})
 
-    with pytest.raises(ProjectRelationshipError, match="missing calibration_id"):
+    with pytest.raises(ProjectRelationshipError, match="missing reference_correction_id"):
         validate_project_relationships(
-            **graph, active_calibration_ids={"dataset_1": "cal_missing"}
+            **graph, active_reference_correction_ids={"dataset_1": "cal_missing"}
         )
 
     dataset_2 = copy.deepcopy(graph["datasets"]["dataset_1"])
     dataset_2.dataset_id = "dataset_2"
     graph["datasets"]["dataset_2"] = dataset_2
     with pytest.raises(ProjectRelationshipError, match="of dataset 'dataset_1'"):
-        validate_project_relationships(**graph, active_calibration_ids={"dataset_2": "cal_1"})
+        validate_project_relationships(**graph, active_reference_correction_ids={"dataset_2": "cal_1"})
 
     with pytest.raises(ProjectRelationshipError, match="missing dataset_id 'dataset_ghost'"):
         validate_project_relationships(
-            **graph, active_calibration_ids={"dataset_ghost": "cal_1"}
+            **graph, active_reference_correction_ids={"dataset_ghost": "cal_1"}
         )
 
 
@@ -315,7 +315,7 @@ def test_validate_project_relationships_rejects_invalid_edges(valid_project_grap
                     "roi_1": TrainingROI(
                         roi_id="roi_1",
                         dataset_id="missing_dataset",
-                        calibration_id="cal_1",
+                        reference_correction_id="cal_1",
                         name="ROI 1",
                         wavelengths=wavelengths,
                         n_pixels=12,
@@ -335,18 +335,18 @@ def test_validate_project_relationships_rejects_invalid_edges(valid_project_grap
                     "roi_1": TrainingROI(
                         roi_id="roi_1",
                         dataset_id="dataset_1",
-                        calibration_id="missing_calibration",
+                        reference_correction_id="missing_calibration",
                         name="ROI 1",
                         wavelengths=wavelengths,
                         n_pixels=12,
                         spatial_bounds=(0, 2, 0, 3),
                         source_file="/data/train.eiff",
                         created_at="2026-04-02T10:02:00+00:00",
-                        provenance=build.roi_provenance(signal_unit="Absorbance", calibration_id="missing_calibration"),
+                        provenance=build.roi_provenance(signal_unit="Absorbance", reference_correction_id="missing_calibration"),
                     )
                 }
             ),
-            "missing calibration_id",
+            "missing reference_correction_id",
         ),
         (
             "missing target",
@@ -431,7 +431,7 @@ def test_calibration_spec_contract_validation():
 
     for case in invalid_cases:
         payload = {
-            "calibration_id": "cal_1",
+            "reference_correction_id": "cal_1",
             "dataset_id": "dataset_1",
             "mode": case["mode"],
             "dark_ref_source": case.get("dark_ref_source"),
@@ -444,10 +444,10 @@ def test_calibration_spec_contract_validation():
             "created_at": "2026-04-02T10:01:00+00:00",
         }
         with pytest.raises(ValueError, match=case["message"]):
-            CalibrationSpec(**payload)
+            ReferenceCorrection(**payload)
 
-    calibration = CalibrationSpec(
-        calibration_id="cal_scalar",
+    reference_correction = ReferenceCorrection(
+        reference_correction_id="cal_scalar",
         dataset_id="dataset_1",
         mode="dark_white_reference",
         dark_ref_source=None,
@@ -459,8 +459,8 @@ def test_calibration_spec_contract_validation():
         output_signal_unit="Reflectance",
         created_at="2026-04-02T10:01:00+00:00",
     )
-    assert calibration.black_level == pytest.approx(128.0)
-    assert calibration.white_level == pytest.approx(3500.0)
+    assert reference_correction.black_level == pytest.approx(128.0)
+    assert reference_correction.white_level == pytest.approx(3500.0)
 
 
 def test_dataset_ref_rejects_inconsistent_band_metadata(wavelengths):
@@ -496,7 +496,7 @@ def test_training_roi_rejects_invalid_numeric_contracts(wavelengths):
         TrainingROI(
             roi_id="roi_1",
             dataset_id="dataset_1",
-            calibration_id="cal_1",
+            reference_correction_id="cal_1",
             name="ROI 1",
             wavelengths=wavelengths,
             n_pixels=0,
@@ -510,7 +510,7 @@ def test_training_roi_rejects_invalid_numeric_contracts(wavelengths):
         TrainingROI(
             roi_id="roi_1",
             dataset_id="dataset_1",
-            calibration_id="cal_1",
+            reference_correction_id="cal_1",
             name="ROI 1",
             wavelengths=wavelengths,
             n_pixels=12,
@@ -524,7 +524,7 @@ def test_training_roi_rejects_invalid_numeric_contracts(wavelengths):
         TrainingROI(
             roi_id="roi_1",
             dataset_id="dataset_1",
-            calibration_id="cal_1",
+            reference_correction_id="cal_1",
             name="ROI 1",
             wavelengths=wavelengths,
             n_pixels=12,
@@ -539,7 +539,7 @@ def test_training_roi_requires_matching_complete_provenance(wavelengths):
     payload = {
         "roi_id": "roi_1",
         "dataset_id": "dataset_1",
-        "calibration_id": "cal_1",
+        "reference_correction_id": "cal_1",
         "name": "ROI 1",
         "wavelengths": wavelengths,
         "n_pixels": 12,
@@ -608,10 +608,10 @@ def test_target_and_signal_domain_contract_validation(wavelengths):
         "input_format": "eiff",
         "source_modality": "nir_hsi",
         "required_signal_unit": "Absorbance",
-        "required_calibration_mode": "dark_white_reference",
+        "required_correction_mode": "dark_white_reference",
         "requires_dark_ref": True,
         "requires_white_ref": True,
-        "calibrated_input_allowed": False,
+        "corrected_input_allowed": False,
         "n_bands": 50,
         "wavelengths": wavelengths,
         "wavelength_tolerance_nm": 0.0,
@@ -621,7 +621,7 @@ def test_target_and_signal_domain_contract_validation(wavelengths):
     }
     for field_name, field_value, message in [
         ("required_signal_unit", "Voltage", "required_signal_unit must be one of"),
-        ("required_calibration_mode", "factory_default", "required_calibration_mode must be one of"),
+        ("required_correction_mode", "factory_default", "required_correction_mode must be one of"),
         ("band_mapping_policy", "interpolate", "band_mapping_policy must be one of"),
     ]:
         payload = dict(base_signal)
@@ -702,8 +702,8 @@ def _minimal_store(wavelengths):
         "wavelengths": wavelengths,
         "loader_metadata": {},
         "import_timestamp": "2026-04-02T10:00:00+00:00",
-        "active_calibration_id": "cal_1",
-        "calibrations": {
+        "active_reference_correction_id": "cal_1",
+        "reference_corrections": {
             "cal_1": {
                 "mode": "dark_white_reference",
                 "black_level": 100.0,
@@ -730,7 +730,7 @@ def test_hydration_accepts_values_as_stored_in_hdf5(wavelengths):
     workspace = hydrate_project_store(_minimal_store(wavelengths))
 
     assert workspace.datasets["dataset_1"].cube_shape == (20, 15, 50)
-    assert workspace.active_calibration_ids == {"dataset_1": "cal_1"}
+    assert workspace.active_reference_correction_ids == {"dataset_1": "cal_1"}
 
 
 @pytest.mark.parametrize(
@@ -758,18 +758,18 @@ def test_hydration_requires_an_active_calibration(wavelengths):
     from enginir.project import hydrate_project_store
 
     store = _minimal_store(wavelengths)
-    del store["datasets"]["dataset_1"]["active_calibration_id"]
+    del store["datasets"]["dataset_1"]["active_reference_correction_id"]
 
-    with pytest.raises(ValueError, match="no active_calibration_id"):
+    with pytest.raises(ValueError, match="no active_reference_correction_id"):
         hydrate_project_store(store)
 
 
 def test_signal_domain_rejects_contradictory_or_unordered_contracts(wavelengths):
     base = {
         "signal_domain_id": "sd", "input_format": "eiff", "source_modality": "nir_hsi",
-        "required_signal_unit": "DN", "required_calibration_mode": "raw_dn",
+        "required_signal_unit": "DN", "required_correction_mode": "raw_dn",
         "requires_dark_ref": False, "requires_white_ref": False,
-        "calibrated_input_allowed": False, "n_bands": 50, "wavelengths": wavelengths,
+        "corrected_input_allowed": False, "n_bands": 50, "wavelengths": wavelengths,
         "wavelength_tolerance_nm": 0.0, "band_mapping_policy": "exact",
         "output_dtype": "float32", "created_at": "2026-04-02T10:04:00+00:00",
     }
@@ -799,8 +799,8 @@ def test_hydration_rejects_an_active_calibration_without_calibrations(wavelength
     from enginir.project import hydrate_project_store
 
     store = _minimal_store(wavelengths)
-    store["datasets"]["dataset_1"]["calibrations"] = {}
-    store["datasets"]["dataset_1"]["active_calibration_id"] = "ghost"
+    store["datasets"]["dataset_1"]["reference_corrections"] = {}
+    store["datasets"]["dataset_1"]["active_reference_correction_id"] = "ghost"
 
     with pytest.raises(ValueError, match="ghost"):
         hydrate_project_store(store)
@@ -812,8 +812,8 @@ def test_hydration_accepts_matching_and_rejects_contradicting_stored_ids(wavelen
     from enginir.project import hydrate_project_store
 
     store = _minimal_store(wavelengths)
-    calibration = store["datasets"]["dataset_1"]["calibrations"]["cal_1"]
-    calibration.update(calibration_id="cal_1", dataset_id="dataset_1")
+    reference_correction = store["datasets"]["dataset_1"]["reference_corrections"]["cal_1"]
+    reference_correction.update(reference_correction_id="cal_1", dataset_id="dataset_1")
     store["datasets"]["dataset_1"]["dataset_id"] = "dataset_1"
     warnings: list[str] = []
     sink_id = logger.add(lambda message: warnings.append(str(message)), level="WARNING")
@@ -823,23 +823,23 @@ def test_hydration_accepts_matching_and_rejects_contradicting_stored_ids(wavelen
         logger.remove(sink_id)
     assert not [text for text in warnings if "unknown field" in text]
 
-    calibration["dataset_id"] = "dataset_2"
+    reference_correction["dataset_id"] = "dataset_2"
     with pytest.raises(ValueError, match="stores dataset_id='dataset_2'"):
         hydrate_project_store(store)
 
 
 def test_calibration_content_identity_ignores_ids_and_timestamps():
-    """Identical executable calibrations of one dataset are one calibration (contract)."""
+    """Identical executable reference corrections of one dataset are one reference correction (contract)."""
     from dataclasses import replace
 
-    from enginir.project import CalibrationSpec
+    from enginir.project import ReferenceCorrection
 
-    levels = CalibrationSpec(calibration_id="cal_1", dataset_id="dataset_1",
+    levels = ReferenceCorrection(reference_correction_id="cal_1", dataset_id="dataset_1",
                              mode="dark_white_reference", dark_ref_source=None,
                              white_ref_source=None, dark_ref_data=None, white_ref_data=None,
                              black_level=100.0, white_level=3000.0,
                              output_signal_unit="Reflectance", created_at="2026-01-01T00:00:00+00:00")
-    assert levels.same_content_as(replace(levels, calibration_id="cal_2", created_at="2026-01-02T00:00:00+00:00"))
+    assert levels.same_content_as(replace(levels, reference_correction_id="cal_2", created_at="2026-01-02T00:00:00+00:00"))
     assert not levels.same_content_as(replace(levels, white_level=3001.0))
     assert not levels.same_content_as(replace(levels, dataset_id="dataset_2"))
     assert not levels.same_content_as(replace(levels, output_signal_unit="Absorbance"))
@@ -847,7 +847,7 @@ def test_calibration_content_identity_ignores_ids_and_timestamps():
     dark, white = np.zeros((4, 3)), np.full((4, 3), 10.0)
     arrays = replace(levels, black_level=None, white_level=None, dark_ref_data=dark,
                      white_ref_data=white)
-    assert arrays.same_content_as(replace(arrays, calibration_id="cal_3",
+    assert arrays.same_content_as(replace(arrays, reference_correction_id="cal_3",
                                           dark_ref_data=dark.copy()))
     assert not arrays.same_content_as(replace(arrays, white_ref_data=white + 1.0))
     assert not arrays.same_content_as(levels)

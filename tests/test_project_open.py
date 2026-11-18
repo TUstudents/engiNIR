@@ -29,7 +29,7 @@ def wavelengths():
 def _save_project_roi(
     path: str, *, roi_id: str, wavelengths: np.ndarray, source_file: str, spectra: np.ndarray
 ) -> None:
-    from enginir.io.project_store import save_calibration_spec, save_dataset_ref, save_training_roi
+    from enginir.io.project_store import save_reference_correction, save_dataset_ref, save_training_roi
 
     save_dataset_ref(
         path,
@@ -45,7 +45,7 @@ def _save_project_roi(
             "import_timestamp": "2026-03-28T10:00:00+00:00",
         },
     )
-    save_calibration_spec(
+    save_reference_correction(
         path,
         "dataset_1",
         "cal_1",
@@ -66,7 +66,7 @@ def _save_project_roi(
         roi_id,
         {
             "dataset_id": "dataset_1",
-            "calibration_id": "cal_1",
+            "reference_correction_id": "cal_1",
             "name": roi_id,
             "wavelengths": wavelengths.astype(np.float32),
             "source_file": source_file,

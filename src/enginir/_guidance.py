@@ -223,28 +223,28 @@ def _roi_checks(project: Project) -> list[Check]:
 
 def _value_checks(project: Project) -> list[Check]:
     ws = project.workspace
-    calibration = [roi for roi in ws.rois.values() if roi.job == "calibration"]
-    if not calibration:
+    calibration_rois = [roi for roi in ws.rois.values() if roi.job == "calibration"]
+    if not calibration_rois:
         return []
     if not ws.targets:
         return [Check("values.no_target", "values", "attention",
                       "The project has no target.", fix=Fix("add_target", "Add Target"))]
     checks: list[Check] = []
     for target_id, target in ws.targets.items():
-        without = tuple(roi.roi_id for roi in calibration
+        without = tuple(roi.roi_id for roi in calibration_rois
                         if (roi.roi_id, target_id) not in ws.target_assignments)
-        n_with = len(calibration) - len(without)
+        n_with = len(calibration_rois) - len(without)
         if without:
             checks.append(Check(
                 "values.missing", "values", "blocking" if n_with < 2 else "attention",
-                f"{len(without)} of {len(calibration)} calibration ROIs have no value for "
+                f"{len(without)} of {len(calibration_rois)} calibration ROIs have no value for "
                 f"'{target.name}'.", roi_ids=without, target_id=target_id,
                 fix=Fix("edit_values", "Enter Values",
                         {"target_id": target_id, "roi_ids": without})))
         else:
             checks.append(Check(
                 "values.complete", "values", "ok",
-                f"All {len(calibration)} calibration ROIs have a value for '{target.name}'.",
+                f"All {len(calibration_rois)} calibration ROIs have a value for '{target.name}'.",
                 target_id=target_id))
         checks.extend(_sample_value_checks(project, target_id))
     return checks

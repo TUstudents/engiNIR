@@ -3,8 +3,8 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.5 and 1.6; the file format `enginir-1.5` is the
-  only format engiNIR reads and writes (`project-schema-contract_v3.md`)
+- Status: active contract for engiNIR 1.7; the file format `enginir-1.7` is the
+  only format engiNIR reads and writes (project-schema contract, Compatibility policy)
 - Scope: sample-building, fitting semantics, grouped validation, model identity, v3 PLS/PCR fitting behavior
 
 ## Goal
@@ -638,7 +638,7 @@ fitted with.
 ### 7.3 Removed
 
 Earlier versions read and refitted models without a fit specification
-(legacy runs). The `enginir-1.5` format has none: every model has a
+(legacy runs). The `enginir-1.5` and `enginir-1.7` formats have none: every model has a
 complete `fit_spec` (`project-schema-contract_v3.md`, Compatibility
 policy).
 

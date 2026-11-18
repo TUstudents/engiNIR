@@ -3,7 +3,7 @@
 A :class:`FitSpec` records how a model was fitted: the fold rule, the pixel
 sample and the DModX exclusion. Every new model run stores its complete
 specification as the nested mapping of :meth:`FitSpec.to_dict`; every stored
-run has one (format enginir-1.5).
+run has one (formats enginir-1.5 and enginir-1.7).
 """
 
 from __future__ import annotations

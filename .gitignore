@@ -54,6 +54,8 @@ Thumbs.db
 *.spc
 *.mat
 *.dx
+# except the committed test projects (small; never packaged)
+!tests/data/enginir_1_5/*.h5
 
 # Docs build
 docs/_build/

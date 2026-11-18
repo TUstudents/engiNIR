@@ -11,7 +11,7 @@ from enginir._logging import get_logger
 from enginir.preprocessing import PreprocessingRecipe
 
 from ._models import (
-    CalibrationSpec,
+    ReferenceCorrection,
     DatasetRef,
     ModelRun,
     PredictionRun,
@@ -32,7 +32,7 @@ _PROJECT_META_FIELDS = ("project_id", "FileSchemaVersion", "FileCreator", "FileW
 _MODEL_DISPLAY_FIELDS = ("cv_spec", "metrics")
 #: Display data of a dataset: tolerated when missing or malformed (schema contract).
 _DATASET_DISPLAY_FIELDS = ("relative_path", "label")
-_CALIBRATION_REFERENCE_FIELDS = ("dark_ref_source", "white_ref_source", "dark_ref_data",
+_REFERENCE_FIELDS = ("dark_ref_source", "white_ref_source", "dark_ref_data",
                                  "white_ref_data", "black_level", "white_level")
 
 
@@ -45,11 +45,11 @@ class ProjectWorkspace:
     project_meta : dict
         ``project_id``, ``FileSchemaVersion``, ``FileCreator``, ``FileWriter``,
         ``created_at`` and ``updated_at``.
-    datasets, calibrations, rois, targets, signal_domains, sample_sets, model_runs,
+    datasets, reference_corrections, rois, targets, signal_domains, sample_sets, model_runs,
     predictions : dict
         Typed objects keyed by their id.
-    active_calibration_ids : dict
-        ``{dataset_id: calibration_id}`` of every dataset with calibrations.
+    active_reference_correction_ids : dict
+        ``{dataset_id: reference_correction_id}`` of every dataset with reference corrections.
     target_assignments : dict
         ``{(roi_id, target_id): TargetAssignment}``.
     recipes : dict
@@ -58,8 +58,8 @@ class ProjectWorkspace:
 
     project_meta: dict[str, Any]
     datasets: dict[str, DatasetRef]
-    active_calibration_ids: dict[str, str]
-    calibrations: dict[str, CalibrationSpec]
+    active_reference_correction_ids: dict[str, str]
+    reference_corrections: dict[str, ReferenceCorrection]
     rois: dict[str, TrainingROI]
     targets: dict[str, TargetDefinition]
     target_assignments: dict[tuple[str, str], TargetAssignment]
@@ -100,7 +100,7 @@ def hydrate_project_store(
     Notes
     -----
     Unknown fields are ignored with a warning. Every dataset with
-    calibrations must name one of them as ``active_calibration_id``.
+    reference corrections must name one of them as ``active_reference_correction_id``.
     """
     store = _known_fields(store, PROJECT_TOP_LEVEL_GROUPS, location="/")
     project_meta = validate_project_meta(
@@ -110,29 +110,29 @@ def hydrate_project_store(
     )
 
     datasets: dict[str, DatasetRef] = {}
-    calibrations: dict[str, CalibrationSpec] = {}
-    active_calibration_ids: dict[str, str] = {}
+    reference_corrections: dict[str, ReferenceCorrection] = {}
+    active_reference_correction_ids: dict[str, str] = {}
     for dataset_id, payload in store.get("datasets", {}).items():
         location = f"/datasets/{dataset_id}"
         datasets[dataset_id] = _dataset_ref(location, payload, dataset_id)
-        stored_calibrations = payload.get("calibrations", {})
-        for calibration_id, calibration_payload in stored_calibrations.items():
-            if calibration_id in calibrations:
+        stored_reference_corrections = payload.get("reference_corrections", {})
+        for reference_correction_id, reference_correction_payload in stored_reference_corrections.items():
+            if reference_correction_id in reference_corrections:
                 log_and_raise(
                     "Reference correction id '{}' of dataset '{}' is already used by dataset '{}'; "
                     "reference correction ids must be unique in a project",
-                    calibration_id, dataset_id, calibrations[calibration_id].dataset_id,
+                    reference_correction_id, dataset_id, reference_corrections[reference_correction_id].dataset_id,
                 )
-            calibrations[calibration_id] = _build(
-                CalibrationSpec, f"{location}/calibrations/{calibration_id}", calibration_payload,
-                {"calibration_id": calibration_id, "dataset_id": dataset_id},
-                optional=_CALIBRATION_REFERENCE_FIELDS,
+            reference_corrections[reference_correction_id] = _build(
+                ReferenceCorrection, f"{location}/reference_corrections/{reference_correction_id}", reference_correction_payload,
+                {"reference_correction_id": reference_correction_id, "dataset_id": dataset_id},
+                optional=_REFERENCE_FIELDS,
             )
-        if stored_calibrations or "active_calibration_id" in payload:
-            active = payload.get("active_calibration_id")
+        if stored_reference_corrections or "active_reference_correction_id" in payload:
+            active = payload.get("active_reference_correction_id")
             if not isinstance(active, str) or not active:
-                log_and_raise("{} has calibrations but no active_calibration_id", location)
-            active_calibration_ids[dataset_id] = active
+                log_and_raise("{} has reference corrections but no active_reference_correction_id", location)
+            active_reference_correction_ids[dataset_id] = active
 
     targets = {
         target_id: _build(TargetDefinition, f"/targets/{target_id}", payload,
@@ -147,7 +147,7 @@ def hydrate_project_store(
     }
     rois = {
         roi_id: _build(TrainingROI, f"/rois/{roi_id}", payload, {"roi_id": roi_id},
-                       ignored={"spectra", "calibration_refs"}, optional=("sample",))
+                       ignored={"spectra", "reference_spectra"}, optional=("sample",))
         for roi_id, payload in store.get("rois", {}).items()
     }
     recipes = {
@@ -166,11 +166,11 @@ def hydrate_project_store(
     _check_executable_models(model_runs, sample_sets, recipes)
     validate_project_relationships(
         datasets=datasets,
-        calibrations=calibrations,
+        reference_corrections=reference_corrections,
         rois=rois,
         targets=targets,
         target_assignments=target_assignments.values(),
-        active_calibration_ids=active_calibration_ids,
+        active_reference_correction_ids=active_reference_correction_ids,
         recipes=recipes,
         signal_domains=signal_domains,
         sample_sets=sample_sets,
@@ -183,8 +183,8 @@ def hydrate_project_store(
     return ProjectWorkspace(
         project_meta=project_meta,
         datasets=datasets,
-        active_calibration_ids=active_calibration_ids,
-        calibrations=calibrations,
+        active_reference_correction_ids=active_reference_correction_ids,
+        reference_corrections=reference_corrections,
         rois=rois,
         targets=targets,
         target_assignments=target_assignments,
@@ -230,7 +230,7 @@ def _dataset_ref(location: str, payload: dict[str, Any], dataset_id: str) -> Dat
             value = ""
         display[key] = value
     return _build(DatasetRef, location, {**payload, **display},
-                  {"dataset_id": dataset_id}, ignored={"calibrations", "active_calibration_id"})
+                  {"dataset_id": dataset_id}, ignored={"reference_corrections", "active_reference_correction_id"})
 
 
 def _build_all(
@@ -304,7 +304,7 @@ def _known_fields(
 
 _WRITABLE_MODELS: dict[str, type] = {
     "DatasetRef": DatasetRef,
-    "CalibrationSpec": CalibrationSpec,
+    "ReferenceCorrection": ReferenceCorrection,
     "TargetDefinition": TargetDefinition,
     "TargetAssignment": TargetAssignment,
     "TrainingROI": TrainingROI,
@@ -314,10 +314,10 @@ _WRITABLE_MODELS: dict[str, type] = {
     "PredictionRun": PredictionRun,
 }
 _WRITE_OPTIONS: dict[str, dict[str, Any]] = {
-    "DatasetRef": {"ignored": {"calibrations", "active_calibration_id"},
+    "DatasetRef": {"ignored": {"reference_corrections", "active_reference_correction_id"},
                    "optional": _DATASET_DISPLAY_FIELDS},
-    "CalibrationSpec": {"optional": _CALIBRATION_REFERENCE_FIELDS},
-    "TrainingROI": {"ignored": {"spectra", "calibration_refs"}, "optional": ("sample",)},
+    "ReferenceCorrection": {"optional": _REFERENCE_FIELDS},
+    "TrainingROI": {"ignored": {"spectra", "reference_spectra"}, "optional": ("sample",)},
     "ModelRun": {"optional": ("name",)},
 }
 

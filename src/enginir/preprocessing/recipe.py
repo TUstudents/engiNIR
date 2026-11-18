@@ -35,7 +35,7 @@ _ASLS_DEFAULTS = {"asls_lambda": 1e4, "asls_p": 0.001, "asls_iterations": 10}
 _PEAKS_UP = ("absorbance",)
 _BAND_FIELDS = ("bands_keep", "bands_exclude")
 #: The fields of every stored recipe, all required (project-schema contract,
-#: Object identity rules §4; format enginir-1.5).
+#: Object identity rules §4; format enginir-1.7).
 _REQUIRED = ("filter", "sg_window", "sg_polyorder", "snv", "msc", "emsc", "detrend",
              "detrend_order", "sg_edges", "asls", *_ASLS_FIELDS, *_BAND_FIELDS)
 #: A band lies in a range when low - tau <= wavelength <= high + tau, with tau

@@ -1,4 +1,4 @@
-"""Adding data files to a project, with their calibration (attachment contract).
+"""Adding data files to a project, with their reference correction (attachment contract).
 
 :class:`AddDataFileDialog` asks how a data file is calibrated:
 
@@ -9,7 +9,7 @@
 - raw counts.
 
 Its plot shows the mean spectrum of the file (a few middle frames) in counts,
-with what the chosen calibration uses: the mean reference spectra (with their
+with what the chosen reference correction uses: the mean reference spectra (with their
 saturated share), the references of the other data file, or the detector
 levels. The answer is a :class:`DataFileRequest`, whose
 :meth:`~DataFileRequest.add_dataset_kwargs` go straight to
@@ -50,7 +50,7 @@ from PyQt6.QtWidgets import (
 from .._logging import get_logger
 from .._workflow import DEFAULT_BLACK_LEVEL, DEFAULT_WHITE_LEVEL, data_file_labels, read_frames
 from ..io import load_spectra
-from ..project import CalibrationSpec, DatasetRef
+from ..project import ReferenceCorrection, DatasetRef
 from ._preferences import start_folder
 from ._theme import GUIDE_COLOR, panel_colors, secondary_text_style
 from ._ui_helpers import spectral_axis_label, style_axes
@@ -58,7 +58,7 @@ from ._ui_helpers import spectral_axis_label, style_axes
 logger = get_logger(__name__)
 
 _FILE_FILTER = "Hyperspectral files (*.eiff *.hdr *.h5 *.spc *.spa *.jdx *.csv);;All files (*)"
-#: Calibration choices of the dialog.
+#: Reference correction choices of the dialog.
 REFERENCES, SHARED, LEVELS, RAW = "references", "shared", "levels", "raw"
 #: Working signal stored with calibrated counts; Explore and Fit model choose the shown one.
 WORKING_SIGNAL = "Absorbance"
@@ -163,14 +163,14 @@ class _ReferenceSource(QWidget):
 
 
 class AddDataFileDialog(QDialog):
-    """Choose the calibration of a data file before it is added to the project."""
+    """Choose the reference correction of a data file before it is added to the project."""
 
     def __init__(
         self,
         path: str,
         header: Any,
         datasets: Mapping[str, DatasetRef],
-        active_calibrations: Mapping[str, CalibrationSpec],
+        active_reference_corrections: Mapping[str, ReferenceCorrection],
         parent: QWidget | None = None,
         *,
         trained_with: str | None = None,
@@ -180,7 +180,7 @@ class AddDataFileDialog(QDialog):
         self._path = os.path.abspath(path)
         self._header = header
         n_frames, height, n_bands = (int(n) for n in header.cube_shape)
-        self._precalibrated = np.dtype(header.X.dtype).kind == "f"
+        self._already_corrected = np.dtype(header.X.dtype).kind == "f"
         self._saturation = saturation_level(header.meta, np.dtype(header.X.dtype))
         self.request: DataFileRequest | None = None
         self._data_mean: np.ndarray | None = None  # read on the first check
@@ -198,7 +198,7 @@ class AddDataFileDialog(QDialog):
         layout.addWidget(info)
         if trained_with:
             # Opened from Predict: say what the model used, never reuse it silently
-            # (dataset-calibration contract).
+            # (dataset-reference-correction contract).
             trained = QLabel(f"The model was fitted with: {trained_with}. Choose this scan's "
                              "own reference correction (references of this session, or the "
                              "levels).")
@@ -208,10 +208,10 @@ class AddDataFileDialog(QDialog):
 
         self._unit = QComboBox()
         self._choice: dict[str, QRadioButton] = {}
-        calibration = QGroupBox("Reference correction")
-        calibration_layout = QVBoxLayout(calibration)
-        if self._precalibrated:
-            calibration_layout.addWidget(QLabel(
+        reference_correction = QGroupBox("Reference correction")
+        reference_correction_layout = QVBoxLayout(reference_correction)
+        if self._already_corrected:
+            reference_correction_layout.addWidget(QLabel(
                 "The file holds floating-point values: they are taken as already corrected."))
             self._unit.addItems(["Reflectance", "Absorbance"])
         else:
@@ -238,7 +238,7 @@ class AddDataFileDialog(QDialog):
             self._shared = QComboBox()
             labels = data_file_labels(datasets)
             for dataset_id, dataset in datasets.items():
-                active = active_calibrations.get(dataset_id)
+                active = active_reference_corrections.get(dataset_id)
                 if active is not None and active.dark_ref_data is not None \
                         and active.white_ref_data is not None:
                     self._shared.addItem(labels[dataset_id], dataset.source_path)
@@ -258,14 +258,14 @@ class AddDataFileDialog(QDialog):
                 spin.setValue(float(value))
                 spin.valueChanged.connect(self._schedule_check)
             self._choice[LEVELS].setText("Detector levels, no references")
-            calibration_layout.addWidget(self._choice[REFERENCES])
-            calibration_layout.addWidget(references)
-            calibration_layout.addWidget(self._choice[SHARED])
+            reference_correction_layout.addWidget(self._choice[REFERENCES])
+            reference_correction_layout.addWidget(references)
+            reference_correction_layout.addWidget(self._choice[SHARED])
             shared_row = QHBoxLayout()
             shared_row.setContentsMargins(24, 0, 0, 0)
             shared_row.addWidget(self._shared, 1)
-            calibration_layout.addLayout(shared_row)
-            calibration_layout.addWidget(self._choice[LEVELS])
+            reference_correction_layout.addLayout(shared_row)
+            reference_correction_layout.addWidget(self._choice[LEVELS])
             levels_row = QHBoxLayout()
             levels_row.setContentsMargins(24, 0, 0, 0)
             levels_row.addWidget(QLabel("Black:"))
@@ -273,15 +273,15 @@ class AddDataFileDialog(QDialog):
             levels_row.addWidget(QLabel("White:"))
             levels_row.addWidget(self._white_level)
             levels_row.addStretch(1)
-            calibration_layout.addLayout(levels_row)
-            calibration_layout.addWidget(self._choice[RAW])
+            reference_correction_layout.addLayout(levels_row)
+            reference_correction_layout.addWidget(self._choice[RAW])
             if self._shared.count() == 0:
                 self._choice[SHARED].setEnabled(False)
                 self._shared.setEnabled(False)
             # The instrument's own levels need nothing else; references are a deliberate step.
             self._choice[LEVELS].setChecked(True)
-        layout.addWidget(calibration)
-        if self._precalibrated:
+        layout.addWidget(reference_correction)
+        if self._already_corrected:
             # The only case where the unit is a fact about the file rather than a view of it.
             unit_row = QFormLayout()
             unit_row.addRow("The file holds:", self._unit)
@@ -313,8 +313,8 @@ class AddDataFileDialog(QDialog):
     # -- state ----------------------------------------------------------
 
     def choice(self) -> str:
-        if self._precalibrated:
-            return LEVELS  # no reference context; the unit decides the calibration
+        if self._already_corrected:
+            return LEVELS  # no reference context; the unit decides the reference correction
         return next(key for key, button in self._choice.items() if button.isChecked())
 
     def set_choice(self, key: str) -> None:
@@ -338,7 +338,7 @@ class AddDataFileDialog(QDialog):
         self._unit.setCurrentText(unit)
 
     def _on_choice_changed(self, *_args) -> None:
-        if self._precalibrated:
+        if self._already_corrected:
             self.check_references()
             return
         choice = self.choice()
@@ -379,7 +379,7 @@ class AddDataFileDialog(QDialog):
         return self._data_mean
 
     def check_references(self) -> bool:
-        """Plot the file and what the chosen calibration uses; ``False`` if a reference is invalid.
+        """Plot the file and what the chosen reference correction uses; ``False`` if a reference is invalid.
 
         The file's mean spectrum is always shown in counts (or in its own
         values when precalibrated), with the mean dark and white references,
@@ -418,7 +418,7 @@ class AddDataFileDialog(QDialog):
                 if means is not None:
                     ax.plot(wavelengths, means[0], color=GUIDE_COLOR, label="Dark")
                     ax.plot(wavelengths, means[1], color=colors["accent"], label="White")
-        elif choice == LEVELS and not self._precalibrated:
+        elif choice == LEVELS and not self._already_corrected:
             black, white = self._black.value(), self._white_level.value()
             ax.axhline(black, color=GUIDE_COLOR, linestyle="--", label=f"Black level {black:g}")
             ax.axhline(white, color=colors["accent"], linestyle="--",
@@ -432,7 +432,7 @@ class AddDataFileDialog(QDialog):
             lines.append("Raw counts; ROIs keep no reference spectra.")
         ax.set_xlabel(spectral_axis_label(self._header.wavelengths)[0], color=colors["fg"],
                       fontsize=8)
-        ax.set_ylabel("Values" if self._precalibrated else "Counts", color=colors["fg"],
+        ax.set_ylabel("Values" if self._already_corrected else "Counts", color=colors["fg"],
                       fontsize=8)
         if ax.get_lines():
             ax.legend(fontsize=7, loc="best", frameon=False, labelcolor=colors["fg"])
@@ -456,7 +456,7 @@ class AddDataFileDialog(QDialog):
             return DataFileRequest(self._path, unit="DN")
         # Counts are calibrated to reflectance; absorbance is the working default (as in
         # Project.add_dataset). Floating-point files hold the unit chosen for them.
-        unit = self._unit.currentText() if self._precalibrated else WORKING_SIGNAL
+        unit = self._unit.currentText() if self._already_corrected else WORKING_SIGNAL
         if choice == SHARED:
             return DataFileRequest(self._path, unit=unit,
                                    references_from=str(self._shared.currentData()))
@@ -465,7 +465,7 @@ class AddDataFileDialog(QDialog):
             white_file, white_frames = self._white.source()
             return DataFileRequest(self._path, unit=unit, dark=dark_file, white=white_file,
                                    dark_frames=dark_frames, white_frames=white_frames)
-        if not self._precalibrated:
+        if not self._already_corrected:
             return DataFileRequest(self._path, unit=unit, black_level=self._black.value(),
                                    white_level=self._white_level.value())
         return DataFileRequest(self._path, unit=unit)

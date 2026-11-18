@@ -26,7 +26,7 @@ from enginir.prediction import (
 )
 from enginir.preprocessing import PreprocessingRecipe
 from enginir.project import (
-    CalibrationSpec,
+    ReferenceCorrection,
     PredictionRun,
     SignalDomainCompatibilityError,
     transform_spectra_to_signal_domain,
@@ -73,15 +73,15 @@ def test_preflight_prediction_uses_memory_budgeted_default_frame_chunks(tmp_path
             cube_shape=cube_shape,
             n_bands=n_bands,
         )
-        calibration = build.calibration(
-            calibration_id="cal_raw",
+        reference_correction = build.reference_correction(
+            reference_correction_id="cal_raw",
             dataset_id=dataset.dataset_id,
         )
         signal_domain = build.signal_domain(
             wavelengths,
             signal_domain_id="signal_domain_raw",
             input_format="hdf5",
-            calibrated_input_allowed=False,
+            corrected_input_allowed=False,
             n_bands=n_bands,
         )
         model_run = build.model_run(
@@ -100,7 +100,7 @@ def test_preflight_prediction_uses_memory_budgeted_default_frame_chunks(tmp_path
             signal_domain=signal_domain,
             recipe=PreprocessingRecipe(),
             dataset=dataset,
-            calibration=calibration,
+            reference_correction=reference_correction,
             model_registry={model_run.model_run_id: _DummyPredictor()},
         )
 
@@ -126,12 +126,12 @@ def test_preflight_prediction_rejects_invalid_chunk_size(tmp_path):
         cube_shape=(2, 2, 3),
         n_bands=3,
     )
-    calibration = build.calibration(calibration_id="cal_chunk", dataset_id=dataset.dataset_id)
+    reference_correction = build.reference_correction(reference_correction_id="cal_chunk", dataset_id=dataset.dataset_id)
     signal_domain = build.signal_domain(
         wavelengths,
         signal_domain_id="signal_domain_chunk",
         input_format="hdf5",
-        calibrated_input_allowed=False,
+        corrected_input_allowed=False,
         n_bands=3,
     )
     model_run = build.model_run(
@@ -152,7 +152,7 @@ def test_preflight_prediction_rejects_invalid_chunk_size(tmp_path):
             signal_domain=signal_domain,
             recipe=PreprocessingRecipe(),
             dataset=dataset,
-            calibration=calibration,
+            reference_correction=reference_correction,
             model_registry={model_run.model_run_id: _DummyPredictor()},
             chunk_size=0,
         )
@@ -222,9 +222,9 @@ def test_predict_dataset_reuses_dataset_local_calibration_defaults_after_reopen(
             n_bands=3,
         )
     )
-    state.set_active_calibration(
-        build.calibration(
-            calibration_id="cal_pred",
+    state.set_active_reference_correction(
+        build.reference_correction(
+            reference_correction_id="cal_pred",
             dataset_id="dataset_pred",
             mode="dark_white_reference",
             black_level=0.0,
@@ -248,7 +248,7 @@ def test_predict_dataset_reuses_dataset_local_calibration_defaults_after_reopen(
     )
 
     assert result.dataset.dataset_id == "dataset_pred"
-    assert result.calibration.calibration_id == "cal_pred"
+    assert result.reference_correction.reference_correction_id == "cal_pred"
     assert result.prediction_run.preprocessing_recipe_id == "recipe_none"
     assert result.prediction_run.artifact_refs["prediction_shape"] == (4,)
     assert result.prediction_run.artifact_refs["spatial_map_shape"] == (2, 2)
@@ -269,7 +269,7 @@ def test_reopened_prediction_run_lazily_loads_spatial_map_and_preserves_model_li
     run = PredictionRun(
         prediction_run_id="prediction_run_1",
         dataset_id="dataset_train",
-        calibration_id="cal_train",
+        reference_correction_id="cal_train",
         model_run_id="model_run_1",
         signal_domain_id="signal_domain_1",
         preprocessing_recipe_id="recipe_none",
@@ -327,8 +327,8 @@ def test_predict_dataset_writes_neither_the_new_dataset_nor_its_calibration(tmp_
     result = state.predict_dataset(
         model_run_id="model_run_1",
         data_path=pred_path,
-        calibration=build.calibration(
-            calibration_id="cal_new",
+        reference_correction=build.reference_correction(
+            reference_correction_id="cal_new",
             dataset_id="",
             mode="dark_white_reference",
             black_level=0.0,
@@ -338,12 +338,12 @@ def test_predict_dataset_writes_neither_the_new_dataset_nor_its_calibration(tmp_
         prediction_run_id="prediction_run_2",
     )
 
-    assert result.calibration.calibration_id == "cal_new"
+    assert result.reference_correction.reference_correction_id == "cal_new"
     assert state.predictions["prediction_run_2"] is result
     reopened = ProjectState()
     reopened.open_project(project_path)
     assert result.dataset.dataset_id not in reopened.datasets
-    assert "cal_new" not in reopened.calibrations
+    assert "cal_new" not in reopened.reference_corrections
     assert reopened.predictions == {}
 
 
@@ -360,8 +360,8 @@ def test_predict_dataset_allows_different_wavelength_metadata(tmp_path, qapp):
     result = state.predict_dataset(
         model_run_id="model_run_1",
         data_path=pred_path,
-        calibration=build.calibration(
-            calibration_id="cal_different_wl",
+        reference_correction=build.reference_correction(
+            reference_correction_id="cal_different_wl",
             dataset_id="",
             mode="dark_white_reference",
             black_level=0.0,
@@ -384,18 +384,18 @@ def test_predict_dataset_rejects_incompatible_signal_unit(tmp_path, qapp):
         pred_path, wavelengths=np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
     )
 
-    with pytest.raises(SignalDomainCompatibilityError, match="required_calibration_mode"):
+    with pytest.raises(SignalDomainCompatibilityError, match="required_correction_mode"):
         state.predict_dataset(
             model_run_id="model_run_1",
             data_path=pred_path,
-            calibration=build.calibration(calibration_id="cal_bad_signal", dataset_id=""),
+            reference_correction=build.reference_correction(reference_correction_id="cal_bad_signal", dataset_id=""),
             prediction_run_id="prediction_run_bad_signal",
         )
 
 
-def _msc_prediction_calibration(calibration_id: str) -> CalibrationSpec:
-    return build.calibration(
-        calibration_id=calibration_id,
+def _msc_prediction_calibration(reference_correction_id: str) -> ReferenceCorrection:
+    return build.reference_correction(
+        reference_correction_id=reference_correction_id,
         dataset_id="",
         mode="dark_white_reference",
         black_level=0.0,
@@ -421,12 +421,12 @@ def test_reopened_stateful_preprocessing_replays_persisted_training_state(tmp_pa
     data = load_hdf5(in_memory_path)
     dataset = build_dataset_ref_from_spectral_data(data_path=in_memory_path, spectral_data=data,
                                                    dataset_id="dataset_msc_in_memory")
-    calibration = dataclasses.replace(_msc_prediction_calibration("cal_msc_in_memory"),
+    reference_correction = dataclasses.replace(_msc_prediction_calibration("cal_msc_in_memory"),
                                       dataset_id=dataset.dataset_id)
     in_memory = predict_with_model_run(
         project_path=project_path, model_run=context.model_run,
         signal_domain=context.signal_domain, recipe=context.recipe, dataset=dataset,
-        calibration=calibration, model_registry=context.model_registry, spectral_data=data,
+        reference_correction=reference_correction, model_registry=context.model_registry, spectral_data=data,
         preprocessing_recipe_id=context.preprocessing_recipe_id)
     assert in_memory.dmodx is None, "an in-memory predictor alone gives no diagnostics"
 
@@ -435,7 +435,7 @@ def test_reopened_stateful_preprocessing_replays_persisted_training_state(tmp_pa
     replayed = reopened.predict_dataset(
         model_run_id="model_run_msc",
         data_path=reopened_path,
-        calibration=_msc_prediction_calibration("cal_msc_reopened"),
+        reference_correction=_msc_prediction_calibration("cal_msc_reopened"),
         prediction_run_id="prediction_run_msc_reopened",
     )
 
@@ -490,17 +490,17 @@ def test_reopened_stateful_preprocessing_rejects_malformed_training_state(
     reopened = ProjectState()
     reopened.open_project(project_path)
     datasets_before = set(reopened.datasets)
-    calibrations_before = set(reopened.calibrations)
+    calibrations_before = set(reopened.reference_corrections)
     with pytest.raises(ValueError, match=match):
         reopened.predict_dataset(
             model_run_id="model_run_msc",
             data_path=pred_path,
-            calibration=_msc_prediction_calibration("cal_msc_missing_state"),
+            reference_correction=_msc_prediction_calibration("cal_msc_missing_state"),
             prediction_run_id="prediction_run_msc",
         )
     reopened.open_project(project_path)
     assert set(reopened.datasets) == datasets_before
-    assert set(reopened.calibrations) == calibrations_before
+    assert set(reopened.reference_corrections) == calibrations_before
     assert "prediction_run_msc" not in reopened.predictions
 
 
@@ -523,9 +523,9 @@ def test_predict_dataset_ignores_changed_wavelength_metadata_for_existing_datase
             n_bands=3,
         )
     )
-    state.set_active_calibration(
-        build.calibration(
-            calibration_id="cal_stale",
+    state.set_active_reference_correction(
+        build.reference_correction(
+            reference_correction_id="cal_stale",
             dataset_id="dataset_stale",
             mode="dark_white_reference",
             black_level=0.0,
@@ -561,8 +561,8 @@ def test_predict_with_model_run_accepts_uint16_cube_input_under_numpy2(tmp_path,
         data_path=str(tmp_path / "prediction_uint16.h5"),
         spectral_data=spectral_data,
     )
-    calibration = build.calibration(
-        calibration_id="cal_uint16",
+    reference_correction = build.reference_correction(
+        reference_correction_id="cal_uint16",
         dataset_id=dataset.dataset_id,
         mode="dark_white_reference",
         black_level=0.0,
@@ -580,7 +580,7 @@ def test_predict_with_model_run_accepts_uint16_cube_input_under_numpy2(tmp_path,
         signal_domain=context.signal_domain,
         recipe=context.recipe,
         dataset=dataset,
-        calibration=calibration,
+        reference_correction=reference_correction,
         model_registry={context.model_run.model_run_id: _DummyPredictor()},
         spectral_data=spectral_data,
         preprocessing_recipe_id=context.preprocessing_recipe_id,
@@ -611,8 +611,8 @@ def test_hdf5_prediction_reuses_source_and_artifact_file_handles(tmp_path, qapp)
         spectral_data=metadata,
         source_modality="nir_hsi",
     )
-    calibration = build.calibration(
-        calibration_id="cal_handle_reuse",
+    reference_correction = build.reference_correction(
+        reference_correction_id="cal_handle_reuse",
         dataset_id=dataset.dataset_id,
         mode="dark_white_reference",
         black_level=0.0,
@@ -631,7 +631,7 @@ def test_hdf5_prediction_reuses_source_and_artifact_file_handles(tmp_path, qapp)
             signal_domain=context.signal_domain,
             recipe=context.recipe,
             dataset=dataset,
-            calibration=calibration,
+            reference_correction=reference_correction,
             model_registry={context.model_run.model_run_id: _DummyPredictor()},
             data_path=source_path,
             spectral_data=metadata,
@@ -670,8 +670,8 @@ def test_predict_with_model_run_reports_chunk_progress_and_metadata(tmp_path, qa
         data_path=str(tmp_path / "prediction_progress.h5"),
         spectral_data=spectral_data,
     )
-    calibration = build.calibration(
-        calibration_id="cal_progress",
+    reference_correction = build.reference_correction(
+        reference_correction_id="cal_progress",
         dataset_id=dataset.dataset_id,
         mode="dark_white_reference",
         black_level=0.0,
@@ -690,7 +690,7 @@ def test_predict_with_model_run_reports_chunk_progress_and_metadata(tmp_path, qa
         signal_domain=context.signal_domain,
         recipe=context.recipe,
         dataset=dataset,
-        calibration=calibration,
+        reference_correction=reference_correction,
         model_registry={context.model_run.model_run_id: _DummyPredictor()},
         spectral_data=spectral_data,
         preprocessing_recipe_id=context.preprocessing_recipe_id,
@@ -708,7 +708,7 @@ def test_predict_with_model_run_reports_chunk_progress_and_metadata(tmp_path, qa
     assert {event.phase for event in events} >= {
         "preflight",
         "loading",
-        "calibrating",
+        "correcting",
         "preprocessing",
         "predicting",
         "writing",
@@ -730,8 +730,8 @@ def test_predict_with_model_run_cancels_between_chunks_and_discards_artifacts(tm
         data_path=str(tmp_path / "prediction_cancel.h5"),
         spectral_data=spectral_data,
     )
-    calibration = build.calibration(
-        calibration_id="cal_cancel",
+    reference_correction = build.reference_correction(
+        reference_correction_id="cal_cancel",
         dataset_id=dataset.dataset_id,
         mode="dark_white_reference",
         black_level=0.0,
@@ -755,7 +755,7 @@ def test_predict_with_model_run_cancels_between_chunks_and_discards_artifacts(tm
             signal_domain=context.signal_domain,
             recipe=context.recipe,
             dataset=dataset,
-            calibration=calibration,
+            reference_correction=reference_correction,
             model_registry={context.model_run.model_run_id: _DummyPredictor()},
             spectral_data=spectral_data,
             preprocessing_recipe_id=context.preprocessing_recipe_id,
@@ -788,8 +788,8 @@ def test_predict_with_model_run_can_persist_chunks_without_returning_arrays(tmp_
         data_path=str(tmp_path / "prediction_persist_chunks.h5"),
         spectral_data=spectral_data,
     )
-    calibration = build.calibration(
-        calibration_id="cal_persist_chunks",
+    reference_correction = build.reference_correction(
+        reference_correction_id="cal_persist_chunks",
         dataset_id=dataset.dataset_id,
         mode="dark_white_reference",
         black_level=0.0,
@@ -807,7 +807,7 @@ def test_predict_with_model_run_can_persist_chunks_without_returning_arrays(tmp_
         signal_domain=context.signal_domain,
         recipe=context.recipe,
         dataset=dataset,
-        calibration=calibration,
+        reference_correction=reference_correction,
         model_registry={context.model_run.model_run_id: _DummyPredictor()},
         spectral_data=spectral_data,
         preprocessing_recipe_id=context.preprocessing_recipe_id,
@@ -856,8 +856,8 @@ def test_predict_with_model_run_rejects_bare_predictor_when_recipe_would_be_skip
         data_path=str(tmp_path / "prediction_bare.h5"),
         spectral_data=spectral_data,
     )
-    calibration = build.calibration(
-        calibration_id="cal_bare",
+    reference_correction = build.reference_correction(
+        reference_correction_id="cal_bare",
         dataset_id=dataset.dataset_id,
         mode="dark_white_reference",
         black_level=0.0,
@@ -876,7 +876,7 @@ def test_predict_with_model_run_rejects_bare_predictor_when_recipe_would_be_skip
             signal_domain=context.signal_domain,
             recipe=PreprocessingRecipe(snv=True),
             dataset=dataset,
-            calibration=calibration,
+            reference_correction=reference_correction,
             model_registry={context.model_run.model_run_id: _BareEstimator()},
             spectral_data=spectral_data,
             preprocessing_recipe_id="recipe_snv",
@@ -884,20 +884,20 @@ def test_predict_with_model_run_rejects_bare_predictor_when_recipe_would_be_skip
 
 
 def test_calibrations_normalize_the_case_of_enum_values():
-    """Signal units and modes compare case-insensitively (dataset-calibration contract)."""
-    calibration = build.calibration(
-        calibration_id="cal_signal_case",
+    """Signal units and modes compare case-insensitively (dataset-reference-correction contract)."""
+    reference_correction = build.reference_correction(
+        reference_correction_id="cal_signal_case",
         dataset_id="dataset_1",
         mode="Dark_White_Reference",
         black_level=0.0,
         white_level=100.0,
         output_signal_unit=" reflectance",
     )
-    assert calibration.mode == "dark_white_reference"
-    assert calibration.output_signal_unit == "Reflectance"
+    assert reference_correction.mode == "dark_white_reference"
+    assert reference_correction.output_signal_unit == "Reflectance"
     with pytest.raises(ValueError, match="output_signal_unit must be one of"):
-        build.calibration(
-            calibration_id="cal_bad_unit",
+        build.reference_correction(
+            reference_correction_id="cal_bad_unit",
             dataset_id="dataset_1",
             mode="dark_white_reference",
             black_level=0.0,
@@ -915,16 +915,16 @@ def test_explicit_prediction_calibration_reuses_matching_dataset_calibration(qap
         cube_shape=(1, 2, 3),
         n_bands=3,
     )
-    existing = build.calibration(
-        calibration_id="cal_existing",
+    existing = build.reference_correction(
+        reference_correction_id="cal_existing",
         dataset_id=dataset.dataset_id,
         mode="dark_white_reference",
         black_level=0.0,
         white_level=100.0,
         output_signal_unit="Reflectance",
     )
-    explicit = build.calibration(
-        calibration_id="",
+    explicit = build.reference_correction(
+        reference_correction_id="",
         dataset_id="",
         mode="dark_white_reference",
         black_level=0.0,
@@ -932,10 +932,10 @@ def test_explicit_prediction_calibration_reuses_matching_dataset_calibration(qap
         output_signal_unit="Reflectance",
     )
 
-    from enginir._workflow import resolve_prediction_calibration
+    from enginir._workflow import resolve_prediction_reference_correction
 
-    resolved, is_new = resolve_prediction_calibration(
-        dataset, {existing.calibration_id: existing}, {}, explicit)
+    resolved, is_new = resolve_prediction_reference_correction(
+        dataset, {existing.reference_correction_id: existing}, {}, explicit)
 
     assert resolved is existing
     assert is_new is False
@@ -965,8 +965,8 @@ def test_predict_with_model_run_aligns_full_sensor_refs_before_flattening(tmp_pa
     )
     dark_ref = np.array([[0, 10, 20], [10, 20, 30]], dtype=np.float32)
     white_ref = dark_ref + 100.0
-    calibration = build.calibration(
-        calibration_id="cal_embedded_refs",
+    reference_correction = build.reference_correction(
+        reference_correction_id="cal_embedded_refs",
         dataset_id=dataset.dataset_id,
         mode="dark_white_reference",
         dark_ref_data=dark_ref,
@@ -989,7 +989,7 @@ def test_predict_with_model_run_aligns_full_sensor_refs_before_flattening(tmp_pa
         signal_domain=context.signal_domain,
         recipe=context.recipe,
         dataset=dataset,
-        calibration=calibration,
+        reference_correction=reference_correction,
         model_registry={context.model_run.model_run_id: predictor},
         spectral_data=spectral_data,
         preprocessing_recipe_id=context.preprocessing_recipe_id,
@@ -1025,8 +1025,8 @@ def test_transform_spectra_infers_spatial_shape_for_full_sensor_refs():
     )
     dark_ref = np.array([[0, 10, 20], [10, 20, 30]], dtype=np.float32)
     white_ref = dark_ref + 100.0
-    calibration = build.calibration(
-        calibration_id="cal_flat_refs",
+    reference_correction = build.reference_correction(
+        reference_correction_id="cal_flat_refs",
         dataset_id=dataset.dataset_id,
         mode="dark_white_reference",
         dark_ref_data=dark_ref,
@@ -1038,17 +1038,17 @@ def test_transform_spectra_infers_spatial_shape_for_full_sensor_refs():
         signal_domain_id="signal_domain_reflectance",
         input_format="hdf5",
         required_signal_unit="Reflectance",
-        required_calibration_mode="dark_white_reference",
+        required_correction_mode="dark_white_reference",
         requires_dark_ref=True,
         requires_white_ref=True,
-        calibrated_input_allowed=False,
+        corrected_input_allowed=False,
         n_bands=3,
     )
 
     transformed = transform_spectra_to_signal_domain(
         raw_cube.reshape(-1, raw_cube.shape[-1]),
         dataset=dataset,
-        calibration=calibration,
+        reference_correction=reference_correction,
         signal_domain=signal_domain,
     )
 
@@ -1076,15 +1076,15 @@ def test_transform_spectra_to_signal_domain_rejects_invalid_raw_spectra(raw_spec
         cube_shape=(1, 1, 3),
         n_bands=3,
     )
-    calibration = build.calibration(
-        calibration_id="cal_invalid_raw",
+    reference_correction = build.reference_correction(
+        reference_correction_id="cal_invalid_raw",
         dataset_id=dataset.dataset_id,
     )
     signal_domain = build.signal_domain(
         wavelengths,
         signal_domain_id="signal_domain_invalid_raw",
         input_format="hdf5",
-        calibrated_input_allowed=False,
+        corrected_input_allowed=False,
         n_bands=3,
     )
 
@@ -1092,14 +1092,14 @@ def test_transform_spectra_to_signal_domain_rejects_invalid_raw_spectra(raw_spec
         transform_spectra_to_signal_domain(
             raw_spectra,
             dataset=dataset,
-            calibration=calibration,
+            reference_correction=reference_correction,
             signal_domain=signal_domain,
         )
 
 
-def _scalar_reflectance_calibration(dataset_id: str) -> CalibrationSpec:
-    return build.calibration(
-        calibration_id="cal_scalar",
+def _scalar_reflectance_calibration(dataset_id: str) -> ReferenceCorrection:
+    return build.reference_correction(
+        reference_correction_id="cal_scalar",
         dataset_id=dataset_id,
         mode="dark_white_reference",
         black_level=0.0,
@@ -1136,7 +1136,7 @@ def test_cancelling_at_any_point_leaves_no_staged_run(tmp_path, qapp, cancel_at_
             signal_domain=context.signal_domain,
             recipe=context.recipe,
             dataset=dataset,
-            calibration=_scalar_reflectance_calibration(dataset.dataset_id),
+            reference_correction=_scalar_reflectance_calibration(dataset.dataset_id),
             model_registry={},
             spectral_data=spectral_data,
             preprocessing_recipe_id=context.preprocessing_recipe_id,
@@ -1171,7 +1171,7 @@ def test_chunked_saved_model_prediction_matches_one_shot_prediction(tmp_path, qa
     dataset = build_dataset_ref_from_spectral_data(
         data_path=str(tmp_path / "chunked_input.h5"), spectral_data=spectral_data
     )
-    calibration = _scalar_reflectance_calibration(dataset.dataset_id)
+    reference_correction = _scalar_reflectance_calibration(dataset.dataset_id)
 
     def predict(chunk_size: int, persist: bool, run_id: str):
         return predict_with_model_run(
@@ -1180,7 +1180,7 @@ def test_chunked_saved_model_prediction_matches_one_shot_prediction(tmp_path, qa
             signal_domain=context.signal_domain,
             recipe=context.recipe,
             dataset=dataset,
-            calibration=calibration,
+            reference_correction=reference_correction,
             model_registry={},  # replay the saved artifact
             spectral_data=spectral_data,
             preprocessing_recipe_id=context.preprocessing_recipe_id,
@@ -1210,15 +1210,15 @@ def test_training_and_prediction_use_identical_signal_conversion(tmp_path, qapp)
     context = state.build_prediction_job_context(model_run_id="model_run_1")
     roi = next(iter(state.rois.values()))
     raw = roi.load_spectra(project_path)
-    calibration = state.calibrations[roi.calibration_id]
+    reference_correction = state.reference_corrections[roi.reference_correction_id]
     dataset = state.datasets[roi.dataset_id]
 
     training = transform_spectra_to_signal_domain(
-        raw, dataset=dataset, calibration=calibration, signal_domain=context.signal_domain
+        raw, dataset=dataset, reference_correction=reference_correction, signal_domain=context.signal_domain
     )
     chunks = [
         transform_spectra_to_signal_domain(
-            raw[i:i + 1], dataset=dataset, calibration=calibration,
+            raw[i:i + 1], dataset=dataset, reference_correction=reference_correction,
             signal_domain=context.signal_domain, check_compatibility=False,
         )
         for i in range(raw.shape[0])
@@ -1242,12 +1242,12 @@ def _second_review_setup(tmp_path, name: str, X: np.ndarray, **calibration_kwarg
     if "dark_ref_data" in calibration_kwargs:
         levels = {"black_level": None, "white_level": None}
     fields = {"dark_ref_data": None, "white_ref_data": None, **levels, **calibration_kwargs}
-    calibration = CalibrationSpec(
-        calibration_id=f"cal_{name}", dataset_id=dataset.dataset_id,
+    reference_correction = ReferenceCorrection(
+        reference_correction_id=f"cal_{name}", dataset_id=dataset.dataset_id,
         mode="dark_white_reference", dark_ref_source=None, white_ref_source=None,
         output_signal_unit="Reflectance", created_at="2026-04-02T11:09:30+00:00", **fields,
     )
-    return context, spectral_data, dataset, calibration
+    return context, spectral_data, dataset, reference_correction
 
 
 class _SumPredictor:
@@ -1257,11 +1257,11 @@ class _SumPredictor:
 
 def test_prediction_never_replaces_an_existing_run(tmp_path, qapp):
     X = np.ones((2, 2, 3), dtype=np.float32) * 10.0
-    context, spectral_data, dataset, calibration = _second_review_setup(tmp_path, "reuse", X)
+    context, spectral_data, dataset, reference_correction = _second_review_setup(tmp_path, "reuse", X)
     kwargs = dict(
         project_path=context.project_path, model_run=context.model_run,
         signal_domain=context.signal_domain, recipe=context.recipe, dataset=dataset,
-        calibration=calibration, model_registry={context.model_run.model_run_id: _SumPredictor()},
+        reference_correction=reference_correction, model_registry={context.model_run.model_run_id: _SumPredictor()},
         spectral_data=spectral_data, preprocessing_recipe_id=context.preprocessing_recipe_id,
         prediction_run_id="prediction_once", persist_artifacts=True,
     )
@@ -1280,7 +1280,7 @@ def test_preflight_rejects_a_pipeline_without_the_recipe_steps(tmp_path, qapp):
     from types import SimpleNamespace
 
     X = np.ones((2, 2, 3), dtype=np.float32)
-    context, spectral_data, dataset, calibration = _second_review_setup(tmp_path, "steps", X)
+    context, spectral_data, dataset, reference_correction = _second_review_setup(tmp_path, "steps", X)
     pipeline = SimpleNamespace(named_steps={"model": _SumPredictor()},
                                predict=_SumPredictor().predict)
 
@@ -1288,7 +1288,7 @@ def test_preflight_rejects_a_pipeline_without_the_recipe_steps(tmp_path, qapp):
         predict_with_model_run(
             project_path=context.project_path, model_run=context.model_run,
             signal_domain=context.signal_domain, recipe=PreprocessingRecipe(snv=True),
-            dataset=dataset, calibration=calibration,
+            dataset=dataset, reference_correction=reference_correction,
             model_registry={context.model_run.model_run_id: pipeline},
             spectral_data=spectral_data, preprocessing_recipe_id="recipe_snv",
         )
@@ -1296,17 +1296,17 @@ def test_preflight_rejects_a_pipeline_without_the_recipe_steps(tmp_path, qapp):
 
 def test_every_chunk_reports_the_phases_in_order(tmp_path, qapp):
     X = np.ones((2, 2, 3), dtype=np.float32) * 10.0
-    context, spectral_data, dataset, calibration = _second_review_setup(tmp_path, "phases", X)
+    context, spectral_data, dataset, reference_correction = _second_review_setup(tmp_path, "phases", X)
     events: list[PredictionProgressEvent] = []
     predict_with_model_run(
         project_path=context.project_path, model_run=context.model_run,
         signal_domain=context.signal_domain, recipe=context.recipe, dataset=dataset,
-        calibration=calibration, model_registry={context.model_run.model_run_id: _SumPredictor()},
+        reference_correction=reference_correction, model_registry={context.model_run.model_run_id: _SumPredictor()},
         spectral_data=spectral_data, preprocessing_recipe_id=context.preprocessing_recipe_id,
         chunk_size=1, progress_callback=events.append,
     )
 
-    per_chunk = ["loading", "calibrating", "preprocessing", "predicting", "writing"]
+    per_chunk = ["loading", "correcting", "preprocessing", "predicting", "writing"]
     assert [event.phase for event in events] == [
         "preflight", *per_chunk, *per_chunk, "finalizing", "finalizing"
     ]
@@ -1314,16 +1314,16 @@ def test_every_chunk_reports_the_phases_in_order(tmp_path, qapp):
 
 def test_progress_text_calls_the_reference_correction_by_its_name(tmp_path, qapp):
     # Terminology contract: "calibration" means building a model, never the
-    # reference correction; the phase id `calibrating` is internal.
+    # reference correction; the phase id `correcting` is internal.
     from enginir.viewer._prediction import _phase_label
 
     X = np.ones((2, 2, 3), dtype=np.float32) * 10.0
-    context, spectral_data, dataset, calibration = _second_review_setup(tmp_path, "words", X)
+    context, spectral_data, dataset, reference_correction = _second_review_setup(tmp_path, "words", X)
     events: list[PredictionProgressEvent] = []
     predict_with_model_run(
         project_path=context.project_path, model_run=context.model_run,
         signal_domain=context.signal_domain, recipe=context.recipe, dataset=dataset,
-        calibration=calibration, model_registry={context.model_run.model_run_id: _SumPredictor()},
+        reference_correction=reference_correction, model_registry={context.model_run.model_run_id: _SumPredictor()},
         spectral_data=spectral_data, preprocessing_recipe_id=context.preprocessing_recipe_id,
         chunk_size=1, progress_callback=events.append,
     )
@@ -1337,7 +1337,7 @@ def test_flat_spectra_with_per_sensor_references_chunk_like_one_shot(tmp_path, q
     cube = np.array([[[20, 30, 40], [60, 70, 80]], [[30, 40, 50], [70, 80, 90]],
                      [[25, 35, 45], [65, 75, 85]]], dtype=np.uint16)
     dark = np.array([[0, 10, 20], [10, 20, 30]], dtype=np.float32)
-    context, spectral_data, dataset, calibration = _second_review_setup(
+    context, spectral_data, dataset, reference_correction = _second_review_setup(
         tmp_path, "flat_refs", cube, dark_ref_data=dark, white_ref_data=dark + 100.0
     )
     flat = SpectralData(X=cube.reshape(6, 3), wavelengths=spectral_data.wavelengths,
@@ -1347,7 +1347,7 @@ def test_flat_spectra_with_per_sensor_references_chunk_like_one_shot(tmp_path, q
         return predict_with_model_run(
             project_path=context.project_path, model_run=context.model_run,
             signal_domain=context.signal_domain, recipe=context.recipe, dataset=dataset,
-            calibration=calibration,
+            reference_correction=reference_correction,
             model_registry={context.model_run.model_run_id: _SumPredictor()},
             spectral_data=data, preprocessing_recipe_id=context.preprocessing_recipe_id,
             chunk_size=chunk_size,
@@ -1356,10 +1356,10 @@ def test_flat_spectra_with_per_sensor_references_chunk_like_one_shot(tmp_path, q
     np.testing.assert_array_equal(predict(flat, 1), predict(spectral_data, 3))
 
 
-def _predict_kwargs(context, spectral_data, dataset, calibration, predictor, **overrides):
+def _predict_kwargs(context, spectral_data, dataset, reference_correction, predictor, **overrides):
     return {"project_path": context.project_path, "model_run": context.model_run,
             "signal_domain": context.signal_domain, "recipe": context.recipe, "dataset": dataset,
-            "calibration": calibration,
+            "reference_correction": reference_correction,
             "model_registry": {context.model_run.model_run_id: predictor},
             "spectral_data": spectral_data,
             "preprocessing_recipe_id": context.preprocessing_recipe_id, **overrides}
@@ -1372,11 +1372,11 @@ def test_persisted_run_records_clip_counts_output_names_and_a_1d_single_output(t
     X = np.array([[[10.0, 15.0, 30.0], [12.5, 20.0, 25.0]],
                   [[5.0, 18.0, 40.0], [16.0, 11.0, 19.0]]], dtype=np.float32)
     black, white = 12.0, 20.0
-    context, spectral_data, dataset, calibration = _second_review_setup(
+    context, spectral_data, dataset, reference_correction = _second_review_setup(
         tmp_path, "telemetry", X, black_level=black, white_level=white)
     reflectance = (X - black) / (white - black)
     result = predict_with_model_run(**_predict_kwargs(
-        context, spectral_data, dataset, calibration, _SumPredictor(),
+        context, spectral_data, dataset, reference_correction, _SumPredictor(),
         prediction_run_id="prediction_telemetry", persist_artifacts=True))
 
     stored = load_prediction_run_artifact_refs(context.project_path, "prediction_telemetry")
@@ -1397,9 +1397,9 @@ def test_multi_output_predictions_store_their_output_axis(tmp_path, qapp):
             return np.column_stack([X.sum(axis=1), X.mean(axis=1)]).astype(np.float32)
 
     X = np.full((3, 2, 3), 10.0, dtype=np.float32)
-    context, spectral_data, dataset, calibration = _second_review_setup(tmp_path, "multi", X)
+    context, spectral_data, dataset, reference_correction = _second_review_setup(tmp_path, "multi", X)
     result = predict_with_model_run(**_predict_kwargs(
-        context, spectral_data, dataset, calibration, _TwoOutputs(),
+        context, spectral_data, dataset, reference_correction, _TwoOutputs(),
         prediction_run_id="prediction_multi", persist_artifacts=True))
 
     assert result.spatial_map.shape == (3, 2, 2)
@@ -1413,21 +1413,21 @@ def test_preflight_rejects_a_signal_domain_of_another_model_run(tmp_path, qapp):
     from dataclasses import replace
 
     X = np.full((2, 2, 3), 10.0, dtype=np.float32)
-    context, spectral_data, dataset, calibration = _second_review_setup(tmp_path, "foreign", X)
+    context, spectral_data, dataset, reference_correction = _second_review_setup(tmp_path, "foreign", X)
     foreign = replace(context.signal_domain, signal_domain_id="signal_domain_other")
     with pytest.raises(ValueError, match="is not the one of model"):
         predict_with_model_run(**_predict_kwargs(
-            context, spectral_data, dataset, calibration, _SumPredictor(),
+            context, spectral_data, dataset, reference_correction, _SumPredictor(),
             signal_domain=foreign))
 
 
 def test_input_shorter_than_the_dataset_fails_and_leaves_no_run(tmp_path, qapp):
     X = np.full((3, 2, 3), 10.0, dtype=np.float32)
-    context, spectral_data, dataset, calibration = _second_review_setup(tmp_path, "short", X)
+    context, spectral_data, dataset, reference_correction = _second_review_setup(tmp_path, "short", X)
     short = SpectralData(X[:2], spectral_data.wavelengths, spectral_data.meta)
     with pytest.raises(ValueError, match="produced 4 spectra, expected 6"):
         predict_with_model_run(**_predict_kwargs(
-            context, short, dataset, calibration, _SumPredictor(),
+            context, short, dataset, reference_correction, _SumPredictor(),
             prediction_run_id="prediction_short", persist_artifacts=True))
     from enginir.io.project_store import has_prediction_run
 
@@ -1462,7 +1462,7 @@ def test_image_files_stream_into_the_same_prediction_as_in_memory_data(tmp_path,
     selected = load_spectra(path, **loader_kwargs)
     dataset = build_dataset_ref_from_spectral_data(data_path=str(path), spectral_data=selected,
                                                    source_modality="nir_hsi")
-    calibration = _scalar_reflectance_calibration(dataset.dataset_id)
+    reference_correction = _scalar_reflectance_calibration(dataset.dataset_id)
     signal_domain = dataclasses.replace(context.signal_domain,
                                         input_format=dataset.source_format)
 
@@ -1470,7 +1470,7 @@ def test_image_files_stream_into_the_same_prediction_as_in_memory_data(tmp_path,
         return predict_with_model_run(
             project_path=context.project_path, model_run=context.model_run,
             signal_domain=signal_domain, recipe=context.recipe, dataset=dataset,
-            calibration=calibration, model_registry={}, spectral_data=spectral_data,
+            reference_correction=reference_correction, model_registry={}, spectral_data=spectral_data,
             loader_kwargs=loader_kwargs,
             preprocessing_recipe_id=context.preprocessing_recipe_id,
             prediction_run_id=run_id, chunk_size=2, persist_artifacts=False,
