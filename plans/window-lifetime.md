@@ -1,6 +1,8 @@
 # Plan: viewer windows are deleted when they close (engiNIR 1.7.0rc2)
 
-Status: decided (user, 2026-11-18): D1 to D5 below. Not started.
+Status: decided (user, 2026-11-18): D1 to D5 below. Implemented on branch
+`window-lifetime` (df1e7db code and tests, 8a02ebf docs and contract);
+Phase 2 needed no code change (see the commit). Not yet released.
 
 ## Goal
 
