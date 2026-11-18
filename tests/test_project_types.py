@@ -5,7 +5,7 @@ from __future__ import annotations
 from enginir.project import FitSpec
 
 import copy
-from dataclasses import fields
+from dataclasses import fields, replace
 
 import numpy as np
 import pytest
@@ -276,6 +276,21 @@ def test_validate_project_relationships_checks_active_calibration_ids(valid_proj
         validate_project_relationships(
             **graph, active_calibration_ids={"dataset_ghost": "cal_1"}
         )
+
+
+def test_a_prediction_records_the_recipe_and_input_contract_of_its_model(valid_project_graph):
+    """G11: a stored prediction naming another recipe or input contract is refused."""
+    graph = copy.deepcopy(valid_project_graph)
+    graph["recipes"]["recipe_2"] = {"filter": "snv"}
+    graph["signal_domains"]["signal_domain_2"] = replace(
+        graph["signal_domains"]["signal_domain_1"], signal_domain_id="signal_domain_2")
+    prediction = graph["predictions"]["prediction_run_1"]
+    for field, value in (("preprocessing_recipe_id", "recipe_2"),
+                         ("signal_domain_id", "signal_domain_2")):
+        changed = copy.deepcopy(graph)
+        changed["predictions"]["prediction_run_1"] = replace(prediction, **{field: value})
+        with pytest.raises(ProjectRelationshipError, match=f"{field} '{value}' differs"):
+            validate_project_relationships(**changed)
 
 
 def test_validate_project_relationships_rejects_sample_set_omitting_roi_dataset(

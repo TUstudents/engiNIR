@@ -124,7 +124,6 @@ scikit-learn estimators:
 
    viewer_architecture
    workspace_domain_model
-   contract_coverage
 
 Citation
 --------

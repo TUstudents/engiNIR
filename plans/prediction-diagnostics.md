@@ -1,6 +1,6 @@
 # Plan: prediction diagnostics (DModXPS and T²PS maps), predictions not stored
 
-Status: implemented (2026-11-07, branch feature/weekend-plans); the check on the SIMCA reference test set is pending (data not available)
+Status: implemented (2026-11-07, branch feature/weekend-plans); checked against SIMCA 18 on the reference test set (`plans/fit-specification.md`, Phase R)
 
 ## Goal
 

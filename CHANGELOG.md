@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Opening a project checks that each stored prediction names the
+  preprocessing recipe and input contract of its model; a prediction run
+  naming another one is refused, as the project-schema contract now says.
+
 ## 1.6.1 (2026-11-18)
 
 A bugfix release. It fixes seven findings of an external review of 1.6.0

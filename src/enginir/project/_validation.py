@@ -137,6 +137,17 @@ def validate_project_relationships(
                  "signal_domain_id")
         _require(prediction.preprocessing_recipe_id, recipes, "PredictionRun", owner,
                  "preprocessing_recipe_id")
+        # a prediction records the chain its model ran with, never another one
+        model_run = model_runs[prediction.model_run_id]
+        if prediction.signal_domain_id != model_run.signal_domain_id:
+            _fail("PredictionRun '{}': signal_domain_id '{}' differs from '{}' of its model "
+                  "run '{}'", owner, prediction.signal_domain_id, model_run.signal_domain_id,
+                  model_run.model_run_id)
+        recipe_id = sample_sets[model_run.sample_set_id].preprocessing_recipe_id
+        if prediction.preprocessing_recipe_id != recipe_id:
+            _fail("PredictionRun '{}': preprocessing_recipe_id '{}' differs from '{}' of its "
+                  "model run '{}'", owner, prediction.preprocessing_recipe_id, recipe_id,
+                  model_run.model_run_id)
 
 
 def _check_sample_set(

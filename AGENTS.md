@@ -28,7 +28,7 @@ hide warnings.
 - `contracts/*_v3.md` freeze persistence, runtime and workflow behavior. When
   code, docs or this file disagree with a contract, the contract wins; change
   a contract only deliberately and in the same change as the code.
-- `docs/contract_coverage.md` maps every contract rule to its implementation
+- `contracts/coverage.md` maps every contract rule to its implementation
   and tests, with the gap register (`G01`–`G35`). Update it when you close or
   open a gap.
 - `docs/hdf5_format.md` documents the project file layout.

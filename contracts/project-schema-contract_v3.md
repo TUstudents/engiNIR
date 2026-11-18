@@ -415,6 +415,9 @@ v3 note:
 - `PredictionRun.model_run_id -> ModelRun.model_run_id`
 - `PredictionRun.signal_domain_id -> SignalDomainContract.signal_domain_id`
 - `PredictionRun.preprocessing_recipe_id -> PreprocessingRecipe.recipe_id`
+- a prediction run's input contract equals its model's, and its recipe equals
+  the recipe of the model's calibration set; a run naming another one is
+  rejected when the project is read
 
 ## Required top-level project structure
 
@@ -878,7 +881,7 @@ comparison but must not make a stored hash authoritative over that content.
 - every target assignment references an existing ROI and target
 - every calibration set references existing ROIs, a target, and a recipe
 - every model references an existing calibration set and input contract
-- every prediction run references an existing dataset, reference correction, model, input contract, and recipe
+- every prediction run references an existing dataset, reference correction, model, input contract, and recipe; the input contract and recipe are those of its model
 - `/predictions` holds only complete runs, with unique ids; a staged write
   lives under `/staging/` until it is finalized (§7)
 - wavelength metadata differences do not invalidate an otherwise completed
