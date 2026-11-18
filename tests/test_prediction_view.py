@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from enginir.project import FitSpec
 
-import time
 from pathlib import Path
 import types
 from threading import Event
@@ -15,24 +14,10 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QMessageBox
 
 from enginir import Project
-from enginir.project import CalibrationSpec, ModelRun, PredictionRun
-from enginir.viewer._app import ensure_app
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return ensure_app()
-
-
-def _wait_until(qapp, predicate, *, timeout: float = 2.0) -> None:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        qapp.processEvents()
-        if predicate():
-            return
-        time.sleep(0.01)
-    qapp.processEvents()
-    assert predicate()
+from enginir.project import PredictionRun
+from tests._qt import wait_until
+from tests._scans import framed_scan
+from tests import _project_payloads as build
 
 
 @pytest.fixture()
@@ -45,16 +30,15 @@ def project_state(tmp_path):
 
 
 def _seed_model_run(project_state):
-    project_state.model_runs["model_1"] = ModelRun(fit_spec=FitSpec().to_dict(), 
+    project_state.model_runs["model_1"] = build.model_run(
+        fit_spec=FitSpec().to_dict(),
         model_run_id="model_1",
         sample_set_id="sample_set_1",
         signal_domain_id="signal_domain_1",
-        model_type="PLS",
         hyperparameters={},
         cv_spec={},
         metrics={},
         artifact_refs={},
-        created_at="2026-04-02T10:00:00+00:00",
     )
     project_state.active_model_name = "model_1"
 
@@ -227,17 +211,17 @@ def _session_result(run_id, spatial_map, *, dmodx=None, t2=None, diagnostics=Non
                     artifact_refs=None, source="/data/scan.h5"):
     """An in-memory prediction as the service returns it."""
     from enginir.prediction import PredictionResult
-    from enginir.project import DatasetRef
 
     frames, height = spatial_map.shape[:2]
-    dataset = DatasetRef(dataset_id="dataset_1", source_path=source, source_format="hdf5",
-                         source_modality="nir_hsi", cube_shape=(frames, height, 3), n_bands=3,
-                         wavelengths=np.array([1.0, 2.0, 3.0], dtype=np.float32),
-                         loader_metadata={}, import_timestamp="2026-11-07T10:00:00+00:00")
-    calibration = CalibrationSpec(
-        calibration_id="cal_1", dataset_id="dataset_1", mode="raw_dn", dark_ref_source=None,
-        white_ref_source=None, dark_ref_data=None, white_ref_data=None, black_level=None,
-        white_level=None, output_signal_unit="DN", created_at="2026-11-07T10:00:00+00:00")
+    dataset = build.dataset(
+        np.array([1.0, 2.0, 3.0], dtype=np.float32),
+        dataset_id="dataset_1",
+        source_path=source,
+        source_format="hdf5",
+        cube_shape=(frames, height, 3),
+        n_bands=3,
+    )
+    calibration = build.calibration(calibration_id="cal_1", dataset_id="dataset_1")
     run = PredictionRun(prediction_run_id=run_id, dataset_id="dataset_1",
                         calibration_id="cal_1", model_run_id="model_1",
                         signal_domain_id="signal_domain_1", preprocessing_recipe_id="recipe_1",
@@ -332,12 +316,11 @@ def test_the_layer_selector_shows_the_diagnostics_and_marks_pixels_above_the_lim
 
 
 @pytest.fixture()
-def fitted_tray(tmp_path):
+def fitted_tray(tray):
     from enginir import PreprocessingRecipe
     from enginir.viewer._state import ProjectState
-    from tests.test_prediction_rois import tray
 
-    project, _scan, path = tray.__wrapped__(tmp_path)
+    project, _dataset, path = tray
     model = project.fit("API", recipe=PreprocessingRecipe(snv=True), n_components=2, cv=3)
     state = ProjectState()
     state.open_project(str(project.path))
@@ -379,7 +362,7 @@ def test_predict_map_shows_the_map_and_the_rois_of_its_file(qapp, fitted_tray, m
     monkeypatch.setattr(PredictMapDialog, "exec", lambda self: self.DialogCode.Accepted)
     view = PredictionView(state)
     view.predict_btn_clicked()
-    _wait_until(qapp, lambda: bool(state.predictions) and bool(view._roi_predictions),
+    wait_until(qapp, lambda: bool(state.predictions) and bool(view._roi_predictions),
                 timeout=30)
     summary = view.workspace_summary()
     assert summary["model"] == model.name and "dark/white references" in summary["calibration"]
@@ -408,7 +391,7 @@ def test_the_prediction_interval_layer_shows_the_pixel_intervals_and_none_outsid
     monkeypatch.setattr(PredictMapDialog, "exec", lambda self: self.DialogCode.Accepted)
     view = PredictionView(state)
     view.predict_btn_clicked()
-    _wait_until(qapp, lambda: bool(state.predictions), timeout=30)
+    wait_until(qapp, lambda: bool(state.predictions), timeout=30)
     expected = model.predict(path).interval_map(0.95)
     assert expected is not None
     outside = np.isnan(expected)
@@ -459,7 +442,7 @@ def test_predict_rois_compares_models_and_the_exclusion_needs_no_new_prediction(
                         lambda **kw: calls.append(kw["model_name"]) or real(**kw))
     view = PredictionView(state)
     view.predict_rois_clicked()
-    _wait_until(qapp, lambda: len(view._roi_predictions) == 2, timeout=30)
+    wait_until(qapp, lambda: len(view._roi_predictions) == 2, timeout=30)
     rows = view.roi_results_payload()["roi_rows"]
     assert {row["model"] for row in rows} == {model.name, other.name} and len(rows) == 6
     assert set(view.roi_results_payload()["rmsep"]) == {model.name, other.name}
@@ -511,8 +494,8 @@ def test_a_map_of_a_file_without_prediction_rois_drops_the_old_roi_results(
     monkeypatch.setattr(PredictMapDialog, "exec", lambda self: self.DialogCode.Accepted)
     monkeypatch.setattr(PredictMapDialog, "dataset_id", property(lambda self: other_id))
     view.predict_btn_clicked()
-    _wait_until(qapp, lambda: bool(state.predictions), timeout=30)
-    _wait_until(qapp, lambda: not view._roi_predictions, timeout=10)
+    wait_until(qapp, lambda: bool(state.predictions), timeout=30)
+    wait_until(qapp, lambda: not view._roi_predictions, timeout=10)
     payload = view.roi_results_payload()
     assert not payload["roi_rows"] and "No prediction ROIs on" in payload["message"]
     assert view.workspace_summary()["rois"].startswith("No prediction ROIs on")
@@ -624,7 +607,7 @@ def test_the_summary_names_file_and_model_once_and_controls_change_the_map(
     monkeypatch.setattr(PredictMapDialog, "exec", lambda self: self.DialogCode.Accepted)
     view = PredictionView(state)
     view.predict_btn_clicked()
-    _wait_until(qapp, lambda: bool(state.predictions) and bool(view._roi_predictions),
+    wait_until(qapp, lambda: bool(state.predictions) and bool(view._roi_predictions),
                 timeout=30)
     summary = view.workspace_summary()
     assert summary["headline"].startswith("Map of tray.h5 with " + model.name)
@@ -645,3 +628,43 @@ def test_the_summary_names_file_and_model_once_and_controls_change_the_map(
     assert view.histogram_payload(map_payload) is map_payload
     view.set_colour_limits(None)
     assert view.colour_limits is None
+
+
+def test_the_summary_shows_a_wavelength_warning(qapp):
+    from enginir.viewer._prediction import PredictionView
+    from enginir.viewer._state import ProjectState
+
+    state = ProjectState()
+    _seed_model_run(state)
+    view = PredictionView(state)
+    result = _session_result("p", np.ones((2, 3), dtype=np.float32))
+    result.provenance["wavelength_warning"] = "wavelengths differ from the model's by up to 5 nm"
+    state.add_prediction(result)
+    assert view.workspace_summary()["wavelengths"].startswith("Warning: wavelengths differ")
+    result.provenance["wavelength_warning"] = None
+    view._invalidate_prediction_workspace_cache()
+    assert view.workspace_summary()["wavelengths"] == "match the model"
+
+
+# -- Waiting prediction ROIs -----------------------------------------------------------
+
+
+def test_predict_names_the_waiting_rois_and_the_model(qapp, tmp_path):
+    from enginir.viewer import open_project
+
+    project = Project.create(tmp_path / "p.h5")
+    project.add_target("API", unit="%")
+    scan = project.add_dataset(framed_scan(tmp_path / "s.h5"), dark_frames=(0, 1),
+                               white_frames=(18, 19))
+    for i in range(4):
+        scan.add_roi(f"c{i}", frames=(3 + 3 * i, 4 + 3 * i), rows=(0, 5),
+                     values={"API": float(i)})
+    scan.add_roi("p0", frames=(3, 4), rows=(0, 5), job="prediction")
+    project.fit("API", n_components=1)
+    window = open_project(project.path)
+    try:
+        summary = window._prediction_view.workspace_summary()
+        assert summary["rois"] == "none predicted yet (1 prediction ROI)"
+        assert summary["model"] != "none", "the model a prediction would use"
+    finally:
+        window.close()

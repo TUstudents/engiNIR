@@ -286,7 +286,7 @@ frame, signal unit, or preprocessing parameters.
 - `ModelDiagnosticsWidget` and `PredictionMapWidget` skip redraws for unchanged payload objects.
 - Each plot panel has its own canvas. Changing one plot redraws only that plot. A page draws when it is first shown, and a panel draws only while visible.
 - Figure layout is recomputed for a new payload or a new canvas size (`maybe_tight_layout(...)` for in-place panels), not on every redraw.
-- `tests/test_plot_performance.py` (opt-in, `ENGINIR_PERF=1`) times the Model diagnostics against the single-figure baseline.
+- `benchmarks/test_plot_performance.py` (opt-in, `ENGINIR_PERF=1`) times the Model diagnostics against the single-figure baseline.
 - Welcome-screen startup loads dataset/project payloads in a worker thread and only constructs Qt widgets on the GUI thread after loading completes.
 
 ### Window size on Wayland
@@ -300,7 +300,7 @@ frame, signal unit, or preprocessing parameters.
 
 ### Process exit
 
-- At interpreter exit PyQt deletes the remaining top-level Qt objects while walking sip's wrapper table. Python code that runs during those deletions can reallocate the table and crash the process (a sip bug, unfixed in PyQt6-sip 13.13). `_app._remove_dialog_centering` therefore removes the application-wide event filter (dialog centering and the WSLg combo-popup release) in an `atexit` hook that runs before PyQt's cleanup. Do not add another Python event filter on the `QApplication` without removing it the same way; `tests/test_viewer_exit.py` checks that a closed project viewer exits cleanly.
+- At interpreter exit PyQt deletes the remaining top-level Qt objects while walking sip's wrapper table. Python code that runs during those deletions can reallocate the table and crash the process (a sip bug, unfixed in PyQt6-sip 13.13). `_app._remove_dialog_centering` therefore removes the application-wide event filter (dialog centering and the WSLg combo-popup release) in an `atexit` hook that runs before PyQt's cleanup. Do not add another Python event filter on the `QApplication` without removing it the same way; `tests/test_viewer_app.py` checks that a closed project viewer exits cleanly.
 
 ---
 
@@ -402,7 +402,7 @@ Workspace export and layout state:
    workspace's pages in the module that owns the workspace (for example
    `_model_diagnostics.py`).
 3. Add a payload with data for the workspace to `_PAYLOADS` in
-   `tests/test_plot_registry.py`, if the workspace is new. That test then
+   `tests/test_plot_panels.py`, if the workspace is new. That test then
    checks the new plot:
    - the empty state
    - PNG, SVG and CSV export

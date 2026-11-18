@@ -12,6 +12,7 @@ from enginir.project import (
     transform_spectra_to_signal_domain,
 )
 from enginir.project import CalibrationSpec, DatasetRef, SignalDomainContract
+from tests import _project_payloads as build
 
 
 def _dataset(
@@ -20,16 +21,14 @@ def _dataset(
     source_modality: str = "nir_hsi",
     source_format: str = "hdf5",
 ) -> DatasetRef:
-    return DatasetRef(
+    return build.dataset(
+        wavelengths,
         dataset_id="dataset_1",
         source_path="/data/sample.h5",
         source_format=source_format,
         source_modality=source_modality,
         cube_shape=(2, 2, int(wavelengths.shape[0])),
         n_bands=int(wavelengths.shape[0]),
-        wavelengths=wavelengths,
-        loader_metadata={},
-        import_timestamp="2026-04-02T10:00:00+00:00",
     )
 
 
@@ -44,21 +43,19 @@ def _signal_domain(
     requires_white_ref: bool = True,
     output_dtype: str = "float32",
 ) -> SignalDomainContract:
-    return SignalDomainContract(
+    return build.signal_domain(
+        wavelengths,
         signal_domain_id="signal_domain_1",
         input_format=input_format,
-        source_modality="nir_hsi",
         required_signal_unit="Absorbance",
         required_calibration_mode="dark_white_reference",
         requires_dark_ref=requires_dark_ref,
         requires_white_ref=requires_white_ref,
         calibrated_input_allowed=calibrated_input_allowed,
         n_bands=int(wavelengths.shape[0]),
-        wavelengths=wavelengths,
         wavelength_tolerance_nm=wavelength_tolerance_nm,
         band_mapping_policy=band_mapping_policy,
         output_dtype=output_dtype,
-        created_at="2026-04-02T10:01:00+00:00",
     )
 
 
@@ -74,18 +71,15 @@ def _calibration(
     if mode == "dark_white_reference" and dark_ref_data is None and white_ref_data is None:
         black_level = 0.0
         white_level = 100.0
-    return CalibrationSpec(
+    return build.calibration(
         calibration_id="cal_1",
         dataset_id="dataset_1",
         mode=mode,
-        dark_ref_source=None,
-        white_ref_source=None,
         dark_ref_data=dark_ref_data,
         white_ref_data=white_ref_data,
         black_level=black_level,
         white_level=white_level,
         output_signal_unit=output_signal_unit,
-        created_at="2026-04-02T10:02:00+00:00",
     )
 
 
@@ -206,12 +200,15 @@ def test_absorbance_converts_back_to_reflectance():
 def test_signal_domain_rejects_a_unit_its_calibration_mode_cannot_produce():
     wavelengths = np.linspace(1000.0, 1100.0, 4)
     with pytest.raises(ValueError, match="cannot produce 'DN'"):
-        SignalDomainContract(
-            signal_domain_id="sd", input_format="hdf5", source_modality="nir_hsi",
-            required_signal_unit="DN", required_calibration_mode="dark_white_reference",
-            requires_dark_ref=True, requires_white_ref=True, calibrated_input_allowed=False,
-            n_bands=4, wavelengths=wavelengths, wavelength_tolerance_nm=0.0,
-            band_mapping_policy="exact", output_dtype="float32", created_at="2026-01-01T00:00:00+00:00",
+        build.signal_domain(
+            wavelengths,
+            signal_domain_id="sd",
+            input_format="hdf5",
+            required_calibration_mode="dark_white_reference",
+            requires_dark_ref=True,
+            requires_white_ref=True,
+            calibrated_input_allowed=False,
+            n_bands=4,
         )
 
 

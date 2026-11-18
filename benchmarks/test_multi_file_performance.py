@@ -2,7 +2,7 @@
 
 Skipped unless ``ENGINIR_PERF=1``; run it with output shown::
 
-    ENGINIR_PERF=1 QT_QPA_PLATFORM=offscreen uv run pytest tests/test_multi_file_performance.py -s
+    ENGINIR_PERF=1 QT_QPA_PLATFORM=offscreen uv run pytest benchmarks/test_multi_file_performance.py -s
 
 The project holds 10 data files with a 5 x 8 tray each: 400 ROIs of 2,000
 pixels (40 frames x 50 rows) and 224 bands, about 360 MB of raw ROI spectra.

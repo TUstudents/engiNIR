@@ -12,12 +12,7 @@ from PyQt6.QtCore import Qt
 
 from enginir import Project
 from enginir.io import save_hdf5
-from enginir.viewer._app import ensure_app
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return ensure_app()
+from tests._qt import wait_until
 
 
 @pytest.fixture()
@@ -479,3 +474,100 @@ def test_every_control_row_fits_in_the_controls_dock(qapp, trays):
     finally:
         _settle(qapp, window._project_rois)
         window.close()
+
+
+# -- Mosaic layout and labels ----------------------------------------------------------
+
+
+def test_the_mosaic_puts_blocks_side_by_side_in_a_wide_view_and_widens_label_columns():
+    from enginir.viewer._project_rois import GRID, mosaic_layout
+
+    rois = [_roi(f"{d}{i}", d, (10 * i, 10 * i + 5), (0, 19)) for d in "abcd" for i in range(5)]
+    names = {d: f"{d}.h5" for d in "abcd"}
+    stacked = mosaic_layout(rois, names, GRID)
+    assert len({x for _d, _n, x, _y, _w in stacked.headers}) == 1, "one column by default"
+
+    wide = mosaic_layout(rois, names, GRID, aspect=3.0)
+    columns = sorted({x for _d, _n, x, _y, _w in wide.headers})
+    assert len(columns) > 1, "blocks beside each other fill a wide view"
+    assert [name for _d, name, _x, _y, _w in wide.headers] == ["a.h5", "b.h5", "c.h5", "d.h5"]
+    for _d, _n, x, _y, width in wide.headers:  # no block reaches into its neighbour
+        later = [c for c in columns if c > x]
+        assert not later or x + width < later[0]
+    tall = mosaic_layout(rois, names, GRID, aspect=0.3)
+    assert len({x for _d, _n, x, _y, _w in tall.headers}) == 1
+
+    def pitch(layout):
+        return layout.places["a1"][0] - layout.places["a0"][0]
+
+    labelled = mosaic_layout(rois, names, GRID, label_chars=10)
+    assert pitch(labelled) > pitch(stacked), "room for the label under a narrow tile"
+    assert pitch(mosaic_layout(rois, names, GRID, label_chars=200)) \
+        == pitch(mosaic_layout(rois, names, GRID, label_chars=14)), "long labels are cut"
+
+
+def _mosaic_numbers(mosaic) -> str:
+    """Layout numbers for a failure message (fonts differ by platform)."""
+    from PyQt6.QtGui import QFont, QFontMetricsF
+
+    metrics = QFontMetricsF(QFont(mosaic.font()))
+    longest = max(mosaic._labels.values(), key=len, default="")
+    widths = sorted({round(place[2], 3) for place in mosaic._layout.places.values()})
+    return (f"mode={mosaic.layout_mode} font={mosaic.font().family()!r} "
+            f"{mosaic.font().pointSizeF()}pt height={metrics.height():.3f} "
+            f"advance({longest!r})={metrics.horizontalAdvance(longest):.3f} "
+            f"chars={mosaic._label_chars()} laid_out={mosaic._laid_out_chars} "
+            f"unit={mosaic._layout.unit:.3f} label_width={mosaic._label_width:.3f} "
+            f"tile_widths={widths[:4]} scale={mosaic._label_items and next(iter(mosaic._label_items.values())).scale():.4f}")
+
+
+def _skip_without_real_fonts(mosaic) -> None:
+    """Offscreen Qt on Windows has no fonts: every glyph is a box as wide as the line
+    is high, so every label is over the limit and cut by design; nothing to test."""
+    from enginir.viewer._project_rois import _MAX_LABEL_CHARS
+
+    if mosaic._label_chars() > _MAX_LABEL_CHARS:
+        pytest.skip(f"no real fonts on this platform: {_mosaic_numbers(mosaic)}")
+
+
+def test_the_mosaic_shows_whole_tile_labels_for_narrow_tiles(qapp, window):
+    window.show_step("rois")
+    mosaic = window._project_rois.mosaic
+    wait_until(qapp, lambda: mosaic._label_items)
+    _skip_without_real_fonts(mosaic)
+    shown = {roi_id: item.text() for roi_id, item in mosaic._label_items.items()}
+    assert shown and all("…" not in text for text in shown.values()), \
+        f"{_mosaic_numbers(mosaic)} {shown}"
+    assert all(text == mosaic.label_text(roi_id) for roi_id, text in shown.items())
+
+
+def test_mosaic_labels_are_measured_in_the_actual_font(qapp, window):
+    """A wider font (Segoe UI on Windows) must not cut the labels."""
+    from PyQt6.QtGui import QFont
+
+    window.show_step("rois")
+    mosaic = window._project_rois.mosaic
+    wait_until(qapp, lambda: mosaic._label_items)
+    font = QFont(mosaic.font())
+    font.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 140)
+    mosaic.setFont(font)
+    mosaic._lay_out()
+    _skip_without_real_fonts(mosaic)
+    shown = [item.text() for item in mosaic._label_items.values()]
+    assert shown and all("\u2026" not in text for text in shown), \
+        f"{_mosaic_numbers(mosaic)} {shown}"
+
+
+def test_mosaic_labels_that_grow_later_are_not_cut(qapp, window):
+    """Values arrive after the first layout (slow machines): the columns must widen."""
+    window.show_step("rois")
+    mosaic = window._project_rois.mosaic
+    wait_until(qapp, lambda: mosaic._label_items)
+    full = dict(mosaic._labels)
+    mosaic.set_rois(list(mosaic._rois.values()), mosaic._file_names,
+                    {roi_id: text[:2] for roi_id, text in full.items()}, mosaic._values)
+    mosaic.set_labels(full)
+    _skip_without_real_fonts(mosaic)
+    shown = {roi_id: item.text() for roi_id, item in mosaic._label_items.items()}
+    assert shown == {roi_id: full[roi_id] for roi_id in shown}, \
+        f"{_mosaic_numbers(mosaic)} {shown}"

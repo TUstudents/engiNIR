@@ -7,13 +7,11 @@ import numpy as np
 import pytest
 
 from enginir import Project
-from enginir.io import save_hdf5
 from enginir.modeling import _exclusion, _gram_fit, _service
 from enginir.validation import dmodx, dmodx_limit, modelling_power
-from tests.test_fit_spec import _warnings_during
+from tests._scans import EXCLUSION, project_with_an_odd_pixel, warnings_during
 
 N_BANDS = 30
-EXCLUSION = {"exclusion": {"method": "dmodx", "level": 0.99}}
 
 
 # -- the formulas -----------------------------------------------------------------------
@@ -79,28 +77,8 @@ def test_dmodx_needs_degrees_of_freedom():
 # -- exclusion in a fit -----------------------------------------------------------------
 
 
-def _project_with_an_odd_pixel(tmp_path):
-    """8 ROIs of 4 frames x 3 rows; pixel 5 of ROI s3 carries a band the others lack."""
-    rng = np.random.default_rng(4)
-    content = np.linspace(1.0, 8.0, 8)
-    bands = np.arange(N_BANDS)
-    peak = np.exp(-((bands - 12) / 3.0) ** 2)
-    cube = np.vstack([2600 - 150 * c * peak + rng.normal(0, 8, (4, 3, N_BANDS))
-                      for c in content])
-    odd = np.exp(-((bands - 24) / 1.5) ** 2)
-    cube[3 * 4 + 1, 2] += 400 * odd  # ROI s3: frame 1, row 2 -> pixel 1 * 3 + 2 = 5
-    path = tmp_path / "scan.h5"
-    save_hdf5(path, cube.astype(np.uint16), np.linspace(1000, 1600, N_BANDS))
-    project = Project.create(tmp_path / "odd.h5")
-    scan = project.add_dataset(path)
-    project.add_target("API", unit="%")
-    for i, value in enumerate(content):
-        scan.add_roi(f"s{i}", frames=(4 * i, 4 * i + 3), rows=(0, 2), values={"API": float(value)})
-    return project
-
-
 def test_an_odd_pixel_is_excluded_and_stored(tmp_path):
-    project = _project_with_an_odd_pixel(tmp_path)
+    project = project_with_an_odd_pixel(tmp_path)
     model = project.fit("API", n_components=2, fit_spec=EXCLUSION)
     s3 = project.roi("s3").roi_id
     excluded = model.excluded_pixels
@@ -115,7 +93,7 @@ def test_an_odd_pixel_is_excluded_and_stored(tmp_path):
 
 def test_no_roi_loses_more_than_its_share(tmp_path):
     """A low level puts many pixels above DCrit; every ROI keeps at least 1 - max_fraction."""
-    project = _project_with_an_odd_pixel(tmp_path)
+    project = project_with_an_odd_pixel(tmp_path)
     model = project.fit("API", n_components=2, fit_spec={"exclusion": {
         "method": "dmodx", "level": 0.51, "rounds": 2, "max_fraction": 0.1}})
     assert all(len(indices) <= 1 for indices in model.excluded_pixels.values())
@@ -125,7 +103,7 @@ def test_no_roi_loses_more_than_its_share(tmp_path):
 
 def test_the_exclusion_sees_only_the_training_pixels_of_each_fold(tmp_path, monkeypatch):
     """Leakage rule: in every fold, the exclusion is fitted on exactly that fold's training rows."""
-    project = _project_with_an_odd_pixel(tmp_path)
+    project = project_with_an_odd_pixel(tmp_path)
     folds: list[tuple[np.ndarray, np.ndarray]] = []
     seen: list[np.ndarray] = []
     real_cv, real_fit = _service.cross_validate, _exclusion.DModXExclusion.fit
@@ -151,7 +129,7 @@ def test_the_exclusion_sees_only_the_training_pixels_of_each_fold(tmp_path, monk
 def test_on_statistics_the_exclusion_sees_only_the_training_blocks_of_each_fold(tmp_path,
                                                                                 monkeypatch):
     """The same leakage rule for fits on statistics: each fold excludes within its own blocks."""
-    project = _project_with_an_odd_pixel(tmp_path)
+    project = project_with_an_odd_pixel(tmp_path)
     folds: list[_gram_fit.Fold] = []
     seen: list[np.ndarray | None] = []
     real_folds, real_exclude = _gram_fit.folds, _gram_fit.exclude
@@ -178,9 +156,9 @@ def test_on_statistics_the_exclusion_sees_only_the_training_blocks_of_each_fold(
 
 
 def test_a_refit_repeats_the_exclusion_and_reports_a_different_one(tmp_path):
-    project = _project_with_an_odd_pixel(tmp_path)
+    project = project_with_an_odd_pixel(tmp_path)
     model = project.fit("API", n_components=2, fit_spec=EXCLUSION)
-    refitted, messages = _warnings_during(model.refit)
+    refitted, messages = warnings_during(model.refit)
     assert refitted.metrics["rmsecv"] == pytest.approx(model.metrics["rmsecv"], rel=1e-9)
     assert not any("excluded other pixels" in message for message in messages)
     with h5py.File(project.path, "r+") as f:  # pretend the stored model excluded another pixel
@@ -192,14 +170,14 @@ def test_a_refit_repeats_the_exclusion_and_reports_a_different_one(tmp_path):
             del group["pixel_indices"]
         group.attrs["pixel_indices"] = indices.astype(np.uint32)
     reopened = Project.open(project.path).model(model_run_id=model.ref.model_run_id)
-    _refitted, messages = _warnings_during(reopened.refit)
+    _refitted, messages = warnings_during(reopened.refit)
     assert any("excluded other pixels" in message for message in messages)
 
 
 @pytest.mark.parametrize("formula", ["dmodx-1", "dmodx-2"])
 def test_the_formula_of_the_specification_is_used_and_stored(tmp_path, monkeypatch, formula):
     """dmodx-2 weights by the modelling power (computed in every round), dmodx-1 does not."""
-    project = _project_with_an_odd_pixel(tmp_path)
+    project = project_with_an_odd_pixel(tmp_path)
     calls: list[int] = []
     real, real_gram = _exclusion.modelling_power, _gram_fit._modelling_power
     monkeypatch.setattr(_exclusion, "modelling_power",

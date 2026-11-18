@@ -5,12 +5,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from enginir.viewer._app import ensure_app
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return ensure_app()
 
 
 @pytest.fixture()

@@ -1,18 +1,19 @@
-"""Tests for the v3 grouped model-run pipeline."""
+"""Fitting a model on a calibration set: the grouped pipeline, stored ROI spectra and ROI scores (sample-set-model-run contract)."""
 
 from __future__ import annotations
 
+from unittest.mock import patch
 import h5py
 from loguru import logger
 import numpy as np
-from PyQt6.QtWidgets import QApplication
 import pytest
-from unittest.mock import patch
-
+from enginir import PreprocessingRecipe, Project
+from enginir.io import save_hdf5
 from enginir.io.project_store import (
     create_project,
     load_model_run_prediction_artifact,
     load_project_store,
+    load_roi_band_images,
     save_calibration_spec,
     save_dataset_ref,
     save_preprocessing_recipe,
@@ -20,28 +21,24 @@ from enginir.io.project_store import (
     save_target_assignment,
     save_target_definition,
     save_training_roi,
-
 )
-from enginir.models import PLSRegression
-from enginir.validation import RoundRobinGroups
+from enginir.modeling import build_sample_set, fit_model_run, roi_spectrum_summaries
 from enginir.modeling._service import _StatelessRecipePredictor
+from enginir.models import PLSRegression
 from enginir.preprocessing._pipeline import (
     fitted_preprocessing_state,
     make_model_pipeline,
     restore_fitted_preprocessing_steps,
     transform_preprocessing_steps,
 )
-from enginir.modeling import build_sample_set, fit_model_run
-from enginir.preprocessing import PreprocessingRecipe
+from enginir.validation import RoundRobinGroups
+from enginir.viewer._modeling import _roi_score_payload
 from enginir.viewer._state import ProjectState
+from tests._project_payloads import recipe_payload, roi_provenance
+from tests._scans import EXCLUSION, project_with_an_odd_pixel
 
-from ._project_payloads import roi_provenance
 
-
-@pytest.fixture(scope="session")
-def qapp():
-    app = QApplication.instance()
-    return app or QApplication([])
+# -- Tests for the v3 grouped model-run pipeline ---------------------------------------
 
 
 def _create_model_project(path: str, *, seed_rois: bool = True) -> None:
@@ -87,23 +84,7 @@ def _create_model_project(path: str, *, seed_rois: bool = True) -> None:
     save_preprocessing_recipe(
         path,
         "recipe_none",
-        {
-            "filter": "none",
-            "sg_window": 11,
-            "sg_polyorder": 2,
-            "snv": False,
-            "msc": False,
-            "emsc": False,
-            "detrend": False,
-            "detrend_order": 1,
-            "sg_edges": "interp",
-            "asls": False,
-            "asls_lambda": 10000.0,
-            "asls_p": 0.001,
-            "asls_iterations": 10,
-            "bands_keep": [],
-            "bands_exclude": [],
-        },
+        recipe_payload(sg_edges="interp"),
     )
     save_signal_domain_contract(
         path,
@@ -499,23 +480,7 @@ def test_fit_model_run_preprocesses_stateless_recipe_once_before_cv(tmp_path, mo
     save_preprocessing_recipe(
         project_path,
         "recipe_stateless",
-        {
-            "filter": "sg_smooth",
-            "sg_window": 3,
-            "sg_polyorder": 2,
-            "snv": True,
-            "msc": False,
-            "emsc": False,
-            "detrend": True,
-            "detrend_order": 1,
-            "sg_edges": "interp",
-            "asls": False,
-            "asls_lambda": 10000.0,
-            "asls_p": 0.001,
-            "asls_iterations": 10,
-            "bands_keep": [],
-            "bands_exclude": [],
-        },
+        recipe_payload(filter="sg_smooth", sg_window=3, snv=True, detrend=True, sg_edges="interp"),
     )
 
     state = ProjectState()
@@ -720,3 +685,386 @@ def test_fit_refuses_a_stored_sample_set_whose_roi_lost_its_target_value(tmp_pat
     with pytest.raises(ValueError, match=r"without a value for target .*roi_2"):
         fit_model_run(**_fit_kwargs(project_path, state, data.sample_set,
                                     target_assignments=without_roi_2))
+
+
+# -- Tests for the v3 sample-set builder -----------------------------------------------
+
+
+def _create_phase5_project(path: str, *, mismatch_second_roi: bool = False) -> None:
+    wavelengths = np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
+    second_wavelengths = (
+        np.array([1000.0, 1150.0, 1200.0], dtype=np.float32) if mismatch_second_roi else wavelengths
+    )
+    create_project(path)
+    save_dataset_ref(
+        path,
+        "dataset_1",
+        {
+            "source_path": "/data/train.eiff",
+            "source_format": "eiff",
+            "source_modality": "nir_hsi",
+            "cube_shape": (3, 3, 3),
+            "n_bands": 3,
+            "wavelengths": wavelengths,
+            "loader_metadata": {"instrument": "alpha"},
+            "import_timestamp": "2026-04-02T10:00:00+00:00",
+        },
+    )
+    save_calibration_spec(
+        path,
+        "dataset_1",
+        "cal_1",
+        {
+            "mode": "raw_dn",
+            "dark_ref_source": None,
+            "white_ref_source": None,
+            "dark_ref_data": None,
+            "white_ref_data": None,
+            "black_level": None,
+            "white_level": None,
+            "output_signal_unit": "DN",
+            "created_at": "2026-04-02T10:01:00+00:00",
+        },
+    )
+    save_target_definition(
+        path,
+        "target_moisture",
+        {
+            "name": "moisture",
+            "unit": "% w/w",
+            "value_type": "float",
+            "missing_value_policy": "allowed",
+            "created_at": "2026-04-02T10:02:00+00:00",
+        },
+    )
+    save_training_roi(
+        path,
+        "roi_1",
+        {
+            "dataset_id": "dataset_1",
+            "calibration_id": "cal_1",
+            "name": "ROI 1",
+            "source_file": "/data/train.eiff",
+            "job": "calibration",
+            "n_pixels": 2,
+            "created_at": "2026-04-02T10:03:00+00:00",
+            "spatial_bounds": (0, 0, 0, 1),
+            "wavelengths": wavelengths,
+            "provenance": roi_provenance(created_at="2026-04-02T10:05:00+00:00"),
+        },
+        np.array([[1, 2, 3], [4, 5, 6]], dtype=np.uint16),
+    )
+    save_training_roi(
+        path,
+        "roi_2",
+        {
+            "dataset_id": "dataset_1",
+            "calibration_id": "cal_1",
+            "name": "ROI 2",
+            "source_file": "/data/train.eiff",
+            "job": "calibration",
+            "n_pixels": 1,
+            "created_at": "2026-04-02T10:04:00+00:00",
+            "spatial_bounds": (1, 1, 0, 0),
+            "wavelengths": second_wavelengths,
+            "provenance": roi_provenance(created_at="2026-04-02T10:06:00+00:00"),
+        },
+        np.array([[7, 8, 9]], dtype=np.uint16),
+    )
+    save_training_roi(
+        path,
+        "roi_3",
+        {
+            "dataset_id": "dataset_1",
+            "calibration_id": "cal_1",
+            "name": "ROI 3",
+            "source_file": "/data/train.eiff",
+            "job": "calibration",
+            "n_pixels": 1,
+            "created_at": "2026-04-02T10:05:00+00:00",
+            "spatial_bounds": (2, 2, 0, 0),
+            "wavelengths": wavelengths,
+            "provenance": roi_provenance(created_at="2026-04-02T10:07:00+00:00"),
+        },
+        np.array([[10, 11, 12]], dtype=np.uint16),
+    )
+    save_target_assignment(
+        path,
+        "target_moisture",
+        "roi_1",
+        {"value": 10.0, "assigned_at": "2026-04-02T10:06:00+00:00"},
+    )
+    save_target_assignment(
+        path,
+        "target_moisture",
+        "roi_2",
+        {"value": 20.0, "assigned_at": "2026-04-02T10:07:00+00:00"},
+    )
+
+
+def test_build_sample_set_from_project_rois_and_assignments(tmp_path):
+    project_path = str(tmp_path / "phase5_sample_set.h5")
+    _create_phase5_project(project_path)
+
+    state = ProjectState()
+    state.open_project(project_path)
+
+    result = build_sample_set(
+        project_path=project_path,
+        rois=state.rois,
+        target_assignments=state.target_assignments,
+        target_id="target_moisture",
+        preprocessing_recipe_id="recipe_none",
+        sample_set_id="sample_set_1",
+    )
+
+    np.testing.assert_array_equal(
+        result.X,
+        np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]], dtype=np.float64),
+    )
+    assert result.X.dtype == np.uint16
+    np.testing.assert_array_equal(result.y, np.array([10.0, 10.0, 20.0], dtype=np.float64))
+    np.testing.assert_array_equal(
+        result.groups, np.array(["roi_1", "roi_1", "roi_2"], dtype=object)
+    )
+    np.testing.assert_array_equal(
+        result.wavelengths, np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
+    )
+
+    sample_set = result.sample_set
+    assert sample_set.sample_set_id == "sample_set_1"
+    assert sample_set.roi_ids == ["roi_1", "roi_2"]
+    assert sample_set.target_id == "target_moisture"
+    assert sample_set.observation_unit == "pixel"
+    assert sample_set.target_level == "roi"
+    assert sample_set.grouping_unit == "roi"
+    assert sample_set.validation_unit == "roi"
+    assert sample_set.weighting_policy == "per_pixel_unweighted"
+    assert sample_set.reporting_level == "roi"
+    assert sample_set.roi_aggregation == "mean"
+    assert sample_set.preprocessing_recipe_id == "recipe_none"
+    assert sample_set.dataset_ids == ["dataset_1"]
+
+
+def test_sample_set_semantics_are_fixed():
+    from enginir.project._models import SAMPLE_SET_SEMANTICS
+
+    assert SAMPLE_SET_SEMANTICS == {
+        "observation_unit": "pixel",
+        "target_level": "roi",
+        "grouping_unit": "roi",
+        "validation_unit": "roi",
+        "weighting_policy": "per_pixel_unweighted",
+        "reporting_level": "roi",
+        "roi_aggregation": "mean",
+    }
+
+
+def test_build_sample_set_excludes_unlabeled_rois(tmp_path):
+    project_path = str(tmp_path / "phase5_sample_set_unlabeled.h5")
+    _create_phase5_project(project_path)
+
+    state = ProjectState()
+    state.open_project(project_path)
+
+    result = build_sample_set(
+        project_path=project_path,
+        rois=state.rois,
+        target_assignments=state.target_assignments,
+        target_id="target_moisture",
+        preprocessing_recipe_id="recipe_none",
+    )
+
+    assert "roi_3" not in result.sample_set.roi_ids
+    assert "roi_3" not in result.groups.tolist()
+
+
+def test_build_sample_set_rejects_incompatible_wavelength_axes(tmp_path):
+    project_path = str(tmp_path / "phase5_sample_set_mismatch.h5")
+    _create_phase5_project(project_path, mismatch_second_roi=True)
+
+    state = ProjectState()
+    state.open_project(project_path)
+
+    with pytest.raises(ValueError, match="different wavelength axis"):
+        build_sample_set(
+            project_path=project_path,
+            rois=state.rois,
+            target_assignments=state.target_assignments,
+            target_id="target_moisture",
+            preprocessing_recipe_id="recipe_none",
+        )
+
+
+def test_build_sample_set_rejects_repeated_rois(tmp_path):
+    project_path = str(tmp_path / "phase5_sample_set_repeated.h5")
+    _create_phase5_project(project_path)
+    state = ProjectState()
+    state.open_project(project_path)
+
+    with pytest.raises(ValueError, match=r"more than once.*roi_1"):
+        build_sample_set(
+            project_path=project_path,
+            rois=state.rois,
+            target_assignments=state.target_assignments,
+            target_id="target_moisture",
+            preprocessing_recipe_id="recipe_none",
+            roi_ids=["roi_1", "roi_2", "roi_1"],
+        )
+
+
+def test_build_sample_set_needs_at_least_one_labelled_roi(tmp_path):
+    project_path = str(tmp_path / "phase5_sample_set_empty.h5")
+    _create_phase5_project(project_path)
+    state = ProjectState()
+    state.open_project(project_path)
+    common = {"project_path": project_path, "rois": state.rois,
+              "target_assignments": state.target_assignments, "target_id": "target_moisture",
+              "preprocessing_recipe_id": "recipe_none"}
+
+    with pytest.raises(ValueError, match="No ROIs selected"):
+        build_sample_set(**common, roi_ids=[])
+    with pytest.raises(ValueError, match="No selected ROI has a value for target"):
+        build_sample_set(**common, roi_ids=["roi_3"])  # roi_3 has no assignment
+
+
+# -- Stored ROIs read back without data files: patches and spectra as the fit sees them ----
+
+
+@pytest.fixture()
+def project(tmp_path):
+    rng = np.random.default_rng(8)
+    cube = rng.integers(1000, 3000, (24, 10, 7)).astype(np.uint16)
+    cube[:2] = 100       # dark frames
+    cube[-2:] = 3600     # white tile
+    path = tmp_path / "tray.h5"
+    save_hdf5(str(path), cube, np.linspace(1000.0, 1600.0, 7))
+    raw_path = tmp_path / "raw.h5"
+    save_hdf5(str(raw_path), cube, np.linspace(1000.0, 1600.0, 7))
+    project = Project.create(tmp_path / "p.h5")
+    tray = project.add_dataset(path, dark_frames=(0, 1), white_frames=(22, 23))
+    tray.add_roi("T1", frames=(3, 6), rows=(1, 4))
+    tray.add_roi("T2", frames=(10, 14), rows=(5, 8))
+    project.add_dataset(raw_path, unit="DN").add_roi("R1", frames=(3, 5), rows=(0, 1))
+    return project, cube
+
+
+def test_band_images_rebuild_each_roi_patch_from_the_project(project):
+    project_obj, cube = project
+    rois = {roi.roi_id: roi for roi in project_obj.workspace.rois.values()}
+    images = load_roi_band_images(project_obj.path, rois, [5, 1, 3])  # any band order
+    t2 = project_obj.roi("T2")
+    np.testing.assert_array_equal(images[t2.roi_id], cube[10:15, 5:9][:, :, [5, 1, 3]])
+
+
+def _summaries(project_obj, unit, recipe=None):
+    ws = project_obj.workspace
+    return roi_spectrum_summaries(project_obj.path, list(ws.rois.values()), datasets=ws.datasets,
+                                  calibrations=ws.calibrations, signal_unit=unit, recipe=recipe)
+
+
+def test_means_follow_the_fit_conversion_and_skip_incompatible_rois(project):
+    project_obj, cube = project
+    summaries, skipped = _summaries(project_obj, "Absorbance")
+    t1 = project_obj.roi("T1")
+    dark, white = cube[:2].mean(axis=0), cube[-2:].mean(axis=0)
+    pixels = cube[3:7, 1:5].astype(float)
+    reflectance = np.clip((pixels - dark[1:5]) / (white[1:5] - dark[1:5]), 1e-6, 1.0)
+    expected = -np.log10(reflectance).reshape(-1, cube.shape[2])
+    np.testing.assert_allclose(summaries[t1.roi_id].mean, expected.mean(axis=0), rtol=1e-5)
+    np.testing.assert_allclose(summaries[t1.roi_id].median, np.median(expected, axis=0),
+                               rtol=1e-5)
+    r1 = project_obj.roi("R1").roi_id
+    assert r1 in skipped and r1 not in summaries  # raw counts cannot give absorbance
+
+
+def test_the_fit_and_the_summaries_convert_identically(project):
+    """The same function converts the ROIs for the fit and for the Project ROIs tab."""
+    from enginir.modeling import _service
+
+    project_obj, _cube = project
+    calls: list[str] = []
+    original = _service.roi_to_signal_domain
+
+    def spy(*args, **kwargs):
+        calls.append(kwargs["roi"].name)
+        return original(*args, **kwargs)
+
+    _service.roi_to_signal_domain = spy
+    try:
+        project_obj.add_target("API", unit="%")
+        project_obj.set_value("T1", "API", 1.0)
+        project_obj.set_value("T2", "API", 2.0)
+        project_obj.fit("API", n_components=1, cv="logo")
+        _summaries(project_obj, "Absorbance")
+    finally:
+        _service.roi_to_signal_domain = original
+    # Each training ROI went through it once for the fit and once for the summaries.
+    assert calls.count("T1") == 2 and calls.count("T2") == 2
+
+
+def test_preprocessing_is_applied_per_pixel_before_averaging(project):
+    project_obj, _cube = project
+    plain, _ = _summaries(project_obj, "Reflectance")
+    snv, _ = _summaries(project_obj, "Reflectance", PreprocessingRecipe(snv=True))
+    t1 = project_obj.roi("T1").roi_id
+    # The mean of SNV-corrected pixels has mean ~0 but is not the SNV of the mean spectrum.
+    assert abs(float(snv[t1].mean.mean())) < 1e-5
+    mean = plain[t1].mean
+    snv_of_mean = (mean - mean.mean()) / mean.std(ddof=1)
+    assert not np.allclose(snv[t1].mean, snv_of_mean, atol=1e-4)
+    assert np.all(snv[t1].p05 <= snv[t1].median) and np.all(snv[t1].median <= snv[t1].p95)
+
+
+# -- ROI scores of the score plot, stored by the fit (model-workspace-diagnostics contract §2, ----
+
+
+PIXELS = 12  # per ROI in the fixture
+
+
+def _expected(model, drawn: int) -> tuple[np.ndarray, np.ndarray]:
+    """ROI means of the final model's own training scores (rows: ROIs in order, drawn pixels,
+    excluded rows left out), written out independently of the library."""
+    diagnostics = model.diagnostics
+    scores = np.asarray(diagnostics["x_scores_"], dtype=np.float64)
+    excluded = model.excluded_pixels
+    roi_ids = [str(r) for r in np.asarray(diagnostics["roi_ids"])]
+    labels = []
+    for index, roi_id in enumerate(roi_ids):
+        kept = drawn - len(excluded.get(roi_id, ()))
+        labels += [index] * kept
+    labels = np.asarray(labels)
+    assert labels.size == scores.shape[0]
+    counts = np.bincount(labels, minlength=len(roi_ids))
+    means = np.stack([np.bincount(labels, weights=scores[:, c], minlength=len(roi_ids))
+                      for c in range(scores.shape[1])], axis=1) / counts[:, None]
+    return means, counts
+
+
+def test_roi_scores_with_exclusion_are_the_means_of_the_kept_pixels(tmp_path):
+    project = project_with_an_odd_pixel(tmp_path)
+    model = project.fit("API", n_components=2, fit_spec=EXCLUSION)
+    assert model.metrics["n_excluded_pixels"] > 0
+    means, counts = _expected(model, PIXELS)
+    np.testing.assert_allclose(model.diagnostics["roi_scores"], means, rtol=1e-4, atol=1e-5)
+    np.testing.assert_array_equal(model.diagnostics["roi_score_pixels"], counts)
+    payload = _roi_score_payload(model.diagnostics)
+    assert payload["scores_roi"].shape == (8, 2) and payload["scores_without_pixels"] == 0
+
+
+def test_roi_scores_with_a_pixel_sample_and_exclusion(tmp_path):
+    project = project_with_an_odd_pixel(tmp_path)
+    for spec, drawn in (({"pixels": {"per_roi": 5, "seed": 1}}, 5),
+                        ({"pixels": {"per_roi": 8, "seed": 2}, **EXCLUSION}, 8)):
+        model = project.fit("API", n_components=2, fit_spec=spec)
+        means, counts = _expected(model, drawn)
+        np.testing.assert_allclose(model.diagnostics["roi_scores"], means, rtol=1e-4,
+                                   atol=1e-5)
+        np.testing.assert_array_equal(model.diagnostics["roi_score_pixels"], counts)
+
+
+def test_the_viewer_shows_missing_roi_scores_as_not_available():
+    payload = _roi_score_payload({"x_scores_": np.ones((10, 2))})
+    assert "scores_roi" not in payload and "not available" in payload["scores_message"]
+    nan_row = np.array([[1.0, 2.0], [np.nan, np.nan]], dtype=np.float32)
+    assert _roi_score_payload({"roi_scores": nan_row})["scores_without_pixels"] == 1

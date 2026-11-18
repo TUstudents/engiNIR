@@ -18,13 +18,6 @@ import enginir
 from enginir._logging import get_logger
 
 
-@pytest.fixture(scope="module")
-def qapp():
-    from PyQt6.QtWidgets import QApplication
-
-    return QApplication.instance() or QApplication([])
-
-
 def _run_python(code: str, tmp_path: Path, **env: str) -> subprocess.CompletedProcess[str]:
     environment = {**os.environ, "HOME": str(tmp_path / "home"), **env}
     environment.pop("ENGINIR_LOG_FILE", None)

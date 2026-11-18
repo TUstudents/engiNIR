@@ -2,7 +2,7 @@
 
 Skipped unless ``ENGINIR_PERF=1``; run it with output shown::
 
-    ENGINIR_PERF=1 QT_QPA_PLATFORM=offscreen uv run pytest tests/test_plot_performance.py -s
+    ENGINIR_PERF=1 QT_QPA_PLATFORM=offscreen uv run pytest benchmarks/test_plot_performance.py -s
 
 It measures real Qt widgets at 1400x900: building the diagnostics, redrawing
 the visible plots for a new payload, and changing one plot. Each step

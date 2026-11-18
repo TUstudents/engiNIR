@@ -6,7 +6,6 @@ from dataclasses import replace
 
 from enginir.project import FitSpec
 
-import time
 import types
 
 import numpy as np
@@ -14,40 +13,12 @@ import pytest
 from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QMessageBox
 
 from enginir.project import (
-    CalibrationSpec,
-    DatasetRef,
-    ModelRun,
     TargetAssignment,
-    TargetDefinition,
-    TrainingROI,
 )
 from enginir.viewer._app import ensure_app
-
-
-def _roi_provenance() -> dict[str, str]:
-    return {
-        "dataset_id": "dataset_1",
-        "calibration_id": "cal_reflectance",
-        "signal_unit": "DN",
-        "preview_recipe_summary": "none",
-        "created_at": "2026-04-02T10:01:00+00:00",
-    }
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return ensure_app()
-
-
-def _wait_until(qapp, predicate, *, timeout: float = 2.0) -> None:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        qapp.processEvents()
-        if predicate():
-            return
-        time.sleep(0.01)
-    qapp.processEvents()
-    assert predicate()
+from tests._qt import wait_until
+from enginir._guidance import figure_text
+from tests import _project_payloads as build
 
 
 @pytest.fixture()
@@ -60,32 +31,16 @@ def state_and_project(tmp_path):
     project = ProjectState()
     project.new_project(str(tmp_path / "modeling.h5"))
     project.register_dataset(
-        DatasetRef(
+        build.dataset(
+            wavelengths.astype('float32'),
             dataset_id="dataset_1",
-            source_path=str(tmp_path / "cube.eiff"),
-            source_format="eiff",
-            source_modality="nir_hsi",
+            source_path=str(tmp_path / 'cube.eiff'),
             cube_shape=cube.shape,
             n_bands=cube.shape[-1],
-            wavelengths=wavelengths.astype("float32"),
-            loader_metadata={},
-            import_timestamp="2026-04-02T10:00:00+00:00",
         )
     )
     project.set_active_calibration(
-        CalibrationSpec(
-            calibration_id="cal_1",
-            dataset_id="dataset_1",
-            mode="raw_dn",
-            dark_ref_source=None,
-            white_ref_source=None,
-            dark_ref_data=None,
-            white_ref_data=None,
-            black_level=None,
-            white_level=None,
-            output_signal_unit="DN",
-            created_at="2026-04-02T10:00:30+00:00",
-        )
+        build.calibration(calibration_id="cal_1", dataset_id="dataset_1")
     )
     return state, project
 
@@ -114,14 +69,7 @@ def test_new_roi_dialog_rejects_non_finite_target_value(qapp, state_and_project,
     from enginir.viewer._modeling import NewROIDialog
 
     state, _project = state_and_project
-    target = TargetDefinition(
-        target_id="target_1",
-        name="moisture",
-        unit="% w/w",
-        value_type="float",
-        missing_value_policy="allowed",
-        created_at="2026-04-02T10:00:00+00:00",
-    )
+    target = build.target(target_id="target_1", name="moisture")
     warnings: list[str] = []
     monkeypatch.setattr(QMessageBox, "warning", lambda *args: warnings.append(str(args[2])))
 
@@ -139,44 +87,31 @@ def test_new_roi_dialog_rejects_non_finite_target_value(qapp, state_and_project,
 def _labelled_rois(state, project, values=(3.2, 3.8), *, unlabelled=0):
     """A Reflectance calibration, target ``moisture`` and one ROI per value (plus unlabelled)."""
     project.set_active_calibration(
-        CalibrationSpec(
+        build.calibration(
             calibration_id="cal_reflectance",
             dataset_id="dataset_1",
             mode="dark_white_reference",
-            dark_ref_source=None,
-            white_ref_source=None,
-            dark_ref_data=None,
-            white_ref_data=None,
             black_level=128.0,
             white_level=3500.0,
             output_signal_unit="Reflectance",
-            created_at="2026-04-02T10:00:30+00:00",
         )
     )
     project.define_target(
-        TargetDefinition(
-            target_id="target_1",
-            name="moisture",
-            unit="% w/w",
-            value_type="float",
-            missing_value_policy="allowed",
-            created_at="2026-04-02T10:01:00+00:00",
-        )
+        build.target(target_id="target_1", name="moisture")
     )
     for index in range(len(values) + unlabelled):
         roi_id = f"roi_{index + 1}"
         project.add_roi(
-            TrainingROI(
+            build.roi(
+                state.wavelengths.astype('float32'),
                 roi_id=roi_id,
                 dataset_id="dataset_1",
                 calibration_id="cal_reflectance",
                 name=roi_id,
-                wavelengths=state.wavelengths.astype("float32"),
                 n_pixels=4,
                 spatial_bounds=(index, index, 0, 3),
                 source_file="/tmp/cube.eiff",
-                created_at="2026-04-02T10:01:30+00:00",
-                provenance=_roi_provenance(),
+                provenance=build.roi_provenance(calibration_id="cal_reflectance"),
             ),
             np.arange(32 * index, 32 * (index + 1), dtype=np.uint16).reshape(4, 8),
         )
@@ -197,16 +132,15 @@ def _fake_fit(captured: list[dict[str, object]], *, fail: bool = False):
         if fail:
             raise RuntimeError("fit exploded")
         return types.SimpleNamespace(
-            model_run=ModelRun(fit_spec=FitSpec(groups=tuple(range(len(kwargs["sample_set"].roi_ids)))).to_dict(), 
-                model_run_id=f"model_{len(captured)}",
-                sample_set_id=kwargs["sample_set"].sample_set_id,
-                signal_domain_id=kwargs["signal_domain_id"],
-                model_type="PLS",
-                hyperparameters={"n_components": 1},
+            model_run=build.model_run(
+                fit_spec=FitSpec(groups=tuple(range(len(kwargs['sample_set'].roi_ids)))).to_dict(),
+                model_run_id=f'model_{len(captured)}',
+                sample_set_id=kwargs['sample_set'].sample_set_id,
+                signal_domain_id=kwargs['signal_domain_id'],
+                hyperparameters={'n_components': 1},
                 cv_spec={},
-                metrics={"rmsecv": 1.23},
+                metrics={'rmsecv': 1.23},
                 artifact_refs={},
-                created_at="2026-04-02T10:04:00+00:00",
             ),
             predictor=object(),
         )
@@ -219,9 +153,7 @@ def test_fit_dialog_starts_from_the_preview_and_explains_readiness(qapp, state_a
 
     state, project = state_and_project
     _labelled_rois(state, project, unlabelled=1)
-    project.define_target(TargetDefinition(
-        target_id="target_2", name="fat", unit="%", value_type="float",
-        missing_value_policy="allowed", created_at="2026-04-02T10:01:00+00:00"))
+    project.define_target(build.target(target_id="target_2", name="fat", unit="%"))
     state.set_preprocess_snv(True)
     view = ModelingView(state, project)
     dialog = FitModelRunDialog([("target_1", "moisture"), ("target_2", "fat")],
@@ -262,7 +194,7 @@ def test_a_fit_stores_its_sample_set_and_a_refit_reuses_it(qapp, state_and_proje
     view = ModelingView(state, project)
     view._selected_target_id = "target_1"
     view.fit_model_btn_clicked()
-    _wait_until(qapp, lambda: "model_1" in project.model_runs)
+    wait_until(qapp, lambda: "model_1" in project.model_runs)
     (sample_set,) = project.sample_sets.values()
     assert sample_set.roi_ids == ["roi_1", "roi_2"] and sample_set.target_id == "target_1"
     assert sample_set.preprocessing_recipe_id == recipe_id_for(state.recipe)
@@ -272,19 +204,19 @@ def test_a_fit_stores_its_sample_set_and_a_refit_reuses_it(qapp, state_and_proje
     named = project.model_runs["model_1"].name or "PLS model"
     assert view._service_status.label.text() == f"Service: model {named}", "a name, not an id"
 
-    _wait_until(qapp, lambda: view._job_thread is None)
+    wait_until(qapp, lambda: view._job_thread is None)
     view.fit_model_btn_clicked()  # the same choices: the same sample set
-    _wait_until(qapp, lambda: "model_2" in project.model_runs)
+    wait_until(qapp, lambda: "model_2" in project.model_runs)
     assert list(project.sample_sets) == [sample_set.sample_set_id]
     assert project.model_runs["model_2"].sample_set_id == sample_set.sample_set_id
     assert len(project.signal_domains) == 1
     assert project.model_runs["model_2"].signal_domain_id \
         == project.model_runs["model_1"].signal_domain_id
 
-    _wait_until(qapp, lambda: view._job_thread is None)
+    wait_until(qapp, lambda: view._job_thread is None)
     chosen["recipe"] = PreprocessingRecipe(snv=True)  # another preprocessing: a new sample set
     view.fit_model_btn_clicked()
-    _wait_until(qapp, lambda: "model_3" in project.model_runs)
+    wait_until(qapp, lambda: "model_3" in project.model_runs)
     snv_id = recipe_id_for(PreprocessingRecipe(snv=True))
     assert len(project.sample_sets) == 2 and snv_id in project.recipes
     assert project.sample_sets[project.model_runs["model_3"].sample_set_id] \
@@ -312,7 +244,7 @@ def test_holding_out_samples_together_reaches_the_fit_as_its_fold_groups(
     view = ModelingView(state, project)
     view._selected_target_id = "target_1"
     view.fit_model_btn_clicked()
-    _wait_until(qapp, lambda: "model_1" in project.model_runs)
+    wait_until(qapp, lambda: "model_1" in project.model_runs)
     spec = captured[0]["fit_spec"]
     assert captured[0]["cv"] is None
     assert (spec.group_by, spec.fold_rule) == ("sample", "leave_one_group_out")
@@ -359,9 +291,9 @@ def test_the_fitting_section_becomes_the_fit_specification(qapp, state_and_proje
 def test_the_inspector_summarises_how_a_run_was_fitted(tmp_path):
     from enginir.io.project_store import load_model_run_artifact_refs
     from enginir.viewer._inspector import fit_summary
-    from tests.test_exclusion import _project_with_an_odd_pixel
+    from tests._scans import project_with_an_odd_pixel
 
-    project = _project_with_an_odd_pixel(tmp_path)
+    project = project_with_an_odd_pixel(tmp_path)
     model = project.fit("API", n_components=2, fit_spec={
         "pixels": {"per_roi": 10, "seed": 3},
         "exclusion": {"method": "dmodx", "formula": "dmodx-2", "level": 0.51,
@@ -406,7 +338,7 @@ def test_a_failed_fit_stores_nothing(qapp, state_and_project, monkeypatch):
 
     view = ModelingView(state, project)
     view.fit_model_btn_clicked()
-    _wait_until(qapp, lambda: bool(warnings))
+    wait_until(qapp, lambda: bool(warnings))
 
     assert captured and "fit exploded" in warnings[0]
     assert project.sample_sets == {} and set(project.recipes) == recipes_before
@@ -451,10 +383,10 @@ def test_reopened_model_run_renders_every_diagnostic_and_selects_rois(qapp, tmp_
     from enginir.viewer._modeling import ModelingView
     from enginir.viewer._state import ProjectState, ViewerState
 
-    from .test_prediction_runs import _create_phase6_model_project
+    from tests._project_payloads import write_model_project
 
     path = str(tmp_path / "diagnostics.h5")
-    _create_phase6_model_project(path)
+    write_model_project(path)
     fitting = ProjectState()
     fitting.open_project(path)
     fitting.build_sample_set(target_id="target_moisture", preprocessing_recipe_id="recipe_none",
@@ -530,12 +462,11 @@ def test_auto_components_choose_by_a_rule(qapp, state_and_project):
 
 def test_fit_again_presets_the_dialog_from_the_selected_model(tmp_path):
     """Every choice of a stored model comes back in the dialog, so OK refits it unchanged."""
-    from enginir.viewer._app import ensure_app
     from enginir.viewer._modeling import FitModelRunDialog
-    from tests.test_exclusion import _project_with_an_odd_pixel
+    from tests._scans import project_with_an_odd_pixel
 
     ensure_app()
-    project = _project_with_an_odd_pixel(tmp_path)
+    project = project_with_an_odd_pixel(tmp_path)
     model = project.fit("API", n_components=3, x_scaling="pareto", cv="logo", fit_spec=None)
     dialog = FitModelRunDialog([("t", "API")], default_target_id="t",
                                recipe=__import__("enginir").PreprocessingRecipe(),
@@ -562,9 +493,9 @@ def test_fit_again_presets_the_dialog_from_the_selected_model(tmp_path):
 
 def test_the_diagnostics_payload_carries_the_curve_and_the_training_distances(tmp_path):
     from enginir.viewer._modeling import _component_payload
-    from tests.test_exclusion import _project_with_an_odd_pixel
+    from tests._scans import project_with_an_odd_pixel
 
-    project = _project_with_an_odd_pixel(tmp_path)
+    project = project_with_an_odd_pixel(tmp_path)
     model = project.fit("API", n_components=2)
     from enginir.io.project_store import load_model_run_artifact_refs
 
@@ -601,8 +532,8 @@ def test_the_summary_names_the_model_and_its_validation_and_the_check_logs_no_er
     view = ModelingView(state, project)
     view._selected_target_id = "target_1"
     view.fit_model_btn_clicked()
-    _wait_until(qapp, lambda: "model_1" in project.model_runs)
-    _wait_until(qapp, lambda: view._job_thread is None)
+    wait_until(qapp, lambda: "model_1" in project.model_runs)
+    wait_until(qapp, lambda: view._job_thread is None)
     run = project.model_runs["model_1"]
     run.cv_spec = {"type": "RoundRobinGroups", "n_splits": 2, "n_groups": 2,
                    "grouping_unit": "roi"}
@@ -760,7 +691,7 @@ def test_the_components_page_explains_each_rule_and_the_guard():
 
     from enginir.viewer._model_diagnostics import _render_components, _render_per_component
     from enginir.viewer._theme import panel_colors
-    from tests.test_component_selection import EVIDENCE
+    from tests._scans import EVIDENCE
 
     curve = {**EVIDENCE, "suggested_one_se": 7, "suggested_min_rmsecv": 15,
              "suggested_q2_limit": 1, "suggested_f_test": 6, "suggested_q2_lookahead": 6}
@@ -853,8 +784,8 @@ def test_fit_again_presets_the_models_signal_unit_and_its_full_seed(
     view = ModelingView(state, project)
     view._selected_target_id = "target_1"
     view.fit_model_btn_clicked()
-    _wait_until(qapp, lambda: "model_1" in project.model_runs)
-    _wait_until(qapp, lambda: view._job_thread is None)
+    wait_until(qapp, lambda: "model_1" in project.model_runs)
+    wait_until(qapp, lambda: view._job_thread is None)
     assert state.y_unit != "Reflectance", "Explore shows another signal"
 
     def look(self):
@@ -917,3 +848,94 @@ def test_the_distance_notes_stay_inside_their_plot(width):
     FigureCanvasAgg(fig)
     spec.render(fig, {"dmodx_pixels": values, "dcrit_099": float("nan")}, panel_colors())
     assert not any("limit 0.99" in t.get_text() for t in fig.axes[0].texts)
+
+
+# -- Fit summary, numbers and the fit form ---------------------------------------------
+
+
+def test_a_dimensionless_unit_is_not_printed(qapp, window):
+    from enginir.viewer._ui_helpers import with_unit
+
+    assert (with_unit("API", "%"), with_unit("Layers", "1"), with_unit("Layers", "")) \
+        == ("API (%)", "Layers", "Layers")
+    form = window._modeling_view.fit_form
+    assert form._target_combo.currentText() == "Layers"  # the example's unit is "1"
+    assert window._modeling_view.workspace_summary()["target"] == "Layers"
+
+
+def test_one_number_format_for_the_figures_of_merit(qapp, window):
+    from enginir import Project
+    from enginir._workflow import Model
+
+    assert (figure_text(1.10724), figure_text(0.89104), figure_text(12345.6)) \
+        == ("1.107", "0.891", "1.235e+04")
+    project = Project.open(window.project_state.project_path)
+    run = next(iter(window.project_state.model_runs.values()))
+    verdict = Model(project, run).verdict()
+    metrics = run.metrics
+    for key in ("rmsecv", "r2", "rpd"):
+        assert figure_text(metrics[key]) in verdict.summary, key
+    summary = window._modeling_view.workspace_summary()
+    assert summary["rmsecv"] == figure_text(metrics["rmsecv"])
+    table = window._models_panel.table
+    shown = [table.item(0, column).data(0) for column in (3, 4, 5)]
+    assert shown == [float(figure_text(metrics[key])) for key in ("rmsecv", "r2", "rpd")]
+    assert np.isfinite(shown).all()
+
+
+def test_the_fit_form_takes_only_what_changed_in_the_explore_preview(qapp, edited_window):
+    """Opening a dataset switches the preview's signal unit; that must not replace the
+    shown model's preprocessing (SNV) by the preview's (none)."""
+    from enginir.preprocessing import PreprocessingRecipe
+
+    window = edited_window(lambda project: project.fit(
+        "Layers", recipe=PreprocessingRecipe(snv=True), n_components=2, name="SNV model",
+        fit_spec={"folds": {"group_by": "sample"}}))
+    window.show_step("model")
+    qapp.processEvents()
+    view = window._modeling_view
+    form = view.fit_form
+    assert form._snv.isChecked() and not view.fit_settings_changed(), "the model's settings"
+    assert not window.state.preprocess_snv
+
+    window.show_step("data")
+    window.show_dataset(sorted(window.project_state.datasets)[0])
+    window.wait_for_data_file()
+    qapp.processEvents()
+    assert form._snv.isChecked() and not view.fit_settings_changed()
+
+    window.state.set_preprocess_filter("sg_d1")  # an edit of the preview
+    qapp.processEvents()
+    assert form._filter_combo.currentData() == "sg_d1", "the changed setting follows"
+    assert form._snv.isChecked(), "the others stay"
+    assert view.fit_settings_changed()
+    window.state.set_preprocess_filter("none")
+
+
+@pytest.mark.parametrize("size", [(3.2, 2.4), (5.0, 3.5)])
+def test_the_statistics_of_predicted_vs_target_cover_no_point(size):
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    from enginir.viewer._model_diagnostics import _covered, _render_pred_vs_ref
+    from enginir.viewer._theme import panel_colors
+
+    rng = np.random.default_rng(1)
+    y_true = np.repeat([1.0, 4.0, 7.0, 10.0], 5)
+    y_pred = y_true + rng.normal(0, 1.2, y_true.size)
+    y_pred[:3] = 9.5  # wrong predictions where the block sits by default (top left)
+    fig = Figure(figsize=size, dpi=100)
+    FigureCanvasAgg(fig)
+    _render_pred_vs_ref(fig, {"y_true_roi": y_true, "y_pred_roi": y_pred}, panel_colors())
+    fig.canvas.draw()
+    ax = fig.axes[0]
+    block = next(text for text in ax.texts if "RMSECV" in text.get_text())
+    assert _covered(ax, block, fig.canvas.get_renderer(), y_true, y_pred) == 0
+
+
+def test_the_fit_summary_names_signal_preprocessing_and_datasets(qapp, window):
+    window.show_step("model")
+    qapp.processEvents()
+    window._refresh_model_workspace_content()
+    assert window._model_card_signal_value.text() == "Absorbance, no preprocessing"
+    assert window._model_card_dataset_count_value.text() == "4"

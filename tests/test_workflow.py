@@ -6,52 +6,23 @@ import numpy as np
 import pytest
 
 from enginir import PreprocessingRecipe, Project
-from enginir.io import load_project_store, save_hdf5
-
-N_SAMPLES, FRAMES_PER_SAMPLE, HEIGHT, N_BANDS = 6, 3, 4, 12
-CONTENT = np.linspace(1, 6, N_SAMPLES)
-
-
-def _scan(path, *, offset=0.0, wavelengths=None, dtype=np.uint16):
-    """A scan of N_SAMPLES samples whose absorption grows with CONTENT."""
-    rng = np.random.default_rng(1)
-    peak = np.exp(-((np.arange(N_BANDS) - N_BANDS / 2) / 2) ** 2)
-    content = np.repeat(CONTENT, FRAMES_PER_SAMPLE)[:, None, None]
-    cube = 2500 - 150 * content * peak + offset + rng.normal(0, 3, (len(content), HEIGHT, N_BANDS))
-    if np.dtype(dtype).kind == "f":
-        cube = cube / 3500
-    if wavelengths is None:
-        wavelengths = np.linspace(1000, 1600, N_BANDS)
-    save_hdf5(path, cube.astype(dtype), wavelengths)
-    return str(path)
-
-
-def _labelled_project(tmp_path, **dataset_kwargs):
-    project = Project.create(tmp_path / "project.h5")
-    scan = project.add_dataset(_scan(tmp_path / "scan.h5"), **dataset_kwargs)
-    project.add_target("API", unit="%")
-    for i, value in enumerate(CONTENT):
-        first = FRAMES_PER_SAMPLE * i
-        scan.add_roi(f"s{i}", frames=(first, first + FRAMES_PER_SAMPLE - 1),
-                     rows=(0, HEIGHT - 1), values={"API": value})
-    return project, scan
-
-
-def _counts(project):
-    stored = load_project_store(project.path)
-    return {key: len(value) for key, value in stored.items() if key != "project_meta"}
+from enginir.io import save_hdf5
+from tests._scans import (
+    CONTENT, FRAMES_PER_SAMPLE, HEIGHT, N_BANDS, N_SAMPLES, labelled_project, scan_file,
+    stored_counts, warnings_during,
+)
 
 
 @pytest.mark.parametrize("action", ["fit", "propose_bands"])
 def test_a_target_without_values_is_refused_by_its_name(tmp_path, action):
-    project, _scan = _labelled_project(tmp_path)
+    project, _scan = labelled_project(tmp_path)
     project.add_target("Moisture", unit="%")
     with pytest.raises(ValueError, match="No selected ROI has a value for target 'Moisture'$"):
         getattr(project, action)("Moisture", recipe=PreprocessingRecipe(snv=True))
 
 
 def test_workflow_fits_predicts_and_reopens_identically(tmp_path):
-    project, scan = _labelled_project(tmp_path)
+    project, scan = labelled_project(tmp_path)
     model = project.fit("API", recipe=PreprocessingRecipe(snv=True), n_components=2)
     prediction = model.predict(scan.path)
 
@@ -71,7 +42,7 @@ def test_workflow_fits_predicts_and_reopens_identically(tmp_path):
 def test_the_facade_refuses_names_it_creates_itself(tmp_path):
     from enginir._workflow import roi_grid
 
-    project, scan = _labelled_project(tmp_path)
+    project, scan = labelled_project(tmp_path)
     with pytest.raises(ValueError, match="ROI called 's0' already exists"):
         scan.add_roi("s0", frames=(0, 0), rows=(0, 0))
     with pytest.raises(ValueError, match="ROI called 's1' already exists"):
@@ -93,8 +64,8 @@ def _with_repeated_names(tmp_path):
     stored through the typed, id-based layer as the viewer does."""
     from enginir._workflow import make_roi, read_frames
 
-    project, scan = _labelled_project(tmp_path)
-    other = project.add_dataset(_scan(tmp_path / "other.h5", offset=40.0))
+    project, scan = labelled_project(tmp_path)
+    other = project.add_dataset(scan_file(tmp_path / "other.h5", offset=40.0))
     pixels = read_frames(other.path, 0, N_SAMPLES * FRAMES_PER_SAMPLE - 1)
     built = [make_roi(other.ref, other.calibration, name=f"s{i}",
                       frames=(FRAMES_PER_SAMPLE * i, FRAMES_PER_SAMPLE * (i + 1) - 1),
@@ -131,7 +102,7 @@ def test_names_are_labels_and_may_repeat(tmp_path):
 
 
 def test_id_lookups_are_strict(tmp_path):
-    project, scan = _labelled_project(tmp_path)
+    project, scan = labelled_project(tmp_path)
     with pytest.raises(TypeError, match="not both or neither"):
         project.roi()
     with pytest.raises(TypeError, match="not both or neither"):
@@ -139,7 +110,7 @@ def test_id_lookups_are_strict(tmp_path):
     with pytest.raises(KeyError, match="No ROI with id 's0'"):
         project.roi(roi_id="s0")  # a name is never taken for an id
     (tmp_path / "b").mkdir()
-    elsewhere, _scan_b = _labelled_project(tmp_path / "b")
+    elsewhere, _scan_b = labelled_project(tmp_path / "b")
     with pytest.raises(KeyError, match="No ROI with id"):
         project.set_value(elsewhere.roi("s0"), "API", 1.0)  # an ROI of another project
 
@@ -147,7 +118,7 @@ def test_id_lookups_are_strict(tmp_path):
 def test_typed_writes_check_ids_not_names(tmp_path):
     from enginir._workflow import make_roi, read_frames
 
-    project, scan = _labelled_project(tmp_path)
+    project, scan = labelled_project(tmp_path)
     pixels = read_frames(scan.path, 0, 0)
     roi, spectra, refs = make_roi(scan.ref, scan.calibration, name="s0", frames=(0, 0),
                                   rows=(0, 0), pixels=pixels)
@@ -159,10 +130,10 @@ def test_typed_writes_check_ids_not_names(tmp_path):
 
 def test_a_registered_file_is_reused_and_a_changed_one_refused(tmp_path):
     project = Project.create(tmp_path / "project.h5")
-    path = _scan(tmp_path / "scan.h5")
+    path = scan_file(tmp_path / "scan.h5")
     project.add_dataset(path)
     project.add_dataset(path)
-    assert _counts(project)["datasets"] == 1
+    assert stored_counts(project)["datasets"] == 1
     assert len(project.workspace.calibrations) == 1  # same content, not duplicated
 
     save_hdf5(path, np.zeros((2, HEIGHT, N_BANDS), np.uint16), np.linspace(1000, 1600, N_BANDS))
@@ -178,7 +149,7 @@ def test_a_registered_file_is_reused_and_a_changed_one_refused(tmp_path):
 )
 def test_calibration_follows_the_data_and_unit(tmp_path, dtype, kwargs, mode, levels):
     project = Project.create(tmp_path / "project.h5")
-    calibration = project.add_dataset(_scan(tmp_path / "scan.h5", dtype=dtype),
+    calibration = project.add_dataset(scan_file(tmp_path / "scan.h5", dtype=dtype),
                                       **kwargs).calibration
     assert calibration.mode == mode
     assert (calibration.black_level, calibration.white_level) == levels
@@ -189,7 +160,7 @@ def test_reference_spectra_calibrate_and_travel_with_each_roi(tmp_path):
 
     dark = np.full((HEIGHT, N_BANDS), 100.0)
     white = np.full((2, HEIGHT, N_BANDS), 3000.0)  # a cube: averaged over frames
-    project, _ = _labelled_project(tmp_path, dark=dark, white=white)
+    project, _ = labelled_project(tmp_path, dark=dark, white=white)
 
     calibration = next(iter(project.datasets.values())).calibration
     np.testing.assert_array_equal(calibration.white_ref_data, white.mean(axis=0))
@@ -198,14 +169,14 @@ def test_reference_spectra_calibrate_and_travel_with_each_roi(tmp_path):
     assert dark_pixels.shape == load_roi_spectra_batch(
         project.path, [roi.spectra_storage_key])[roi.spectra_storage_key].shape
     with pytest.raises(ValueError, match="both dark and white"):
-        project.add_dataset(_scan(tmp_path / "other.h5"), dark=dark)
+        project.add_dataset(scan_file(tmp_path / "other.h5"), dark=dark)
 
 
 def test_refitting_reuses_sample_set_recipe_and_signal_domain(tmp_path):
-    project, _ = _labelled_project(tmp_path)
+    project, _ = labelled_project(tmp_path)
     project.fit("API", recipe=PreprocessingRecipe(snv=True), n_components=1)
     project.fit("API", recipe=PreprocessingRecipe(snv=True), n_components=2)
-    counts = _counts(project)
+    counts = stored_counts(project)
     assert (counts["recipes"], counts["sample_sets"], counts["signal_domains"],
             counts["model_runs"]) == (1, 1, 1, 2)
 
@@ -251,19 +222,19 @@ def test_cross_validation_does_not_depend_on_the_random_roi_ids(tmp_path, monkey
 
 
 def test_one_model_refuses_rois_recorded_in_different_signals(tmp_path):
-    project, _ = _labelled_project(tmp_path)
-    other = project.add_dataset(_scan(tmp_path / "dn.h5"), unit="DN")
+    project, _ = labelled_project(tmp_path)
+    other = project.add_dataset(scan_file(tmp_path / "dn.h5"), unit="DN")
     other.add_roi("dn sample", frames=(0, 2), rows=(0, 3), values={"API": 1.0})
-    before = _counts(project)
+    before = stored_counts(project)
 
     with pytest.raises(ValueError, match="different signal"):
         project.fit("API", n_components=1)
-    assert _counts(project) == before
+    assert stored_counts(project) == before
 
 
 def test_failed_calls_write_nothing(tmp_path):
-    project, scan = _labelled_project(tmp_path)
-    before = _counts(project)
+    project, scan = labelled_project(tmp_path)
+    before = stored_counts(project)
 
     with pytest.raises(KeyError, match="No target called 'water'"):
         scan.add_roi("new", frames=(0, 0), rows=(0, 0), values={"water": 1.0})
@@ -271,41 +242,29 @@ def test_failed_calls_write_nothing(tmp_path):
         scan.add_roi("new", frames=(0, 99), rows=(0, 0))
     with pytest.raises(ValueError):
         project.fit("API", n_components=99)
-    assert _counts(project) == before
+    assert stored_counts(project) == before
 
 
 def test_prediction_is_refused_before_an_incompatible_file_is_registered(tmp_path):
-    project, _ = _labelled_project(tmp_path)
+    project, _ = labelled_project(tmp_path)
     model = project.fit("API", n_components=1)
-    before = _counts(project)
+    before = stored_counts(project)
     path = tmp_path / "fewer_bands.h5"
     save_hdf5(path, np.full((3, HEIGHT, N_BANDS - 1), 2000, np.uint16),
               np.linspace(1000, 1600, N_BANDS - 1))
 
     with pytest.raises(ValueError, match="n_bands"):
         model.predict(path)
-    assert _counts(project) == before
-
-
-def _warnings_during(action):
-    from loguru import logger
-
-    messages: list[str] = []
-    sink_id = logger.add(lambda message: messages.append(str(message)), level="WARNING")
-    try:
-        result = action()
-    finally:
-        logger.remove(sink_id)
-    return result, messages
+    assert stored_counts(project) == before
 
 
 def test_refit_reproduces_a_model_from_its_stored_sample_set(tmp_path):
-    project, scan = _labelled_project(tmp_path)
+    project, scan = labelled_project(tmp_path)
     model = project.fit("API", recipe=PreprocessingRecipe(snv=True), n_components=2, cv=3)
     # A value added later changes what fit() would use, not what refit() uses.
     scan.add_roi("late", frames=(0, 1), rows=(0, 1), values={"API": 9.0})
 
-    refitted, warnings = _warnings_during(model.refit)
+    refitted, warnings = warnings_during(model.refit)
     # The test project has fewer than 7 fold groups: the fold warning is expected, a refit
     # difference is not.
     assert [w for w in warnings if "likely optimistic" not in w] == []
@@ -327,10 +286,10 @@ def test_refit_reproduces_a_model_from_its_stored_sample_set(tmp_path):
 
 
 def test_refit_reports_changed_values_and_refuses_deleted_rois(tmp_path):
-    project, scan = _labelled_project(tmp_path)
+    project, scan = labelled_project(tmp_path)
     model = project.fit("API", n_components=1, cv="logo")
     project.set_value("s2", "API", 7.5)
-    refitted, warnings = _warnings_during(model.refit)
+    refitted, warnings = warnings_during(model.refit)
     assert any("1 target value(s) changed" in w for w in warnings)
     assert any("differs in" in w and "rmsecv" in w for w in warnings)
     assert refitted.metrics["rmsecv"] != pytest.approx(model.metrics["rmsecv"])

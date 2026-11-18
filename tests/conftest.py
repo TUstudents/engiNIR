@@ -23,12 +23,15 @@ os.environ["APPDATA"] = _SESSION_CONFIG
 
 @pytest.fixture(autouse=True)
 def _isolated_user_config(tmp_path, monkeypatch):
-    """Keep the viewer's recent files and theme out of the user's real config."""
+    """Keep the viewer's settings out of the user's real config.
+
+    HOME is redirected on every platform, so a test that unsets
+    XDG_CONFIG_HOME still writes into ``tmp_path``.
+    """
     config = tmp_path / "user_config"
     monkeypatch.setenv("XDG_CONFIG_HOME", str(config))  # Linux
     monkeypatch.setenv("APPDATA", str(config))          # Windows
-    if sys.platform == "darwin":
-        monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))  # macOS, and Linux without XDG
 
 
 @pytest.fixture(autouse=True)
@@ -78,7 +81,6 @@ def _exceptions_in_qt_slots_fail():
     PyQt passes such exceptions to ``sys.excepthook`` and carries on, so a
     broken signal handler would otherwise go unnoticed.
     """
-    import sys
 
     raised: list[BaseException] = []
     original = sys.excepthook
@@ -87,3 +89,66 @@ def _exceptions_in_qt_slots_fail():
     sys.excepthook = original
     if raised:
         pytest.fail(f"exception in a Qt slot: {raised[0]!r}")
+
+
+@pytest.fixture()
+def tray(tmp_path):
+    """The prediction-ROI tray (``tests._scans.tray_project``): ``(project, dataset, path)``."""
+    from tests._scans import tray_project
+
+    return tray_project(tmp_path)
+
+
+@pytest.fixture(scope="session")
+def qapp():
+    """The one QApplication of the run, with the engiNIR theme (``ensure_app``)."""
+    from enginir.viewer._app import ensure_app
+
+    return ensure_app()
+
+
+@pytest.fixture(scope="module")
+def example(tmp_path_factory):
+    """The example project (synthetic tablets with a fitted model), once per module."""
+    from enginir._example import create_example_project
+
+    return create_example_project(tmp_path_factory.mktemp("example"))
+
+
+@pytest.fixture()
+def window(qapp, example):
+    """A window on :func:`example` at 1536 x 864, with its checks."""
+    from enginir.viewer import open_project
+
+    window = open_project(example)
+    window.resize(1536, 864)
+    window.show()
+    qapp.processEvents()
+    window.refresh_checks()
+    yield window
+    window.close()
+
+
+@pytest.fixture()
+def edited_window(qapp, tmp_path):
+    """A window on a copy of the example after ``edit(project)``; the example has no open check."""
+    from enginir import Project
+    from enginir._example import create_example_project
+    from enginir.viewer import open_project
+
+    windows = []
+
+    def open_edited(edit):
+        project = Project.open(create_example_project(tmp_path))
+        edit(project)
+        window = open_project(project.path)
+        window.resize(1536, 864)
+        window.show()
+        qapp.processEvents()
+        window.refresh_checks()
+        windows.append(window)
+        return window
+
+    yield open_edited
+    for window in windows:
+        window.close()

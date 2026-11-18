@@ -7,12 +7,6 @@ import pytest
 
 from enginir import Project
 from enginir.io import save_hdf5
-from enginir.viewer._app import ensure_app
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return ensure_app()
 
 
 @pytest.fixture()

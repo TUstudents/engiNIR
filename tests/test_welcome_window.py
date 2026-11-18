@@ -7,12 +7,6 @@ import sys
 
 import pytest
 
-from enginir.viewer._app import ensure_app
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return ensure_app()
 
 
 @pytest.fixture()

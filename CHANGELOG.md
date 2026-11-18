@@ -25,6 +25,18 @@ The contracts follow the 1.6 viewer; a few viewer fixes found on the way.
 - The README follows the 1.6 viewer, with new screenshots of the example
   project; its guarantees are two guiding principles.
 
+- The test suite is organized by topic: 44 files instead of 79, with the same
+  line coverage. The files named after the work that produced them
+  (`test_polish.py`, `test_review_fixes.py`) are split up by topic; project
+  objects, synthetic scans, EIFF files and Qt waits come from shared builders
+  (`tests/_project_payloads.py`, `tests/_scans.py`, `tests/_eiff.py`,
+  `tests/_qt.py`) and `qapp`, `tray` and the example window from
+  `conftest.py`, so no test module imports another. Tests that only checked
+  stored attributes, an end-to-end test whose data file is not in the
+  repository, and duplicates are gone; the timing benchmarks moved to
+  `benchmarks/`. Every test now runs with HOME in a temporary folder, so no
+  test can write the user's real settings.
+
 ### Added
 
 - Documentation: **Regulatory context**, what engiNIR guarantees and which

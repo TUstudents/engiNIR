@@ -1,19 +1,17 @@
-"""Tools > Preferences (plan gui-1.6, Phase 6): stored per user, never in a project."""
+"""Per-user settings: Tools > Preferences and recent files, never stored in a project."""
 
 from __future__ import annotations
 
+from importlib import reload
 import json
 import os
-
+from pathlib import Path
+import sys
 import pytest
-
 from enginir.viewer import _preferences as prefs
-from enginir.viewer._app import ensure_app
 
 
-@pytest.fixture(scope="module")
-def qapp():
-    return ensure_app()
+# -- Tools > Preferences (plan gui-1.6, Phase 6): stored per user, never in a project ----
 
 
 def test_preferences_round_trip_and_tolerate_a_damaged_file():
@@ -153,3 +151,79 @@ def test_the_drive_mapping_shown_is_the_one_applied(qapp, monkeypatch):
     applied = drive_mapped(PureWindowsPath("Z:\\"), windows=False, wsl_root="/wsl/")
     assert applied is not None and f"→  {applied}" in shown, (shown, applied)
     assert "Z:\\" in prefs.drive_mapping_text(windows=True), "Windows maps to the drive"
+
+
+# -- Focused tests for recent-file persistence -----------------------------------------
+
+
+@pytest.fixture()
+def _no_xdg_config_home(monkeypatch, tmp_path):
+    """HOME in ``tmp_path`` and no XDG_CONFIG_HOME, for the recent-files tests.
+
+    The tests redirect HOME; an XDG_CONFIG_HOME set by the environment (as on
+    CI runners) would take precedence and point at the real config directory.
+    HOME is redirected here too, so nothing reaches the real one.
+    """
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+
+@pytest.mark.usefixtures("_no_xdg_config_home")
+@pytest.mark.parametrize(
+    ("platform_name", "env_name", "env_value", "expected"),
+    [
+        ("linux", "HOME", "home", Path("home/.config/enginir")),
+        ("win32", "APPDATA", "appdata", Path("appdata/enginir")),
+        ("darwin", "HOME", "home", Path("home/Library/Application Support/enginir")),
+    ],
+)
+def test_config_dir_uses_platform_specific_location(
+    monkeypatch,
+    tmp_path,
+    platform_name,
+    env_name,
+    env_value,
+    expected,
+):
+    monkeypatch.setattr(sys, "platform", platform_name)
+    monkeypatch.setenv(env_name, str(tmp_path / env_value))
+    import enginir.viewer._recent as recent
+
+    reload(recent)
+
+    assert recent.config_dir() == tmp_path / expected
+
+
+@pytest.mark.usefixtures("_no_xdg_config_home")
+def test_load_returns_empty_list_for_malformed_json(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    import enginir.viewer._recent as recent
+
+    reload(recent)
+    cfg = recent.config_dir()
+    cfg.mkdir(parents=True)
+    (cfg / "recent.json").write_text("not json{{", encoding="utf-8")
+
+    assert recent.load() == []
+
+
+@pytest.mark.usefixtures("_no_xdg_config_home")
+def test_add_keeps_most_recent_order_without_duplicates_and_caps_length(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    import enginir.viewer._recent as recent
+
+    reload(recent)
+    recent.add("/a.eiff")
+    recent.add("/b.eiff")
+    recent.add("/a.eiff")
+    for index in range(15):
+        recent.add(f"/file_{index}.eiff")
+
+    loaded = recent.load()
+
+    assert len(loaded) == 10
+    assert loaded[0].endswith("/file_14.eiff")
+    assert len(set(loaded)) == len(loaded)
+    assert not any(path.endswith("/b.eiff") for path in loaded)

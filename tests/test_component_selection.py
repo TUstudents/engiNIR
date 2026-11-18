@@ -18,7 +18,7 @@ from enginir.validation import (
     noise_components,
     structure_ceiling,
 )
-from tests.test_fit_spec import _uneven_project, _warnings_during
+from tests._scans import EVIDENCE, uneven_project, warnings_during
 
 
 # -- the rules ---------------------------------------------------------------------------
@@ -87,7 +87,7 @@ def test_r2x_of_pcr_is_its_explained_variance():
 
 def test_the_curve_at_the_runs_components_is_the_runs_cross_validation(tmp_path):
     """Without exclusion one cross-validation serves both; the curve uses the run's folds."""
-    project = _uneven_project(tmp_path)
+    project = uneven_project(tmp_path)
     model = project.fit("API", n_components=2)
     curve = model.component_curve
     assert curve["rmsecv"][1] == pytest.approx(model.metrics["rmsecv"], rel=1e-6)
@@ -97,7 +97,7 @@ def test_the_curve_at_the_runs_components_is_the_runs_cross_validation(tmp_path)
 
 
 def test_auto_chooses_by_the_rule_and_a_refit_keeps_the_number(tmp_path):
-    project = _uneven_project(tmp_path)
+    project = uneven_project(tmp_path)
     model = project.fit("API", n_components="auto")
     curve = model.component_curve
     chosen = model.ref.hyperparameters["n_components"]
@@ -121,7 +121,7 @@ def test_auto_chooses_by_the_rule_and_a_refit_keeps_the_number(tmp_path):
         group["hyperparameters"].attrs["n_components"] = other
         group["fit_spec/components"].attrs["selected"] = other
     stored = Project.open(project.path).model(model_run_id=model.ref.model_run_id)
-    refitted, messages = _warnings_during(stored.refit)
+    refitted, messages = warnings_during(stored.refit)
     assert refitted.ref.hyperparameters["n_components"] == other
     assert any("would now choose" in message for message in messages)
 
@@ -133,7 +133,7 @@ def test_auto_chooses_by_the_rule_and_a_refit_keeps_the_number(tmp_path):
     ({"n_components": "many"}, "number or 'auto'"),
 ])
 def test_requests_that_cannot_be_met_are_refused(tmp_path, kwargs, message):
-    project = _uneven_project(tmp_path)
+    project = uneven_project(tmp_path)
     with pytest.raises(ValueError, match=message):
         project.fit("API", **kwargs)
     assert project.models == {}
@@ -144,7 +144,7 @@ def test_requests_that_cannot_be_met_are_refused(tmp_path, kwargs, message):
 
 def test_training_statistics_follow_their_formulas(tmp_path):
     """RMSEE (N - 1 - A), T² with its F-form limit, DModX (dmodx-1), CoeffCS (§5, §7.5)."""
-    project = _uneven_project(tmp_path)
+    project = uneven_project(tmp_path)
     model = project.fit("API", n_components=2)
     diagnostics, metrics = model.diagnostics, model.metrics
     scores = np.asarray(diagnostics["x_scores_"], dtype=np.float64)
@@ -175,7 +175,7 @@ def test_training_dmodx_equals_the_exclusion_formula():
 
 
 def test_a_selected_number_that_differs_from_the_model_is_refused_on_reading(tmp_path):
-    project = _uneven_project(tmp_path)
+    project = uneven_project(tmp_path)
     model = project.fit("API", n_components=2)
     with h5py.File(project.path, "r+") as f:
         f[f"model_runs/{model.ref.model_run_id}/fit_spec/components"].attrs["selected"] = 3
@@ -199,19 +199,7 @@ def test_the_standard_error_is_the_delta_method_of_the_roi_errors():
         rtol=1e-10)
 
 
-
 # -- autofit beyond the 1.3 rules (contract §7.4, plan component-diagnostics-and-autofit) ----
-
-#: The first real model of the plan (20 ROIs, levels 1/4/7/10): one SE chose 7 components.
-EVIDENCE = {
-    "rmsecv": [3.01, 2.84, 2.46, 2.01, 1.88, 1.66, 1.585, 1.49, 1.485, 1.48, 1.48, 1.47,
-               1.46, 1.46, 1.459],
-    "rmsecv_se": [0.27] * 14 + [0.164],
-    "q2": [0.193, -0.015, 0.149, 0.23, -0.021, 0.065, -0.062, -0.031, -0.201, -0.181,
-           -0.186, -0.185, -0.174, -0.194, -0.188],
-    "r2x_cum": np.cumsum([0.713, 0.147, 0.048, 0.029, 0.044, 0.004, 0.003, 0.001, 0.002,
-                          0.001, 0.001, 0.0, 0.001, 0.0, 0.0]),
-}
 
 
 def test_the_new_rules_and_the_guard_on_the_first_real_model():
@@ -256,7 +244,7 @@ def test_the_ceiling_comes_before_the_noise_drop():
 
 
 def test_the_guard_can_be_switched_off_and_the_curve_stores_the_new_fields(tmp_path):
-    project = _uneven_project(tmp_path)
+    project = uneven_project(tmp_path)
     model = project.fit("API", n_components="auto",
                         fit_spec={"components": {"rule": "min_rmsecv", "noise_guard": "off"}})
     curve = model.component_curve

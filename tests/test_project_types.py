@@ -23,6 +23,7 @@ from enginir.project import (
     TrainingROI,
     validate_project_relationships,
 )
+from tests import _project_payloads as build
 
 
 def _assert_round_trip(instance):
@@ -34,18 +35,6 @@ def _assert_round_trip(instance):
             np.testing.assert_array_equal(left, right)
         else:
             assert right == left
-
-
-def _roi_provenance(
-    *, dataset_id: str = "dataset_1", calibration_id: str = "cal_1"
-) -> dict[str, str]:
-    return {
-        "dataset_id": dataset_id,
-        "calibration_id": calibration_id,
-        "signal_unit": "Absorbance",
-        "preview_recipe_summary": "none",
-        "created_at": "2026-04-02T10:02:00+00:00",
-    }
 
 
 @pytest.fixture()
@@ -95,7 +84,7 @@ def valid_project_graph(wavelengths):
                 spatial_bounds=(0, 2, 0, 3),
                 source_file="/data/train.eiff",
                 created_at="2026-04-02T10:02:00+00:00",
-                provenance=_roi_provenance(),
+                provenance=build.roi_provenance(signal_unit="Absorbance"),
             )
         },
         "targets": {
@@ -216,7 +205,7 @@ def test_project_models_round_trip_representative_instances(wavelengths):
             spatial_bounds=(0, 2, 0, 3),
             source_file="/data/train.eiff",
             created_at="2026-04-02T10:02:00+00:00",
-            provenance=_roi_provenance(),
+            provenance=build.roi_provenance(signal_unit="Absorbance"),
         ),
         SignalDomainContract(
             signal_domain_id="signal_domain_1",
@@ -318,7 +307,7 @@ def test_validate_project_relationships_rejects_invalid_edges(valid_project_grap
                         spatial_bounds=(0, 2, 0, 3),
                         source_file="/data/train.eiff",
                         created_at="2026-04-02T10:02:00+00:00",
-                        provenance=_roi_provenance(dataset_id="missing_dataset"),
+                        provenance=build.roi_provenance(signal_unit="Absorbance", dataset_id="missing_dataset"),
                     )
                 }
             ),
@@ -338,7 +327,7 @@ def test_validate_project_relationships_rejects_invalid_edges(valid_project_grap
                         spatial_bounds=(0, 2, 0, 3),
                         source_file="/data/train.eiff",
                         created_at="2026-04-02T10:02:00+00:00",
-                        provenance=_roi_provenance(calibration_id="missing_calibration"),
+                        provenance=build.roi_provenance(signal_unit="Absorbance", calibration_id="missing_calibration"),
                     )
                 }
             ),
@@ -548,11 +537,11 @@ def test_training_roi_requires_matching_complete_provenance(wavelengths):
     with pytest.raises(ValueError, match="provenance is missing"):
         TrainingROI(**payload, provenance={"signal_unit": "DN"})
 
-    mismatched = _roi_provenance(dataset_id="other_dataset")
+    mismatched = build.roi_provenance(signal_unit="Absorbance", dataset_id="other_dataset")
     with pytest.raises(ValueError, match="differs from the ROI's"):
         TrainingROI(**payload, provenance=mismatched)
 
-    unsupported_signal = _roi_provenance()
+    unsupported_signal = build.roi_provenance(signal_unit="Absorbance")
     unsupported_signal["signal_unit"] = "radiance"
     with pytest.raises(ValueError, match="provenance signal_unit"):
         TrainingROI(**payload, provenance=unsupported_signal)

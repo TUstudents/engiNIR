@@ -33,7 +33,7 @@ jobs:
         # timeout: after 15 minutes, abort with faulthandler's stack of every thread.
         run: timeout -s ABRT 900 uv run python -X faulthandler -m pytest -q
       - name: Lint
-        run: uv run ruff check src/enginir tests docs/examples
+        run: uv run ruff check src/enginir tests benchmarks docs/examples
       - name: Types
         run: uv run pyright src/enginir
       - name: Docs

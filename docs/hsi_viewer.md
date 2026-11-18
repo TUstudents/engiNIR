@@ -659,7 +659,7 @@ See the [Logging user guide](user_guide/logging) for the full reference.
 
 To add a plot to a workspace, write a `PlotSpec` (`render`, `table`), register
 it and give it a slot on the workspace's pages. It then gets the header,
-maximize and export, and `tests/test_plot_registry.py` checks it. The steps
+maximize and export, and `tests/test_plot_panels.py` checks it. The steps
 are in `docs/viewer_architecture.md` under *Adding a new plot*.
 
 For a surface that is not a plot, compose a normal Qt widget, connect it to

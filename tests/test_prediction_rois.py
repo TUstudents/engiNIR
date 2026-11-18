@@ -9,35 +9,7 @@ import pytest
 from enginir import PreprocessingRecipe, Project
 from enginir.io import save_hdf5
 from enginir.prediction import roi_prediction_statistics
-from tests.test_fit_spec import _warnings_during
-
-FRAMES_PER_ROI, HEIGHT, N_BANDS = 4, 5, 24
-
-
-@pytest.fixture()
-def tray(tmp_path):
-    """One tray of 10 ROIs (levels 1..10, references from frames); ROIs 8-10 for prediction."""
-    rng = np.random.default_rng(11)
-    peak = np.exp(-((np.arange(N_BANDS) - 9) / 3.0) ** 2)
-    blocks = [np.full((2, HEIGHT, N_BANDS), 120.0)]  # dark frames
-    values = np.arange(1.0, 11.0)
-    for value in values:
-        blocks.append(2600 - 110 * value * peak + rng.normal(0, 20, (FRAMES_PER_ROI, HEIGHT,
-                                                                     N_BANDS)))
-    blocks.append(np.full((2, HEIGHT, N_BANDS), 3400.0))  # white frames
-    cube = np.vstack(blocks).astype(np.uint16)
-    path = tmp_path / "tray.h5"
-    save_hdf5(path, cube, np.linspace(1000, 1600, N_BANDS))
-    project = Project.create(tmp_path / "project.h5")
-    n = cube.shape[0]
-    scan = project.add_dataset(path, dark_frames=(0, 1), white_frames=(n - 2, n - 1))
-    project.add_target("API", unit="%")
-    for i, value in enumerate(values):
-        first = 2 + i * FRAMES_PER_ROI
-        scan.add_roi(f"t{i + 1:02d}", frames=(first, first + FRAMES_PER_ROI - 1),
-                     rows=(0, HEIGHT - 1), values={"API": float(value)},
-                     job="prediction" if i >= 7 else "calibration")
-    return project, scan, path
+from tests._scans import TRAY_BANDS as N_BANDS, TRAY_HEIGHT as HEIGHT, warnings_during
 
 
 def test_the_job_is_stored_read_back_and_switched_in_place(tray):
@@ -91,7 +63,7 @@ def test_prediction_rois_never_enter_a_fit(tray):
 
     # A stored sample set keeps its ROIs: switching one later only warns on refit.
     project.set_job("t03", "prediction")
-    refitted, messages = _warnings_during(model.refit)
+    refitted, messages = warnings_during(model.refit)
     assert any("now prediction ROIs" in message for message in messages)
     assert refitted.ref.sample_set_id == model.ref.sample_set_id
 

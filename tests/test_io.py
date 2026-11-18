@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import re
 import struct
-import zlib
 from pathlib import Path
 
 import numpy as np
 import pytest
 from loguru import logger
 
-from ._project_payloads import roi_provenance
+from tests._eiff import build_stnrd, chunk, compress_envelope, eiff_bytes, group, pad10
+from tests._project_payloads import roi_provenance
 
 
 def test_csv_round_trip_preserves_sample_names_and_dispatch(tmp_path):
@@ -202,69 +202,6 @@ def test_project_store_round_trip_keeps_v3_workspace_objects(tmp_path):
     np.testing.assert_array_equal(loaded_spectra, spectra)
 
 
-def _pad10(name: str) -> bytes:
-    return name.encode("ascii").ljust(10)
-
-
-def _chunk(name: str, payload: bytes) -> bytes:
-    return _pad10(name) + struct.pack(">Q", len(payload)) + payload
-
-
-def _group(keyword: str, content_type: str, children: bytes) -> bytes:
-    inner = _pad10(content_type) + children
-    return _pad10(keyword) + struct.pack(">Q", len(inner)) + inner
-
-
-def _compress_envelope(data: bytes) -> bytes:
-    return struct.pack("<I", 2) + struct.pack("<I", len(data)) + b"\x01" + zlib.compress(data)
-
-
-def _build_stnrd(width: int, height: int, count: int, compression: int = 2) -> bytes:
-    buf = bytearray(54)
-    struct.pack_into(">H", buf, 0, 0x0100)
-    buf[2:6] = b"\xff\xff\xff\xf8"
-    struct.pack_into(">H", buf, 8, width)
-    struct.pack_into(">H", buf, 12, height)
-    struct.pack_into(">H", buf, 14, 2)
-    struct.pack_into(">H", buf, 16, compression)
-    struct.pack_into(">H", buf, 18, 12)
-    struct.pack_into(">H", buf, 20, 1)
-    struct.pack_into(">H", buf, 22, 1)
-    struct.pack_into(">H", buf, 28, count)
-    struct.pack_into(">H", buf, 30, 2025)
-    buf[32] = 6
-    buf[33] = 3
-    return bytes(buf)
-
-
-def _build_wavtb(wavelengths_nm: np.ndarray) -> bytes:
-    header = struct.pack("<4H", 1, 1, 0, len(wavelengths_nm))
-    values = (wavelengths_nm / 0.025).astype(np.uint32).tobytes()
-    return header + values
-
-
-def _build_eiff_file(
-    width: int,
-    height: int,
-    frames: list[np.ndarray],
-    wavelengths_nm: np.ndarray | None = None,
-) -> bytes:
-    prop_stnrd = _group(
-        "PROP", "EVKSTNRD", _chunk("EVKSTNRD", _build_stnrd(width, height, len(frames)))
-    )
-    prop_wavtb = b""
-    if wavelengths_nm is not None:
-        propinfo = _chunk("PROPINFO", b"\x01\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00")
-        wavtb_chunk = _chunk("EVKWAVTB", _compress_envelope(_build_wavtb(wavelengths_nm)))
-        prop_wavtb = _group("PROP", "EVKWAVTB", propinfo + wavtb_chunk)
-
-    frame_groups = b""
-    for frame in frames:
-        body = _compress_envelope(frame.astype("<u2").tobytes())
-        frame_groups += _group("FORM", "SPEHLIOS", _chunk("BODY", body))
-    return _group("LIST", "SPEHLIOS", prop_stnrd + prop_wavtb + frame_groups)
-
-
 @pytest.fixture()
 def synthetic_eiff(tmp_path):
     rng = np.random.default_rng(42)
@@ -272,7 +209,7 @@ def synthetic_eiff(tmp_path):
     frames = [rng.integers(0, 4096, size=(height, width), dtype=np.uint16) for _ in range(n_frames)]
     wavelengths = np.linspace(1000, 1700, width)
     path = tmp_path / "test.eiff"
-    path.write_bytes(_build_eiff_file(width, height, frames, wavelengths))
+    path.write_bytes(eiff_bytes(width, height, frames, wavelengths))
     return path, frames, wavelengths
 
 
@@ -290,40 +227,19 @@ def test_load_eiff_supports_header_only_and_full_cube(synthetic_eiff):
     np.testing.assert_array_equal(full.X[0], frames[0])
 
 
-def test_load_eiff_parallel_frame_workers_match_sequential(synthetic_eiff, monkeypatch):
+def test_parallel_frame_workers_read_and_report_like_one_worker(synthetic_eiff, monkeypatch):
     import enginir.io.eiff_io as eiff_io
 
     path, frames, _ = synthetic_eiff
     monkeypatch.setattr(eiff_io, "_PARALLEL_FRAME_THRESHOLD", 1)
-
-    sequential = eiff_io.load_eiff(path, frame_workers=1)
-    parallel = eiff_io.load_eiff(path, frame_workers=2)
-
-    np.testing.assert_array_equal(parallel.X, sequential.X)
-    np.testing.assert_array_equal(parallel.X[-1], frames[-1])
-
-
-def test_load_eiff_reports_frame_progress(synthetic_eiff, monkeypatch):
-    import enginir.io.eiff_io as eiff_io
-
-    path, _, _ = synthetic_eiff
-    monkeypatch.setattr(eiff_io, "_PARALLEL_FRAME_THRESHOLD", 1)
-    sequential_progress: list[tuple[int, int]] = []
-    parallel_progress: list[tuple[int, int]] = []
-
-    eiff_io.load_eiff(
-        path,
-        frame_workers=1,
-        progress_callback=lambda done, total: sequential_progress.append((done, total)),
-    )
-    eiff_io.load_eiff(
-        path,
-        frame_workers=2,
-        progress_callback=lambda done, total: parallel_progress.append((done, total)),
-    )
-
-    assert sequential_progress == [(0, 3), (1, 3), (2, 3), (3, 3)]
-    assert parallel_progress == [(0, 3), (1, 3), (2, 3), (3, 3)]
+    progress: dict[int, list[tuple[int, int]]] = {1: [], 2: []}
+    loaded = {workers: eiff_io.load_eiff(path, frame_workers=workers,
+                                         progress_callback=lambda *p, w=workers:
+                                         progress[w].append(p))
+              for workers in (1, 2)}
+    np.testing.assert_array_equal(loaded[2].X, loaded[1].X)
+    np.testing.assert_array_equal(loaded[2].X[-1], frames[-1])
+    assert progress[1] == progress[2] == [(0, 3), (1, 3), (2, 3), (3, 3)]
 
 
 def test_load_eiff_throttles_large_frame_progress(tmp_path, monkeypatch):
@@ -334,7 +250,7 @@ def test_load_eiff_throttles_large_frame_progress(tmp_path, monkeypatch):
         np.full((height, width), frame_idx, dtype=np.uint16) for frame_idx in range(n_frames)
     ]
     path = tmp_path / "large_progress.eiff"
-    path.write_bytes(_build_eiff_file(width, height, frames, np.linspace(1000, 1300, width)))
+    path.write_bytes(eiff_bytes(width, height, frames, np.linspace(1000, 1300, width)))
     monkeypatch.setattr(eiff_io, "_PROGRESS_UPDATE_STEPS", 5)
     progress: list[tuple[int, int]] = []
 
@@ -353,7 +269,7 @@ def test_load_eiff_throttles_large_frame_progress(tmp_path, monkeypatch):
         ("tiny.eiff", b"\x00" * 10, "at least"),
         (
             "not_eiff.eiff",
-            _pad10("RIFF") + struct.pack(">Q", 200) + b"\x00" * 200,
+            pad10("RIFF") + struct.pack(">Q", 200) + b"\x00" * 200,
             "not an EVK HELIOS EIFF file",
         ),
     ],
@@ -907,7 +823,7 @@ def test_eiff_frame_slices_match_numpy_slicing(tmp_path, monkeypatch, frames, wo
     rng = np.random.default_rng(1)
     cube = rng.integers(0, 4096, size=(5, 4, 8), dtype=np.uint16)
     path = tmp_path / "frames.eiff"
-    path.write_bytes(_build_eiff_file(8, 4, list(cube), np.linspace(1000, 1700, 8)))
+    path.write_bytes(eiff_bytes(8, 4, list(cube), np.linspace(1000, 1700, 8)))
 
     data = eiff_io.load_eiff(path, frames=frames, frame_workers=workers)
 
@@ -921,7 +837,7 @@ def test_eiff_truncated_file_returns_complete_frames_with_flag(tmp_path):
     rng = np.random.default_rng(2)
     cube = rng.integers(0, 4096, size=(3, 4, 8), dtype=np.uint16)
     path = tmp_path / "truncated.eiff"
-    path.write_bytes(_build_eiff_file(8, 4, list(cube), np.linspace(1000, 1700, 8))[:-10])
+    path.write_bytes(eiff_bytes(8, 4, list(cube), np.linspace(1000, 1700, 8))[:-10])
 
     records: list = []
     sink_id = logger.add(lambda msg: records.append(msg.record), level="WARNING")
@@ -940,7 +856,7 @@ def test_eiff_keeps_the_full_wavelength_table_and_warns_on_band_mismatch(tmp_pat
 
     frames = [np.zeros((4, 8), np.uint16)]
     path = tmp_path / "wavelengths.eiff"
-    path.write_bytes(_build_eiff_file(8, 4, frames, np.linspace(1000, 1700, 6)))
+    path.write_bytes(eiff_bytes(8, 4, frames, np.linspace(1000, 1700, 6)))
 
     records: list = []
     sink_id = logger.add(lambda msg: records.append(msg.record), level="WARNING")
@@ -980,7 +896,7 @@ def test_eiff_frame_chunks_stream_the_same_frames_as_load_eiff(tmp_path):
 
     cube = np.arange(5 * 4 * 8, dtype=np.uint16).reshape(5, 4, 8)
     path = tmp_path / "stream.eiff"
-    path.write_bytes(_build_eiff_file(8, 4, list(cube), np.linspace(1000, 1700, 8)))
+    path.write_bytes(eiff_bytes(8, 4, list(cube), np.linspace(1000, 1700, 8)))
 
     chunks = list(iter_eiff_frame_chunks(path, chunk_size=2, frames=slice(1, 5)))
     assert [offset for offset, _ in chunks] == [0, 2]
@@ -993,7 +909,7 @@ def test_eiff_frame_chunks_raise_on_truncation(tmp_path):
 
     cube = np.ones((3, 4, 8), dtype=np.uint16)
     path = tmp_path / "truncated.eiff"
-    path.write_bytes(_build_eiff_file(8, 4, list(cube), np.linspace(1000, 1700, 8))[:-10])
+    path.write_bytes(eiff_bytes(8, 4, list(cube), np.linspace(1000, 1700, 8))[:-10])
 
     with pytest.raises(EIFFTruncatedError, match="frame 2 is missing"):
         list(iter_eiff_frame_chunks(path, chunk_size=2))
@@ -1004,11 +920,11 @@ def test_eiff_frame_without_body_is_an_error_not_a_skipped_frame(tmp_path):
 
     width, height = 8, 4
     frame = np.ones((height, width), dtype=np.uint16)
-    good = _group("FORM", "SPEHLIOS", _chunk("BODY", _compress_envelope(frame.tobytes())))
-    bad = _group("FORM", "SPEHLIOS", _chunk("NOBODY", b"0" * 8))
-    props = _group("PROP", "EVKSTNRD", _chunk("EVKSTNRD", _build_stnrd(width, height, 3)))
+    good = group("FORM", "SPEHLIOS", chunk("BODY", compress_envelope(frame.tobytes())))
+    bad = group("FORM", "SPEHLIOS", chunk("NOBODY", b"0" * 8))
+    props = group("PROP", "EVKSTNRD", chunk("EVKSTNRD", build_stnrd(width, height, 3)))
     path = tmp_path / "missing_body.eiff"
-    path.write_bytes(_group("LIST", "SPEHLIOS", props + good + bad + good))
+    path.write_bytes(group("LIST", "SPEHLIOS", props + good + bad + good))
 
     with pytest.raises(EIFFError, match="frame 1 has no valid BODY"):
         load_eiff(path)
@@ -1018,7 +934,7 @@ def test_eiff_root_chunk_may_declare_more_than_four_gib(tmp_path):
     from enginir.io import load_eiff
 
     cube = np.ones((2, 4, 8), dtype=np.uint16)
-    data = bytearray(_build_eiff_file(8, 4, list(cube), np.linspace(1000, 1700, 8)))
+    data = bytearray(eiff_bytes(8, 4, list(cube), np.linspace(1000, 1700, 8)))
     data[10:18] = struct.pack(">Q", 5 * 1024**3)  # a long scan; the file itself is short
     path = tmp_path / "large_root.eiff"
     path.write_bytes(bytes(data))

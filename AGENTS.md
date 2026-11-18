@@ -12,7 +12,7 @@ Always run Python through `uv run` (never bare `python`, `python3` or
 uv sync --all-extras                                   # install everything
 uv run pytest                                          # full suite (60 s per-test timeout)
 uv run pytest tests/test_workflow.py -q                # one file
-uv run ruff check src/enginir tests docs/examples      # lint
+uv run ruff check src/enginir tests benchmarks docs/examples   # lint
 uv run pyright src/enginir                             # type check
 uv run python -m sphinx -W -E -b html docs /tmp/docs   # docs; warnings are errors
 ```
@@ -121,6 +121,12 @@ These are contract decisions; do not change them without a contract change.
   is injected.
 - Documented examples in `docs/examples/` run as tests
   (`tests/test_docs_examples.py`).
+- One file per topic. Shared builders live in `tests/_project_payloads.py`
+  (project objects and writer payloads), `tests/_scans.py` (synthetic scans
+  and small projects), `tests/_eiff.py` and `tests/_qt.py`; shared fixtures
+  (`qapp`, `tray`, the example `window`) in `tests/conftest.py`. A test
+  module never imports from another test module.
+- Timing benchmarks live in `benchmarks/` and run only with `ENGINIR_PERF=1`.
 
 ## Docs
 

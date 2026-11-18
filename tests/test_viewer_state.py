@@ -4,18 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from PyQt6.QtWidgets import QApplication
 
 from enginir.preprocessing.recipe import PreprocessingRecipe
 from enginir.viewer._state import DEFAULT_BLACK_LEVEL, DEFAULT_WHITE_LEVEL, _EPS, ViewerState
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication([])
-    return app
 
 
 @pytest.fixture()

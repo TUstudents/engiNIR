@@ -1,25 +1,25 @@
-"""Band selection (recipe ranges) and band importance (VIP, selectivity ratio)."""
+"""Band selection (recipe ranges), band importance (VIP, selectivity ratio) and band proposal."""
 
 from __future__ import annotations
 
-
 import numpy as np
 import pytest
-
-from enginir import PreprocessingRecipe
+from enginir import PreprocessingRecipe, Project
 from enginir._workflow import recipe_id_for
-from enginir.models import PCR, PLSRegression
+from enginir.io import save_hdf5
+from enginir.modeling import BandProposalCancelledError
 from enginir.modeling._components import band_importance
-from enginir.preprocessing import SNV, BandSelection, Detrend
+from enginir.models import PCR, PLSRegression
+from enginir.preprocessing import BandSelection, Detrend, SNV
 from enginir.preprocessing._pipeline import apply_preprocessing_recipe
 from enginir.preprocessing.recipe import parse_ranges
-from tests.test_simca_preprocessing import _training_scan_identity
-from tests.test_workflow import N_BANDS, _labelled_project
+from tests._scans import N_BANDS, labelled_project, predicts_its_training_scan
+
+
+# -- Band selection (recipe ranges) and band importance (VIP, selectivity ratio) -------
+
 
 AXIS = np.linspace(1000, 2500, 151)  # 10 nm steps
-
-
-# -- band importance -----------------------------------------------------------
 
 
 def _informative(seed=0, n=120, k=30, band=11):
@@ -69,7 +69,7 @@ def test_band_importance_matches_independent_computations(estimator):
 
 
 def test_the_fit_stores_vip_and_selectivity_ratio_on_the_fitted_pixels(tmp_path):
-    project, _scan = _labelled_project(tmp_path)
+    project, _scan = labelled_project(tmp_path)
     model = project.fit("API", n_components=2)
     diagnostics = model.diagnostics
     for key in ("vip", "selectivity_ratio", "mean_spectrum"):
@@ -81,9 +81,6 @@ def test_the_fit_stores_vip_and_selectivity_ratio_on_the_fitted_pixels(tmp_path)
     pcr = project.fit("API", model="PCR", n_components=2, name="pcr")
     assert "vip" not in pcr.diagnostics and np.shape(pcr.diagnostics["selectivity_ratio"]) == (
         N_BANDS,)
-
-
-# -- band ranges in the recipe -------------------------------------------------
 
 
 def test_ranges_are_normalized_before_the_id():
@@ -174,7 +171,7 @@ def test_band_selection_checks_its_indices():
 
 @pytest.mark.parametrize("msc", [False, True])
 def test_a_model_on_selected_bands_predicts_like_it_was_trained(tmp_path, msc):
-    project, scan = _labelled_project(tmp_path)
+    project, scan = labelled_project(tmp_path)
     wavelengths = np.linspace(1000, 1600, N_BANDS)
     recipe = PreprocessingRecipe(snv=not msc, msc=msc, filter="sg_smooth", sg_window=3,
                                  bands_exclude=[(wavelengths[2], wavelengths[3])])
@@ -189,14 +186,14 @@ def test_a_model_on_selected_bands_predicts_like_it_was_trained(tmp_path, msc):
                                rtol=1e-6)
     if msc:  # MSC sees every band after Savitzky-Golay, before the selection
         assert np.size(blob["preprocessing_state"]["msc"]["reference"]) == N_BANDS - 2
-    prediction = _training_scan_identity(model, scan)
+    prediction = predicts_its_training_scan(model, scan)
     assert np.isfinite(prediction.map).all()
     reopened = type(project).open(project.path).model(model_run_id=model.ref.model_run_id)
     assert reopened.recipe == recipe if hasattr(reopened, "recipe") else True
 
 
 def test_too_many_components_for_the_selected_bands_are_refused(tmp_path):
-    project, _scan = _labelled_project(tmp_path)
+    project, _scan = labelled_project(tmp_path)
     wavelengths = np.linspace(1000, 1600, N_BANDS)
     recipe = PreprocessingRecipe(bands_keep=[(wavelengths[0], wavelengths[2])])
     with pytest.raises(ValueError, match="3 bands"):
@@ -217,9 +214,6 @@ def test_the_explore_preview_shows_unselected_bands_as_missing():
     assert image.shape == (3, 20)
     missing = np.flatnonzero(np.isnan(image).all(axis=0)).tolist()
     assert missing == [5, 6, 7, 8]
-
-
-# -- viewer --------------------------------------------------------------------
 
 
 def _dialog(recipe, band_source=None):
@@ -269,7 +263,7 @@ def test_the_band_source_and_explore_follow_the_fit_dialog(tmp_path):
     from enginir.viewer._state import ProjectState, ViewerState
 
     ensure_app()
-    project, _scan = _labelled_project(tmp_path)
+    project, _scan = labelled_project(tmp_path)
     project_state = ProjectState()
     project_state.open_project(str(project.path))
     cube = np.zeros((2, 2, N_BANDS), dtype=np.uint16)
@@ -287,3 +281,195 @@ def test_the_band_source_and_explore_follow_the_fit_dialog(tmp_path):
     view._show_bands_in_explore(chosen)
     assert state.recipe.bands_exclude == chosen.bands_exclude
     view.close()
+
+
+# -- Band proposal: forward interval PLS with nested validation (headless contract) ----
+
+
+FRAMES, HEIGHT = 3, 4
+
+
+def _project(tmp_path, *, informative: bool, seed: int = 0, n_rois: int = 16, n_bands: int = 60):
+    """ROIs whose content lies in bands 10-14 and 40-44 (or nowhere) under ROI interference."""
+    rng = np.random.default_rng(seed)
+    content = rng.uniform(0, 10, n_rois)
+    wavelengths = np.linspace(1000, 1000 + 10 * (n_bands - 1), n_bands)
+    signal = np.zeros(n_bands)
+    if informative:
+        signal[10:15], signal[40:45] = 1.0, 0.7
+    interference = rng.normal(0, 1, (n_rois, 6)) @ rng.normal(0, 1, (6, n_bands)) * 0.06
+    interference[:, signal > 0] *= 0.05
+    spectra = 0.5 + 0.01 * content[:, None] * signal + interference
+    cube = (np.repeat(spectra, FRAMES, axis=0)[:, None, :]
+            + rng.normal(0, 0.002, (n_rois * FRAMES, HEIGHT, n_bands)))
+    save_hdf5(tmp_path / "scan.h5", cube.astype(np.float32), wavelengths)
+    project = Project.create(tmp_path / "project.h5")
+    scan = project.add_dataset(str(tmp_path / "scan.h5"), unit="Reflectance")
+    project.add_target("API", unit="%")
+    for i in range(n_rois):
+        scan.add_roi(f"r{i}", frames=(i * FRAMES, i * FRAMES + FRAMES - 1),
+                     rows=(0, HEIGHT - 1), values={"API": float(content[i])})
+    return project
+
+
+def _covers(ranges, low, high):
+    return any(a <= low + 1e-6 and high <= b + 1e-6 for a, b in ranges)
+
+
+def test_the_search_finds_the_informative_intervals(tmp_path):
+    project = _project(tmp_path, informative=True)
+    before = (tmp_path / "project.h5").read_bytes()
+    calls = []
+    proposal = project.propose_bands("API", n_intervals=12,
+                                     progress=lambda done, total: calls.append((done, total)))
+    assert _covers(proposal.ranges, 1100, 1140) and _covers(proposal.ranges, 1400, 1440)
+    rmsecv = [step.rmsecv for step in proposal.steps]
+    assert proposal.steps[0].intervals == () and proposal.steps[0].n_components == 0
+    assert all(b < a for a, b in zip(rmsecv, rmsecv[1:], strict=False)), "every step improves"
+    assert proposal.n_components == proposal.steps[-1].n_components >= 1
+    assert proposal.intervals[0] == (1000.0, 1040.0) and len(proposal.intervals) == 12
+    # The nested estimate includes the selection: not better than the selected ranges.
+    assert proposal.nested_rmsecv > proposal.steps[-1].rmsecv
+    assert np.isfinite(proposal.all_bands_rmsecv)
+    assert calls and calls[-1][0] <= calls[-1][1]
+    assert (tmp_path / "project.h5").read_bytes() == before, "nothing is written"
+    # The proposal is an ordinary keep list.
+    model = project.fit("API", recipe=PreprocessingRecipe(bands_keep=proposal.ranges),
+                        n_components=proposal.n_components)
+    assert model.metrics["rmsecv"] == pytest.approx(proposal.steps[-1].rmsecv, rel=0.05)
+
+
+def test_the_nested_estimate_is_not_optimistic_on_noise(tmp_path):
+    """With a target unrelated to the spectra, the honest nested RMSECV is no better than
+    the mean predictor on average. Fault injection (the inner search choosing on every
+    ROI, not only the outer training part) gives about 0.89 here and fails."""
+    ratios = []
+    for seed in range(6):
+        folder = tmp_path / f"s{seed}"
+        folder.mkdir()
+        project = _project(folder, informative=False, seed=seed, n_rois=14, n_bands=40)
+        proposal = project.propose_bands("API", n_intervals=8)
+        ratios.append(proposal.nested_rmsecv / proposal.steps[0].rmsecv)
+    assert np.mean(ratios) >= 0.97
+
+
+def test_a_stateful_recipe_is_fitted_inside_the_folds(tmp_path):
+    project = _project(tmp_path, informative=True, n_bands=30, n_rois=12)
+    proposal = project.propose_bands("API", recipe=PreprocessingRecipe(msc=True), n_intervals=6)
+    # MSC removes this data's additive signal; the search still runs fold by fold and
+    # proposes nothing when no interval beats the mean predictor.
+    assert proposal.steps[0].n_components == 0
+    assert np.isfinite(proposal.nested_rmsecv) and np.isfinite(proposal.all_bands_rmsecv)
+    if not proposal.ranges:
+        assert proposal.nested_rmsecv == pytest.approx(proposal.steps[0].rmsecv, rel=0.25)
+
+
+def test_requests_that_cannot_be_met_are_refused(tmp_path):
+    project = _project(tmp_path, informative=True, n_bands=20, n_rois=12)
+    with pytest.raises(ValueError, match="exceeds the 20 bands"):
+        project.propose_bands("API", n_intervals=21)
+    with pytest.raises(ValueError):
+        project.propose_bands("API", n_intervals=1)
+    with pytest.raises(BandProposalCancelledError):
+        project.propose_bands("API", n_intervals=4, cancel=lambda: True)
+    with pytest.raises(ValueError, match="at least 3 fold groups"):
+        _two_rois(tmp_path).propose_bands("API", n_intervals=2)
+
+
+def _two_rois(tmp_path):
+    rng = np.random.default_rng(0)
+    cube = rng.uniform(0.4, 0.6, (4, 2, 10)).astype(np.float32)
+    save_hdf5(tmp_path / "two.h5", cube, np.linspace(1000, 1090, 10))
+    project = Project.create(tmp_path / "two_project.h5")
+    scan = project.add_dataset(str(tmp_path / "two.h5"), unit="Reflectance")
+    project.add_target("API", unit="%")
+    scan.add_roi("a", frames=(0, 1), rows=(0, 1), values={"API": 1.0})
+    scan.add_roi("b", frames=(2, 3), rows=(0, 1), values={"API": 2.0})
+    return project
+
+
+def _wait(qapp, condition, timeout=30.0):
+    import time
+
+    end = time.monotonic() + timeout
+    while not condition() and time.monotonic() < end:
+        qapp.processEvents()
+        time.sleep(0.01)
+    assert condition()
+
+
+def test_the_viewer_proposes_through_the_project_and_fills_the_fit_dialog(tmp_path):
+    from enginir.viewer._app import ensure_app
+    from enginir.viewer._band_ranges import ProposeBandsDialog
+    from enginir.viewer._modeling import ModelingView
+    from enginir.viewer._state import ProjectState, ViewerState
+
+    qapp = ensure_app()
+    project = _project(tmp_path, informative=True, n_bands=30, n_rois=12)
+    project_state = ProjectState()
+    project_state.open_project(str(project.path))
+    view = ModelingView(ViewerState(np.zeros((2, 2, 30), dtype=np.uint16),
+                                    np.linspace(1000, 1290, 30)), project_state)
+    target_id = next(iter(project_state.targets))
+    run = view._band_proposer(target_id, PreprocessingRecipe(), "PLS",
+                              {"n_components": "auto"}, None)
+    assert run is not None
+    seen = []
+    proposal = run(lambda done, total: seen.append(total), lambda: False)
+    assert proposal.ranges and seen, "the facade runs with progress"
+
+    dialog = ProposeBandsDialog(lambda progress, cancel: proposal)
+    _wait(qapp, lambda: dialog.proposal is not None)
+    assert dialog._use is not None and dialog._use.isEnabled()
+    assert "Nested RMSECV" in dialog._status.text()
+    dialog.close()
+
+    cancelled = ProposeBandsDialog(lambda progress, cancel: project.propose_bands(
+        "API", n_intervals=6, progress=progress, cancel=cancel))
+    cancelled._cancel_or_close()
+    _wait(qapp, lambda: not cancelled._running)
+    assert cancelled.proposal is None and "Canceled" in cancelled._status.text()
+    cancelled.close()
+    view.close()
+
+
+@pytest.mark.parametrize(("model", "recipe", "kwargs"), [
+    ("PLS", PreprocessingRecipe(), {}),
+    ("PLS", PreprocessingRecipe(snv=True), {"n_components": 3}),
+    ("PCR", PreprocessingRecipe(), {}),
+], ids=["pls-auto", "pls-snv-fixed", "pcr-auto"])
+def test_the_proposal_on_statistics_equals_the_pipeline(tmp_path, monkeypatch, model, recipe,
+                                                        kwargs):
+    """Plan kernel-pls, Phase 3: same ranges, steps and component counts; RMSECVs to 1e-5
+    (the pipeline predicts held-out pixels in float32, the statistics path ROI means). The
+    SVD reference gets float64 spectra: scikit-learn's PCA computes float32 in float32."""
+    import time
+
+    import enginir.models.pcr as pcr
+
+    tol = 1e-5
+
+    project = _project(tmp_path, informative=True, seed=3)
+    reference_algorithm = "nipals" if model == "PLS" else "svd"
+    start = time.perf_counter()
+    ours = project.propose_bands("API", model=model, recipe=recipe, n_intervals=8, **kwargs)
+    fast = time.perf_counter() - start
+    real_fit = pcr.PCA.fit
+    monkeypatch.setattr(pcr.PCA, "fit",
+                        lambda self, X, y=None: real_fit(self, np.asarray(X, dtype=np.float64)))
+    start = time.perf_counter()
+    reference = project.propose_bands("API", model=model, recipe=recipe, n_intervals=8,
+                                      algorithm=reference_algorithm, **kwargs)
+    slow = time.perf_counter() - start
+    assert ours.ranges == reference.ranges
+    assert [(s.intervals, s.n_components) for s in ours.steps] == \
+        [(s.intervals, s.n_components) for s in reference.steps]
+    for a, b in zip(ours.steps, reference.steps, strict=True):
+        assert a.rmsecv == pytest.approx(b.rmsecv, rel=tol)
+        assert a.rmsecv_se == pytest.approx(b.rmsecv_se, rel=10 * tol, abs=1e-9)
+    # Nested: the pipeline predicts held-out pixels (about 5 %) in float32 and the errors are
+    # about 0.02, so its rounding of 1e-7 grows to some 1e-5 in RMSECV.
+    assert ours.nested_rmsecv == pytest.approx(reference.nested_rmsecv, rel=1e-4)
+    assert ours.all_bands_rmsecv == pytest.approx(reference.all_bands_rmsecv, rel=tol)
+    assert ours.n_components == reference.n_components
+    print(f"band proposal on statistics {fast:.2f} s, pipeline {slow:.2f} s")

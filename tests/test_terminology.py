@@ -1,22 +1,18 @@
-"""The viewer speaks the terminology contract (``contracts/terminology_v3.md``, Enforcement).
-
-Every string literal of ``src/enginir/viewer`` (f-string parts included) is
-scanned, except docstrings. A string may contain no word of "Words not
-used" and no British spelling; identifier-like keys (one token of lower case
-letters, digits, ``_ . : -``) are checked for British spelling only, since
-one-word labels look the same; strings shown on buttons and menu items
-are in title case, titles in sentence case. Justified exceptions are listed
-in ``ALLOWED`` with their reason.
-"""
+"""The words of the viewer and the glossary follow the terminology contract (Enforcement)."""
 
 from __future__ import annotations
 
 import ast
-import re
 from collections.abc import Iterator
 from pathlib import Path
+import re
+
+
+# -- The viewer speaks the terminology contract (``contracts/terminology_v3.md``, Enforcement) ----
+
 
 VIEWER = Path(__file__).resolve().parents[1] / "src" / "enginir" / "viewer"
+
 
 #: Word not used -> what to use (terminology contract, Words not used in user-visible text).
 BANNED: dict[str, str] = {
@@ -42,6 +38,7 @@ BANNED: dict[str, str] = {
     r"\brmse(?:cv|e|p)\b(?! \(per (?:roi|pixel)\))": "RMSECV (per ROI), RMSECV (per pixel)",
 }
 
+
 #: British spelling -> US spelling (terminology contract, General rules 1).
 BRITISH: dict[str, str] = {
     r"\bcolou?rs?\b(?<!colors)(?<!color)": "color",
@@ -60,17 +57,26 @@ BRITISH: dict[str, str] = {
     r"\bneighbour": "neighbor",
 }
 
+
 #: Calls whose text is a button or menu item (title case) or a title (sentence case).
 TITLE_CASE_CALLS = {"QPushButton", "QToolButton", "QAction", "addAction", "addMenu", "addButton",
                     "add_menu_action"}
+
+
 SENTENCE_CASE_CALLS = {"set_title", "setWindowTitle", "setTitle", "QGroupBox", "suptitle"}
+
+
 #: Plot-spec builders and the position of their title argument.
 TITLE_ARGUMENT = {"PlotSpec": 1, "_spectral_spec": 2, "_distance_spec": 3, "PlotFrame": 1,
                   "QDockWidget": 0, "_plot_dock": 0, "getOpenFileName": 1,
                   "getSaveFileName": 1, "getExistingDirectory": 1,
                   "_build_deferred_workspace_page": 0}
+
+
 _SMALL = {"a", "an", "the", "and", "or", "of", "to", "in", "on", "per", "vs", "for", "with",
           "at", "by", "from", "as", "into", "off"}
+
+
 #: Capitalized words allowed inside a sentence-case title (names and fixed terms).
 PROPER = {"ROI", "ROIs", "Savitzky-Golay", "Hotelling's", "SIMCA", "DModX", "DModXPS", "DCrit", "PLS",
           "PCR", "LV", "PC", "SNV", "MSC", "EMSC", "VIP", "T²", "T²PS", "Q²", "R²", "R²X", "R²Y",
@@ -78,6 +84,7 @@ PROPER = {"ROI", "ROIs", "Savitzky-Golay", "Hotelling's", "SIMCA", "DModX", "DMo
           "EIFF", "HDF5", "CV", "AsLS", "SG", "engiNIR", "I", "X", "Y", "Q", "T²Crit", "LV1",
           "LV2", "PC1", "PC2", "WSLg", "Wayland", "Explore", "Model", "Predict", "nm", "Q²ₐ",
           "ΔR²X"}
+
 
 #: (file name, exact string) -> reason, for strings the scan cannot judge.
 ALLOWED: dict[tuple[str, str], str] = {
@@ -94,6 +101,7 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("_viewer.py", "engiNIR - HSI Viewer"): "the product name",
     ("_project_rois.py", "colour"): "CSV metadata key (machine-readable, kept until 2.0)",
 }
+
 
 _IDENTIFIER = re.compile(r"^[a-z0-9_.:\-/]*$")
 
@@ -232,3 +240,29 @@ def test_the_viewer_uses_the_terms_of_the_contract():
 if __name__ == "__main__":
     for item in violations():
         print(item)
+
+
+# -- The glossary covers every term of the terminology contract (terminology contract, Enforcement) ----
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def contract_terms() -> set[str]:
+    """The bold term names of the contract's Terms section."""
+    text = (ROOT / "contracts" / "terminology_v3.md").read_text(encoding="utf-8")
+    section = text[text.index("## Terms"):text.index("## Internal names")]
+    return {match.lower() for line in section.splitlines() if not line.startswith(":")
+            for match in re.findall(r"\*\*([^*]+)\*\*", line)}
+
+
+def glossary_terms() -> set[str]:
+    """The terms of the ``.. glossary::`` blocks (lines indented by three spaces)."""
+    text = (ROOT / "docs" / "glossary.rst").read_text(encoding="utf-8")
+    return {line.strip().lower() for line in text.splitlines()
+            if line.startswith("   ") and not line.startswith("    ") and line.strip()}
+
+
+def test_the_glossary_has_an_entry_for_every_term_of_the_contract():
+    missing = contract_terms() - glossary_terms()
+    assert not missing, f"terms of contracts/terminology_v3.md without a glossary entry: {missing}"

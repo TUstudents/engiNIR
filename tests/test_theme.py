@@ -106,3 +106,32 @@ def test_an_export_swaps_every_screen_series_colour_for_its_print_colour(monkeyp
     shown = [to_hex(line.get_color()) for line in copy.axes[0].lines]
     assert shown == [to_hex(printed[f"series{index}"])
                      for index in range(len(theme.SERIES[True]))]
+
+
+# -- A new theme reaches icons and Properties ------------------------------------------
+
+
+def test_icons_and_properties_take_the_colours_of_a_new_theme(qapp, window):
+    from PyQt6.QtWidgets import QLabel
+
+    from enginir.viewer._theme import TOKENS, is_dark
+
+    was_dark = is_dark()
+    body = window._inspector.body_label
+    body.setText("Target: Layers")
+    section = window._project_browser.topLevelItem(0)
+
+    def tree_icon():
+        return section.icon(0).pixmap(16, 16).toImage()
+
+    try:
+        window._set_theme_mode(True)
+        qapp.processEvents()
+        dark_icon = tree_icon()
+        assert TOKENS[True]["text_secondary"] in QLabel.text(body)
+        window._set_theme_mode(False)
+        qapp.processEvents()
+        assert TOKENS[False]["text_secondary"] in QLabel.text(body), "the keys' colour"
+        assert tree_icon() != dark_icon, "the icon is drawn again in the light theme's colour"
+    finally:
+        window._set_theme_mode(was_dark)

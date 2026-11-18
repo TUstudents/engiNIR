@@ -13,17 +13,9 @@ from unittest.mock import patch
 
 from enginir.io import SpectralData, load_hdf5, save_hdf5
 from enginir.io.project_store import (
-    create_project,
     load_model_run_prediction_artifact,
     load_project_store,
-    save_calibration_spec,
-    save_dataset_ref,
     save_prediction_run,
-    save_preprocessing_recipe,
-    save_signal_domain_contract,
-    save_target_assignment,
-    save_target_definition,
-    save_training_roi,
 )
 from enginir.prediction import (
     PredictionCancelledError,
@@ -35,160 +27,15 @@ from enginir.prediction import (
 from enginir.preprocessing import PreprocessingRecipe
 from enginir.project import (
     CalibrationSpec,
-    DatasetRef,
-    ModelRun,
     PredictionRun,
     SignalDomainCompatibilityError,
-    SignalDomainContract,
     transform_spectra_to_signal_domain,
 )
-from enginir.viewer._app import ensure_app
 from enginir.viewer._state import ProjectState
 
-from ._project_payloads import roi_provenance
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return ensure_app()
-
-
-def _create_phase6_model_project(path: str) -> None:
-    wavelengths = np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
-    create_project(path)
-    save_dataset_ref(
-        path,
-        "dataset_train",
-        {
-            "source_path": "/data/train.h5",
-            "source_format": "hdf5",
-            "source_modality": "nir_hsi",
-            "cube_shape": (4, 4, 3),
-            "n_bands": 3,
-            "wavelengths": wavelengths,
-            "loader_metadata": {"instrument": "alpha"},
-            "import_timestamp": "2026-04-02T10:00:00+00:00",
-        },
-    )
-    save_calibration_spec(
-        path,
-        "dataset_train",
-        "cal_train",
-        {
-            "mode": "dark_white_reference",
-            "output_signal_unit": "Absorbance",
-            "black_level": 0.0,
-            "white_level": 100.0,
-            "created_at": "2026-04-02T10:01:00+00:00",
-        },
-    )
-    save_target_definition(
-        path,
-        "target_moisture",
-        {
-            "name": "moisture",
-            "unit": "% w/w",
-            "value_type": "float",
-            "missing_value_policy": "allowed",
-            "created_at": "2026-04-02T10:02:00+00:00",
-        },
-    )
-    save_preprocessing_recipe(
-        path,
-        "recipe_none",
-        {
-            "filter": "none",
-            "sg_window": 11,
-            "sg_polyorder": 2,
-            "snv": False,
-            "msc": False,
-            "emsc": False,
-            "detrend": False,
-            "detrend_order": 1,
-            "sg_edges": "interp",
-            "asls": False,
-            "asls_lambda": 10000.0,
-            "asls_p": 0.001,
-            "asls_iterations": 10,
-            "bands_keep": [],
-            "bands_exclude": [],
-        },
-    )
-    save_preprocessing_recipe(
-        path,
-        "recipe_msc",
-        {
-            "filter": "none",
-            "sg_window": 11,
-            "sg_polyorder": 2,
-            "snv": False,
-            "msc": True,
-            "emsc": False,
-            "detrend": False,
-            "detrend_order": 1,
-            "sg_edges": "interp",
-            "asls": False,
-            "asls_lambda": 10000.0,
-            "asls_p": 0.001,
-            "asls_iterations": 10,
-            "bands_keep": [],
-            "bands_exclude": [],
-        },
-    )
-    save_signal_domain_contract(
-        path,
-        "signal_domain_1",
-        {
-            "input_format": "hdf5",
-            "source_modality": "nir_hsi",
-            "required_signal_unit": "Absorbance",
-            "required_calibration_mode": "dark_white_reference",
-            "requires_dark_ref": True,
-            "requires_white_ref": True,
-            "calibrated_input_allowed": False,
-            "n_bands": 3,
-            "wavelengths": wavelengths,
-            "wavelength_tolerance_nm": 0.0,
-            "band_mapping_policy": "exact",
-            "output_dtype": "float32",
-            "created_at": "2026-04-02T10:04:00+00:00",
-        },
-    )
-
-    roi_payloads = {
-        "roi_1": (np.array([[10, 20, 30], [12, 22, 32]], dtype=np.uint16), 1.0),
-        "roi_2": (np.array([[14, 24, 34], [16, 26, 36]], dtype=np.uint16), 2.0),
-        "roi_3": (np.array([[18, 28, 38], [20, 30, 40]], dtype=np.uint16), 3.0),
-        "roi_4": (np.array([[22, 32, 42], [24, 34, 44]], dtype=np.uint16), 4.0),
-    }
-    for index, (roi_id, (spectra, value)) in enumerate(roi_payloads.items(), start=1):
-        save_training_roi(
-            path,
-            roi_id,
-            {
-                "dataset_id": "dataset_train",
-                "calibration_id": "cal_train",
-                "name": roi_id.upper(),
-                "source_file": "/data/train.h5",
-                "job": "calibration",
-                "n_pixels": int(spectra.shape[0]),
-                "created_at": f"2026-04-02T10:0{4 + index}:00+00:00",
-                "spatial_bounds": (index, index, 0, 1),
-                "wavelengths": wavelengths,
-                "provenance": roi_provenance(
-                    dataset_id="dataset_train",
-                    calibration_id="cal_train",
-                    created_at=f"2026-04-02T10:0{4 + index}:00+00:00"
-                ),
-            },
-            spectra,
-        )
-        save_target_assignment(
-            path,
-            "target_moisture",
-            roi_id,
-            {"value": value, "assigned_at": f"2026-04-02T10:1{index}:00+00:00"},
-        )
+from tests._eiff import eiff_bytes
+from tests._project_payloads import write_model_project, write_prediction_cube
+from tests import _project_payloads as build
 
 
 def _fit_phase6_model(project_path: str) -> ProjectState:
@@ -218,56 +65,34 @@ def test_preflight_prediction_uses_memory_budgeted_default_frame_chunks(tmp_path
     def _preflight(cube_shape: tuple[int, int, int]):
         n_bands = cube_shape[2]
         wavelengths = np.arange(n_bands, dtype=np.float32)
-        dataset = DatasetRef(
+        dataset = build.dataset(
+            wavelengths,
             dataset_id="dataset_large",
             source_path="/data/large.h5",
             source_format="hdf5",
-            source_modality="nir_hsi",
             cube_shape=cube_shape,
             n_bands=n_bands,
-            wavelengths=wavelengths,
-            loader_metadata={},
-            import_timestamp="2026-04-02T11:09:50+00:00",
         )
-        calibration = CalibrationSpec(
+        calibration = build.calibration(
             calibration_id="cal_raw",
             dataset_id=dataset.dataset_id,
-            mode="raw_dn",
-            dark_ref_source=None,
-            white_ref_source=None,
-            dark_ref_data=None,
-            white_ref_data=None,
-            black_level=None,
-            white_level=None,
-            output_signal_unit="DN",
-            created_at="2026-04-02T11:09:50+00:00",
         )
-        signal_domain = SignalDomainContract(
+        signal_domain = build.signal_domain(
+            wavelengths,
             signal_domain_id="signal_domain_raw",
             input_format="hdf5",
-            source_modality="nir_hsi",
-            required_signal_unit="DN",
-            required_calibration_mode="raw_dn",
-            requires_dark_ref=False,
-            requires_white_ref=False,
             calibrated_input_allowed=False,
             n_bands=n_bands,
-            wavelengths=wavelengths,
-            wavelength_tolerance_nm=0.0,
-            band_mapping_policy="exact",
-            output_dtype="float32",
-            created_at="2026-04-02T11:09:50+00:00",
         )
-        model_run = ModelRun(fit_spec=FitSpec().to_dict(), 
+        model_run = build.model_run(
+            fit_spec=FitSpec().to_dict(),
             model_run_id="model_large",
             sample_set_id="sample_large",
             signal_domain_id=signal_domain.signal_domain_id,
-            model_type="PLS",
             hyperparameters={},
             cv_spec={},
             metrics={},
             artifact_refs={},
-            created_at="2026-04-02T11:09:50+00:00",
         )
         return preflight_prediction(
             project_path=str(tmp_path / "unused.h5"),
@@ -293,56 +118,31 @@ def test_preflight_prediction_rejects_invalid_chunk_size(tmp_path):
             return np.zeros(X.shape[0], dtype=np.float32)
 
     wavelengths = np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
-    dataset = DatasetRef(
+    dataset = build.dataset(
+        wavelengths,
         dataset_id="dataset_chunk",
         source_path="/data/chunk.h5",
         source_format="hdf5",
-        source_modality="nir_hsi",
         cube_shape=(2, 2, 3),
         n_bands=3,
-        wavelengths=wavelengths,
-        loader_metadata={},
-        import_timestamp="2026-04-02T11:09:50+00:00",
     )
-    calibration = CalibrationSpec(
-        calibration_id="cal_chunk",
-        dataset_id=dataset.dataset_id,
-        mode="raw_dn",
-        dark_ref_source=None,
-        white_ref_source=None,
-        dark_ref_data=None,
-        white_ref_data=None,
-        black_level=None,
-        white_level=None,
-        output_signal_unit="DN",
-        created_at="2026-04-02T11:09:50+00:00",
-    )
-    signal_domain = SignalDomainContract(
+    calibration = build.calibration(calibration_id="cal_chunk", dataset_id=dataset.dataset_id)
+    signal_domain = build.signal_domain(
+        wavelengths,
         signal_domain_id="signal_domain_chunk",
         input_format="hdf5",
-        source_modality="nir_hsi",
-        required_signal_unit="DN",
-        required_calibration_mode="raw_dn",
-        requires_dark_ref=False,
-        requires_white_ref=False,
         calibrated_input_allowed=False,
         n_bands=3,
-        wavelengths=wavelengths,
-        wavelength_tolerance_nm=0.0,
-        band_mapping_policy="exact",
-        output_dtype="float32",
-        created_at="2026-04-02T11:09:50+00:00",
     )
-    model_run = ModelRun(fit_spec=FitSpec().to_dict(), 
+    model_run = build.model_run(
+        fit_spec=FitSpec().to_dict(),
         model_run_id="model_chunk",
         sample_set_id="sample_chunk",
         signal_domain_id=signal_domain.signal_domain_id,
-        model_type="PLS",
         hyperparameters={},
         cv_spec={},
         metrics={},
         artifact_refs={},
-        created_at="2026-04-02T11:09:50+00:00",
     )
 
     with pytest.raises(ValueError, match="chunk_size"):
@@ -365,16 +165,13 @@ def test_prediction_dataset_source_path_accepts_equivalent_slash_styles(tmp_path
         wavelengths=np.arange(3, dtype=np.float32),
         meta={"frames_total": 4, "source_modality": "nir_hsi"},
     )
-    dataset = DatasetRef(
+    dataset = build.dataset(
+        np.arange(3, dtype=np.float32),
         dataset_id="dataset_slashes",
         source_path=str(source_path).replace("\\", "/"),
         source_format="hdf5",
-        source_modality="nir_hsi",
         cube_shape=(4, 2, 3),
         n_bands=3,
-        wavelengths=np.arange(3, dtype=np.float32),
-        loader_metadata={},
-        import_timestamp="2026-04-02T11:09:50+00:00",
     )
 
     from enginir._workflow import resolve_dataset
@@ -407,56 +204,32 @@ def _fit_phase6_model_with_recipe(
     return state
 
 
-def _write_prediction_cube(path: str, *, wavelengths: np.ndarray) -> None:
-    cube = np.array(
-        [
-            [[11.0, 21.0, 31.0], [13.0, 23.0, 33.0]],
-            [[15.0, 25.0, 35.0], [17.0, 27.0, 37.0]],
-        ],
-        dtype=np.float32,
-    )
-    save_hdf5(
-        path,
-        cube,
-        wavelengths,
-        meta={"source_modality": "nir_hsi", "instrument": "alpha"},
-    )
-
-
 def test_predict_dataset_reuses_dataset_local_calibration_defaults_after_reopen(tmp_path, qapp):
     project_path = str(tmp_path / "phase6_predict_defaults.h5")
-    _create_phase6_model_project(project_path)
+    write_model_project(project_path)
     state = _fit_phase6_model(project_path)
 
     wavelengths = np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
     pred_path = str(tmp_path / "prediction_defaults.h5")
-    _write_prediction_cube(pred_path, wavelengths=wavelengths)
+    write_prediction_cube(pred_path, wavelengths=wavelengths)
     state.register_dataset(
-        DatasetRef(
+        build.dataset(
+            wavelengths,
             dataset_id="dataset_pred",
             source_path=pred_path,
             source_format="hdf5",
-            source_modality="nir_hsi",
             cube_shape=(2, 2, 3),
             n_bands=3,
-            wavelengths=wavelengths,
-            loader_metadata={},
-            import_timestamp="2026-04-02T11:00:00+00:00",
         )
     )
     state.set_active_calibration(
-        CalibrationSpec(
+        build.calibration(
             calibration_id="cal_pred",
             dataset_id="dataset_pred",
             mode="dark_white_reference",
-            dark_ref_source=None,
-            white_ref_source=None,
-            dark_ref_data=None,
-            white_ref_data=None,
             black_level=0.0,
             white_level=100.0,
             output_signal_unit="Absorbance",
-            created_at="2026-04-02T11:01:00+00:00",
         )
     )
 
@@ -489,7 +262,7 @@ def test_reopened_prediction_run_lazily_loads_spatial_map_and_preserves_model_li
     tmp_path, qapp
 ):
     project_path = str(tmp_path / "phase6_prediction_reopen_lazy.h5")
-    _create_phase6_model_project(project_path)
+    write_model_project(project_path)
     state = _fit_phase6_model(project_path)
     del state
     # Low-level persistence (a script's explicit request); the viewer never stores predictions.
@@ -526,11 +299,11 @@ def test_reopened_prediction_run_lazily_loads_spatial_map_and_preserves_model_li
 
 def test_predict_dataset_requires_explicit_calibration_when_defaults_absent(tmp_path, qapp):
     project_path = str(tmp_path / "phase6_predict_no_defaults.h5")
-    _create_phase6_model_project(project_path)
+    write_model_project(project_path)
     state = _fit_phase6_model(project_path)
 
     pred_path = str(tmp_path / "prediction_no_defaults.h5")
-    _write_prediction_cube(
+    write_prediction_cube(
         pred_path, wavelengths=np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
     )
 
@@ -544,28 +317,23 @@ def test_predict_dataset_requires_explicit_calibration_when_defaults_absent(tmp_
 
 def test_predict_dataset_writes_neither_the_new_dataset_nor_its_calibration(tmp_path, qapp):
     project_path = str(tmp_path / "phase6_predict_explicit.h5")
-    _create_phase6_model_project(project_path)
+    write_model_project(project_path)
     state = _fit_phase6_model(project_path)
 
     wavelengths = np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
     pred_path = str(tmp_path / "prediction_explicit.h5")
-    _write_prediction_cube(pred_path, wavelengths=wavelengths)
+    write_prediction_cube(pred_path, wavelengths=wavelengths)
 
     result = state.predict_dataset(
         model_run_id="model_run_1",
         data_path=pred_path,
-        calibration=CalibrationSpec(
+        calibration=build.calibration(
             calibration_id="cal_new",
             dataset_id="",
             mode="dark_white_reference",
-            dark_ref_source=None,
-            white_ref_source=None,
-            dark_ref_data=None,
-            white_ref_data=None,
             black_level=0.0,
             white_level=100.0,
             output_signal_unit="Absorbance",
-            created_at="2026-04-02T11:02:00+00:00",
         ),
         prediction_run_id="prediction_run_2",
     )
@@ -581,29 +349,24 @@ def test_predict_dataset_writes_neither_the_new_dataset_nor_its_calibration(tmp_
 
 def test_predict_dataset_allows_different_wavelength_metadata(tmp_path, qapp):
     project_path = str(tmp_path / "phase6_predict_different_wavelengths.h5")
-    _create_phase6_model_project(project_path)
+    write_model_project(project_path)
     state = _fit_phase6_model(project_path)
 
     pred_path = str(tmp_path / "prediction_different_wavelengths.h5")
-    _write_prediction_cube(
+    write_prediction_cube(
         pred_path, wavelengths=np.array([1000.0, 1110.0, 1200.0], dtype=np.float32)
     )
 
     result = state.predict_dataset(
         model_run_id="model_run_1",
         data_path=pred_path,
-        calibration=CalibrationSpec(
+        calibration=build.calibration(
             calibration_id="cal_different_wl",
             dataset_id="",
             mode="dark_white_reference",
-            dark_ref_source=None,
-            white_ref_source=None,
-            dark_ref_data=None,
-            white_ref_data=None,
             black_level=0.0,
             white_level=100.0,
             output_signal_unit="Absorbance",
-            created_at="2026-04-02T11:03:00+00:00",
         ),
         prediction_run_id="prediction_run_different_wl",
     )
@@ -613,11 +376,11 @@ def test_predict_dataset_allows_different_wavelength_metadata(tmp_path, qapp):
 
 def test_predict_dataset_rejects_incompatible_signal_unit(tmp_path, qapp):
     project_path = str(tmp_path / "phase6_predict_bad_signal.h5")
-    _create_phase6_model_project(project_path)
+    write_model_project(project_path)
     state = _fit_phase6_model(project_path)
 
     pred_path = str(tmp_path / "prediction_bad_signal.h5")
-    _write_prediction_cube(
+    write_prediction_cube(
         pred_path, wavelengths=np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
     )
 
@@ -625,42 +388,25 @@ def test_predict_dataset_rejects_incompatible_signal_unit(tmp_path, qapp):
         state.predict_dataset(
             model_run_id="model_run_1",
             data_path=pred_path,
-            calibration=CalibrationSpec(
-                calibration_id="cal_bad_signal",
-                dataset_id="",
-                mode="raw_dn",
-                dark_ref_source=None,
-                white_ref_source=None,
-                dark_ref_data=None,
-                white_ref_data=None,
-                black_level=None,
-                white_level=None,
-                output_signal_unit="DN",
-                created_at="2026-04-02T11:04:00+00:00",
-            ),
+            calibration=build.calibration(calibration_id="cal_bad_signal", dataset_id=""),
             prediction_run_id="prediction_run_bad_signal",
         )
 
 
 def _msc_prediction_calibration(calibration_id: str) -> CalibrationSpec:
-    return CalibrationSpec(
+    return build.calibration(
         calibration_id=calibration_id,
         dataset_id="",
         mode="dark_white_reference",
-        dark_ref_source=None,
-        white_ref_source=None,
-        dark_ref_data=None,
-        white_ref_data=None,
         black_level=0.0,
         white_level=100.0,
         output_signal_unit="Absorbance",
-        created_at="2026-04-02T11:05:00+00:00",
     )
 
 
 def test_reopened_stateful_preprocessing_replays_persisted_training_state(tmp_path, qapp):
     project_path = str(tmp_path / "phase6_predict_reopened_msc.h5")
-    _create_phase6_model_project(project_path)
+    write_model_project(project_path)
     fitted = _fit_phase6_model_with_recipe(
         project_path, recipe_id="recipe_msc", model_run_id="model_run_msc"
     )
@@ -668,8 +414,8 @@ def test_reopened_stateful_preprocessing_replays_persisted_training_state(tmp_pa
     in_memory_path = str(tmp_path / "prediction_in_memory_msc.h5")
     reopened_path = str(tmp_path / "prediction_reopened_msc.h5")
     wavelengths = np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
-    _write_prediction_cube(in_memory_path, wavelengths=wavelengths)
-    _write_prediction_cube(reopened_path, wavelengths=wavelengths)
+    write_prediction_cube(in_memory_path, wavelengths=wavelengths)
+    write_prediction_cube(reopened_path, wavelengths=wavelengths)
     # the fitted pipeline itself (an in-memory predictor), not the saved model
     context = fitted.build_prediction_job_context(model_run_id="model_run_msc")
     data = load_hdf5(in_memory_path)
@@ -705,7 +451,7 @@ def test_a_model_without_its_msc_state_is_refused_when_the_project_is_read(tmp_p
     # The MSC/EMSC state is core (project-schema contract, Core and display
     # data): the reader refuses the project, before any prediction.
     project_path = str(tmp_path / "phase6_missing_msc_state.h5")
-    _create_phase6_model_project(project_path)
+    write_model_project(project_path)
     _fit_phase6_model_with_recipe(
         project_path, recipe_id="recipe_msc", model_run_id="model_run_msc"
     )
@@ -724,7 +470,7 @@ def test_reopened_stateful_preprocessing_rejects_malformed_training_state(
     tmp_path, qapp, damage, match
 ):
     project_path = str(tmp_path / "phase6_predict_missing_msc_state.h5")
-    _create_phase6_model_project(project_path)
+    write_model_project(project_path)
     _fit_phase6_model_with_recipe(
         project_path, recipe_id="recipe_msc", model_run_id="model_run_msc"
     )
@@ -738,7 +484,7 @@ def test_reopened_stateful_preprocessing_rejects_malformed_training_state(
             msc_state.attrs["reference"] = np.array([1.0, 2.0, 3.0, 4.0])
 
     pred_path = str(tmp_path / "prediction_missing_msc_state.h5")
-    _write_prediction_cube(
+    write_prediction_cube(
         pred_path, wavelengths=np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
     )
     reopened = ProjectState()
@@ -760,42 +506,34 @@ def test_reopened_stateful_preprocessing_rejects_malformed_training_state(
 
 def test_predict_dataset_ignores_changed_wavelength_metadata_for_existing_dataset(tmp_path, qapp):
     project_path = str(tmp_path / "phase6_predict_changed_wavelength_metadata.h5")
-    _create_phase6_model_project(project_path)
+    write_model_project(project_path)
     state = _fit_phase6_model(project_path)
 
     pred_path = str(tmp_path / "prediction_stale.h5")
-    _write_prediction_cube(
+    write_prediction_cube(
         pred_path, wavelengths=np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
     )
     state.register_dataset(
-        DatasetRef(
+        build.dataset(
+            np.array([1000.0, 1100.0, 1200.0], dtype=np.float32),
             dataset_id="dataset_stale",
             source_path=pred_path,
             source_format="hdf5",
-            source_modality="nir_hsi",
             cube_shape=(2, 2, 3),
             n_bands=3,
-            wavelengths=np.array([1000.0, 1100.0, 1200.0], dtype=np.float32),
-            loader_metadata={},
-            import_timestamp="2026-04-02T11:06:00+00:00",
         )
     )
     state.set_active_calibration(
-        CalibrationSpec(
+        build.calibration(
             calibration_id="cal_stale",
             dataset_id="dataset_stale",
             mode="dark_white_reference",
-            dark_ref_source=None,
-            white_ref_source=None,
-            dark_ref_data=None,
-            white_ref_data=None,
             black_level=0.0,
             white_level=100.0,
             output_signal_unit="Absorbance",
-            created_at="2026-04-02T11:07:00+00:00",
         )
     )
-    _write_prediction_cube(
+    write_prediction_cube(
         pred_path, wavelengths=np.array([1000.0, 1110.0, 1200.0], dtype=np.float32)
     )
 
@@ -810,7 +548,7 @@ def test_predict_dataset_ignores_changed_wavelength_metadata_for_existing_datase
 
 def test_predict_with_model_run_accepts_uint16_cube_input_under_numpy2(tmp_path, qapp):
     project_path = str(tmp_path / "phase6_predict_numpy2_uint16.h5")
-    _create_phase6_model_project(project_path)
+    write_model_project(project_path)
     state = _fit_phase6_model(project_path)
     context = state.build_prediction_job_context(model_run_id="model_run_1")
 
@@ -823,18 +561,13 @@ def test_predict_with_model_run_accepts_uint16_cube_input_under_numpy2(tmp_path,
         data_path=str(tmp_path / "prediction_uint16.h5"),
         spectral_data=spectral_data,
     )
-    calibration = CalibrationSpec(
+    calibration = build.calibration(
         calibration_id="cal_uint16",
         dataset_id=dataset.dataset_id,
         mode="dark_white_reference",
-        dark_ref_source=None,
-        white_ref_source=None,
-        dark_ref_data=None,
-        white_ref_data=None,
         black_level=0.0,
         white_level=100.0,
         output_signal_unit="Absorbance",
-        created_at="2026-04-02T11:08:00+00:00",
     )
 
     class _DummyPredictor:
@@ -864,7 +597,7 @@ def test_predict_with_model_run_accepts_uint16_cube_input_under_numpy2(tmp_path,
 def test_hdf5_prediction_reuses_source_and_artifact_file_handles(tmp_path, qapp):
     project_path = str(tmp_path / "prediction_handle_reuse_project.h5")
     source_path = str(tmp_path / "prediction_handle_reuse_source.h5")
-    _create_phase6_model_project(project_path)
+    write_model_project(project_path)
     state = _fit_phase6_model(project_path)
     context = state.build_prediction_job_context(model_run_id="model_run_1")
     save_hdf5(
@@ -878,18 +611,13 @@ def test_hdf5_prediction_reuses_source_and_artifact_file_handles(tmp_path, qapp)
         spectral_data=metadata,
         source_modality="nir_hsi",
     )
-    calibration = CalibrationSpec(
+    calibration = build.calibration(
         calibration_id="cal_handle_reuse",
         dataset_id=dataset.dataset_id,
         mode="dark_white_reference",
-        dark_ref_source=None,
-        white_ref_source=None,
-        dark_ref_data=None,
-        white_ref_data=None,
         black_level=0.0,
         white_level=100.0,
         output_signal_unit="Reflectance",
-        created_at="2026-04-02T11:08:30+00:00",
     )
 
     class _DummyPredictor:
@@ -924,7 +652,7 @@ def test_hdf5_prediction_reuses_source_and_artifact_file_handles(tmp_path, qapp)
 
 def test_predict_with_model_run_reports_chunk_progress_and_metadata(tmp_path, qapp):
     project_path = str(tmp_path / "phase6_predict_progress.h5")
-    _create_phase6_model_project(project_path)
+    write_model_project(project_path)
     state = _fit_phase6_model(project_path)
     context = state.build_prediction_job_context(model_run_id="model_run_1")
     spectral_data = SpectralData(
@@ -942,18 +670,13 @@ def test_predict_with_model_run_reports_chunk_progress_and_metadata(tmp_path, qa
         data_path=str(tmp_path / "prediction_progress.h5"),
         spectral_data=spectral_data,
     )
-    calibration = CalibrationSpec(
+    calibration = build.calibration(
         calibration_id="cal_progress",
         dataset_id=dataset.dataset_id,
         mode="dark_white_reference",
-        dark_ref_source=None,
-        white_ref_source=None,
-        dark_ref_data=None,
-        white_ref_data=None,
         black_level=0.0,
         white_level=20.0,
         output_signal_unit="Reflectance",
-        created_at="2026-04-02T11:09:30+00:00",
     )
 
     class _DummyPredictor:
@@ -995,7 +718,7 @@ def test_predict_with_model_run_reports_chunk_progress_and_metadata(tmp_path, qa
 
 def test_predict_with_model_run_cancels_between_chunks_and_discards_artifacts(tmp_path, qapp):
     project_path = str(tmp_path / "phase6_predict_cancel.h5")
-    _create_phase6_model_project(project_path)
+    write_model_project(project_path)
     state = _fit_phase6_model(project_path)
     context = state.build_prediction_job_context(model_run_id="model_run_1")
     spectral_data = SpectralData(
@@ -1007,18 +730,13 @@ def test_predict_with_model_run_cancels_between_chunks_and_discards_artifacts(tm
         data_path=str(tmp_path / "prediction_cancel.h5"),
         spectral_data=spectral_data,
     )
-    calibration = CalibrationSpec(
+    calibration = build.calibration(
         calibration_id="cal_cancel",
         dataset_id=dataset.dataset_id,
         mode="dark_white_reference",
-        dark_ref_source=None,
-        white_ref_source=None,
-        dark_ref_data=None,
-        white_ref_data=None,
         black_level=0.0,
         white_level=20.0,
         output_signal_unit="Reflectance",
-        created_at="2026-04-02T11:09:32+00:00",
     )
 
     class _DummyPredictor:
@@ -1058,7 +776,7 @@ def test_predict_with_model_run_can_persist_chunks_without_returning_arrays(tmp_
     from enginir.io.project_store import load_prediction_run_artifact_refs
 
     project_path = str(tmp_path / "phase6_predict_persist_chunks.h5")
-    _create_phase6_model_project(project_path)
+    write_model_project(project_path)
     state = _fit_phase6_model(project_path)
     context = state.build_prediction_job_context(model_run_id="model_run_1")
     spectral_data = SpectralData(
@@ -1070,18 +788,13 @@ def test_predict_with_model_run_can_persist_chunks_without_returning_arrays(tmp_
         data_path=str(tmp_path / "prediction_persist_chunks.h5"),
         spectral_data=spectral_data,
     )
-    calibration = CalibrationSpec(
+    calibration = build.calibration(
         calibration_id="cal_persist_chunks",
         dataset_id=dataset.dataset_id,
         mode="dark_white_reference",
-        dark_ref_source=None,
-        white_ref_source=None,
-        dark_ref_data=None,
-        white_ref_data=None,
         black_level=0.0,
         white_level=100.0,
         output_signal_unit="Reflectance",
-        created_at="2026-04-02T11:09:35+00:00",
     )
 
     class _DummyPredictor:
@@ -1131,7 +844,7 @@ def test_predict_with_model_run_rejects_bare_predictor_when_recipe_would_be_skip
     tmp_path, qapp
 ):
     project_path = str(tmp_path / "phase6_predict_bare_estimator.h5")
-    _create_phase6_model_project(project_path)
+    write_model_project(project_path)
     state = _fit_phase6_model(project_path)
     context = state.build_prediction_job_context(model_run_id="model_run_1")
     spectral_data = SpectralData(
@@ -1143,18 +856,13 @@ def test_predict_with_model_run_rejects_bare_predictor_when_recipe_would_be_skip
         data_path=str(tmp_path / "prediction_bare.h5"),
         spectral_data=spectral_data,
     )
-    calibration = CalibrationSpec(
+    calibration = build.calibration(
         calibration_id="cal_bare",
         dataset_id=dataset.dataset_id,
         mode="dark_white_reference",
-        dark_ref_source=None,
-        white_ref_source=None,
-        dark_ref_data=None,
-        white_ref_data=None,
         black_level=0.0,
         white_level=2.0,
         output_signal_unit="Reflectance",
-        created_at="2026-04-02T11:09:40+00:00",
     )
 
     class _BareEstimator:
@@ -1177,74 +885,51 @@ def test_predict_with_model_run_rejects_bare_predictor_when_recipe_would_be_skip
 
 def test_calibrations_normalize_the_case_of_enum_values():
     """Signal units and modes compare case-insensitively (dataset-calibration contract)."""
-    calibration = CalibrationSpec(
+    calibration = build.calibration(
         calibration_id="cal_signal_case",
         dataset_id="dataset_1",
         mode="Dark_White_Reference",
-        dark_ref_source=None,
-        white_ref_source=None,
-        dark_ref_data=None,
-        white_ref_data=None,
         black_level=0.0,
         white_level=100.0,
         output_signal_unit=" reflectance",
-        created_at="2026-04-02T11:09:45+00:00",
     )
     assert calibration.mode == "dark_white_reference"
     assert calibration.output_signal_unit == "Reflectance"
     with pytest.raises(ValueError, match="output_signal_unit must be one of"):
-        CalibrationSpec(
+        build.calibration(
             calibration_id="cal_bad_unit",
             dataset_id="dataset_1",
             mode="dark_white_reference",
-            dark_ref_source=None,
-            white_ref_source=None,
-            dark_ref_data=None,
-            white_ref_data=None,
             black_level=0.0,
             white_level=100.0,
             output_signal_unit="transmittance",
-            created_at="2026-04-02T11:09:45+00:00",
         )
 
 
 def test_explicit_prediction_calibration_reuses_matching_dataset_calibration(qapp):
-    dataset = DatasetRef(
+    dataset = build.dataset(
+        np.array([1000.0, 1100.0, 1200.0], dtype=np.float32),
         dataset_id="dataset_reuse",
         source_path="/tmp/predict.h5",
         source_format="hdf5",
-        source_modality="nir_hsi",
         cube_shape=(1, 2, 3),
         n_bands=3,
-        wavelengths=np.array([1000.0, 1100.0, 1200.0], dtype=np.float32),
-        loader_metadata={},
-        import_timestamp="2026-04-02T11:09:50+00:00",
     )
-    existing = CalibrationSpec(
+    existing = build.calibration(
         calibration_id="cal_existing",
         dataset_id=dataset.dataset_id,
         mode="dark_white_reference",
-        dark_ref_source=None,
-        white_ref_source=None,
-        dark_ref_data=None,
-        white_ref_data=None,
         black_level=0.0,
         white_level=100.0,
         output_signal_unit="Reflectance",
-        created_at="2026-04-02T11:09:50+00:00",
     )
-    explicit = CalibrationSpec(
+    explicit = build.calibration(
         calibration_id="",
         dataset_id="",
         mode="dark_white_reference",
-        dark_ref_source=None,
-        white_ref_source=None,
-        dark_ref_data=None,
-        white_ref_data=None,
         black_level=0.0,
         white_level=100.0,
         output_signal_unit="Reflectance",
-        created_at="2026-04-02T11:10:00+00:00",
     )
 
     from enginir._workflow import resolve_prediction_calibration
@@ -1258,7 +943,7 @@ def test_explicit_prediction_calibration_reuses_matching_dataset_calibration(qap
 
 def test_predict_with_model_run_aligns_full_sensor_refs_before_flattening(tmp_path, qapp):
     project_path = str(tmp_path / "phase6_predict_embedded_refs.h5")
-    _create_phase6_model_project(project_path)
+    write_model_project(project_path)
     state = _fit_phase6_model(project_path)
     context = state.build_prediction_job_context(model_run_id="model_run_1")
 
@@ -1280,18 +965,13 @@ def test_predict_with_model_run_aligns_full_sensor_refs_before_flattening(tmp_pa
     )
     dark_ref = np.array([[0, 10, 20], [10, 20, 30]], dtype=np.float32)
     white_ref = dark_ref + 100.0
-    calibration = CalibrationSpec(
+    calibration = build.calibration(
         calibration_id="cal_embedded_refs",
         dataset_id=dataset.dataset_id,
         mode="dark_white_reference",
-        dark_ref_source=None,
-        white_ref_source=None,
         dark_ref_data=dark_ref,
         white_ref_data=white_ref,
-        black_level=None,
-        white_level=None,
         output_signal_unit="Absorbance",
-        created_at="2026-04-02T11:10:00+00:00",
     )
 
     class _CapturingPredictor:
@@ -1335,47 +1015,34 @@ def test_transform_spectra_infers_spatial_shape_for_full_sensor_refs():
         dtype=np.uint16,
     )
     wavelengths = np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
-    dataset = DatasetRef(
+    dataset = build.dataset(
+        wavelengths,
         dataset_id="dataset_flat",
         source_path="/data/prediction.h5",
         source_format="hdf5",
-        source_modality="nir_hsi",
         cube_shape=(2, 2, 3),
         n_bands=3,
-        wavelengths=wavelengths,
-        loader_metadata={},
-        import_timestamp="2026-04-02T11:12:00+00:00",
     )
     dark_ref = np.array([[0, 10, 20], [10, 20, 30]], dtype=np.float32)
     white_ref = dark_ref + 100.0
-    calibration = CalibrationSpec(
+    calibration = build.calibration(
         calibration_id="cal_flat_refs",
         dataset_id=dataset.dataset_id,
         mode="dark_white_reference",
-        dark_ref_source=None,
-        white_ref_source=None,
         dark_ref_data=dark_ref,
         white_ref_data=white_ref,
-        black_level=None,
-        white_level=None,
         output_signal_unit="Reflectance",
-        created_at="2026-04-02T11:13:00+00:00",
     )
-    signal_domain = SignalDomainContract(
+    signal_domain = build.signal_domain(
+        wavelengths,
         signal_domain_id="signal_domain_reflectance",
         input_format="hdf5",
-        source_modality="nir_hsi",
         required_signal_unit="Reflectance",
         required_calibration_mode="dark_white_reference",
         requires_dark_ref=True,
         requires_white_ref=True,
         calibrated_input_allowed=False,
         n_bands=3,
-        wavelengths=wavelengths,
-        wavelength_tolerance_nm=0.0,
-        band_mapping_policy="exact",
-        output_dtype="float32",
-        created_at="2026-04-02T11:00:00+00:00",
     )
 
     transformed = transform_spectra_to_signal_domain(
@@ -1401,45 +1068,24 @@ def test_transform_spectra_infers_spatial_shape_for_full_sensor_refs():
 )
 def test_transform_spectra_to_signal_domain_rejects_invalid_raw_spectra(raw_spectra, match):
     wavelengths = np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
-    dataset = DatasetRef(
+    dataset = build.dataset(
+        wavelengths,
         dataset_id="dataset_invalid_raw",
         source_path="/data/prediction.h5",
         source_format="hdf5",
-        source_modality="nir_hsi",
         cube_shape=(1, 1, 3),
         n_bands=3,
-        wavelengths=wavelengths,
-        loader_metadata={},
-        import_timestamp="2026-04-02T11:12:00+00:00",
     )
-    calibration = CalibrationSpec(
+    calibration = build.calibration(
         calibration_id="cal_invalid_raw",
         dataset_id=dataset.dataset_id,
-        mode="raw_dn",
-        dark_ref_source=None,
-        white_ref_source=None,
-        dark_ref_data=None,
-        white_ref_data=None,
-        black_level=None,
-        white_level=None,
-        output_signal_unit="DN",
-        created_at="2026-04-02T11:13:00+00:00",
     )
-    signal_domain = SignalDomainContract(
+    signal_domain = build.signal_domain(
+        wavelengths,
         signal_domain_id="signal_domain_invalid_raw",
         input_format="hdf5",
-        source_modality="nir_hsi",
-        required_signal_unit="DN",
-        required_calibration_mode="raw_dn",
-        requires_dark_ref=False,
-        requires_white_ref=False,
         calibrated_input_allowed=False,
         n_bands=3,
-        wavelengths=wavelengths,
-        wavelength_tolerance_nm=0.0,
-        band_mapping_policy="exact",
-        output_dtype="float32",
-        created_at="2026-04-02T11:00:00+00:00",
     )
 
     with pytest.raises(ValueError, match=match):
@@ -1452,25 +1098,20 @@ def test_transform_spectra_to_signal_domain_rejects_invalid_raw_spectra(raw_spec
 
 
 def _scalar_reflectance_calibration(dataset_id: str) -> CalibrationSpec:
-    return CalibrationSpec(
+    return build.calibration(
         calibration_id="cal_scalar",
         dataset_id=dataset_id,
         mode="dark_white_reference",
-        dark_ref_source=None,
-        white_ref_source=None,
-        dark_ref_data=None,
-        white_ref_data=None,
         black_level=0.0,
         white_level=200.0,
         output_signal_unit="Reflectance",
-        created_at="2026-04-02T11:09:32+00:00",
     )
 
 
 @pytest.mark.parametrize("cancel_at_poll", range(1, 12))
 def test_cancelling_at_any_point_leaves_no_staged_run(tmp_path, qapp, cancel_at_poll):
     project_path = str(tmp_path / "cancel_any.h5")
-    _create_phase6_model_project(project_path)
+    write_model_project(project_path)
     state = _fit_phase6_model(project_path)
     context = state.build_prediction_job_context(model_run_id="model_run_1")
     spectral_data = SpectralData(
@@ -1518,7 +1159,7 @@ def test_cancelling_at_any_point_leaves_no_staged_run(tmp_path, qapp, cancel_at_
 
 def test_chunked_saved_model_prediction_matches_one_shot_prediction(tmp_path, qapp):
     project_path = str(tmp_path / "chunked.h5")
-    _create_phase6_model_project(project_path)
+    write_model_project(project_path)
     state = _fit_phase6_model(project_path)
     context = state.build_prediction_job_context(model_run_id="model_run_1")
     rng = np.random.default_rng(5)
@@ -1564,7 +1205,7 @@ def test_chunked_saved_model_prediction_matches_one_shot_prediction(tmp_path, qa
 
 def test_training_and_prediction_use_identical_signal_conversion(tmp_path, qapp):
     project_path = str(tmp_path / "identity.h5")
-    _create_phase6_model_project(project_path)
+    write_model_project(project_path)
     state = _fit_phase6_model(project_path)
     context = state.build_prediction_job_context(model_run_id="model_run_1")
     roi = next(iter(state.rois.values()))
@@ -1589,7 +1230,7 @@ def test_training_and_prediction_use_identical_signal_conversion(tmp_path, qapp)
 
 def _second_review_setup(tmp_path, name: str, X: np.ndarray, **calibration_kwargs):
     project_path = str(tmp_path / f"{name}.h5")
-    _create_phase6_model_project(project_path)
+    write_model_project(project_path)
     state = _fit_phase6_model(project_path)
     context = state.build_prediction_job_context(model_run_id="model_run_1")
     spectral_data = SpectralData(X=X, wavelengths=np.array([1000.0, 1100.0, 1200.0]),
@@ -1804,17 +1445,15 @@ def test_image_files_stream_into_the_same_prediction_as_in_memory_data(tmp_path,
     """G16: EIFF, HDF5 (any frame step) and ENVI are streamed, never read completely."""
     from enginir.io import load_spectra, save_envi, save_hdf5
 
-    from .test_io import _build_eiff_file
-
     project_path = str(tmp_path / "stream.h5")
-    _create_phase6_model_project(project_path)
+    write_model_project(project_path)
     context = _fit_phase6_model(project_path).build_prediction_job_context(
         model_run_id="model_run_1")
     wavelengths = np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
     cube = np.random.default_rng(3).integers(10, 190, size=(7, 3, 3)).astype(np.uint16)
     path = tmp_path / name
     if name.endswith(".eiff"):
-        path.write_bytes(_build_eiff_file(3, 3, list(cube), wavelengths))
+        path.write_bytes(eiff_bytes(3, 3, list(cube), wavelengths))
     elif name.endswith(".h5"):
         save_hdf5(path, cube, wavelengths)
     else:

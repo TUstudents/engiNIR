@@ -1,19 +1,20 @@
-"""Tests for enginir.viewer._app."""
+"""The viewer application: Qt platform and theme start-up, background jobs and a clean exit."""
 
 from __future__ import annotations
 
 import os
-
-import pytest
+import subprocess
+import sys
+import textwrap
+import threading
+import time
+from PyQt6.QtCore import QObject
 from PyQt6.QtWidgets import QApplication
+import pytest
+from tests._qt import wait_until
 
 
-@pytest.fixture(scope="module")
-def qapp():
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication([])
-    return app
+# -- Tests for enginir.viewer._app -----------------------------------------------------
 
 
 def test_ensure_app_returns_singleton_and_applies_theme(qapp):
@@ -52,6 +53,13 @@ def test_ensure_app_does_not_restyle_an_app_that_has_the_theme(qapp, monkeypatch
         "_enginir_theme_dark")))
     assert appmod.ensure_app() is qapp
     assert called == []
+
+    # An application created by someone else gets the engiNIR icon.
+    from PyQt6.QtGui import QIcon
+
+    qapp.setWindowIcon(QIcon())
+    appmod.ensure_app()
+    assert not qapp.windowIcon().isNull()
 
 
 def test_apply_qt_theme_persists_panel_colors_and_preference(qapp, tmp_path, monkeypatch):
@@ -212,3 +220,105 @@ def test_the_viewer_has_its_own_taskbar_identity_on_windows():
     result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
                             env={**os.environ, "QT_QPA_PLATFORM": "offscreen"}, timeout=60)
     assert result.stdout.startswith("True"), result.stdout + result.stderr
+
+
+# -- Lifecycle of viewer background jobs (G17) -----------------------------------------
+
+
+def _run(qapp, fn):
+    from enginir.viewer import _jobs
+
+    events: list[tuple[str, object, bool]] = []
+    main = threading.get_ident()
+
+    def record(kind):
+        return lambda *args: events.append((kind, args[0] if args else None,
+                                            threading.get_ident() == main))
+
+    owner = QObject()
+    job = _jobs.start_background_job(owner=owner, fn=fn, on_success=record("success"),
+                                     on_error=record("error"), on_finished=record("finished"))
+    del job  # the helper keeps the job alive by itself
+    deadline = time.monotonic() + 5
+    while (not events or events[-1][0] != "finished") and time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.005)
+    qapp.processEvents()
+    return events, _jobs._RUNNING_JOBS
+
+
+def test_job_result_arrives_on_the_ui_thread_then_finishes(qapp):
+    worker_thread: list[int] = []
+
+    def work():
+        worker_thread.append(threading.get_ident())
+        return 42
+
+    events, running = _run(qapp, work)
+
+    assert worker_thread and worker_thread[0] != threading.get_ident()
+    assert events == [("success", 42, True), ("finished", None, True)]
+    assert not running
+
+
+def test_job_failure_is_reported_once_with_its_message_and_finishes(qapp):
+    def work():
+        raise ValueError("bad sample set")
+
+    events, running = _run(qapp, work)
+
+    assert [kind for kind, _, _ in events] == ["error", "finished"]
+    assert "bad sample set" in str(events[0][1])
+    assert all(on_ui for _, _, on_ui in events)
+    assert not running
+
+
+# -- The viewer process exits cleanly after a project window was open ------------------
+
+
+_SESSION = textwrap.dedent("""
+    import sys
+    from PyQt6.QtCore import QTimer
+    from PyQt6.QtWidgets import QApplication
+    import enginir
+    from enginir.viewer import open_project
+    from enginir.viewer._app import ensure_app, run
+
+    app = ensure_app()
+    enginir.Project.create(sys.argv[1])
+    open_project(sys.argv[1])
+    QTimer.singleShot(300, lambda: [w.close() for w in QApplication.topLevelWidgets()])
+    run()
+""")
+
+
+def test_closing_a_project_viewer_exits_without_a_crash(tmp_path):
+    env = {**os.environ, "QT_QPA_PLATFORM": "offscreen",
+           "ENGINIR_LOG_FILE": str(tmp_path / "viewer.log")}
+    for run in range(4):
+        result = subprocess.run(
+            [sys.executable, "-c", _SESSION, str(tmp_path / f"p{run}.h5")],
+            env=env, capture_output=True, text=True, timeout=50)
+        assert result.returncode == 0, (
+            f"run {run} ended with {result.returncode}:\n{result.stderr[-2000:]}")
+
+
+# -- Jobs at exit ----------------------------------------------------------------------
+
+
+def test_running_jobs_finish_before_the_interpreter_exits(qapp):
+    """A job thread still reading a file at exit crashed or hung the process."""
+    import time
+
+    from PyQt6.QtCore import QObject
+
+    from enginir.viewer._jobs import _RUNNING_JOBS, start_background_job, wait_for_running_jobs
+
+    owner = QObject()
+    done = []
+    start_background_job(owner=owner, fn=lambda: time.sleep(0.3), on_success=done.append,
+                         on_error=done.append, on_finished=lambda: None)
+    assert _RUNNING_JOBS
+    assert wait_for_running_jobs(timeout=10.0), "no event loop runs at exit"
+    wait_until(qapp, lambda: not _RUNNING_JOBS)
+    assert done == [None], "the result is still delivered when the loop runs again"
