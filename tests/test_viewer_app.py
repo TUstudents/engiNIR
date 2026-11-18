@@ -292,13 +292,22 @@ _SESSION = textwrap.dedent("""
 """)
 
 
+#: Each viewer process gets this long to start, close its window and exit.
+_SESSION_TIMEOUT = 50
+
+
+# Four processes in one test: on macOS runners each start takes 10-15 s, so the
+# suite's 60 s per-test limit cut the test off in the middle of a healthy run. The
+# limit covers the four timeouts; a process that hangs fails with its own
+# TimeoutExpired (which run, and its output) instead of the suite's generic timeout.
+@pytest.mark.timeout(4 * _SESSION_TIMEOUT + 30)
 def test_closing_a_project_viewer_exits_without_a_crash(tmp_path):
     env = {**os.environ, "QT_QPA_PLATFORM": "offscreen",
            "ENGINIR_LOG_FILE": str(tmp_path / "viewer.log")}
     for run in range(4):
         result = subprocess.run(
             [sys.executable, "-c", _SESSION, str(tmp_path / f"p{run}.h5")],
-            env=env, capture_output=True, text=True, timeout=50)
+            env=env, capture_output=True, text=True, timeout=_SESSION_TIMEOUT)
         assert result.returncode == 0, (
             f"run {run} ended with {result.returncode}:\n{result.stderr[-2000:]}")
 
