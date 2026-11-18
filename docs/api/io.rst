@@ -109,7 +109,7 @@ Saving objects
 
 .. autofunction:: enginir.io.project_store.save_dataset_ref
 
-.. autofunction:: enginir.io.project_store.save_calibration_spec
+.. autofunction:: enginir.io.project_store.save_reference_correction
 
 .. autofunction:: enginir.io.project_store.save_target_definition
 
@@ -169,7 +169,7 @@ Loading arrays on demand
 
 .. autofunction:: enginir.io.project_store.load_roi_spectra_matrix
 
-.. autofunction:: enginir.io.project_store.iter_roi_calibration_refs
+.. autofunction:: enginir.io.project_store.iter_roi_reference_spectra
 
 .. autofunction:: enginir.io.project_store.load_model_run_artifact_refs
 

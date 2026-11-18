@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-import numpy as np
+import pytest
 
 from enginir import Project
 
@@ -19,9 +19,8 @@ def copy_old_project(tmp_path) -> Path:
     return folder / "project.h5"
 
 
-def test_the_old_project_predicts_its_stored_map(tmp_path):
+def test_an_old_project_is_refused_with_the_command_that_converts_it(tmp_path):
     path = copy_old_project(tmp_path)
-    project = Project.open(path)
-    (model,) = project.models.values()
-    prediction = model.predict(path.parent / "scan.h5")
-    np.testing.assert_array_equal(prediction.map, np.load(path.parent / "expected_map.npy"))
+    with pytest.raises(ValueError, match="format 'enginir-1.5'.*enginir-migrate") as error:
+        Project.open(path)
+    assert str(path) in str(error.value)

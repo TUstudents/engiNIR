@@ -547,7 +547,7 @@ from enginir.io import load_project_store
 
 store = load_project_store('project.h5')
 for roi_id, roi_meta in store['rois'].items():
-    print(roi_id, roi_meta['dataset_id'], roi_meta['calibration_id'])
+    print(roi_id, roi_meta['dataset_id'], roi_meta['reference_correction_id'])
 ```
 
 Project graph loading is metadata-first by default. Spectra are loaded lazily
@@ -596,7 +596,7 @@ them from reference files, from a frame range of the dataset, or from
 another dataset of the project, and writes the file and its reference correction
 through `Project.add_dataset`. Showing a dataset (`HSIViewer.show_data_file`,
 loaded in the background) restores its reference correction into `ViewerState`
-(`set_calibration`, then the signal unit). The startup options below remain
+(`set_reference_correction`, then the signal unit). The startup options below remain
 for a quick look without a project.
 
 Pass reference files at launch time:

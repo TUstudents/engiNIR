@@ -41,13 +41,13 @@ DatasetRef
 ``DatasetRef`` validates that the cube band dimension, ``n_bands``, and
 ``wavelengths`` length agree.
 
-CalibrationSpec
----------------
+ReferenceCorrection
+-------------------
 
-.. autoclass:: enginir.project.CalibrationSpec
+.. autoclass:: enginir.project.ReferenceCorrection
    :members:
 
-``CalibrationSpec`` checks on construction that it describes one executable
+``ReferenceCorrection`` checks on construction that it describes one executable
 reference correction. For ``dark_white_reference`` this means exactly one of:
 embedded dark/white arrays or scalar black/white levels.
 
@@ -134,11 +134,11 @@ Input contract
 
 .. autofunction:: enginir.project.check_signal_domain_compatibility
 
-.. autofunction:: enginir.project.check_calibration_signal_domain_compatibility
+.. autofunction:: enginir.project.check_reference_correction_compatibility
 
 .. autofunction:: enginir.project.viewable_signal_units
 
-.. autoclass:: enginir.project.CalibrationStats
+.. autoclass:: enginir.project.ReferenceCorrectionStats
    :members:
 
 .. autoexception:: enginir.project.SignalDomainCompatibilityError

@@ -2,9 +2,9 @@
 
 Prediction ROIs (ROI ``job = prediction``) are predicted from the project file
 alone (:func:`enginir.prediction.predict_rois`); a map prediction predicts a
-registered data file with its own calibration. Both dialogs name models and
+registered data file with its own reference correction. Both dialogs name models and
 data files, show the chain the prediction applies read-only (the data file's
-calibration, the model's signal unit and recipe, the model), and refuse an
+reference correction, the model's signal unit and recipe, the model), and refuse an
 incompatible choice before running (viewer-workspace contract §3,
 prediction-runtime contract, Prediction ROIs).
 """

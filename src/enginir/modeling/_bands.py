@@ -22,7 +22,7 @@ from .._logging import get_logger
 from ..preprocessing import PreprocessingRecipe
 from ..preprocessing._pipeline import apply_preprocessing_recipe
 from ..project import (
-    CalibrationSpec,
+    ReferenceCorrection,
     DatasetRef,
     SampleSet,
     SignalDomainContract,
@@ -340,7 +340,7 @@ def propose_bands(
     project_path: str,
     sample_set: SampleSet,
     datasets: dict[str, DatasetRef],
-    calibrations: dict[str, CalibrationSpec],
+    reference_corrections: dict[str, ReferenceCorrection],
     rois: dict[str, TrainingROI],
     target_assignments: dict[tuple[str, str], TargetAssignment],
     recipes: dict[str, dict[str, Any]],
@@ -380,7 +380,7 @@ def propose_bands(
                      and params.get("algorithm") in ("kernel", "gram", "auto"))
     prepared = _training_data(
         project_path=project_path, sample_set=sample_set, datasets=datasets,
-        calibrations=calibrations, rois=rois, target_assignments=target_assignments,
+        reference_corrections=reference_corrections, rois=rois, target_assignments=target_assignments,
         recipes=recipes, signal_domains=signal_domains, signal_domain_id=signal_domain_id,
         cv=None, fit_spec=fit_spec, recipe=recipe if on_statistics else None)
     spec = prepared.spec

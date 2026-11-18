@@ -22,7 +22,7 @@ from enginir._checks import check_integer, log_and_raise
 from enginir._logging import get_logger
 
 from ..io.project_store import (
-    iter_roi_calibration_refs,
+    iter_roi_reference_spectra,
     load_roi_spectra_batch,
     load_roi_spectra_dtypes,
     load_roi_spectra_matrix,
@@ -38,8 +38,8 @@ from ..preprocessing._pipeline import (
     transform_preprocessing_steps,
 )
 from ..project import (
-    CalibrationSpec,
-    CalibrationStats,
+    ReferenceCorrection,
+    ReferenceCorrectionStats,
     DatasetRef,
     ModelRun,
     SampleSet,
@@ -322,7 +322,7 @@ def _training_data(
     project_path: str,
     sample_set: SampleSet,
     datasets: dict[str, DatasetRef],
-    calibrations: dict[str, CalibrationSpec],
+    reference_corrections: dict[str, ReferenceCorrection],
     rois: dict[str, TrainingROI],
     target_assignments: dict[tuple[str, str], TargetAssignment],
     recipes: dict[str, dict[str, Any]],
@@ -386,7 +386,7 @@ def _training_data(
                       lambda rows: apply_preprocessing_recipe(rows, recipe=recipe,
                                                               wavelengths=wavelengths,
                                                               signal_unit=unit))
-    X_signal = _signal_domain_matrix(project_path, data, datasets, calibrations, rois,
+    X_signal = _signal_domain_matrix(project_path, data, datasets, reference_corrections, rois,
                                      signal_domain, preprocess=preprocess)
     if preprocess is not None:  # the raw spectra stay in the project file
         data = replace(data, X=np.empty((data.X.shape[0], 0), dtype=data.X.dtype))
@@ -410,7 +410,7 @@ def fit_model_run(
     project_path: str,
     sample_set: SampleSet,
     datasets: dict[str, DatasetRef],
-    calibrations: dict[str, CalibrationSpec],
+    reference_corrections: dict[str, ReferenceCorrection],
     rois: dict[str, TrainingROI],
     target_assignments: dict[tuple[str, str], TargetAssignment],
     recipes: dict[str, dict[str, Any]],
@@ -440,7 +440,7 @@ def fit_model_run(
         Project file with the ROI spectra and reference snapshots.
     sample_set:
         Sample set to fit.
-    datasets, calibrations, rois, target_assignments, recipes, signal_domains:
+    datasets, reference_corrections, rois, target_assignments, recipes, signal_domains:
         Project objects by id (as in :class:`~enginir.project.ProjectWorkspace`).
     signal_domain_id:
         Signal domain of the training spectra; its wavelengths must match
@@ -482,7 +482,7 @@ def fit_model_run(
     stored_recipe = recipes.get(sample_set.preprocessing_recipe_id)
     prepared = _training_data(
         project_path=project_path, sample_set=sample_set, datasets=datasets,
-        calibrations=calibrations, rois=rois, target_assignments=target_assignments,
+        reference_corrections=reference_corrections, rois=rois, target_assignments=target_assignments,
         recipes=recipes, signal_domains=signal_domains, signal_domain_id=signal_domain_id,
         cv=cv, fit_spec=fit_spec,
         recipe=None if stored_recipe is None else PreprocessingRecipe.from_dict(stored_recipe))
@@ -1173,32 +1173,32 @@ def roi_to_signal_domain(
     *,
     roi: TrainingROI,
     dataset: DatasetRef,
-    calibration: CalibrationSpec,
+    reference_correction: ReferenceCorrection,
     snapshot: tuple[np.ndarray, np.ndarray] | None,
     signal_domain: SignalDomainContract,
-    stats: CalibrationStats | None = None,
+    stats: ReferenceCorrectionStats | None = None,
 ) -> np.ndarray:
     """Convert one ROI's stored spectra to ``signal_domain``, exactly as model fitting does.
 
-    Calibrations with per-pixel references use ``snapshot``, the ROI's stored
+    Reference corrections with per-pixel references use ``snapshot``, the ROI's stored
     ``(dark, white)`` reference spectra (one per ROI pixel). The fit and the
     viewer's ROI spectra both call this function.
     """
-    check_signal_domain_compatibility(dataset=dataset, calibration=calibration,
+    check_signal_domain_compatibility(dataset=dataset, reference_correction=reference_correction,
                                       signal_domain=signal_domain)
-    if calibration.dark_ref_data is not None:
+    if reference_correction.dark_ref_data is not None:
         if snapshot is None:
             log_and_raise("ROI '{}' has no reference snapshot for reference correction '{}'", roi.roi_id,
-                          calibration.calibration_id)
+                          reference_correction.reference_correction_id)
         dark, white = snapshot
         if dark.shape != raw_spectra.shape or white.shape != raw_spectra.shape:
             log_and_raise("ROI '{}' reference snapshot shape {} does not match its spectra {}",
                           roi.roi_id, dark.shape, raw_spectra.shape)
-        calibration = replace(calibration, dark_ref_data=dark, white_ref_data=white)
+        reference_correction = replace(reference_correction, dark_ref_data=dark, white_ref_data=white)
     return transform_spectra_to_signal_domain(
-        raw_spectra, dataset=dataset, calibration=calibration, signal_domain=signal_domain,
+        raw_spectra, dataset=dataset, reference_correction=reference_correction, signal_domain=signal_domain,
         stats=stats, check_compatibility=False,
-        per_spectrum_references=calibration.dark_ref_data is not None)
+        per_spectrum_references=reference_correction.dark_ref_data is not None)
 
 
 @dataclass(frozen=True)
@@ -1217,7 +1217,7 @@ def roi_spectrum_summaries(
     rois: Sequence[TrainingROI],
     *,
     datasets: Mapping[str, DatasetRef],
-    calibrations: Mapping[str, CalibrationSpec],
+    reference_corrections: Mapping[str, ReferenceCorrection],
     signal_unit: str,
     recipe: PreprocessingRecipe | None = None,
     cancelled: Callable[[], bool] = lambda: False,
@@ -1225,7 +1225,7 @@ def roi_spectrum_summaries(
     """Mean, median and 5–95 % spectra of each ROI as model fitting would see its pixels.
 
     Each ROI is converted with :func:`roi_to_signal_domain` (its own
-    calibration and stored references) and preprocessed pixel by pixel with
+    reference correction and stored references) and preprocessed pixel by pixel with
     ``recipe``. ``signal_unit="DN"`` shows the stored raw counts of every ROI
     that has them. MSC and EMSC need a reference: here it is learned from the
     mean spectra of ``rois`` (model fitting learns it from the training
@@ -1246,9 +1246,9 @@ def roi_spectrum_summaries(
     for roi_id, roi in by_id.items():
         if cancelled():
             break
-        dataset, calibration = datasets[roi.dataset_id], calibrations[roi.calibration_id]
+        dataset, reference_correction = datasets[roi.dataset_id], reference_corrections[roi.reference_correction_id]
         key = f"/rois/{roi_id}/spectra"
-        reason = _signal_unit_unavailable(calibration, signal_unit)
+        reason = _signal_unit_unavailable(reference_correction, signal_unit)
         if reason:
             skipped[roi_id] = reason
             continue
@@ -1258,12 +1258,12 @@ def roi_spectrum_summaries(
             continue
         try:
             domain = SignalDomainContract.for_training_data(
-                dataset=dataset, calibration=calibration, required_signal_unit=signal_unit)
+                dataset=dataset, reference_correction=reference_correction, required_signal_unit=signal_unit)
             raw = load_roi_spectra_batch(project_path, [key])[key]
             # One ROI's reference snapshot at a time: together they can be large.
-            snapshot = next(iter(iter_roi_calibration_refs(project_path, [roi_id])))[1]
+            snapshot = next(iter(iter_roi_reference_spectra(project_path, [roi_id])))[1]
             signal[roi_id] = roi_to_signal_domain(
-                raw, roi=roi, dataset=dataset, calibration=calibration, snapshot=snapshot,
+                raw, roi=roi, dataset=dataset, reference_correction=reference_correction, snapshot=snapshot,
                 signal_domain=domain)
         except ValueError as exc:
             skipped[roi_id] = str(exc)
@@ -1286,11 +1286,11 @@ def roi_spectrum_summaries(
     return summaries, skipped
 
 
-def _signal_unit_unavailable(calibration: CalibrationSpec, unit: str) -> str:
-    """Why ROIs with ``calibration`` cannot be shown in ``unit`` ("" if they can)."""
-    if calibration.mode == "precalibrated_import":
+def _signal_unit_unavailable(reference_correction: ReferenceCorrection, unit: str) -> str:
+    """Why ROIs with ``reference_correction`` cannot be shown in ``unit`` ("" if they can)."""
+    if reference_correction.mode == "already_corrected":
         return "" if unit != "DN" else "precalibrated data has no raw counts"
-    if calibration.mode == "raw_dn" and unit != "DN":
+    if reference_correction.mode == "raw_dn" and unit != "DN":
         return f"raw counts without references cannot give {unit}"
     return ""
 
@@ -1299,24 +1299,24 @@ def _signal_domain_matrix(
     project_path: str,
     data: SampleSetData,
     datasets: dict[str, DatasetRef],
-    calibrations: dict[str, CalibrationSpec],
+    reference_corrections: dict[str, ReferenceCorrection],
     rois: dict[str, TrainingROI],
     signal_domain: SignalDomainContract,
     preprocess: tuple[int, Callable[[np.ndarray], np.ndarray]] | None = None,
 ) -> np.ndarray:
-    """Convert the ROI spectra to the signal domain, each ROI with its own calibration.
+    """Convert the ROI spectra to the signal domain, each ROI with its own reference correction.
 
-    Calibrations with per-pixel references use the reference snapshot stored
+    Reference corrections with per-pixel references use the reference snapshot stored
     with each ROI (one reference spectrum per ROI pixel). ``preprocess``,
     ``(output band count, function)``, is applied to every ROI right after its
     conversion, so only one full float32 matrix exists.
     """
     n_out = data.X.shape[1] if preprocess is None else preprocess[0]
     X_signal = np.empty((data.X.shape[0], n_out), dtype=_WORKING_DTYPE)
-    stats = CalibrationStats()
-    for roi_id, snapshot in iter_roi_calibration_refs(project_path, data.sample_set.roi_ids):
+    stats = ReferenceCorrectionStats()
+    for roi_id, snapshot in iter_roi_reference_spectra(project_path, data.sample_set.roi_ids):
         roi = rois[roi_id]
-        if roi.dataset_id not in datasets or roi.calibration_id not in calibrations:
+        if roi.dataset_id not in datasets or roi.reference_correction_id not in reference_corrections:
             log_and_raise("ROI '{}' references an unknown dataset or reference correction", roi_id)
         rows = data.roi_slices[roi_id]
         if snapshot is not None and data.pixel_indices is not None:
@@ -1324,7 +1324,7 @@ def _signal_domain_matrix(
             snapshot = (snapshot[0][picked], snapshot[1][picked])
         converted = roi_to_signal_domain(
             data.X[rows], roi=roi, dataset=datasets[roi.dataset_id],
-            calibration=calibrations[roi.calibration_id], snapshot=snapshot,
+            reference_correction=reference_corrections[roi.reference_correction_id], snapshot=snapshot,
             signal_domain=signal_domain, stats=stats)
         X_signal[rows] = converted if preprocess is None else preprocess[1](converted)
     if stats.clip_low_count or stats.clip_high_count or stats.near_zero_denominator_count:

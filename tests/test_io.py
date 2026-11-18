@@ -135,7 +135,7 @@ def test_project_store_round_trip_keeps_v3_workspace_objects(tmp_path):
         create_project,
         load_project_store,
         load_roi_spectra,
-        save_calibration_spec,
+        save_reference_correction,
         save_dataset_ref,
         save_training_roi,
     )
@@ -158,7 +158,7 @@ def test_project_store_round_trip_keeps_v3_workspace_objects(tmp_path):
             "import_timestamp": "2026-01-01T00:00:00+00:00",
         },
     )
-    save_calibration_spec(
+    save_reference_correction(
         str(path),
         "dataset_1",
         "cal_1",
@@ -179,7 +179,7 @@ def test_project_store_round_trip_keeps_v3_workspace_objects(tmp_path):
         "roi_a",
         {
             "dataset_id": "dataset_1",
-            "calibration_id": "cal_1",
+            "reference_correction_id": "cal_1",
             "name": "roi_a",
             "wavelengths": wavelengths,
             "source_file": "/tmp/sample.eiff",
@@ -195,7 +195,7 @@ def test_project_store_round_trip_keeps_v3_workspace_objects(tmp_path):
     store = load_project_store(str(path))
     loaded_spectra = load_roi_spectra(str(path), "/rois/roi_a/spectra")
 
-    assert store["project_meta"]["FileSchemaVersion"] == "enginir-1.5"
+    assert store["project_meta"]["FileSchemaVersion"] == "enginir-1.7"
     assert set(store["datasets"]) == {"dataset_1"}
     assert set(store["rois"]) == {"roi_a"}
     assert "spectra" not in store["rois"]["roi_a"]
@@ -883,12 +883,12 @@ def test_load_csv_reads_xlsx_workbooks_and_selects_sheets(tmp_path):
         )
 
     first = load_spectra(path)
-    calibration = load_spectra(path, sheet_name="Cal set")
+    reference_correction = load_spectra(path, sheet_name="Cal set")
 
     np.testing.assert_array_equal(first.X, [[1.0, 2.0]])
-    np.testing.assert_array_equal(calibration.X, [[3.0, 4.0], [5.0, 6.0]])
-    np.testing.assert_array_equal(calibration.wavelengths, [1000.0, 1001.0])
-    assert calibration.meta["sample_names"] == ["b", "c"]
+    np.testing.assert_array_equal(reference_correction.X, [[3.0, 4.0], [5.0, 6.0]])
+    np.testing.assert_array_equal(reference_correction.wavelengths, [1000.0, 1001.0])
+    assert reference_correction.meta["sample_names"] == ["b", "c"]
 
 
 def test_eiff_frame_chunks_stream_the_same_frames_as_load_eiff(tmp_path):

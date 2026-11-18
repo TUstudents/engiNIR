@@ -36,7 +36,7 @@ def state(tmp_path, wl, qapp) -> ProjectState:
     ps.new_project(str(tmp_path / "project.h5"))
     for name in ("a", "b"):
         ps.register_dataset(build.dataset(wl, f"dataset_{name}"))
-        ps.set_active_calibration(build.calibration(f"dataset_{name}", f"cal_{name}"))
+        ps.set_active_reference_correction(build.reference_correction(f"dataset_{name}", f"cal_{name}"))
     ps.define_target(build.target())
     ps.register_recipe("recipe_1", build.recipe_payload())
     ps.register_signal_domain(build.signal_domain(wl))
@@ -65,8 +65,8 @@ def test_a_new_project_is_written_empty_and_signalled(tmp_path, qapp):
     path = str(tmp_path / "new.h5")
     ps.new_project(path)
     assert loaded == [True] and ps.project_path == path
-    assert ps.project_meta["FileSchemaVersion"] == "enginir-1.5"
-    assert not any((ps.datasets, ps.calibrations, ps.rois, ps.targets, ps.target_assignments,
+    assert ps.project_meta["FileSchemaVersion"] == "enginir-1.7"
+    assert not any((ps.datasets, ps.reference_corrections, ps.rois, ps.targets, ps.target_assignments,
                     ps.recipes, ps.signal_domains, ps.sample_sets, ps.model_runs,
                     ps.predictions))
 
@@ -90,9 +90,9 @@ def test_rois_and_values_are_written_signalled_and_reopen_with_their_ids(state, 
 
     reopened = ProjectState()
     reopened.open_project(state.project_path)
-    assert (reopened.rois["roi_2"].dataset_id, reopened.rois["roi_2"].calibration_id) == (
+    assert (reopened.rois["roi_2"].dataset_id, reopened.rois["roi_2"].reference_correction_id) == (
         "dataset_b", "cal_b")
-    assert reopened.active_calibration_ids == {"dataset_a": "cal_a", "dataset_b": "cal_b"}
+    assert reopened.active_reference_correction_ids == {"dataset_a": "cal_a", "dataset_b": "cal_b"}
     assert reopened.get_target_assignment("roi_2", "target_2").value == pytest.approx(19.4)
 
     state.remove_roi("roi_2")
@@ -102,7 +102,7 @@ def test_rois_and_values_are_written_signalled_and_reopen_with_their_ids(state, 
 def test_changes_are_written_without_rereading_the_project(state, wl):
     with patch.object(state.project, "_reload", side_effect=AssertionError("reload")):
         state.register_dataset(build.dataset(wl, "dataset_c"))
-        state.set_active_calibration(build.calibration("dataset_c", "cal_c"))
+        state.set_active_reference_correction(build.reference_correction("dataset_c", "cal_c"))
         state.register_recipe("recipe_2", build.recipe_payload(snv=True))
         state.register_signal_domain(build.signal_domain(wl, "signal_2"))
         state.add_roi(build.roi(wl, "roi_2", "dataset_a", "cal_a"), _spectra())
@@ -121,7 +121,7 @@ def _refused(match: str, write) -> None:
 
 
 def test_broken_relationships_are_refused_before_anything_is_written(state, wl):
-    _refused("missing calibration_id 'cal_missing'", lambda: state.add_roi(
+    _refused("missing reference_correction_id 'cal_missing'", lambda: state.add_roi(
         build.roi(wl, "roi_orphan", "dataset_a", "cal_missing"), _spectra()))
     _refused("missing target_id 'target_missing'", lambda: state.create_sample_set(
         build.sample_set(["roi_1"], target_id="target_missing", dataset_ids=["dataset_a"])))
@@ -133,7 +133,7 @@ def test_broken_relationships_are_refused_before_anything_is_written(state, wl):
 
     def prediction(**fields):
         values = dict(prediction_run_id="prediction_1", dataset_id="dataset_a",
-                      calibration_id="cal_a", model_run_id="model_1",
+                      reference_correction_id="cal_a", model_run_id="model_1",
                       signal_domain_id="signal_1", preprocessing_recipe_id="recipe_1",
                       artifact_refs={"y_pred": np.array([1.0], dtype=np.float32)},
                       created_at=build.T0)
@@ -141,8 +141,8 @@ def test_broken_relationships_are_refused_before_anything_is_written(state, wl):
 
     _refused("missing model_run_id 'model_missing'", lambda: state.project.save_prediction_run(
         prediction(model_run_id="model_missing")))
-    _refused("uses calibration 'cal_b' of dataset 'dataset_b'",
-             lambda: state.project.save_prediction_run(prediction(calibration_id="cal_b")))
+    _refused("uses reference correction 'cal_b' of dataset 'dataset_b'",
+             lambda: state.project.save_prediction_run(prediction(reference_correction_id="cal_b")))
 
     reopened = ProjectState()
     reopened.open_project(state.project_path)

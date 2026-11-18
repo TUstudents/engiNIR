@@ -67,7 +67,7 @@ def _with_repeated_names(tmp_path):
     project, scan = labelled_project(tmp_path)
     other = project.add_dataset(scan_file(tmp_path / "other.h5", offset=40.0))
     pixels = read_frames(other.path, 0, N_SAMPLES * FRAMES_PER_SAMPLE - 1)
-    built = [make_roi(other.ref, other.calibration, name=f"s{i}",
+    built = [make_roi(other.ref, other.reference_correction, name=f"s{i}",
                       frames=(FRAMES_PER_SAMPLE * i, FRAMES_PER_SAMPLE * (i + 1) - 1),
                       rows=(0, HEIGHT - 1),
                       pixels=pixels[FRAMES_PER_SAMPLE * i:FRAMES_PER_SAMPLE * (i + 1)])
@@ -120,7 +120,7 @@ def test_typed_writes_check_ids_not_names(tmp_path):
 
     project, scan = labelled_project(tmp_path)
     pixels = read_frames(scan.path, 0, 0)
-    roi, spectra, refs = make_roi(scan.ref, scan.calibration, name="s0", frames=(0, 0),
+    roi, spectra, refs = make_roi(scan.ref, scan.reference_correction, name="s0", frames=(0, 0),
                                   rows=(0, 0), pixels=pixels)
     with pytest.raises(ValueError, match="ROI ids already exist or repeat"):
         project.save_rois([(roi, spectra, refs), (roi, spectra, refs)])
@@ -134,7 +134,7 @@ def test_a_registered_file_is_reused_and_a_changed_one_refused(tmp_path):
     project.add_dataset(path)
     project.add_dataset(path)
     assert stored_counts(project)["datasets"] == 1
-    assert len(project.workspace.calibrations) == 1  # same content, not duplicated
+    assert len(project.workspace.reference_corrections) == 1  # same content, not duplicated
 
     save_hdf5(path, np.zeros((2, HEIGHT, N_BANDS), np.uint16), np.linspace(1000, 1600, N_BANDS))
     with pytest.raises(ValueError, match="has shape"):
@@ -145,27 +145,27 @@ def test_a_registered_file_is_reused_and_a_changed_one_refused(tmp_path):
     ("dtype", "kwargs", "mode", "levels"),
     [(np.uint16, {}, "dark_white_reference", (128.0, 3500.0)),
      (np.uint16, {"unit": "DN"}, "raw_dn", (None, None)),
-     (np.float32, {}, "precalibrated_import", (None, None))],
+     (np.float32, {}, "already_corrected", (None, None))],
 )
 def test_calibration_follows_the_data_and_unit(tmp_path, dtype, kwargs, mode, levels):
     project = Project.create(tmp_path / "project.h5")
-    calibration = project.add_dataset(scan_file(tmp_path / "scan.h5", dtype=dtype),
-                                      **kwargs).calibration
-    assert calibration.mode == mode
-    assert (calibration.black_level, calibration.white_level) == levels
+    reference_correction = project.add_dataset(scan_file(tmp_path / "scan.h5", dtype=dtype),
+                                      **kwargs).reference_correction
+    assert reference_correction.mode == mode
+    assert (reference_correction.black_level, reference_correction.white_level) == levels
 
 
 def test_reference_spectra_calibrate_and_travel_with_each_roi(tmp_path):
-    from enginir.io import load_roi_spectra_batch, iter_roi_calibration_refs
+    from enginir.io import load_roi_spectra_batch, iter_roi_reference_spectra
 
     dark = np.full((HEIGHT, N_BANDS), 100.0)
     white = np.full((2, HEIGHT, N_BANDS), 3000.0)  # a cube: averaged over frames
     project, _ = labelled_project(tmp_path, dark=dark, white=white)
 
-    calibration = next(iter(project.datasets.values())).calibration
-    np.testing.assert_array_equal(calibration.white_ref_data, white.mean(axis=0))
+    reference_correction = next(iter(project.datasets.values())).reference_correction
+    np.testing.assert_array_equal(reference_correction.white_ref_data, white.mean(axis=0))
     roi = project.roi("s1")
-    dark_pixels, _ = dict(iter_roi_calibration_refs(project.path, [roi.roi_id]))[roi.roi_id]
+    dark_pixels, _ = dict(iter_roi_reference_spectra(project.path, [roi.roi_id]))[roi.roi_id]
     assert dark_pixels.shape == load_roi_spectra_batch(
         project.path, [roi.spectra_storage_key])[roi.spectra_storage_key].shape
     with pytest.raises(ValueError, match="both dark and white"):

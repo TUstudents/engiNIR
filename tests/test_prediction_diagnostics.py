@@ -80,11 +80,11 @@ def test_the_statistics_equal_their_formulas_and_an_odd_pixel_exceeds_dcrit(tmp_
 
     blob = load_model_run_prediction_artifact(project.path, model.ref.model_run_id)
     domain = project.workspace.signal_domains[model.ref.signal_domain_id]
-    dataset, calibration, _, _ = project._resolve_dataset(
+    dataset, reference_correction, _, _ = project._resolve_dataset(
         path, dark=None, white=None, unit=domain.required_signal_unit)
     raw = load_spectra(path).X
     X = transform_spectra_to_signal_domain(
-        raw.reshape(-1, N_BANDS), dataset=dataset, calibration=calibration,
+        raw.reshape(-1, N_BANDS), dataset=dataset, reference_correction=reference_correction,
         signal_domain=domain, spatial_shape=raw.shape[:2]).astype(np.float64)
     t2, distance = _independent(X, blob)
     np.testing.assert_allclose(prediction.t2_map.reshape(-1), t2, rtol=1e-5)
@@ -192,11 +192,11 @@ def test_a_model_fitted_in_the_viewer_session_gets_the_maps_and_nothing_is_writt
     scan = str(tmp_path / "scan.h5")
     write_prediction_cube(scan, wavelengths=np.array([1000.0, 1100.0, 1200.0], np.float32))
     before = load_project_store(path)
-    calibration = state.calibrations["cal_train"]
+    reference_correction = state.reference_corrections["cal_train"]
     from dataclasses import replace
 
     result = state.predict_dataset(model_run_id="model_1", data_path=scan,
-                                   calibration=replace(calibration, calibration_id="cal_scan",
+                                   reference_correction=replace(reference_correction, reference_correction_id="cal_scan",
                                                        dataset_id=""))
     assert result.dmodx is not None and result.t2 is not None
     assert result.diagnostics is not None and result.diagnostics["n_pixels"] == result.dmodx.size
@@ -265,12 +265,12 @@ def _scores(project, model, path) -> np.ndarray:
     """Scores of every scan pixel, from the stored projection data (independent of prediction)."""
     blob = load_model_run_prediction_artifact(project.path, model.ref.model_run_id)
     dataset = project._dataset_ref(str(path))
-    calibration = project.workspace.calibrations[
-        project.workspace.active_calibration_ids[dataset.dataset_id]]
+    reference_correction = project.workspace.reference_corrections[
+        project.workspace.active_reference_correction_ids[dataset.dataset_id]]
     domain = project.workspace.signal_domains[model.ref.signal_domain_id]
     raw = load_spectra(path).X
     X = transform_spectra_to_signal_domain(
-        raw.reshape(-1, TRAY_BANDS), dataset=dataset, calibration=calibration,
+        raw.reshape(-1, TRAY_BANDS), dataset=dataset, reference_correction=reference_correction,
         signal_domain=domain, spatial_shape=raw.shape[:2]).astype(np.float64)
     return ((X - blob["x_mean"]) / blob["x_std"]) @ np.asarray(blob["rotations"], np.float64)
 

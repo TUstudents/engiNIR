@@ -43,7 +43,7 @@ from PyQt6.QtGui import QAction, QActionGroup, QFont, QCloseEvent, QKeySequence,
 
 from .._checks import log_and_raise
 from .._workflow import own_reference_frames, read_header
-from ..project import CalibrationSpec, viewable_signal_units
+from ..project import ReferenceCorrection, viewable_signal_units
 from .._logging import add_log_sink, get_logger, log_file_path, remove_log_sink
 from ..io import load_spectra
 
@@ -111,22 +111,22 @@ _SAVED_MESSAGE_MS = 8000
 _ADD_DATA_FILE = "__add_data_file__"
 
 
-def _calibration_view(calibration: CalibrationSpec | None,
+def _reference_correction_view(reference_correction: ReferenceCorrection | None,
                       meta: dict[str, Any]) -> tuple[dict[str, Any], str]:
-    """``ViewerState.load_dataset`` keywords and the signal unit for a data file's calibration."""
+    """``ViewerState.load_dataset`` keywords and the signal unit for a data file's reference correction."""
     levels: dict[str, Any] = {
         "black_level": float(meta.get("black_level", DEFAULT_BLACK_LEVEL)),
         "white_level": float(meta.get("white_level", DEFAULT_WHITE_LEVEL)),
     }
-    if calibration is None:
+    if reference_correction is None:
         return levels, "DN"
-    if calibration.dark_ref_data is not None and calibration.white_ref_data is not None:
-        levels["dark_ref"] = np.asarray(calibration.dark_ref_data, dtype=np.float32)
-        levels["white_ref"] = np.asarray(calibration.white_ref_data, dtype=np.float32)
-    elif calibration.black_level is not None and calibration.white_level is not None:
-        levels["black_level"] = float(calibration.black_level)
-        levels["white_level"] = float(calibration.white_level)
-    return levels, calibration.output_signal_unit
+    if reference_correction.dark_ref_data is not None and reference_correction.white_ref_data is not None:
+        levels["dark_ref"] = np.asarray(reference_correction.dark_ref_data, dtype=np.float32)
+        levels["white_ref"] = np.asarray(reference_correction.white_ref_data, dtype=np.float32)
+    elif reference_correction.black_level is not None and reference_correction.white_level is not None:
+        levels["black_level"] = float(reference_correction.black_level)
+        levels["white_level"] = float(reference_correction.white_level)
+    return levels, reference_correction.output_signal_unit
 
 
 def _require_qt_object(value: _QtObject | None, context: str) -> _QtObject:
@@ -664,11 +664,11 @@ class HSIViewer(QMainWindow):
         summary_layout.addRow("Input", self._predict_contract_format_value)
 
         compatibility_box, compatibility_layout = group("Scan")
-        self._predict_card_calibration_value = wrapped("none")
+        self._predict_card_correction_value = wrapped("none")
         self._predict_map_shape_value = wrapped()
         self._predict_map_range_value = wrapped()
         self._predict_clipping_value = wrapped()
-        compatibility_layout.addRow("Reference correction", self._predict_card_calibration_value)
+        compatibility_layout.addRow("Reference correction", self._predict_card_correction_value)
         compatibility_layout.addRow("Map shape", self._predict_map_shape_value)
         compatibility_layout.addRow("Map range", self._predict_map_range_value)
         compatibility_layout.addRow("Clipping", self._predict_clipping_value)
@@ -1503,7 +1503,7 @@ class HSIViewer(QMainWindow):
             self._predict_workspace_splitter if has_results else self._predict_empty)
         self._predict_content_title.setText(prediction_summary["title"])
         self._predict_headline.setText(prediction_summary["headline"])
-        self._predict_card_calibration_value.setText(prediction_summary["calibration"])
+        self._predict_card_correction_value.setText(prediction_summary["reference_correction"])
         self._predict_card_target_value.setText(prediction_summary["target"])
         self._predict_contract_format_value.setText(prediction_summary["format"])
         self._predict_contract_signal_value.setText(prediction_summary["signal"])
@@ -1627,7 +1627,7 @@ class HSIViewer(QMainWindow):
                 [
                     self._predict_headline.text(),
                     f"Prediction ROIs: {self._predict_rois_value.text()}",
-                    f"Reference correction: {self._predict_card_calibration_value.text()}",
+                    f"Reference correction: {self._predict_card_correction_value.text()}",
                     f"Target: {self._predict_card_target_value.text()}",
                     f"Input contract: {self._predict_contract_format_value.text()}",
                     f"Signal: {self._predict_contract_signal_value.text()}",
@@ -2265,7 +2265,7 @@ class HSIViewer(QMainWindow):
 
     def add_data_file(self, path: str | None = None, *,
                       trained_with: str | None = None) -> str | None:
-        """Add a data file to the project with its calibration, then show it.
+        """Add a data file to the project with its reference correction, then show it.
 
         A file that is already registered is shown directly. Returns the
         dataset id, or ``None`` when nothing was added.
@@ -2293,8 +2293,8 @@ class HSIViewer(QMainWindow):
         state = self.project_state
         dialog = AddDataFileDialog(
             path, header, state.datasets,
-            {dataset_id: calibration for dataset_id in state.datasets
-             if (calibration := state.active_calibration(dataset_id)) is not None},
+            {dataset_id: reference_correction for dataset_id in state.datasets
+             if (reference_correction := state.active_reference_correction(dataset_id)) is not None},
             trained_with=trained_with, parent=self)
         if dialog.exec() != QDialog.DialogCode.Accepted or dialog.request is None:
             return None
@@ -2309,7 +2309,7 @@ class HSIViewer(QMainWindow):
         return dataset_id
 
     def show_data_file(self, dataset_id: str) -> None:
-        """Load a registered data file in the background and show it with its calibration."""
+        """Load a registered data file in the background and show it with its reference correction."""
         dataset = self.project_state.datasets.get(dataset_id)
         if dataset is None:
             log_and_raise("Unknown dataset '{}'", dataset_id, error=KeyError)
@@ -2438,7 +2438,7 @@ class HSIViewer(QMainWindow):
             return
         self.state.load_dataset(X, data.wavelengths, data.meta)
         self._cube_path = os.path.abspath(path)
-        self.apply_shown_calibration()
+        self.apply_shown_reference_correction()
         self._refresh_canvas_image()
         self._eda_view.refresh_roi_overlays()
         self._eda_view.refresh_attachment_state()
@@ -2458,11 +2458,11 @@ class HSIViewer(QMainWindow):
             save_last_data_file(str(project_id), dataset_id)
         logger.info("Showing dataset {} ({})", path, self.state.y_unit)
 
-    def apply_shown_calibration(self) -> None:
-        """Convert the shown data file with its stored calibration (references or levels).
+    def apply_shown_reference_correction(self) -> None:
+        """Convert the shown data file with its stored reference correction (references or levels).
 
         The Explore signal stays the one the user chose when this file can
-        give it; otherwise (or before any choice) it is the calibration's
+        give it; otherwise (or before any choice) it is the reference correction's
         working signal. Only the signals the file can give are enabled.
         """
         dataset_id = self._eda_view.shown_dataset_id()
@@ -2470,18 +2470,18 @@ class HSIViewer(QMainWindow):
             self._eda_view.set_signal_choices(viewable_signal_units(None))
             # No dataset shown (Project ROIs): start with the working signal of the
             # stored ROIs' reference corrections, not with the raw counts
-            # (dataset-calibration contract, Signal units of a reference correction).
+            # (dataset-reference-correction contract, Signal units of a reference correction).
             unit = self._stored_rois_working_signal()
             if unit is not None and self._eda_view.chosen_signal is None:
                 self.state.set_y_unit(unit)
             return
-        calibration = self.project_state.active_calibration(dataset_id)
-        levels, unit = _calibration_view(calibration, self.state.meta)
-        allowed = viewable_signal_units(calibration)
+        reference_correction = self.project_state.active_reference_correction(dataset_id)
+        levels, unit = _reference_correction_view(reference_correction, self.state.meta)
+        allowed = viewable_signal_units(reference_correction)
         if self._eda_view.chosen_signal in allowed:
             unit = str(self._eda_view.chosen_signal)
-        self.state.set_calibration(
-            **levels, reference_frames=own_reference_frames(calibration, self._cube_path))
+        self.state.set_reference_correction(
+            **levels, reference_frames=own_reference_frames(reference_correction, self._cube_path))
         self.state.set_y_unit(unit)
         self._eda_view.set_signal_choices(allowed)
 
@@ -2489,8 +2489,8 @@ class HSIViewer(QMainWindow):
         """The working signal most of the stored ROIs' reference corrections give, if any."""
         state = self.project_state
         units = Counter(
-            calibration.output_signal_unit for roi in state.rois.values()
-            if (calibration := state.calibrations.get(roi.calibration_id)) is not None)
+            reference_correction.output_signal_unit for roi in state.rois.values()
+            if (reference_correction := state.reference_corrections.get(roi.reference_correction_id)) is not None)
         return units.most_common(1)[0][0] if units else None
 
     def _registered_dataset_id(self, path: str) -> str | None:
@@ -2799,7 +2799,7 @@ class HSIViewer(QMainWindow):
 
     def _add_prediction_data_file(self, model_run_id: str) -> str | None:
         """Add a scan for prediction with the Add data file dialog, noting the model's training."""
-        note = self._prediction_view._training_calibration(
+        note = self._prediction_view._training_reference_correction(
             self.project_state.model_runs[model_run_id])
         return self.add_data_file(trained_with=note)
 

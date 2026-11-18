@@ -493,7 +493,7 @@ def cube_and_wavelengths():
 def _create_reopenable_model_project(path: str, wavelengths: np.ndarray) -> None:
     from enginir.io.project_store import (
         create_project,
-        save_calibration_spec,
+        save_reference_correction,
         save_dataset_ref,
         save_model_run,
         save_prediction_run,
@@ -521,7 +521,7 @@ def _create_reopenable_model_project(path: str, wavelengths: np.ndarray) -> None
             "import_timestamp": "2026-04-13T10:00:00+00:00",
         },
     )
-    save_calibration_spec(
+    save_reference_correction(
         path,
         "dataset_1",
         "cal_1",
@@ -550,10 +550,10 @@ def _create_reopenable_model_project(path: str, wavelengths: np.ndarray) -> None
             "input_format": "eiff",
             "source_modality": "nir_hsi",
             "required_signal_unit": "DN",
-            "required_calibration_mode": "raw_dn",
+            "required_correction_mode": "raw_dn",
             "requires_dark_ref": False,
             "requires_white_ref": False,
-            "calibrated_input_allowed": False,
+            "corrected_input_allowed": False,
             "n_bands": int(len(wavelengths)),
             "wavelengths": wavelengths.astype(np.float32),
             "wavelength_tolerance_nm": 0.0,
@@ -580,7 +580,7 @@ def _create_reopenable_model_project(path: str, wavelengths: np.ndarray) -> None
             roi_id,
             {
                 "dataset_id": "dataset_1",
-                "calibration_id": "cal_1",
+                "reference_correction_id": "cal_1",
                 "name": roi_id,
                 "wavelengths": wavelengths.astype(np.float32),
                 "source_file": "/data/train.eiff",
@@ -666,7 +666,7 @@ def _create_reopenable_model_project(path: str, wavelengths: np.ndarray) -> None
         "prediction_1",
         {
             "dataset_id": "dataset_1",
-            "calibration_id": "cal_1",
+            "reference_correction_id": "cal_1",
             "model_run_id": "model_1",
             "signal_domain_id": "signal_domain_1",
             "preprocessing_recipe_id": "recipe_1",
@@ -943,7 +943,7 @@ def test_workspace_navigation_preserves_context_and_redraws_only_the_visible_wor
         return (project.project_path, viewer.state.frame, viewer.state.row, viewer.state.band,
                 viewer._modeling_view.current_target(), project.active_model_name,
                 {name: len(getattr(project, name)) for name in (
-                    "datasets", "calibrations", "rois", "targets", "sample_sets",
+                    "datasets", "reference_corrections", "rois", "targets", "sample_sets",
                     "model_runs", "predictions")})
 
     tabs = viewer._workspace_tabs

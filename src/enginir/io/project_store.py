@@ -1,26 +1,26 @@
-"""Reading and writing engiNIR project files (format ``enginir-1.5``).
+"""Reading and writing engiNIR project files (format ``enginir-1.7``).
 
 A project file is an HDF5 file holding the scientific workspace: datasets and
-their calibrations, ROIs with their spectra, targets and target assignments,
+their reference corrections, ROIs with their spectra, targets and target assignments,
 preprocessing recipes, signal-domain contracts, sample sets, model runs and
 prediction runs. Every object is stored as one group under a top-level
 collection, keyed by its stable id:
 
-====================================================  =========================
-Group                                                 Object
-====================================================  =========================
-``/project_meta`` (attributes)                        project id, file format, writers
-``/datasets/{dataset_id}``                            dataset reference
-``/datasets/{dataset_id}/calibrations/{id}``          calibration
-``/targets/{target_id}``                              target definition
-``/target_assignments/{target_id}/{roi_id}``          target value of one ROI
-``/recipes/{recipe_id}``                              preprocessing recipe
-``/signal_domains/{signal_domain_id}``                signal-domain contract
-``/rois/{roi_id}``                                    ROI metadata and spectra
-``/sample_sets/{sample_set_id}``                      sample set
-``/model_runs/{model_run_id}``                        model run and artifacts
-``/predictions/{prediction_run_id}``                  prediction run and maps
-====================================================  =========================
+=====================================================  ================================
+Group                                                  Object
+=====================================================  ================================
+``/project_meta`` (attributes)                         project id, file format, writers
+``/datasets/{dataset_id}``                             dataset reference
+``/datasets/{dataset_id}/reference_corrections/{id}``  reference correction
+``/targets/{target_id}``                               target definition
+``/target_assignments/{target_id}/{roi_id}``           target value of one ROI
+``/recipes/{recipe_id}``                               preprocessing recipe
+``/signal_domains/{signal_domain_id}``                 signal-domain contract
+``/rois/{roi_id}``                                     ROI metadata and spectra
+``/sample_sets/{sample_set_id}``                       sample set
+``/model_runs/{model_run_id}``                         model run and artifacts
+``/predictions/{prediction_run_id}``                   prediction run and maps
+=====================================================  ================================
 
 Stable ids are immutable: saving an existing id with different content is
 refused (only display names may change). Loading is metadata-first; ROI spectra
@@ -69,7 +69,9 @@ logger = get_logger(__name__)
 #: The project file format (``/project_meta/@FileSchemaVersion``). engiNIR
 #: reads and writes only this format; it changes only when a field becomes
 #: required, is removed or changes meaning (project-schema contract).
-FILE_SCHEMA_VERSION = "enginir-1.5"
+FILE_SCHEMA_VERSION = "enginir-1.7"
+#: The format converted by :func:`enginir.io.migrate_project` (engiNIR 1.5.1 to 1.6.1).
+PREVIOUS_FILE_SCHEMA_VERSION = "enginir-1.5"
 PROJECT_TOP_LEVEL_GROUPS = (
     "project_meta",
     "datasets",
@@ -84,7 +86,7 @@ PROJECT_TOP_LEVEL_GROUPS = (
 )
 _PREDICTION_RUN_FIELDS = frozenset({
     "dataset_id",
-    "calibration_id",
+    "reference_correction_id",
     "model_run_id",
     "signal_domain_id",
     "preprocessing_recipe_id",
@@ -183,7 +185,7 @@ def load_project_store(
     path:
         Project file.
     include_roi_spectra:
-        Also read ROI spectra and calibration reference arrays (large).
+        Also read ROI spectra and reference correction reference arrays (large).
         Default ``False``: they stay on disk, see :func:`load_roi_spectra`.
     include_artifact_arrays:
         Also read the arrays under ``artifact_refs`` of model and prediction
@@ -205,7 +207,7 @@ def load_project_store(
     """
     roi_options: dict[str, Any] = {}
     if not include_roi_spectra:
-        roi_options = {"skip_datasets": ("spectra",), "metadata_only_groups": ("calibration_refs",)}
+        roi_options = {"skip_datasets": ("spectra",), "metadata_only_groups": ("reference_spectra",)}
     artifact_options: dict[str, Any] = {}
     if not include_artifact_arrays:
         artifact_options = {"metadata_only_groups": ("artifact_refs",)}
@@ -255,54 +257,54 @@ def save_dataset_ref(
 ) -> None:
     """Save a dataset reference to ``/datasets/{dataset_id}``."""
     _save_object(path, "datasets", dataset_id, dataset_dict, "DatasetRef", compression,
-                 child_members=frozenset({"calibrations", "active_calibration_id"}))
+                 child_members=frozenset({"reference_corrections", "active_reference_correction_id"}))
 
 
-def save_calibration_spec(
+def save_reference_correction(
     path: PathLike,
     dataset_id: str,
-    calibration_id: str,
-    calibration_dict: dict[str, Any],
+    reference_correction_id: str,
+    reference_correction_dict: dict[str, Any],
     compression: str = "gzip",
 ) -> None:
-    """Save a calibration of a dataset and make it the dataset's active calibration.
+    """Save a reference correction of a dataset and make it the dataset's active reference correction.
 
-    Written to ``/datasets/{dataset_id}/calibrations/{calibration_id}``; the
-    dataset's ``active_calibration_id`` attribute is set to ``calibration_id``.
+    Written to ``/datasets/{dataset_id}/reference_corrections/{reference_correction_id}``; the
+    dataset's ``active_reference_correction_id`` attribute is set to ``reference_correction_id``.
     A reference correction belongs to one dataset and is never changed:
     saving an id of another dataset, or different content under a stored id,
     is refused; saving identical content again only makes it active.
     """
-    location = f"/datasets/{dataset_id}/calibrations/{calibration_id}"
-    _validate_payload("CalibrationSpec", location, calibration_dict,
-                      {"calibration_id": calibration_id, "dataset_id": dataset_id})
-    payload = {key: value for key, value in calibration_dict.items() if value is not None}
+    location = f"/datasets/{dataset_id}/reference_corrections/{reference_correction_id}"
+    _validate_payload("ReferenceCorrection", location, reference_correction_dict,
+                      {"reference_correction_id": reference_correction_id, "dataset_id": dataset_id})
+    payload = {key: value for key, value in reference_correction_dict.items() if value is not None}
     with _open_project(path, writable=True) as f:
         datasets = f["datasets"]
         if not isinstance(datasets.get(dataset_id), h5py.Group):
             log_and_raise("Cannot save reference correction '{}': dataset '{}' is not in {}",
-                          calibration_id, dataset_id, path, error=KeyError)
+                          reference_correction_id, dataset_id, path, error=KeyError)
         for other_id, other in datasets.items():
             if (other_id != dataset_id and isinstance(other, h5py.Group)
-                    and isinstance(other.get("calibrations"), h5py.Group)
-                    and calibration_id in other["calibrations"]):
+                    and isinstance(other.get("reference_corrections"), h5py.Group)
+                    and reference_correction_id in other["reference_corrections"]):
                 log_and_raise("Reference correction id '{}' already belongs to dataset '{}'; "
                               "a reference correction belongs to one dataset, use a new id",
-                              calibration_id, other_id)
+                              reference_correction_id, other_id)
         dataset_group = datasets[dataset_id]
-        calibrations = child_group(dataset_group, "calibrations", create=True)
-        existing = calibrations.get(calibration_id)
+        reference_corrections = child_group(dataset_group, "reference_corrections", create=True)
+        existing = reference_corrections.get(reference_correction_id)
         if existing is None:
-            with replacement_group(calibrations, calibration_id) as group:
+            with replacement_group(reference_corrections, reference_correction_id) as group:
                 write_mapping(group, payload, compression)
         else:
             stored = read_mapping(existing) if isinstance(existing, h5py.Group) else None
             if stored is None or not values_equal(stored, payload):
                 log_and_raise("Refusing to overwrite reference correction '{}' of dataset '{}' "
                               "with different content; stable ids are immutable, use a new id",
-                              calibration_id, dataset_id)
-        dataset_group.attrs["active_calibration_id"] = calibration_id
-    logger.info("Saved reference correction '{}' of dataset '{}' to {}", calibration_id, dataset_id, path)
+                              reference_correction_id, dataset_id)
+        dataset_group.attrs["active_reference_correction_id"] = reference_correction_id
+    logger.info("Saved reference correction '{}' of dataset '{}' to {}", reference_correction_id, dataset_id, path)
 
 
 def save_target_definition(
@@ -399,7 +401,7 @@ def save_training_roi(
         are stored as float32, everything else as uint16 (raw counts).
     dark_ref_spectra, white_ref_spectra:
         Optional per-pixel dark and white references (both or neither), same
-        shape as ``spectra``, stored under ``calibration_refs``.
+        shape as ``spectra``, stored under ``reference_spectra``.
     compression:
         HDF5 compression filter.
     """
@@ -425,7 +427,7 @@ def save_training_roi(
         if dark.shape != spectra.shape or white.shape != spectra.shape:
             log_and_raise("ROI references must have shape {}, got dark={} white={}",
                           spectra.shape, dark.shape, white.shape)
-        payload["calibration_refs"] = {"dark": dark, "white": white}
+        payload["reference_spectra"] = {"dark": dark, "white": white}
     _save_object(path, "rois", roi_id, payload, "TrainingROI", compression,
                  mutable_fields=frozenset({"name"}))  # sample, job: only their writers
 
@@ -829,18 +831,18 @@ def load_roi_band_images(
     return images
 
 
-def iter_roi_calibration_refs(
+def iter_roi_reference_spectra(
     path: PathLike, roi_ids: Iterable[str]
 ) -> Iterator[tuple[str, tuple[np.ndarray, np.ndarray] | None]]:
     """Yield ``(roi_id, (dark, white))`` per ROI, or ``(roi_id, None)`` without references."""
     with _open_project(path) as f:
         for roi_id in map(str, roi_ids):
-            refs = _object_group(f, "rois", roi_id).get("calibration_refs")
+            refs = _object_group(f, "rois", roi_id).get("reference_spectra")
             if refs is None:
                 yield roi_id, None
                 continue
             if not isinstance(refs, h5py.Group) or "dark" not in refs or "white" not in refs:
-                log_and_raise("ROI '{}' calibration_refs needs dark and white datasets", roi_id,
+                log_and_raise("ROI '{}' reference_spectra needs dark and white datasets", roi_id,
                               error=KeyError)
             yield roi_id, (np.asarray(refs["dark"][()], np.float32),
                            np.asarray(refs["white"][()], np.float32))
@@ -1055,7 +1057,7 @@ def _save_object(
 
     Re-saving identical content is a no-op; only ``mutable_fields`` (scalar
     labels) may change, and are updated in place. ``child_members`` are
-    written by other functions (e.g. a dataset's calibrations) and are
+    written by other functions (e.g. a dataset's reference corrections) and are
     neither compared nor touched. ``same_content`` reduces both sides before
     the comparison, for values that have several stored forms.
     """
@@ -1128,13 +1130,13 @@ def _check_roi_arrays(group: h5py.Group) -> None:
     if isinstance(wavelengths, h5py.Dataset) and wavelengths.shape != (spectra.shape[1],):
         log_and_raise("ROI group '{}' wavelengths shape {} does not match {} bands", group.name,
                       wavelengths.shape, spectra.shape[1])
-    refs = group.get("calibration_refs")
+    refs = group.get("reference_spectra")
     if isinstance(refs, h5py.Group):
         for key in ("dark", "white"):
             ref = refs.get(key)
             if not isinstance(ref, h5py.Dataset) or ref.shape != spectra.shape:
                 log_and_raise(
-                    "ROI group '{}' calibration_refs/{} shape {} does not match spectra shape {}",
+                    "ROI group '{}' reference_spectra/{} shape {} does not match spectra shape {}",
                     group.name, key, getattr(ref, "shape", None), spectra.shape,
                 )
 
@@ -1160,10 +1162,12 @@ def _chunk_shape(shape: tuple[int, ...]) -> tuple[int, ...] | None:
 
 
 def format_refusal(f: h5py.File, path: PathLike) -> str:
-    """The one message for a file that is not an ``enginir-1.5`` project.
+    """The one message for a file that is not an ``enginir-1.7`` project.
 
     It names the file's format (and its writer, when it records one); earlier
     files stored ``schema_version``, which is read here for the message only.
+    A project of the previous format ``enginir-1.5`` is told how to convert it
+    (project-schema contract, Compatibility policy).
     """
     meta = f.get("project_meta")
     if not isinstance(meta, h5py.Group):
@@ -1172,8 +1176,18 @@ def format_refusal(f: h5py.File, path: PathLike) -> str:
     found = decode(attrs.get("FileSchemaVersion", attrs.get("schema_version", ""))) or "unknown"
     writer = decode(attrs.get("FileWriter", ""))
     by = f", written by {writer}" if writer else ""
+    if found == PREVIOUS_FILE_SCHEMA_VERSION:
+        return (f"{path} is an engiNIR project in format {found!r}{by}; this engiNIR reads only "
+                f"{FILE_SCHEMA_VERSION!r} projects. Convert it into a new file with: "
+                f'enginir-migrate "{path}" "{_migrated_name(path)}"')
     return (f"{path} is an engiNIR project in format {found!r}{by}; this engiNIR reads only "
             f"{FILE_SCHEMA_VERSION!r} projects, so the project must be created again")
+
+
+def _migrated_name(path: PathLike) -> str:
+    """The suggested target of a conversion: ``<name> (enginir-1.7).h5`` next to the source."""
+    source = Path(path)
+    return str(source.with_name(f"{source.stem} ({FILE_SCHEMA_VERSION}){source.suffix}"))
 
 
 def _now_iso() -> str:
@@ -1194,7 +1208,7 @@ __all__ = [
     "finalize_prediction_run_artifacts",
     "initialize_prediction_run_artifacts",
     "is_project_file",
-    "iter_roi_calibration_refs",
+    "iter_roi_reference_spectra",
     "load_model_run_artifact_refs",
     "load_model_run_prediction_artifact",
     "load_prediction_run_artifact_refs",
@@ -1209,7 +1223,7 @@ __all__ = [
     "remove_roi_from_project",
     "remove_target_assignment",
     "load_roi_band_images",
-    "save_calibration_spec",
+    "save_reference_correction",
     "save_dataset_ref",
     "save_model_run",
     "save_prediction_run",

@@ -1,6 +1,8 @@
 # Plan: project format enginir-1.7, "calibration" renamed to "reference correction"
 
-Status: decided (user, 2026-11-18): D1 to D8 below. Not started.
+Status: decided (user, 2026-11-18): D1 to D8 below. In progress on branch
+`format-1.7`: Phase 0 (05e8b63), Phase 1 (29f096a), Phases 2 and 3 in one
+commit (the store and the API share every name).
 
 ## Goal
 
@@ -89,6 +91,9 @@ but cannot be misread:
 | `check_calibration_signal_domain_compatibility` | `check_reference_correction_compatibility` |
 | store `save_calibration_spec`, `iter_roi_calibration_refs` | `save_reference_correction`, `iter_roi_reference_spectra` |
 | `contracts/dataset-calibration-contract_v3.md` | `contracts/dataset-reference-correction-contract_v3.md` |
+| `CalibrationStats` (conversion counters) | `ReferenceCorrectionStats` |
+| progress phase `calibrating` | `correcting` |
+| prediction provenance `calibration_id`, `calibration_mode` | `reference_correction_id`, `correction_mode` |
 
 Internal names (private functions, the viewer's `apply_shown_calibration`
 and similar) follow the same rule. The guard test of Phase 5 decides where

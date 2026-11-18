@@ -105,8 +105,8 @@ Wraps the `enginir.Project` of the open file: every write goes through
 mirrors the project's collections for the widgets and emits a Qt signal per
 change. It holds no workflow rule: Explore and Predict build datasets,
 reference corrections and ROIs with the shared functions of `enginir._workflow`
-(`resolve_dataset`, `make_calibration`, `resolve_calibration`,
-`resolve_prediction_calibration`, `make_roi`).
+(`resolve_dataset`, `make_reference_correction`, `resolve_reference_correction`,
+`resolve_prediction_reference_correction`, `make_roi`).
 
 Runtime collections include:
 
@@ -116,7 +116,7 @@ Runtime collections include:
 - `roi_results`: the per-ROI prediction statistics of this session, one `RoiPredictionSummary` per model (`set_roi_results`, signal `roi_results_changed`); `PredictionView` sets them after every recompute and the ROI table shows them as read-only columns; cleared on a project switch, never stored
 - `model_registry` (in-memory fitted model objects)
 
-**Signals:** `project_loaded()`, `datasets_changed()`, `calibrations_changed()`, `rois_changed()`, `targets_changed()`, `target_assignments_changed()`, `recipes_changed()`, `signal_domains_changed()`, `sample_sets_changed()`, `model_runs_changed()`, `predictions_changed()`, `model_fitted(str)`, `active_model_changed(str)`, `prediction_completed(str)`
+**Signals:** `project_loaded()`, `datasets_changed()`, `reference_corrections_changed()`, `rois_changed()`, `targets_changed()`, `target_assignments_changed()`, `recipes_changed()`, `signal_domains_changed()`, `sample_sets_changed()`, `model_runs_changed()`, `predictions_changed()`, `model_fitted(str)`, `active_model_changed(str)`, `prediction_completed(str)`
 
 **Key methods:**
 - `new_project(path)`, `open_project(path)` — create/load HDF5 project
@@ -125,7 +125,7 @@ Runtime collections include:
 - `find_data_file(dataset_id)`, `data_file(dataset_id)` — `Project.find_data_file`: where a data file is this session (next to the project, stored path, drive mapping), never written; the viewer opens, predicts and marks "(not found)" through it
 - `dataset_id_of(path)` — the dataset a path belongs to at any of its candidate paths (`is_data_file_of`)
 - `moved_data_files(old, new)` — missing data files that exist after the folder change of one Locate (`moved_path`), for `HSIViewer._locate_moved_data_files`
-- `register_dataset(...)`, `set_active_calibration(...)`, `add_roi(...)`, `define_target(...)`, `assign_target_to_roi(...)` — store through `Project` + emit
+- `register_dataset(...)`, `set_active_reference_correction(...)`, `add_roi(...)`, `define_target(...)`, `assign_target_to_roi(...)` — store through `Project` + emit
 - `build_sample_set(...)`, `fit_model_run(...)` — high-level workflows
 - `predict_dataset(...)`, `add_prediction(result)` — predict in memory (`prefer_saved_model=True`, so a model fitted in the session gets the DModXPS and T²PS maps) and keep the result for the session; nothing is written
 - `ensure_model_run_artifact_refs(...)` — lazy-load heavy persisted arrays only when a workflow actually needs them

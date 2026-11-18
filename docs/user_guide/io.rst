@@ -149,7 +149,7 @@ See :doc:`/hdf5_format` for the schema overview and object layout.
    from enginir.io import (
        create_project,
        save_dataset_ref,
-       save_calibration_spec,
+       save_reference_correction,
        save_training_roi,
        save_target_definition,
        save_target_assignment,
@@ -175,7 +175,7 @@ See :doc:`/hdf5_format` for the schema overview and object layout.
            "loader_metadata": {"instrument": "EVK AlphaVision"},
        },
    )
-   save_calibration_spec(
+   save_reference_correction(
        "project.h5",
        "dataset_1",
        "cal_1",
@@ -192,7 +192,7 @@ See :doc:`/hdf5_format` for the schema overview and object layout.
        "roi_1",
        {
            "dataset_id": "dataset_1",
-           "calibration_id": "cal_1",
+           "reference_correction_id": "cal_1",
            "name": "ROI 1",
            "source_file": "/data/train_a.eiff",
            "n_pixels": 12,
@@ -201,7 +201,7 @@ See :doc:`/hdf5_format` for the schema overview and object layout.
            "wavelengths": wavelengths,
            "provenance": {
                "dataset_id": "dataset_1",
-               "calibration_id": "cal_1",
+               "reference_correction_id": "cal_1",
                "signal_unit": "Absorbance",
                "preview_recipe_summary": "SNV preview only",
                "created_at": "2026-04-02T10:02:00+00:00",
@@ -298,7 +298,7 @@ them:
 
    workspace = hydrate_project_store(load_project_store("project.h5"))
    roi = workspace.rois["roi_1"]
-   calibration = workspace.calibrations[roi.calibration_id]
+   reference_correction = workspace.reference_corrections[roi.reference_correction_id]
    spectra = roi.load_spectra("project.h5")   # (n_pixels, n_bands), read on demand
 
 Invalid stored values raise a :class:`ValueError` that names the object's

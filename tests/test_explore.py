@@ -38,8 +38,8 @@ def state_and_project(tmp_path):
             n_bands=cube.shape[-1],
         )
     )
-    project.set_active_calibration(
-        build.calibration(calibration_id="cal_1", dataset_id="dataset_1")
+    project.set_active_reference_correction(
+        build.reference_correction(reference_correction_id="cal_1", dataset_id="dataset_1")
     )
     return state, project
 
@@ -137,7 +137,7 @@ def test_training_roi_selection_registers_dataset_calibration_and_overlay(
     roi = next(iter(project.rois.values()))
     assert roi.name == "roi_a"
     assert roi.dataset_id in project.datasets
-    assert roi.calibration_id in project.calibrations
+    assert roi.reference_correction_id in project.reference_corrections
     assert canvas.rects[0][-1] == roi.roi_id
     assert canvas.selected[-1] == roi.roi_id
 
@@ -166,15 +166,15 @@ def test_training_roi_selection_persists_absorbance_calibration_context(
     view.on_training_roi_selected(0, 1, 0, 1)
 
     roi = next(iter(project.rois.values()))
-    calibration = project.calibrations[roi.calibration_id]
-    assert calibration.mode == "dark_white_reference"
-    assert calibration.output_signal_unit == "Absorbance"
-    assert calibration.dark_ref_data is not None
-    assert calibration.white_ref_data is not None
-    assert project.active_calibration_ids["dataset_1"] == roi.calibration_id
-    from enginir.io.project_store import iter_roi_calibration_refs
+    reference_correction = project.reference_corrections[roi.reference_correction_id]
+    assert reference_correction.mode == "dark_white_reference"
+    assert reference_correction.output_signal_unit == "Absorbance"
+    assert reference_correction.dark_ref_data is not None
+    assert reference_correction.white_ref_data is not None
+    assert project.active_reference_correction_ids["dataset_1"] == roi.reference_correction_id
+    from enginir.io.project_store import iter_roi_reference_spectra
 
-    loaded_refs = dict(iter_roi_calibration_refs(project.project_path or "", [roi.roi_id]))
+    loaded_refs = dict(iter_roi_reference_spectra(project.project_path or "", [roi.roi_id]))
     assert loaded_refs[roi.roi_id] is not None
     loaded_dark, loaded_white = loaded_refs[roi.roi_id]
     expected_dark = np.tile(dark_ref[0:2], (2, 1)).astype(np.float32)
@@ -237,7 +237,7 @@ def test_delete_roi_button_removes_selected_roi(qapp, state_and_project, tmp_pat
             state.wavelengths.astype('float32'),
             roi_id="roi_a",
             dataset_id="dataset_1",
-            calibration_id="cal_1",
+            reference_correction_id="cal_1",
             name="A",
             n_pixels=2,
             spatial_bounds=(0, 0, 0, 1),
@@ -276,7 +276,7 @@ def test_delete_roi_button_warns_when_roi_is_used_by_sample_set(
             state.wavelengths.astype('float32'),
             roi_id="roi_a",
             dataset_id="dataset_1",
-            calibration_id="cal_1",
+            reference_correction_id="cal_1",
             name="A",
             n_pixels=2,
             spatial_bounds=(0, 0, 0, 1),
@@ -333,7 +333,7 @@ def test_export_csv_uses_batched_roi_load_and_preserves_order(
                 wl,
                 roi_id=roi_id,
                 dataset_id="dataset_1",
-                calibration_id="cal_1",
+                reference_correction_id="cal_1",
                 name=name,
                 n_pixels=int(spectra.shape[0]),
                 spatial_bounds=(0, 0, 0, spectra.shape[0] - 1),
@@ -389,15 +389,15 @@ def test_export_csv_rejects_mixed_wavelength_axes(qapp, state_and_project, tmp_p
             n_bands=8,
         )
     )
-    project.set_active_calibration(
-        build.calibration(calibration_id="cal_b", dataset_id="dataset_b")
+    project.set_active_reference_correction(
+        build.reference_correction(reference_correction_id="cal_b", dataset_id="dataset_b")
     )
     project.add_roi(
         build.roi(
             wl_a,
             roi_id="roi_a",
             dataset_id="dataset_1",
-            calibration_id="cal_1",
+            reference_correction_id="cal_1",
             name="A",
             n_pixels=2,
             spatial_bounds=(0, 0, 0, 1),
@@ -411,12 +411,12 @@ def test_export_csv_rejects_mixed_wavelength_axes(qapp, state_and_project, tmp_p
             wl_b,
             roi_id="roi_b",
             dataset_id="dataset_b",
-            calibration_id="cal_b",
+            reference_correction_id="cal_b",
             name="B",
             n_pixels=2,
             spatial_bounds=(1, 1, 0, 1),
             source_file=str(tmp_path / 'b.eiff'),
-            provenance=build.roi_provenance(dataset_id='dataset_b', calibration_id='cal_b'),
+            provenance=build.roi_provenance(dataset_id='dataset_b', reference_correction_id='cal_b'),
         ),
         np.zeros((2, wl_b.shape[0]), dtype=np.uint16),
     )
@@ -947,11 +947,11 @@ def test_the_reference_frames_are_not_counted_above_white(qapp, tmp_path):
 
     project = Project.open(create_example_project(tmp_path))
     dataset = next(iter(project.workspace.datasets.values()))
-    calibration = project.dataset(dataset_id=dataset.dataset_id).calibration
+    reference_correction = project.dataset(dataset_id=dataset.dataset_id).reference_correction
     n_frames = dataset.cube_shape[0]
-    assert own_reference_frames(calibration, dataset.source_path) \
+    assert own_reference_frames(reference_correction, dataset.source_path) \
         == ((0, 1), (n_frames - 2, n_frames - 1))
-    assert own_reference_frames(calibration, tmp_path / "other.h5") == ()
+    assert own_reference_frames(reference_correction, tmp_path / "other.h5") == ()
 
     window = open_project(project.path)
     try:

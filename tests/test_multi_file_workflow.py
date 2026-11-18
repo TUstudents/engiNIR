@@ -148,13 +148,13 @@ def test_open_data_adds_the_file_with_frame_references_in_the_same_window(
         state = window.project_state
         dataset_id = window._eda_view.shown_dataset_id()
         assert state.datasets[dataset_id].source_path == str(path_c.resolve())
-        calibration = state.active_calibration(dataset_id)
-        assert calibration is not None
-        assert calibration.white_ref_source == f"{path_c.resolve()} frames 14-15"
-        np.testing.assert_allclose(calibration.white_ref_data, cube_c[14:].mean(axis=0))
-        np.testing.assert_array_equal(window.state.white_ref, calibration.white_ref_data)
+        reference_correction = state.active_reference_correction(dataset_id)
+        assert reference_correction is not None
+        assert reference_correction.white_ref_source == f"{path_c.resolve()} frames 14-15"
+        np.testing.assert_allclose(reference_correction.white_ref_data, cube_c[14:].mean(axis=0))
+        np.testing.assert_array_equal(window.state.white_ref, reference_correction.white_ref_data)
         assert window.state.y_unit == "Absorbance"  # the working signal, no choice made yet
-        assert calibration.output_signal_unit == "Absorbance"
+        assert reference_correction.output_signal_unit == "Absorbance"
         assert _drawn_roi_names(window) == []  # tray_c has no ROIs yet
         assert "White: mean 3500 counts, 0.00 % saturated" in dialogs[0].check_text()
         combo = window._data_file_combo
@@ -247,14 +247,14 @@ def test_rois_on_an_added_file_keep_its_calibration(qapp, two_file_project, tray
     try:
         dataset_id = window.add_data_file(str(path_c))
         window.wait_for_data_file()
-        calibration = window.project_state.active_calibration(str(dataset_id))
-        n_calibrations = len(window.project_state.calibrations)
+        reference_correction = window.project_state.active_reference_correction(str(dataset_id))
+        n_calibrations = len(window.project_state.reference_corrections)
         window.state.set_y_unit("DN")  # a preview only
         window._eda_view.on_training_roi_selected(3, 5, 1, 3)
         roi = window.project_state.rois[next(r for r, v in window.project_state.rois.items()
                                              if v.name == "C1")]
-        assert calibration is not None and roi.calibration_id == calibration.calibration_id
-        assert len(window.project_state.calibrations) == n_calibrations
+        assert reference_correction is not None and roi.reference_correction_id == reference_correction.reference_correction_id
+        assert len(window.project_state.reference_corrections) == n_calibrations
     finally:
         window.close()
 
@@ -375,7 +375,7 @@ def test_the_dialog_plot_shows_the_data_and_what_each_choice_uses(qapp, tmp_path
 
     save_hdf5(str(other), cube, np.linspace(1000.0, 1700.0, 12))
     dialog = AddDataFileDialog(str(other), read_header(str(other)), ws.datasets,
-                               {d: ws.calibrations[c] for d, c in ws.active_calibration_ids.items()})
+                               {d: ws.reference_corrections[c] for d, c in ws.active_reference_correction_ids.items()})
 
     def drawn() -> dict[str, np.ndarray]:
         dialog.check_references()
@@ -390,7 +390,7 @@ def test_the_dialog_plot_shows_the_data_and_what_each_choice_uses(qapp, tmp_path
         np.testing.assert_allclose(lines["Data (mean)"], middle)
     dialog.set_choice("shared")
     np.testing.assert_allclose(drawn()["White"],
-                               shared.calibration.white_ref_data.mean(axis=0), rtol=1e-6)
+                               shared.reference_correction.white_ref_data.mean(axis=0), rtol=1e-6)
     dialog.set_choice("levels")
     levels = drawn()
     assert levels["Black level 128"][0] == 128 and levels["White level 3500"][0] == 3500

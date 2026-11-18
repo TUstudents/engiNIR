@@ -1,6 +1,6 @@
 """Applying a saved model run to a dataset.
 
-:func:`predict_with_model_run` checks that the dataset and its calibration can
+:func:`predict_with_model_run` checks that the dataset and its reference correction can
 produce the spectra the model was trained on, then streams the dataset in
 chunks of frames. Every chunk is converted to the model's signal domain
 (:func:`enginir.project.transform_spectra_to_signal_domain`), preprocessed with
@@ -60,8 +60,8 @@ from ..preprocessing._pipeline import (
     transform_preprocessing_steps,
 )
 from ..project import (
-    CalibrationSpec,
-    CalibrationStats,
+    ReferenceCorrection,
+    ReferenceCorrectionStats,
     DatasetRef,
     ModelRun,
     PredictionRun,
@@ -91,7 +91,7 @@ class PredictionProgressEvent:
     Attributes
     ----------
     phase : str
-        ``"preflight"``, ``"loading"``, ``"calibrating"``, ``"preprocessing"``,
+        ``"preflight"``, ``"loading"``, ``"correcting"``, ``"preprocessing"``,
         ``"predicting"``, ``"writing"`` or ``"finalizing"``. Every chunk passes
         through ``"loading"`` to ``"writing"``, so an error can be attributed
         to the phase of the last event.
@@ -165,8 +165,8 @@ class PredictionResult:
 
     Attributes
     ----------
-    dataset, calibration : DatasetRef, CalibrationSpec
-        The predicted dataset and the calibration used.
+    dataset, reference correction : DatasetRef, ReferenceCorrection
+        The predicted dataset and the reference correction used.
     prediction_run : PredictionRun
         Metadata of the run (stored in the project when
         ``artifacts_persisted``).
@@ -188,12 +188,12 @@ class PredictionResult:
         without them); see :meth:`half_width`.
     provenance : dict
         Model run id and name, data file(s) with size and modification time
-        (and SHA-256 on request), calibration, clipping counts and time; the
+        (and SHA-256 on request), reference correction, clipping counts and time; the
         content of the prediction's log entry.
     """
 
     dataset: DatasetRef
-    calibration: CalibrationSpec
+    reference_correction: ReferenceCorrection
     prediction_run: PredictionRun
     y_pred: np.ndarray | None
     spatial_map: np.ndarray | None
@@ -243,7 +243,7 @@ def preflight_prediction(
     signal_domain: SignalDomainContract,
     recipe: PreprocessingRecipe,
     dataset: DatasetRef,
-    calibration: CalibrationSpec,
+    reference_correction: ReferenceCorrection,
     model_registry: dict[str, Any],
     chunk_size: int | None = None,
     prediction_run_id: str | None = None,
@@ -262,8 +262,8 @@ def preflight_prediction(
         Project file holding the model run.
     model_run, signal_domain, recipe:
         The model and the signal domain and preprocessing it was trained with.
-    dataset, calibration:
-        Dataset to predict and its calibration.
+    dataset, reference_correction:
+        Dataset to predict and its reference correction.
     model_registry:
         In-memory predictors by model-run id (e.g. models fitted in this
         session); other model runs are replayed from the saved artifact.
@@ -280,7 +280,7 @@ def preflight_prediction(
     Raises
     ------
     SignalDomainCompatibilityError
-        If the dataset or calibration does not fit the model.
+        If the dataset or reference correction does not fit the model.
     ValueError
         If ``chunk_size`` is not positive, the prediction run id is taken, an
         in-memory predictor does not apply the recipe's preprocessing, or the
@@ -292,7 +292,7 @@ def preflight_prediction(
         log_and_raise("Input contract '{}' is not the one of model '{}' ('{}')",
                       signal_domain.signal_domain_id, model_run.model_run_id,
                       model_run.signal_domain_id)
-    check_signal_domain_compatibility(dataset=dataset, calibration=calibration,
+    check_signal_domain_compatibility(dataset=dataset, reference_correction=reference_correction,
                                       signal_domain=signal_domain)
     if prediction_run_id is not None and has_prediction_run(project_path, prediction_run_id):
         log_and_raise("Prediction run '{}' already exists in {}; use a new id",
@@ -425,7 +425,7 @@ def predict_with_model_run(
     signal_domain: SignalDomainContract,
     recipe: PreprocessingRecipe,
     dataset: DatasetRef,
-    calibration: CalibrationSpec,
+    reference_correction: ReferenceCorrection,
     model_registry: dict[str, Any],
     data_path: str | None = None,
     spectral_data: SpectralData | None = None,
@@ -445,7 +445,7 @@ def predict_with_model_run(
 
     Parameters
     ----------
-    project_path, model_run, signal_domain, recipe, dataset, calibration, model_registry:
+    project_path, model_run, signal_domain, recipe, dataset, reference_correction, model_registry:
         As for :func:`preflight_prediction`.
     data_path:
         Data file to read; default ``dataset.source_path``.
@@ -504,7 +504,7 @@ def predict_with_model_run(
         signal_domain=signal_domain,
         recipe=recipe,
         dataset=dataset,
-        calibration=calibration,
+        reference_correction=reference_correction,
         model_registry=model_registry,
         chunk_size=chunk_size,
         prediction_run_id=run_id if persist_artifacts else None,
@@ -513,13 +513,13 @@ def predict_with_model_run(
     progress.total = preflight.n_chunks
     run_payload = {
         "dataset_id": dataset.dataset_id,
-        "calibration_id": calibration.calibration_id,
+        "reference_correction_id": reference_correction.reference_correction_id,
         "model_run_id": model_run.model_run_id,
         "signal_domain_id": model_run.signal_domain_id,
         "preprocessing_recipe_id": preprocessing_recipe_id,
         "created_at": created_at or now_iso(),
     }
-    stats = CalibrationStats()
+    stats = ReferenceCorrectionStats()
     with _PredictionOutputs(
         project_path=project_path if persist_artifacts else None,
         prediction_run_id=run_id,
@@ -538,18 +538,18 @@ def predict_with_model_run(
             chunk = next(chunks, None)
             if chunk is None:
                 break
-            progress.report("calibrating", f"Applying the reference correction to {step}")
+            progress.report("correcting", f"Applying the reference correction to {step}")
             signal = transform_spectra_to_signal_domain(
                 chunk.raw_matrix,
                 dataset=dataset,
-                calibration=calibration,
+                reference_correction=reference_correction,
                 signal_domain=signal_domain,
                 spatial_shape=chunk.spatial_shape,
                 stats=stats,
                 check_compatibility=False,
             )
             row_start = chunk.row_start
-            del chunk  # the raw block is not needed after calibration
+            del chunk  # the raw block is not needed after reference correction
             progress.report("preprocessing", f"Preprocessing {step}")
             X_ready = _preprocess_chunk(signal, preflight)
             del signal  # one working chunk at a time (X_ready may be signal itself)
@@ -574,7 +574,7 @@ def predict_with_model_run(
     provenance = {
         "model_run_id": model_run.model_run_id, "model_name": model_run.name,
         "files": file_records(data_path, checksum=checksum),
-        "calibration_id": calibration.calibration_id, "calibration_mode": calibration.mode,
+        "reference_correction_id": reference_correction.reference_correction_id, "correction_mode": reference_correction.mode,
         "clip_low_count": stats.clip_low_count, "clip_high_count": stats.clip_high_count,
         "wavelength_warning": preflight.wavelength_warning,
         "created_at": run_payload["created_at"],
@@ -583,7 +583,7 @@ def predict_with_model_run(
     progress.report("finalizing", f"Finalized prediction {run_id}", check_cancel=False)
     return PredictionResult(
         dataset=dataset,
-        calibration=calibration,
+        reference_correction=reference_correction,
         prediction_run=prediction_run,
         y_pred=outputs.y_pred,
         spatial_map=outputs.spatial_map,
@@ -875,7 +875,7 @@ class _PredictionOutputs:
         """Limits and summary of the applicability diagnostics, or ``None``."""
         return None if self._summary is None else self._summary.as_dict()
 
-    def finish(self, stats: CalibrationStats) -> dict[str, Any]:
+    def finish(self, stats: ReferenceCorrectionStats) -> dict[str, Any]:
         """Check completeness, finalize staged artifacts and return the artifact metadata."""
         if self._rows_written != self._preflight.n_rows:
             log_and_raise("Prediction produced {} spectra, expected {}", self._rows_written,

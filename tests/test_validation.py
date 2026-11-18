@@ -159,8 +159,8 @@ def test_aggregation_averages_per_group_in_order_of_first_appearance():
 
 def test_kennard_stone_selects_extremes_first_and_partitions_the_samples():
     X = np.array([[0.0], [10.0], [5.0], [1.0], [9.0], [6.0]])
-    calibration, test = kennard_stone(X, n_select=3)
-    np.testing.assert_array_equal(calibration, [0, 1, 2])
+    reference_correction, test = kennard_stone(X, n_select=3)
+    np.testing.assert_array_equal(reference_correction, [0, 1, 2])
     np.testing.assert_array_equal(test, [3, 4, 5])
 
 
@@ -208,10 +208,10 @@ def test_hotelling_limits_have_nominal_false_alarm_rates():
     n, n_components, repeats = 20, 3, 2000
     calibration_alarms = new_alarms = 0
     for _ in range(repeats):
-        calibration = rng.standard_normal((n, n_components))
-        calibration_alarms += int(hotelling_t2(calibration)[2].sum())
+        reference_correction = rng.standard_normal((n, n_components))
+        calibration_alarms += int(hotelling_t2(reference_correction)[2].sum())
         new = rng.standard_normal((1, n_components))
-        new_alarms += int(hotelling_t2(new, calibration_scores=calibration)[2].sum())
+        new_alarms += int(hotelling_t2(new, calibration_scores=reference_correction)[2].sum())
     assert calibration_alarms / (n * repeats) == pytest.approx(0.05, abs=0.006)
     assert new_alarms / repeats == pytest.approx(0.05, abs=0.015)
     with pytest.raises(ValueError, match="calibration samples"):

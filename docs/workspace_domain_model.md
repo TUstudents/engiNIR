@@ -11,7 +11,7 @@ The viewer's `ProjectState` mirrors them for its widgets.
 | Entity | Key | Defined in | Description |
 |--------|-----|-----------|-------------|
 | `DatasetRef` | `dataset_id` | `project/_models.py` | Pointer to one HSI dataset: source path, format, modality, cube shape, wavelengths |
-| `CalibrationSpec` | `calibration_id` | `project/_models.py` | How to convert Raw counts (DN) to a signal unit: mode (dark_white_reference / precalibrated_import / raw_dn), optional dark/white ref arrays or scalar levels, output signal unit |
+| `ReferenceCorrection` | `reference_correction_id` | `project/_models.py` | How to convert Raw counts (DN) to a signal unit: mode (dark_white_reference / already_corrected / raw_dn), optional dark/white ref arrays or scalar levels, output signal unit |
 | `TrainingROI` | `roi_id` | `project/_models.py` | Spatial bounding box on one dataset: name, spatial_bounds (f0, f1, r0, r1), n_pixels, wavelengths, references one dataset + one reference correction, provenance dict |
 | `TargetDefinition` | `target_id` | `project/_models.py` | What we are predicting: name, unit (e.g. "wt%"), value_type ("float"), missing_value_policy |
 | `TargetAssignment` | `(roi_id, target_id)` | `project/_models.py` | One numeric value linking one ROI to one target |
@@ -25,9 +25,9 @@ The viewer's `ProjectState` mirrors them for its widgets.
 ## Relationships
 
 ```
-DatasetRef  1───*  CalibrationSpec     (exactly one is active per dataset in v3)
+DatasetRef  1───*  ReferenceCorrection     (exactly one is active per dataset in v3)
 DatasetRef  1───*  TrainingROI         (one dataset has many ROIs)
-CalibrationSpec 1───*  TrainingROI     (one calibration used by many ROIs)
+ReferenceCorrection 1───*  TrainingROI     (one reference correction used by many ROIs)
 
 TargetDefinition  1───*  TargetAssignment  (one target assigned to many ROIs)
 TrainingROI       1───*  TargetAssignment  (one ROI can have many target values)
@@ -40,7 +40,7 @@ ModelRun  *───1  SignalDomainContract   (one model has one signal contract
 
 PredictionRun  *───1  ModelRun          (one prediction uses one model)
 PredictionRun  *───1  DatasetRef        (one prediction on one dataset)
-PredictionRun  *───1  CalibrationSpec   (one prediction with one calibration)
+PredictionRun  *───1  ReferenceCorrection   (one prediction with one reference correction)
 ```
 
 ---
@@ -51,26 +51,26 @@ PredictionRun  *───1  CalibrationSpec   (one prediction with one calibrati
 /project_meta/                @FileSchemaVersion, @FileCreator, @FileWriter, @created_at, @updated_at
 /datasets/{dataset_id}/       source_path, source_format, source_modality,
                               cube_shape, n_bands, wavelengths, loader_metadata,
-                              @active_calibration_id
-  /calibrations/{cal_id}/     mode, output_signal_unit, dark_ref_data,
+                              @active_reference_correction_id
+  /reference_corrections/{cal_id}/     mode, output_signal_unit, dark_ref_data,
                               white_ref_data, black_level, white_level
 /targets/{target_id}/         name, unit, value_type, missing_value_policy
 /target_assignments/{target_id}/{roi_id}/  value, assigned_at
-/rois/{roi_id}/               dataset_id, calibration_id, name, wavelengths,
+/rois/{roi_id}/               dataset_id, reference_correction_id, name, wavelengths,
                               n_pixels, spatial_bounds, source_file,
                               spectra (uint16 dataset), /provenance/
 /recipes/{recipe_id}/         eight required executable fields: filter,
                               sg_window, sg_polyorder, snv, msc, emsc,
                               detrend, detrend_order
 /signal_domains/{sd_id}/      input_format, source_modality, required_signal_unit,
-                              required_calibration_mode, n_bands, wavelengths, ...
+                              required_correction_mode, n_bands, wavelengths, ...
 /sample_sets/{ss_id}/         target_id, roi_ids, preprocessing_recipe_id,
                               observation_unit, validation_unit, ...
 /model_runs/{mr_id}/          sample_set_id, signal_domain_id, model_type,
                               hyperparameters, cv_spec, metrics, artifact_refs
                               /artifact_refs/prediction_model/ (coef_, intercept_, ...)
                               /artifact_refs/diagnostics/ (loadings, scores, ...)
-/predictions/{pr_id}/         dataset_id, calibration_id, model_run_id,
+/predictions/{pr_id}/         dataset_id, reference_correction_id, model_run_id,
                               signal_domain_id, preprocessing_recipe_id,
                               artifact_refs (spatial_map, y_pred)
 ```
@@ -85,11 +85,11 @@ its workspaces.
 | Step | `enginir.Project` | Objects stored |
 |---|---|---|
 | 1. Create | `Project.create(path)` | project metadata |
-| 2. Register data | `project.add_dataset(path, dark=, white=, unit=)`; references also from frames of the file (`dark_frames=`, `white_frames=`) or another scan (`references_from=`) | `DatasetRef`, `CalibrationSpec` (reused when identical; becomes active) |
+| 2. Register data | `project.add_dataset(path, dark=, white=, unit=)`; references also from frames of the file (`dark_frames=`, `white_frames=`) or another scan (`references_from=`) | `DatasetRef`, `ReferenceCorrection` (reused when identical; becomes active) |
 | 3. Define a target | `project.add_target(name, unit=)` | `TargetDefinition` |
 | 4. Draw ROIs | `dataset.add_roi(name, frames=, rows=, values=)` | `TrainingROI` with spectra and reference pixels, `TargetAssignment` per value |
 | 5. Fit | `project.fit(target, recipe=, model=, n_components=)` | recipe (by content), `SampleSet` (reused), `SignalDomainContract` (reused), `ModelRun` |
-| 6. Predict | `model.predict(path)` | `DatasetRef`/`CalibrationSpec` if new, `PredictionRun` with its arrays |
+| 6. Predict | `model.predict(path)` | `DatasetRef`/`ReferenceCorrection` if new, `PredictionRun` with its arrays |
 
 Each step validates first and then writes, in dependency order, so a failed
 step stores nothing, and a stored object never references a missing one. In
