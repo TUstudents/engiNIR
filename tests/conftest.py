@@ -152,3 +152,37 @@ def edited_window(qapp, tmp_path):
     yield open_edited
     for window in windows:
         window.close()
+
+
+@pytest.fixture(autouse=True)
+def _windows_are_destroyed_after_the_test():
+    """Destroy the windows a test opened, at a quiet point right after it.
+
+    A closed window otherwise lives on until Python's garbage collector frees
+    it at a random moment, possibly while Qt paints another window; CI runs
+    crashed now and then that way (segmentation fault in ``QPainter::restore``).
+    Only widgets that Python owns are destroyed: parentless widgets that Qt
+    owns (pyqtgraph's menu widgets belong to a ``QWidgetAction``) are left to
+    their owner, which deletes them itself.
+    """
+    import sys
+
+    if "PyQt6.QtWidgets" not in sys.modules:
+        yield
+        return
+    from PyQt6 import sip
+    from PyQt6.QtCore import QEvent
+    from PyQt6.QtWidgets import QApplication, QMenu
+
+    app = QApplication.instance()
+    before = {id(widget) for widget in app.topLevelWidgets()} if app is not None else set()
+    yield
+    app = QApplication.instance()
+    if app is None:
+        return
+    for widget in app.topLevelWidgets():
+        if (id(widget) not in before and widget.parent() is None
+                and not isinstance(widget, QMenu) and sip.ispyowned(widget)):
+            widget.close()
+            widget.deleteLater()
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)

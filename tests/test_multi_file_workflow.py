@@ -329,7 +329,8 @@ def test_a_missing_data_file_is_reported_and_nothing_changes(qapp, two_file_proj
         assert "tray_b.h5 (not found)" in [combo.itemText(i) for i in range(combo.count())]
         dataset_id = window._registered_dataset_id(str(paths["tray_b"]))
         window.show_data_file(str(dataset_id))
-        assert warnings and warnings[0].startswith("Dataset file not found")
+        # The text says it on its own: macOS shows no title on a message box.
+        assert warnings and "was not found" in warnings[0]
         assert window._cube_path is None
     finally:
         window.close()

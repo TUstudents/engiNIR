@@ -35,7 +35,10 @@ The contracts follow the 1.6 viewer; a few viewer fixes found on the way.
   stored attributes, an end-to-end test whose data file is not in the
   repository, and duplicates are gone; the timing benchmarks moved to
   `benchmarks/`. Every test now runs with HOME in a temporary folder, so no
-  test can write the user's real settings.
+  test can write the user's real settings. After each test the windows it
+  opened are destroyed at once; before, Python's garbage collector freed
+  them at random moments, which crashed CI runs now and then while Qt
+  painted another window. CI also runs the tests on macOS.
 
 ### Added
 
