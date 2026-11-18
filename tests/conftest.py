@@ -82,13 +82,16 @@ def _exceptions_in_qt_slots_fail():
     broken signal handler would otherwise go unnoticed.
     """
 
-    raised: list[BaseException] = []
+    import traceback
+
+    raised: list[str] = []
     original = sys.excepthook
-    sys.excepthook = lambda kind, value, tb: raised.append(value)
+    sys.excepthook = lambda kind, value, tb: raised.append(
+        "".join(traceback.format_exception(kind, value, tb)))
     yield
     sys.excepthook = original
     if raised:
-        pytest.fail(f"exception in a Qt slot: {raised[0]!r}")
+        pytest.fail(f"exception in a Qt slot:\n{raised[0]}")
 
 
 @pytest.fixture()
