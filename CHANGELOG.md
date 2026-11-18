@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (1.7.0)
+## 1.7.0rc1 (2026-11-18)
 
 The project format changes to `enginir-1.7`: in the file and the Python API,
 "calibration" no longer names the dark/white reference correction, only
