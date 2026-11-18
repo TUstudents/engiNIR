@@ -22,6 +22,7 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_panels.py` | Explore plots: Histogram and Spectrum (matplotlib); Band image and Sensor Frame (pyqtgraph `_ImagePanel`); Spatial Profile (pyqtgraph, upright) |
 | `_viewer.py` | `HSIViewer(QMainWindow)`: menus (every action; no toolbar), the workflow strip, Project and Properties on the left, the Settings dock on the right (the workspace controls; the Model workspace's fit settings are the embedded fit form), the bottom panel (Checks, ROI table, Models, Log as tabs), status strip, workspace host; `run_fix` runs the fix a check offers |
 | `_welcome.py` | Launcher window with recent files list and startup routing |
+| `_windows.py` | The registry of open top-level windows (`keep_open`, `open_windows`); see Window lifetime |
 | `_recent.py` | MRU file list (`~/.config/enginir/recent.json`) |
 | `_eda.py` | `EDAView` — signal, preprocessing and ROI controls (project actions are menu items) |
 | `_attachment.py` | Project/dataset binding validation |
@@ -297,6 +298,35 @@ frame, signal unit, or preprocessing parameters.
   maximized size (WSLg) ends the connection when the buffer is larger. The
   Settings dock content sits in a scroll area for the same reason.
   `tests/test_project_rois.py` checks that no workspace sets a minimum size.
+
+### Window lifetime
+
+A window that closes is deleted (viewer-workspace-ui contract, Window
+lifetime; plan `plans/window-lifetime.md`):
+
+- `HSIViewer` and `WelcomeWindow` set `WA_DeleteOnClose`: Qt deletes a closed
+  window at a safe point of the event loop, never in the middle of a paint.
+- `_windows.keep_open` keeps every top-level window's Python object alive
+  from its creation until Qt deletes it. Nothing else holds a window: there is
+  no "parent" window and no reference in `__main__`. A window that only
+  Python's cyclic collector could free would be freed at a random moment,
+  possibly while Qt paints another window (the crashes this replaced).
+- `HSIViewer.closeEvent` takes the window out of the project refresh
+  (`ProjectState.close`: it leaves `_OPEN_STATES` and stops its reload
+  timer) and removes the log sink. The cube, the references and the caches
+  are released when Qt has deleted the window (`ViewerState.release_data`,
+  the `on_deleted` callback of `keep_open`), not in `closeEvent`: a refresh
+  that is already queued may still draw before the deletion.
+- Nothing calls a deleted window: background jobs deliver through a relay
+  that is a child of the window (Qt disconnects it); PyQt drops a
+  `QTimer.singleShot` call whose bound method belongs to a deleted object;
+  a deferred call that holds another widget checks `sip.isdeleted` first
+  (`_app.release_popup_surface`). Do not connect a lambda that holds a window
+  to a signal of a longer-lived object.
+- `tests/test_window_lifetime.py` checks deletion, the released cube, no
+  refresh after closing, the welcome window, and a job that ends after its
+  window closed; the `conftest` fixture that destroys a test's windows is a
+  safety net for widgets a test never shows or closes.
 
 ### Process exit
 

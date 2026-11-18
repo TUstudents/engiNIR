@@ -272,6 +272,19 @@ Required UI behavior:
 
 - all workspace controls may be enabled subject to their own local preconditions
 
+## Window lifetime
+
+Decided 2026-11-18 (plan `plans/window-lifetime.md`):
+
+- a window that the user closes is deleted; it keeps no data (cube,
+  references, caches) after the deletion
+- a closed window receives no refresh: a write in another window on the same
+  project does not reload it
+- a background job that finishes after its window closed calls nothing; its
+  thread still finishes
+- closing a window never closes another one, and every open window stays
+  alive until it is closed (no window depends on another to stay alive)
+
 ## Identity in the viewer
 
 Stable ids are the only identity of project objects

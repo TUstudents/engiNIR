@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.7.0rc2 (unreleased)
+
+The second release candidate of 1.7.0: everything of 1.7.0rc1 (below), and
+viewer windows are deleted when they close.
+
+### Fixed
+
+- A closed viewer window is deleted. A window opened by **Open Data...** used
+  to keep its data in memory after it was closed, until the window that
+  opened it closed too; now its memory is released when it closes.
+- A closed window no longer reloads its project after every change in
+  another window on the same project.
+- Closed windows are no longer freed at random moments, which could crash
+  the viewer while it drew another window. A background job that finishes
+  after its window closed calls nothing.
+- The welcome window is deleted after it hands over to the first viewer
+  window.
+
 ## 1.7.0rc1 (2026-11-18)
 
 The project format changes to `enginir-1.7`: in the file and the Python API,
