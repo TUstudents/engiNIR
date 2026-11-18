@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 from .._logging import get_logger
 from . import _is_project_file
 from ._app import app_icon
+from ._windows import keep_open
 from ._icons import icon
 from ._jobs import BusyStatusWidget
 from ._preferences import start_folder
@@ -56,6 +57,9 @@ class WelcomeWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("engiNIR")
         self.setFixedSize(760, 600)
+        # Deleted by Qt when it closes, after the hand-off to the first viewer window.
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        keep_open(self)
 
         self._dark_path: str | None = None
         self._white_path: str | None = None

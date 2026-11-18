@@ -83,7 +83,7 @@ def _main(argv: list[str] | None = None) -> int:
         time.perf_counter() - app_started,
     )
 
-    _viewer_ref = None  # hold a reference so Qt doesn't GC the viewer
+    # Open windows are kept alive by the window registry (viewer/_windows.py) until they close.
 
     if args.path is not None or args.project is not None:
         startup_label = args.project if args.path is None else args.path
@@ -91,9 +91,9 @@ def _main(argv: list[str] | None = None) -> int:
         target_started = time.perf_counter()
         try:
             if args.path is None:
-                _viewer_ref = open_project(args.project)
+                open_project(args.project)
             else:
-                _viewer_ref = open_viewer(
+                open_viewer(
                     args.path,
                     dark=args.dark,
                     white=args.white,
@@ -250,12 +250,10 @@ def _main(argv: list[str] | None = None) -> int:
             )
 
         def _show_loaded_dataset(payload: Any) -> None:
-            nonlocal _viewer_ref
-            _viewer_ref = _open_loaded_dataset_viewer(payload)
+            _open_loaded_dataset_viewer(payload)
 
         def _show_loaded_project(payload: Any) -> None:
-            nonlocal _viewer_ref
-            _viewer_ref = _open_loaded_project_viewer(payload)
+            _open_loaded_project_viewer(payload)
 
         def _on_dataset_selected(path: str, dark: str | None, white: str | None) -> None:
             nonlocal selected_at
