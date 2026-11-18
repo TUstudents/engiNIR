@@ -77,7 +77,7 @@ for what it covers and what it does not.
 
 ## Installation
 
-engiNIR needs Python 3.12 or newer.
+engiNIR needs Python 3.12 or newer and runs on Windows, macOS and Linux.
 
 **The viewer on Windows, without Python knowledge:** paste this line into
 PowerShell, then start *engiNIR Viewer* from the Start menu (details in the
@@ -85,6 +85,15 @@ PowerShell, then start *engiNIR Viewer* from the Start menu (details in the
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://github.com/TUstudents/engiNIR/releases/latest/download/install-enginir-for-windows.ps1 | iex"
+```
+
+**The viewer on macOS and Linux:** install [uv](https://docs.astral.sh/uv/),
+then the viewer as a tool, and start it from a terminal:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv tool install enginir
+enginir-viewer
 ```
 
 **In a Python project**, with [uv](https://docs.astral.sh/uv/) or pip:

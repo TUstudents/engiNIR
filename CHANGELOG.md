@@ -1,8 +1,15 @@
 # Changelog
 
-## Unreleased
+## 1.6.1 (2026-11-18)
 
-The contracts follow the 1.6 viewer; a few viewer fixes found on the way.
+A bugfix release. It fixes seven findings of an external review of 1.6.0
+(among them a replaced data file predicted into a wrong map, a lost DModX
+check for small models and wavenumber axes shown as nm), brings the
+contracts in line with the 1.6 viewer, and adds a Regulatory context page
+to the documentation. The test suite is reorganized and CI now also runs
+on macOS. Projects open as they are; a dataset added with a wavenumber
+axis before 1.6.1 is stored with those values and must be added again to
+be predicted.
 
 ### Changed
 
@@ -23,7 +30,8 @@ The contracts follow the 1.6 viewer; a few viewer fixes found on the way.
 - A recipe without steps reads "no preprocessing" in the Predict chain and
   status line (was "none").
 - The README follows the 1.6 viewer, with new screenshots of the example
-  project; its guarantees are two guiding principles.
+  project; its guarantees are two guiding principles, and it shows how to
+  install the viewer on macOS and Linux.
 
 - The test suite is organized by topic: 44 files instead of 79, with the same
   line coverage. The files named after the work that produced them
