@@ -104,6 +104,11 @@ Creating and loading
 
 .. autofunction:: enginir.io.project_store.load_project_store
 
+Converting projects of engiNIR 1.5 and 1.6
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autofunction:: enginir.io.migrate_project
+
 Saving objects
 ~~~~~~~~~~~~~~
 

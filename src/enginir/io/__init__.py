@@ -40,6 +40,7 @@ from .spc_io import load_spc, SPCError
 from .jcamp_io import load_jcamp, JCAMPError
 from .envi_io import iter_envi_frame_chunks, load_envi, save_envi, ENVIError
 from .hdf5_io import iter_hdf5_frame_chunks, load_hdf5, save_hdf5
+from ._migrate import migrate_project
 from .project_store import (
     FILE_SCHEMA_VERSION,
     PredictionArtifactWriter,
@@ -164,6 +165,7 @@ __all__ = [
     "save_hdf5",
     # project files
     "FILE_SCHEMA_VERSION",
+    "migrate_project",
     "PredictionArtifactWriter",
     "create_project",
     "discard_prediction_run_artifacts",

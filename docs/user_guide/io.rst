@@ -128,7 +128,7 @@ this profile and should be added explicitly when needed.
 HDF5 project files
 ------------------
 
-A project file (HDF5, format ``enginir-1.5``) records a whole analysis:
+A project file (HDF5, format ``enginir-1.7``) records a whole analysis:
 
 - project metadata and schema version
 - dataset references
@@ -142,6 +142,28 @@ A project file (HDF5, format ``enginir-1.5``) records a whole analysis:
 - prediction runs
 
 See :doc:`/hdf5_format` for the schema overview and object layout.
+
+Projects from engiNIR 1.5 and 1.6
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+engiNIR 1.7 reads only its own format, ``enginir-1.7``. A project written by
+engiNIR 1.5.1 to 1.6.1 (format ``enginir-1.5``) is refused when you open it;
+the message names the command that converts it into a new file:
+
+.. code-block:: bash
+
+   enginir-migrate "tablets.h5" "tablets (enginir-1.7).h5"
+
+or, from Python, :func:`enginir.io.migrate_project`. The conversion renames
+the stored names of the reference correction, which said "calibration" in
+``enginir-1.5`` (``calibrations/`` becomes ``reference_corrections/``,
+``calibration_id`` becomes ``reference_correction_id``, and so on; the table
+is in :doc:`/hdf5_format`). Nothing else changes: every dataset, ROI, value,
+model and id is kept, and the converted model predicts exactly as before.
+The original file is never changed. Keep the new file in the same folder,
+so that its data files are found next to it.
+
+Projects written before engiNIR 1.5 cannot be converted; create them again.
 
 .. code-block:: python
 
