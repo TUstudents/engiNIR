@@ -6,7 +6,6 @@ from typing import Any, TypeVar
 from collections import Counter
 import os
 import time
-from functools import partial
 
 import numpy as np
 from PyQt6.QtWidgets import (
@@ -72,6 +71,7 @@ from ._plot_panel import LARGE_EXPORT_VALUES, PlotFrame, PlotPanel
 from ._modeling import ModelingView, NewROIDialog, TargetSelectionDialog
 from ._predict_dialogs import ROI_RESULTS
 from ._prediction import PREDICTION_HISTOGRAM, PredictionMapWidget, PredictionView
+from ._windows import keep_open
 from ._state import (
     DEFAULT_BLACK_LEVEL,
     DEFAULT_SOURCE_MODALITY,
@@ -293,8 +293,11 @@ class HSIViewer(QMainWindow):
         _mark_init_step("state")
 
         self.project_state = ProjectState()
+        # Deleted by Qt when it closes; the registry keeps it until then and drops its
+        # data afterwards (viewer-workspace-ui contract, Window lifetime).
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        keep_open(self, on_deleted=self.state.release_data)
         self._cube_path: str | None = None
-        self._child_viewers: list["HSIViewer"] = []
         self._workspace_refresh_pending = False
         self._bottom_dock_resize_pending = False
         self._controls_dock_height = _CONTROLS_DOCK_TARGET_HEIGHT
@@ -2257,7 +2260,7 @@ class HSIViewer(QMainWindow):
             return
         finally:
             busy.end()
-        self._track_child_viewer(child)
+        logger.debug("Opened {} in a new window {}", path, type(child).__name__)
 
     # ------------------------------------------------------------------
     # Data files of the project (attachment contract, Data Files Of A Project)
@@ -2848,7 +2851,12 @@ class HSIViewer(QMainWindow):
     # ------------------------------------------------------------------
 
     def closeEvent(self, a0: QCloseEvent | None) -> None:
-        """Clean up loguru sink when the window closes."""
+        """Leave the project refresh and remove the log sink; Qt deletes the window next.
+
+        The data are released when Qt deletes the window (:func:`keep_open`), not
+        here: a refresh already queued may still draw before the deletion.
+        """
+        self.project_state.close()
         self._teardown_log_sink()
         super().closeEvent(a0)
 
@@ -2869,14 +2877,6 @@ class HSIViewer(QMainWindow):
         if app is None:
             return
         app.quit()
-
-    def _track_child_viewer(self, child: "HSIViewer") -> None:
-        self._child_viewers.append(child)
-        child.destroyed.connect(partial(self._detach_child_viewer, child))
-
-    def _detach_child_viewer(self, child: "HSIViewer", *_args) -> None:
-        if child in self._child_viewers:
-            self._child_viewers.remove(child)
 
     def _refresh_panel_theme(self) -> None:
         """Restyle matplotlib/pyqtgraph surfaces that are outside Qt palette control."""

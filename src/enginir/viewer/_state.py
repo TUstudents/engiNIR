@@ -163,6 +163,16 @@ class ProjectState(QObject):
         self._reload_timer.timeout.connect(self.reload)
         _OPEN_STATES.add(self)
 
+    def close(self) -> None:
+        """Leave the windows that refresh each other; the window of this mirror closed.
+
+        A closed window is no longer reloaded after a write in another window on
+        the same project (viewer-workspace-ui contract, Window lifetime).
+        Idempotent.
+        """
+        _OPEN_STATES.discard(self)
+        self._reload_timer.stop()
+
     # -- stale sample sets ---------------------------------------------------------
 
     def missing_roi_ids_for_sample_set(self, sample_set_id: str) -> list[str]:
@@ -795,6 +805,18 @@ class ViewerState(QObject):
             black_level=black_level,
             white_level=white_level,
         )
+
+    def release_data(self) -> None:
+        """Drop the cube, the references and the caches; the window was deleted.
+
+        The Python object may outlive the window (a reference somewhere); it then
+        holds no data. Idempotent.
+        """
+        self.cube = np.zeros((0, 0, 0), dtype=self.cube.dtype)
+        self.dark_ref = None
+        self.white_ref = None
+        self._image_cache = None
+        self._clip_share_cache = None
 
     def load_dataset(
         self,

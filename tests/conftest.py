@@ -161,9 +161,12 @@ def edited_window(qapp, tmp_path):
 def _windows_are_destroyed_after_the_test():
     """Destroy the windows a test opened, at a quiet point right after it.
 
-    A closed window otherwise lives on until Python's garbage collector frees
-    it at a random moment, possibly while Qt paints another window; CI runs
-    crashed now and then that way (segmentation fault in ``QPainter::restore``).
+    A safety net: viewer windows delete themselves when they close (Window
+    lifetime, ``tests/test_window_lifetime.py``), but a test may create a
+    widget it never shows or closes. Such a widget would otherwise live on
+    until Python's garbage collector frees it at a random moment, possibly
+    while Qt paints another window; CI runs crashed now and then that way
+    (segmentation fault in ``QPainter::restore``).
     Only widgets that Python owns are destroyed: parentless widgets that Qt
     owns (pyqtgraph's menu widgets belong to a ``QWidgetAction``) are left to
     their owner, which deletes them itself.

@@ -134,6 +134,7 @@ def _dialog_answers(monkeypatch, configure):
 def test_open_data_adds_the_file_with_frame_references_in_the_same_window(
         qapp, two_file_project, tray_c, monkeypatch):
     from enginir.viewer import open_viewer
+    from enginir.viewer._windows import open_windows
 
     project_path, paths = two_file_project
     path_c, cube_c = tray_c
@@ -142,9 +143,10 @@ def test_open_data_adds_the_file_with_frame_references_in_the_same_window(
         d.white_source().use_frames(14, 15)))
     window = open_viewer(paths["tray_a"], project=project_path)
     try:
+        windows = len(open_windows())
         window._open_data_path(str(path_c))  # File > Open Data in a window showing tray_a
         window.wait_for_data_file()
-        assert len(dialogs) == 1 and window._child_viewers == []
+        assert len(dialogs) == 1 and len(open_windows()) == windows  # no new window
         state = window.project_state
         dataset_id = window._eda_view.shown_dataset_id()
         assert state.datasets[dataset_id].source_path == str(path_c.resolve())
