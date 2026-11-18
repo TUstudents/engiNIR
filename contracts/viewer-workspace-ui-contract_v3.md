@@ -3,8 +3,8 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.5 and 1.6; the file format `enginir-1.5` is the
-  only format engiNIR reads and writes (`project-schema-contract_v3.md`)
+- Status: active contract for engiNIR 1.7; the file format `enginir-1.7` is the
+  only format engiNIR reads and writes (project-schema contract, Compatibility policy)
 - Scope: viewer workspace structure, phase-specific panels and controls, global status/progress behavior, project-only vs dataset-attached behavior
 
 ## Goal
@@ -76,7 +76,7 @@ honor them.
 This contract depends on:
 
 - `project-dataset-attachment-contract_v3.md`
-- `dataset-calibration-contract_v3.md`
+- `dataset-reference-correction-contract_v3.md`
 - `roi-target-contract_v3.md`
 - `sample-set-model-run-contract_v3.md`
 - `prediction-runtime-contract_v3.md`
@@ -409,7 +409,7 @@ Required behavior:
 - the mosaic and the ROI spectra are plot panels (Plot panel policy)
 - the signal selection (Raw counts (DN), Reflectance, Absorbance) shows the signal in use
   and enables only the signals the shown dataset's reference correction can give
-  (`dataset-calibration-contract_v3.md`, Signal units of a reference correction); a
+  (`dataset-reference-correction-contract_v3.md`, Signal units of a reference correction); a
   disabled signal says why. A signal the user chose is kept when another dataset is shown, as long as that file can give it; otherwise the file's
   working signal is shown
 

@@ -3,8 +3,8 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.5 and 1.6; the file format `enginir-1.5` is the
-  only format engiNIR reads and writes (`project-schema-contract_v3.md`)
+- Status: active contract for engiNIR 1.7; the file format `enginir-1.7` is the
+  only format engiNIR reads and writes (project-schema contract, Compatibility policy)
 - Scope: the Qt-free public API surface for project-backed scientific
   workflows — creation, persistence, hydration, calibration-set building, model
   fitting, and prediction from scripts and Jupyter notebooks
@@ -68,7 +68,7 @@ and writes nothing they would reject.
 - `create_project` initializes an empty v3 workspace
 - `load_project_store` is the canonical metadata-first reader
 - object writers persist first-class objects (`save_dataset_ref`,
-  `save_calibration_spec`, `save_training_roi`, `save_roi_sample`,
+  `save_reference_correction`, `save_training_roi`, `save_roi_sample`,
   `save_roi_job`,
   `save_target_definition`,
   `save_target_assignment`, `save_preprocessing_recipe`,
@@ -76,7 +76,7 @@ and writes nothing they would reject.
   `save_prediction_run`)
 - lazy loaders hydrate heavy arrays on demand (`load_roi_spectra`,
   `load_roi_spectra_batch`, `load_roi_spectra_matrix`,
-  `iter_roi_calibration_refs`, `load_model_run_artifact_refs`,
+  `iter_roi_reference_spectra`, `load_model_run_artifact_refs`,
   `load_model_run_prediction_artifact`, `load_prediction_run_artifact_refs`,
   `load_prediction_spatial_map_preview`)
 - staged prediction artifact writes (`initialize_prediction_run_artifacts`,
@@ -93,7 +93,7 @@ and writes nothing they would reject.
   store
 - `validate_project_relationships` enforces the id graph
 - the input-contract checks (`check_signal_domain_compatibility`,
-  `check_calibration_signal_domain_compatibility`) and
+  `check_reference_correction_compatibility`) and
   `transform_spectra_to_signal_domain`, which converts raw spectra under a
   reference correction context identically for calibration and prediction
 
@@ -271,10 +271,10 @@ and writes nothing they would reject.
   independent of slash style; adding a path that is already registered
   returns the existing dataset after checking that the file still has the
   registered format, shape and (if the file states one) modality; wavelength
-  values are metadata, not a gate (`dataset-calibration-contract_v3.md`)
+  values are metadata, not a gate (`dataset-reference-correction-contract_v3.md`)
 - **Reference correction**: built from the arguments exactly as the viewer builds it:
   - `unit="DN"`: mode `raw_dn`, no references
-  - floating-point data: mode `precalibrated_import` (the data are already
+  - floating-point data: mode `already_corrected` (the data are already
     reflectance or absorbance)
   - `dark`/`white` given (files or arrays; 3-D cubes are averaged over frames):
     mode `dark_white_reference` with the reference spectra
@@ -283,7 +283,7 @@ and writes nothing they would reject.
     `DEFAULT_BLACK_LEVEL = 128` and `DEFAULT_WHITE_LEVEL = 3500` (EVK)
 
   A reference correction with the same content as an existing one of that dataset is
-  reused (`CalibrationSpec.same_content_as`), never duplicated; the one used
+  reused (`ReferenceCorrection.same_content_as`), never duplicated; the one used
   becomes the dataset's active reference correction
 - **ROI**: `frames` and `rows` are inclusive `(first, last)` index ranges, the
   `spatial_bounds` convention; spectra, dark/white reference pixels and

@@ -3,7 +3,7 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.5 and 1.6; the file format `enginir-1.5` is the
+- Status: active contract for engiNIR 1.7; the file format `enginir-1.7` is the
   only format engiNIR reads and writes (Compatibility policy)
 - Scope: project-level persistence structure, object ids, relationships, required HDF5 groups, the compatibility policy
 
@@ -32,7 +32,7 @@ workspace, not just a loose container of ROI blobs and model artifacts.
 - metadata-only project hydration must be possible without loading heavy ROI or
   model/prediction artifact arrays into RAM
 - the project schema must reflect the frozen contracts already defined in:
-  - `dataset-calibration-contract_v3.md`
+  - `dataset-reference-correction-contract_v3.md`
   - `project-dataset-attachment-contract_v3.md`
   - `roi-target-contract_v3.md`
   - `sample-set-model-run-contract_v3.md`
@@ -86,7 +86,7 @@ The following are first-class persisted objects:
 
 - `ProjectMeta`
 - `DatasetRef`
-- `CalibrationSpec`
+- `ReferenceCorrection`
 - `TrainingROI`
 - `TargetDefinition`
 - `TargetAssignment`
@@ -128,7 +128,7 @@ Required fields of `/project_meta`:
 | Field | Value | Written |
 |---|---|---|
 | `project_id` | the project's stable id | once, at creation |
-| `FileSchemaVersion` | `enginir-1.5`, the file format | once, at creation |
+| `FileSchemaVersion` | `enginir-1.7`, the file format | once, at creation |
 | `FileCreator` | `engiNIR <version>`, the software that created the file | once, at creation |
 | `FileWriter` | `engiNIR <version>`, the software that last wrote the file | by every write |
 | `created_at` | timestamp of creation | once, at creation |
@@ -137,7 +137,7 @@ Required fields of `/project_meta`:
 Required invariants:
 
 - every project file declares exactly one `FileSchemaVersion`; the reader
-  requires the value `enginir-1.5` (Compatibility policy)
+  requires the value `enginir-1.7` (Compatibility policy)
 - `FileSchemaVersion` names the format, not the software: it changes only
   when a field becomes required, is removed or changes meaning. A new
   optional field does not change it (Schema validation and extra-field
@@ -164,7 +164,7 @@ Every first-class object must have a stable id persisted in the project.
 Examples:
 
 - `dataset_id`
-- `calibration_id`
+- `reference_correction_id`
 - `roi_id`
 - `target_id`
 - `recipe_id`
@@ -326,8 +326,8 @@ scientific content. Writers enforce, per object:
 
 Explicit exceptions, each already governed by its own contract rule:
 
-- `CalibrationSpec`: replacing a dataset's single active reference correction
-  overwrites in place by design (`dataset-calibration-contract_v3.md`)
+- `ReferenceCorrection`: replacing a dataset's single active reference correction
+  overwrites in place by design (`dataset-reference-correction-contract_v3.md`)
 - `TargetAssignment`: updating the value of an existing `(roi_id, target_id)`
   pair is the documented editing model (`roi-target-contract_v3.md`)
 - prediction staging: `initialize`/`write`/`finalize`/`discard` mutate the
@@ -349,7 +349,7 @@ These references are mandatory in v3.
 
 ### Dataset and reference correction
 
-- `CalibrationSpec.dataset_id -> DatasetRef.dataset_id`
+- `ReferenceCorrection.dataset_id -> DatasetRef.dataset_id`
 
 v3 rule:
 
@@ -361,21 +361,21 @@ v3 identity rule:
 
 - reference correction ids must be unique across the whole project, not only within one
   dataset subtree, because ROIs and prediction runs refer to reference corrections by
-  `calibration_id` alone
+  `reference_correction_id` alone
 - the reader rejects a project where two dataset subtrees persist the same
   reference correction id
 - the writer refuses such a write before it happens: saving a reference
   correction under an id of another dataset, under an unknown dataset, or with
   different content under a stored id is refused; saving identical content
   again only makes it the active one
-- a persisted dataset `active_calibration_id` must reference an existing
+- a persisted dataset `active_reference_correction_id` must reference an existing
   reference correction owned by that dataset; the reader validates this during
   hydration
 
 ### ROI relationships
 
 - `TrainingROI.dataset_id -> DatasetRef.dataset_id`
-- `TrainingROI.calibration_id -> CalibrationSpec.calibration_id`
+- `TrainingROI.reference_correction_id -> ReferenceCorrection.reference_correction_id`
 
 ### Target relationships
 
@@ -411,7 +411,7 @@ v3 note:
 ### Prediction-run relationships
 
 - `PredictionRun.dataset_id -> DatasetRef.dataset_id`
-- `PredictionRun.calibration_id -> CalibrationSpec.calibration_id`
+- `PredictionRun.reference_correction_id -> ReferenceCorrection.reference_correction_id`
 - `PredictionRun.model_run_id -> ModelRun.model_run_id`
 - `PredictionRun.signal_domain_id -> SignalDomainContract.signal_domain_id`
 - `PredictionRun.preprocessing_recipe_id -> PreprocessingRecipe.recipe_id`
@@ -458,13 +458,13 @@ Required v3 rule:
 That means the canonical reader must support loading:
 
 - ROI metadata without materializing `/rois/{roi_id}/spectra`
-- ROI metadata without materializing `/rois/{roi_id}/calibration_refs/*`
+- ROI metadata without materializing `/rois/{roi_id}/reference_spectra/*`
 - model/prediction metadata without materializing nested `artifact_refs` arrays
 
 Examples of heavy arrays that may remain disk-backed until explicitly needed:
 
 - ROI `spectra`
-- ROI-local dark/white `calibration_refs`
+- ROI-local dark/white `reference_spectra`
 - model CV outputs
 - fitted model numeric arrays
 - prediction `y_pred`
@@ -494,7 +494,7 @@ project.h5
 |
 +-- /project_meta/
 |   +-- @project_id
-|   +-- @FileSchemaVersion   "enginir-1.5"
+|   +-- @FileSchemaVersion   "enginir-1.7"
 |   +-- @FileCreator         "engiNIR <version>"
 |   +-- @FileWriter          "engiNIR <version>"
 |   +-- @created_at
@@ -511,7 +511,7 @@ project.h5
 |   +-- @import_timestamp
 |   +-- wavelengths
 |   +-- /loader_metadata/
-|   +-- /calibrations/{calibration_id}/
+|   +-- /reference_corrections/{reference_correction_id}/
 |       +-- @mode
 |       +-- @output_signal_unit
 |       +-- @black_level
@@ -524,7 +524,7 @@ project.h5
 |
 +-- /rois/{roi_id}/
 |   +-- @dataset_id
-|   +-- @calibration_id
+|   +-- @reference_correction_id
 |   +-- @name
 |   +-- @sample              optional sample label (mutable)
 |   +-- @job                 calibration | prediction (mutable, save_roi_job)
@@ -534,7 +534,7 @@ project.h5
 |   +-- @spatial_bounds
 |   +-- wavelengths
 |   +-- spectra
-|   +-- /calibration_refs/
+|   +-- /reference_spectra/
 |       +-- dark
 |       +-- white
 |   +-- /provenance/
@@ -594,7 +594,7 @@ project.h5
 |
 +-- /predictions/{prediction_run_id}/
     +-- @dataset_id
-    +-- @calibration_id
+    +-- @reference_correction_id
     +-- @model_run_id
     +-- @signal_domain_id
     +-- @preprocessing_recipe_id
@@ -774,12 +774,12 @@ v3 requirement:
 
 ## Schema validation and extra-field policy
 
-The reader reads only the format `enginir-1.5` (Compatibility policy).
+The reader reads only the format `enginir-1.7` (Compatibility policy).
 
 Required read behavior:
 
 1. scan the project structure before hydrating scientific objects
-2. require `FileSchemaVersion = "enginir-1.5"`; refuse any other value, or
+2. require `FileSchemaVersion = "enginir-1.7"`; refuse any other value, or
    its absence, before reading anything else
 3. require every top-level group and every core field (Core and display
    data, below)
@@ -812,9 +812,9 @@ malformed:
 
 - `/project_meta` (Object identity rules §1)
 - every id and every reference between objects
-- datasets and their reference corrections (with `active_calibration_id`)
+- datasets and their reference corrections (with `active_reference_correction_id`)
 - ROIs: spectra, wavelengths, `spatial_bounds`, `n_pixels`, reference
-  snapshots, `job`, `dataset_id`, `calibration_id`
+  snapshots, `job`, `dataset_id`, `reference_correction_id`
 - targets and target values
 - every recipe field (Object identity rules §4)
 - input contracts
@@ -873,7 +873,7 @@ comparison but must not make a stored hash authoritative over that content.
 
 ## Required invariants
 
-- `FileSchemaVersion` is `enginir-1.5`, and `FileCreator`, `FileWriter` and
+- `FileSchemaVersion` is `enginir-1.7`, and `FileCreator`, `FileWriter` and
   the timestamps follow Object identity rules §1
 - every persisted id is unique within its object namespace
 - all inter-object references resolve to an existing object
@@ -954,23 +954,53 @@ Resolved for v3:
 
 ### 3. Compatibility policy
 
-Decided for engiNIR 1.5 (2026-11-12): no backward compatibility.
+Decided for engiNIR 1.5 (2026-11-12): the reader is not backward
+compatible. Decided for engiNIR 1.7 (2026-11-18, plan
+`plans/format-1.7-reference-correction.md`): one conversion from the
+previous format.
 
-- engiNIR 1.5 reads and writes only the format `enginir-1.5`
+- engiNIR 1.7 reads and writes only the format `enginir-1.7`
   (`FileSchemaVersion`); a file with any other value, or without the field,
   is refused before anything else is read, with one logged message naming
-  the file's format and, when present, its `FileWriter`, and saying that
-  the project must be created again
-- there is no migration, conversion or repair of earlier project files,
-  and no reading rule for fields of earlier formats
-- an `enginir-1.5` project may contain extra fields; the reader warns and
+  the file's format and, when present, its `FileWriter`
+- the reader has no reading rule for fields of earlier formats and repairs
+  nothing
+- an `enginir-1.5` project (engiNIR 1.5.1 to 1.6.1) is converted by the
+  command `enginir-migrate SOURCE TARGET` (`enginir.io.migrate_project`),
+  and the refusal message of such a file names the command. The conversion
+  writes a new file and never changes the source; it renames the stored
+  names of the reference correction (Renamed in format `enginir-1.7`,
+  below), sets `FileSchemaVersion` and `FileWriter`, and keeps
+  `project_id`, `FileCreator`, `created_at` and every object id and value;
+  it ends by reading the new file with the reader and removes it if that
+  fails
+- a project of any earlier format must be created again
+- an `enginir-1.7` project may contain extra fields; the reader warns and
   ignores them (Schema validation and extra-field policy)
+
+#### Renamed in format `enginir-1.7`
+
+In `enginir-1.5`, "calibration" named the reference correction in the file,
+which clashed with model calibration (`terminology_v3.md`). The conversion
+renames:
+
+| `enginir-1.5` | `enginir-1.7` |
+|---|---|
+| group `datasets/{id}/calibrations/` | `datasets/{id}/reference_corrections/` |
+| dataset `@active_calibration_id` | `@active_reference_correction_id` |
+| ROI and prediction run `@calibration_id` | `@reference_correction_id` |
+| ROI group `calibration_refs/` | `reference_spectra/` |
+| input contract `@required_calibration_mode` | `@required_correction_mode` |
+| input contract `@calibrated_input_allowed` | `@corrected_input_allowed` |
+| mode value `precalibrated_import` (reference correction `@mode`, input contract `@required_correction_mode`) | `already_corrected` |
+
+Nothing else changes.
 
 ## Acceptance criteria
 
 This contract is implemented correctly when:
 
-- the project file declares `FileSchemaVersion = "enginir-1.5"`, `FileCreator`
+- the project file declares `FileSchemaVersion = "enginir-1.7"`, `FileCreator`
   and `FileWriter`, and older files are refused up front
 - dataset identity and reference correction live inside the project file
 - persisted ROIs are keyed by stable `roi_id`

@@ -3,8 +3,8 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.5 and 1.6; the file format `enginir-1.5` is the
-  only format engiNIR reads and writes (`project-schema-contract_v3.md`)
+- Status: active contract for engiNIR 1.7; the file format `enginir-1.7` is the
+  only format engiNIR reads and writes (project-schema contract, Compatibility policy)
 - Scope: prediction execution, progress reporting, memory behavior, artifact
   persistence, and interactive map handoff
 
@@ -26,7 +26,7 @@ This contract defines:
 
 This contract complements:
 
-- `dataset-calibration-contract_v3.md`
+- `dataset-reference-correction-contract_v3.md`
   - dataset-local reference correction ownership
   - input-contract compatibility
   - prediction dataset reuse and override rules
@@ -322,7 +322,7 @@ Allowed `phase` values:
 
 - `preflight`
 - `loading`
-- `calibrating` (applying the reference correction; shown as "Reference
+- `correcting` (applying the reference correction; shown as "Reference
   correction")
 - `preprocessing`
 - `predicting`
@@ -577,7 +577,7 @@ asks for it, keeps the following rules.
 
 Required behavior:
 
-- the caller writes the scan's `DatasetRef` and its `CalibrationSpec` first
+- the caller writes the scan's `DatasetRef` and its `ReferenceCorrection` first
   (dependency order; `project-schema-contract_v3.md` referential
   integrity), e.g. with `Project.add_dataset`, then calls
   `predict_with_model_run(..., persist_artifacts=True)`; a run whose

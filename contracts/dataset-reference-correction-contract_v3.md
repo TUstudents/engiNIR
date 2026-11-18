@@ -3,8 +3,8 @@
 ## Status
 
 - Version: `v3`
-- Status: active contract for engiNIR 1.5 and 1.6; the file format `enginir-1.5` is the
-  only format engiNIR reads and writes (`project-schema-contract_v3.md`)
+- Status: active contract for engiNIR 1.7; the file format `enginir-1.7` is the
+  only format engiNIR reads and writes (project-schema contract, Compatibility policy)
 - Scope: raw `.eiff` import, reference correction ownership, input-contract compatibility, prediction-time reuse
 
 ## Goal
@@ -59,7 +59,7 @@ There are three separate but linked objects:
 
 1. `DatasetRef`
    Owns dataset identity.
-2. `CalibrationSpec`
+2. `ReferenceCorrection`
    Owned by the dataset.
 3. `SignalDomainContract`
    Owned by the model.
@@ -83,7 +83,7 @@ Workflow note:
 
 - viewer/project attachment rules are defined in
   `project-dataset-attachment-contract_v3.md`
-- `DatasetRef` and `CalibrationSpec` may only be created from real attached
+- `DatasetRef` and `ReferenceCorrection` may only be created from real attached
   dataset context, never from placeholder viewer bootstrap state
 
 ## Domain objects
@@ -152,13 +152,13 @@ Recommended future fields:
 - `content_hash`
 - `wavelength_hash`
 
-## 2. CalibrationSpec
+## 2. ReferenceCorrection
 
 Represents the reference correction context attached to one dataset.
 
 Required fields:
 
-- `calibration_id`
+- `reference_correction_id`
 - `dataset_id`
 - `mode`
 - `output_signal_unit`
@@ -180,7 +180,7 @@ Allowed `mode` values in v3:
 
 - `raw_dn`
 - `dark_white_reference`
-- `precalibrated_import`
+- `already_corrected`
 
 Allowed `output_signal_unit` values in v3:
 
@@ -197,19 +197,19 @@ String comparison rule:
 
 Required invariants:
 
-- every `CalibrationSpec` belongs to exactly one `DatasetRef`
-- in v3, a dataset has exactly one active `CalibrationSpec`
+- every `ReferenceCorrection` belongs to exactly one `DatasetRef`
+- in v3, a dataset has exactly one active `ReferenceCorrection`
 - each ROI extraction and prediction run must reference exactly one applied reference correction spec
 - `output_signal_unit` must be explicit
 - `dark_white_reference` mode requires compatible dark and white references or explicit fallback levels
 - `Absorbance` is derived from corrected reflectance, never directly from Raw counts (DN)
-- `CalibrationSpec` must be created only for a real dataset context, not for placeholder viewer state
+- `ReferenceCorrection` must be created only for a real dataset context, not for placeholder viewer state
 
 Executable reference correction-context rule in v3:
 
 - `raw_dn` stores no dark/white reference context and must use
   `output_signal_unit = DN`
-- `precalibrated_import` stores no dark/white reference context and must use
+- `already_corrected` stores no dark/white reference context and must use
   `output_signal_unit = Reflectance` or `Absorbance`
 - `dark_white_reference` must use exactly one executable context:
   - embedded `dark_ref_data` + `white_ref_data`
@@ -221,7 +221,7 @@ Executable reference correction-context rule in v3:
 
 v3 rule:
 
-- the UI may expose reference correction edits, but every committed reference correction state must become an explicit `CalibrationSpec`, not mutable anonymous widget state
+- the UI may expose reference correction edits, but every committed reference correction state must become an explicit `ReferenceCorrection`, not mutable anonymous widget state
 - replacing reference correction in v3 updates the dataset's single active reference correction spec rather than keeping multiple active variants
 - a prediction does not write its reference correction (in-memory by default,
   `prediction-runtime-contract_v3.md` §Result handling); before low-level
@@ -250,7 +250,7 @@ Reflectance clipping rule:
   warning with the totals when any value was clipped; persisting calibration-side
   clip telemetry is not required in v3
 - future contract versions may move the clip range into explicit
-  `CalibrationSpec` fields, but v3 implementations must not clip silently
+  `ReferenceCorrection` fields, but v3 implementations must not clip silently
 
 ## 3. SignalDomainContract
 
@@ -264,10 +264,10 @@ Required fields:
 - `input_format`
 - `source_modality`
 - `required_signal_unit`
-- `required_calibration_mode`
+- `required_correction_mode`
 - `requires_dark_ref`
 - `requires_white_ref`
-- `calibrated_input_allowed`
+- `corrected_input_allowed`
 - `n_bands`
 - `wavelengths`
 - `wavelength_tolerance_nm`
@@ -312,17 +312,17 @@ Wavelength metadata rule:
 Executable field semantics in v3:
 
 - a prediction reference correction satisfies the contract's reference correction requirement
-  when its `mode` equals `required_calibration_mode`, or when its `mode` is
-  `precalibrated_import` and `calibrated_input_allowed` is true
-- `calibrated_input_allowed` therefore permits an already-corrected import to
+  when its `mode` equals `required_correction_mode`, or when its `mode` is
+  `already_corrected` and `corrected_input_allowed` is true
+- `corrected_input_allowed` therefore permits an already-corrected import to
   substitute for the reference correction mode the model was fitted with, provided the reference correction can
   still produce `required_signal_unit`; current writers set it true exactly
-  when the calibration reference correction mode was `precalibrated_import`
+  when the calibration reference correction mode was `already_corrected`
 - `requires_dark_ref` and `requires_white_ref` are additional preflight gates
-  for non-`precalibrated_import` prediction reference corrections: when set, the
+  for non-`already_corrected` prediction reference corrections: when set, the
   reference correction must carry the corresponding reference context (embedded
   reference arrays, reference source provenance, or scalar levels); both
-  checks are skipped when the prediction reference correction is `precalibrated_import`
+  checks are skipped when the prediction reference correction is `already_corrected`
 - `wavelength_tolerance_nm` is the tolerance of the prediction-time
   wavelength warning (`prediction-runtime-contract_v3.md`, Input contract at runtime); it never gates prediction; current writers emit `0.0`
   (any difference above float noise warns)
@@ -335,7 +335,7 @@ Executable field semantics in v3:
 - imported wavelengths
 - reference correction specs created from that dataset
 
-### CalibrationSpec owns
+### ReferenceCorrection owns
 
 - how that dataset was transformed from raw sensor values into a defined signal unit
 
@@ -377,7 +377,7 @@ Required v3 rule:
 
 When the user chooses how a dataset is corrected (dark/white references,
 detector levels, or raw counts), the system must create or update an explicit
-`CalibrationSpec` for that dataset.
+`ReferenceCorrection` for that dataset.
 
 Signal units of a reference correction:
 
@@ -385,7 +385,7 @@ Signal units of a reference correction:
   counts are stored with what converts them: the ROI's reference snapshot,
   or the reference correction's scalar `black_level`/`white_level`. Raw
   counts (DN), reflectance and absorbance are views of those counts,
-  computed when needed, never a stored replacement; a `precalibrated_import`
+  computed when needed, never a stored replacement; a `already_corrected`
   ROI stores the corrected values it was imported with
 - for `dark_white_reference`, `output_signal_unit` is the working signal: the
   signal Explore starts with and the one `Project.fit` fits in when no other
@@ -394,7 +394,7 @@ Signal units of a reference correction:
   time; the shown signal is chosen in Explore and in the Fit settings
 - for `raw_dn`, `output_signal_unit` is `DN`: without references or levels,
   the counts give no other signal
-- for `precalibrated_import`, `output_signal_unit` states what the file holds
+- for `already_corrected`, `output_signal_unit` states what the file holds
   (`Reflectance` or `Absorbance`); this is the only case in which the UI asks
   for it, and Raw counts (DN) are unavailable because there are no counts
 - `viewable_signal_units` gives these signals per reference correction; Explore offers
@@ -411,7 +411,7 @@ white references of `dark_white_reference` come from one of these sources:
 - **a frame range of the dataset itself**, such as a white tile or
   shutter-closed frames scanned in the same image: averaged over those frames
 - **another dataset of the project**: its reference arrays are copied
-  into a new `CalibrationSpec` of the new dataset; reference corrections stay
+  into a new `ReferenceCorrection` of the new dataset; reference corrections stay
   dataset-local
 
 Required behavior:
@@ -435,7 +435,7 @@ applies to ROIs drawn afterwards only:
 When a calibration ROI is persisted, the ROI provenance must record:
 
 - `dataset_id`
-- `calibration_id`
+- `reference_correction_id`
 - signal unit used at extraction time
 - preview context as informational provenance if shown in the UI
 
@@ -448,7 +448,7 @@ v3 storage rule:
 
 When a model is fit, the system must persist:
 
-- the reference corrections (`calibration_id`) of the calibration datasets,
+- the reference corrections (`reference_correction_id`) of the calibration datasets,
   through the calibration set's ROIs
 - the model's `SignalDomainContract`
 - the `PreprocessingRecipe`
@@ -477,7 +477,7 @@ default; `prediction-runtime-contract_v3.md` §Result handling):
 
 1. describe the file as a `DatasetRef` in memory (a registered file uses its
    stored one)
-2. create/select the `CalibrationSpec` in memory (a registered file reuses its
+2. create/select the `ReferenceCorrection` in memory (a registered file reuses its
    stored active reference correction read-only)
 3. if dataset-associated reference correction defaults already exist, reuse them by default
 4. compare the dataset + reference correction state to the model's `SignalDomainContract`
@@ -488,7 +488,7 @@ default; `prediction-runtime-contract_v3.md` §Result handling):
 9. for each chunk, run prediction and the applicability diagnostics and
    write the outputs into the result maps
 10. return the result and write one log entry; only low-level persistence
-    writes the `DatasetRef`, the `CalibrationSpec` and a `PredictionRun`
+    writes the `DatasetRef`, the `ReferenceCorrection` and a `PredictionRun`
     with both model and applied reference correction references
 
 v3 default behavior:
@@ -547,7 +547,7 @@ Rejected in v3:
 
 ## Persistence requirements
 
-`DatasetRef` and `CalibrationSpec` must be persisted inside the project file.
+`DatasetRef` and `ReferenceCorrection` must be persisted inside the project file.
 
 v3 persistence decision:
 
@@ -572,7 +572,7 @@ inside the project file.
 
 ## Required persisted reference correction information
 
-- `calibration_id`
+- `reference_correction_id`
 - `dataset_id`
 - `mode`
 - `output_signal_unit`
@@ -587,10 +587,10 @@ inside the project file.
 - `input_format`
 - `source_modality`
 - `required_signal_unit`
-- `required_calibration_mode`
+- `required_correction_mode`
 - `requires_dark_ref`
 - `requires_white_ref`
-- `calibrated_input_allowed`
+- `corrected_input_allowed`
 - `n_bands`
 - `wavelengths`
 - `wavelength_tolerance_nm`
@@ -602,7 +602,7 @@ inside the project file.
 
 - `prediction_run_id`
 - `prediction_dataset_id`
-- `applied_calibration_id`
+- `applied_reference_correction_id`
 - `model_run_id`
 - `signal_domain_id`
 - `preprocessing_recipe_id`
@@ -620,7 +620,7 @@ v3 requires project-internal groups shaped like:
 
 ```text
 /datasets/{dataset_id}/
-/datasets/{dataset_id}/calibrations/{calibration_id}/
+/datasets/{dataset_id}/reference_corrections/{reference_correction_id}/
 /model_runs/{model_run_id}/
 /model_runs/{model_run_id}/artifact_refs/prediction_model/
 /predictions/{prediction_run_id}/
@@ -690,7 +690,7 @@ Still to specify:
 
 Decision:
 
-- `DatasetRef` and `CalibrationSpec` are persisted inside the project file
+- `DatasetRef` and `ReferenceCorrection` are persisted inside the project file
 
 Resolved:
 

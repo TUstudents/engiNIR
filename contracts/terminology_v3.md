@@ -304,7 +304,7 @@ for:
 | Internal name | Term |
 |---|---|
 | `DatasetRef`, `add_dataset`, `dataset_id` | Dataset |
-| `CalibrationSpec`, `calibration_id`, `/calibrations/`, `dataset-calibration-contract_v3.md` | Reference correction |
+| `ReferenceCorrection`, `reference_correction_id`, `/reference_corrections/`, `dataset-reference-correction-contract_v3.md` | Reference correction |
 | `SignalDomainContract`, `signal_domain_id` | Input contract |
 | `SampleSet`, `sample_set_id`, `sample-set-model-run-contract_v3.md` | Calibration set |
 | `ModelRun`, `model_run_id` | Model |
@@ -313,9 +313,15 @@ for:
 | `raw_dn` (signal unit) | Raw counts (DN) |
 | `pixel_*` metric keys | Metrics per pixel |
 
-The stored "calibration" names of the reference correction are to be renamed
-in 2.0 (`plans/terminology.md`, Deferred to 2.0); until then they are internal
-names like the others.
+Renamed in 1.7.0 (format `enginir-1.7`; plan
+`plans/format-1.7-reference-correction.md`): every stored and public name
+of the reference correction (`CalibrationSpec` → `ReferenceCorrection`,
+`calibration_id` → `reference_correction_id`, `/calibrations/` →
+`/reference_corrections/`, `calibration_refs` → `reference_spectra`,
+`precalibrated_import` → `already_corrected`, ...; the full table is in
+`project-schema-contract_v3.md`, Compatibility policy, and in the
+CHANGELOG). "Calibration" in a stored or public name now always means model
+calibration.
 
 Renamed in 1.5.0:
 
@@ -369,7 +375,9 @@ Renamed in 1.5.x (format `enginir-1.5`, no reading of earlier files):
   `raise …Error(...)` outside the viewer; text in backticks is exempt).
   Documentation and contracts follow the same terms and are checked in
   review. Words that text alone cannot judge
-  (calibration for reference correction) are checked in review.
+  (calibration for reference correction) are checked in review; stored keys
+  and public names are checked by a test (no `calibration` in the
+  reference-correction sense).
 
 ## Acceptance tests
 
