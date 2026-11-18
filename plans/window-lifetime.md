@@ -151,16 +151,18 @@ working through the registry.
   for that fault fails (fault injection).
 - The Phase 2 test passes, and fails with a lambda put back on a long-lived
   signal.
-- 50 consecutive full suite runs in CI (a manual workflow dispatch on the
-  branch) without a segmentation fault or hang, compared with the
-  occasional crash before.
+- The regular CI runs (every PR, `main` push and tag, on Linux, Windows
+  and macOS) pass. No extra repeated runs (decided 2026-11-18: a batch of
+  runs costs much and proves little about a rare crash); a segmentation
+  fault or hang in any later CI run reopens G37 with its faulthandler
+  stack.
 
 ## Risks
 
 - **pyqtgraph-owned widgets.** Menu widgets belong to a `QWidgetAction`.
   Deleting the window deletes them through Qt's ownership, which is correct;
   Python code must not delete them as well (the reason for the conftest's
-  `sip.ispyowned` rule). Phase 0 and the 50-run check cover it.
+  `sip.ispyowned` rule). Phase 0 and the regular CI runs cover it.
 - **Hidden uses of a closed window.** Code that keeps a window to reuse it
   after close (for example "show again"). The audit in Phase 2 and the
   Phase 3 test changes find these.
