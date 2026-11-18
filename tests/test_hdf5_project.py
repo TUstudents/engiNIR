@@ -38,7 +38,7 @@ from enginir.io.project_store import (
 
 )
 
-from ._project_payloads import recipe_payload
+from ._project_payloads import recipe_payload, projection_payload
 from enginir.project import hydrate_project_store
 
 
@@ -233,6 +233,7 @@ def test_v3_project_store_round_trip_and_skip_flags(project_path, rng, wavelengt
                     "y_std_": np.ones(1, dtype=np.float32),
                     "wavelengths": wavelengths,
                     "target_names": ["moisture"],
+                    **projection_payload(50),
                 },
                 "cv_outputs": {
                     "roi_ids": np.array(["roi_1", "roi_2"], dtype=object),
@@ -418,19 +419,33 @@ def test_hydration_rejects_calibration_id_collision_across_datasets(project_path
             "import_timestamp": "2026-03-28T11:00:00+00:00",
         },
     )
-    save_calibration_spec(
-        project_path,
-        "dataset_2",
-        "cal_1",
-        {
-            "mode": "raw_dn",
-            "output_signal_unit": "DN",
-            "created_at": "2026-03-28T11:01:00+00:00",
-        },
-    )
+    raw = {"mode": "raw_dn", "output_signal_unit": "DN",
+           "created_at": "2026-03-28T11:01:00+00:00"}
+    # The writer refuses the id of another dataset's reference correction ...
+    with pytest.raises(ValueError, match="already belongs to dataset 'dataset_1'"):
+        save_calibration_spec(project_path, "dataset_2", "cal_1", raw)
+    hydrate_project_store(load_project_store(project_path))
 
+    # ... and the reader refuses a file that has one anyway.
+    with h5py.File(project_path, "r+") as handle:
+        group = handle["datasets/dataset_2"].create_group("calibrations")
+        handle.copy(handle["datasets/dataset_1/calibrations/cal_1"], group, "cal_1")
+        handle["datasets/dataset_2"].attrs["active_calibration_id"] = "cal_1"
     with pytest.raises(ValueError, match="is already used by dataset"):
         hydrate_project_store(load_project_store(project_path))
+
+
+def test_a_stored_reference_correction_is_never_changed(project_path, wavelengths):
+    create_project(project_path)
+    _seed_dataset_context(project_path, wavelengths)
+    stored = load_project_store(project_path)["datasets"]["dataset_1"]["calibrations"]["cal_1"]
+    payload = {key: value for key, value in stored.items()}
+    save_calibration_spec(project_path, "dataset_1", "cal_1", payload)  # identical: allowed
+    with pytest.raises(ValueError, match="Refusing to overwrite reference correction"):
+        save_calibration_spec(project_path, "dataset_1", "cal_1",
+                              {**payload, "created_at": "2026-03-29T00:00:00+00:00"})
+    with pytest.raises(KeyError, match="dataset 'dataset_9' is not in"):
+        save_calibration_spec(project_path, "dataset_9", "cal_9", payload)
 
 
 def test_hydration_rejects_dangling_or_foreign_active_calibration_id(project_path, wavelengths):

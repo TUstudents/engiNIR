@@ -51,6 +51,7 @@ from ._eda import EDAView
 from ._attachment import confirm_project_dataset_binding
 from ._browser import ProjectBrowser
 from ..io import file_format
+from ..prediction import spectral_axis_in_nm
 from ._inspector import ProjectInspector
 from ._data_files import AddDataFileDialog
 from ._project_rois import ProjectRoisView
@@ -2432,7 +2433,7 @@ class HSIViewer(QMainWindow):
             source_format=file_format(path),
             source_modality=str(data.meta.get("source_modality") or DEFAULT_SOURCE_MODALITY),
             cube_shape=(int(X.shape[0]), int(X.shape[1]), int(X.shape[2])),
-            wavelengths=np.asarray(data.wavelengths, dtype=np.float64),
+            wavelengths=spectral_axis_in_nm(data.wavelengths, data.meta)[0],
         ):
             return
         self.state.load_dataset(X, data.wavelengths, data.meta)

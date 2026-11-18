@@ -16,6 +16,8 @@ Running predictions
 
 .. autofunction:: enginir.prediction.build_dataset_ref_from_spectral_data
 
+.. autofunction:: enginir.prediction.spectral_axis_in_nm
+
 .. autofunction:: enginir.prediction.wavelength_mismatch
 
 Prediction ROIs

@@ -216,6 +216,8 @@ def load_project_store(
 
         for roi_group in f["rois"].values():
             _check_roi_arrays(roi_group)
+        for model_group in f["model_runs"].values():
+            _check_executable_model(model_group)
         predictions = read_all("predictions", **artifact_options)
         if not include_artifact_arrays:
             predictions = {
@@ -267,15 +269,38 @@ def save_calibration_spec(
 
     Written to ``/datasets/{dataset_id}/calibrations/{calibration_id}``; the
     dataset's ``active_calibration_id`` attribute is set to ``calibration_id``.
+    A reference correction belongs to one dataset and is never changed:
+    saving an id of another dataset, or different content under a stored id,
+    is refused; saving identical content again only makes it active.
     """
-    _validate_payload("CalibrationSpec", f"/datasets/{dataset_id}/calibrations/{calibration_id}",
-                      calibration_dict, {"calibration_id": calibration_id,
-                                         "dataset_id": dataset_id})
+    location = f"/datasets/{dataset_id}/calibrations/{calibration_id}"
+    _validate_payload("CalibrationSpec", location, calibration_dict,
+                      {"calibration_id": calibration_id, "dataset_id": dataset_id})
+    payload = {key: value for key, value in calibration_dict.items() if value is not None}
     with _open_project(path, writable=True) as f:
-        dataset_group = child_group(f["datasets"], dataset_id)
+        datasets = f["datasets"]
+        if not isinstance(datasets.get(dataset_id), h5py.Group):
+            log_and_raise("Cannot save reference correction '{}': dataset '{}' is not in {}",
+                          calibration_id, dataset_id, path, error=KeyError)
+        for other_id, other in datasets.items():
+            if (other_id != dataset_id and isinstance(other, h5py.Group)
+                    and isinstance(other.get("calibrations"), h5py.Group)
+                    and calibration_id in other["calibrations"]):
+                log_and_raise("Reference correction id '{}' already belongs to dataset '{}'; "
+                              "a reference correction belongs to one dataset, use a new id",
+                              calibration_id, other_id)
+        dataset_group = datasets[dataset_id]
         calibrations = child_group(dataset_group, "calibrations", create=True)
-        with replacement_group(calibrations, calibration_id) as group:
-            write_mapping(group, calibration_dict, compression)
+        existing = calibrations.get(calibration_id)
+        if existing is None:
+            with replacement_group(calibrations, calibration_id) as group:
+                write_mapping(group, payload, compression)
+        else:
+            stored = read_mapping(existing) if isinstance(existing, h5py.Group) else None
+            if stored is None or not values_equal(stored, payload):
+                log_and_raise("Refusing to overwrite reference correction '{}' of dataset '{}' "
+                              "with different content; stable ids are immutable, use a new id",
+                              calibration_id, dataset_id)
         dataset_group.attrs["active_calibration_id"] = calibration_id
     logger.info("Saved reference correction '{}' of dataset '{}' to {}", calibration_id, dataset_id, path)
 
@@ -1063,6 +1088,31 @@ def _save_object(
             for key in mutable_fields & set(payload):
                 existing.attrs[key] = payload[key]
     logger.info("Saved {} '{}' to {}", label, object_id, path)
+
+
+#: Members of ``artifact_refs/prediction_model`` without which a model cannot predict:
+#: coefficients, intercept, wavelengths, target names and the projection data of the
+#: applicability diagnostics (project-schema contract, Core and display data).
+_EXECUTABLE_MODEL_MEMBERS = ("wavelengths", "target_names", "coef_", "intercept_", "x_mean",
+                             "x_std", "rotations", "loadings", "score_variances", "s0",
+                             "n_train", "t2_crit_099", "dcrit_099")
+
+
+def _check_executable_model(group: h5py.Group) -> None:
+    """Refuse a model whose executable model lacks a core member, without reading arrays.
+
+    Short vectors are stored as attributes, longer ones as datasets: both count.
+    """
+    if not isinstance(group, h5py.Group):
+        return  # reported by hydration
+    model = group.get("artifact_refs/prediction_model")
+    if not isinstance(model, h5py.Group):
+        return  # reported by hydration, which names the model
+    missing = [name for name in _EXECUTABLE_MODEL_MEMBERS
+               if name not in model.attrs and name not in model]
+    if missing:
+        log_and_raise("{} is missing required field(s) {}: the model cannot be used; refit it",
+                      model.name, missing)
 
 
 def _check_roi_arrays(group: h5py.Group) -> None:

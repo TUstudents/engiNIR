@@ -237,7 +237,7 @@ def test_project_state_fit_model_run_uses_roi_local_reference_snapshots(tmp_path
     save_calibration_spec(
         project_path,
         "dataset_1",
-        "cal_1",
+        "cal_roi_refs",
         {
             "mode": "dark_white_reference",
             "output_signal_unit": "Absorbance",
@@ -260,7 +260,7 @@ def test_project_state_fit_model_run_uses_roi_local_reference_snapshots(tmp_path
             roi_id,
             {
                 "dataset_id": "dataset_1",
-                "calibration_id": "cal_1",
+                "calibration_id": "cal_roi_refs",
                 "name": roi_id.upper(),
                 "source_file": "/data/train.eiff",
                 "job": "calibration",
@@ -269,6 +269,7 @@ def test_project_state_fit_model_run_uses_roi_local_reference_snapshots(tmp_path
                 "spatial_bounds": (index, index, 0, 1),
                 "wavelengths": wavelengths,
                 "provenance": roi_provenance(
+                    calibration_id="cal_roi_refs",
                     created_at=f"2026-04-02T10:0{4 + index}:00+00:00"
                 ),
             },

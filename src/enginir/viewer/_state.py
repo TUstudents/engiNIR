@@ -37,7 +37,8 @@ from ..project import (
 )
 from ..preprocessing import PreprocessingRecipe
 from ..preprocessing.recipe import SG_FILTERS
-from ..prediction import PredictionResult, RoiPredictionSummary, predict_with_model_run
+from ..prediction import (PredictionResult, RoiPredictionSummary, predict_with_model_run,
+                          spectral_axis_in_nm)
 from .._checks import log_and_raise
 from .._logging import get_logger
 from ..io.project_store import as_roi_storage_array
@@ -837,6 +838,9 @@ class ViewerState(QObject):
         cube_arr = np.asarray(cube)
         if cube_arr.ndim != 3:
             log_and_raise("cube must be 3-D, got shape {}", cube_arr.shape)
+        # A project's axis is in nm: a wavenumber or micrometer axis is converted here,
+        # as at registration, so plots, ROIs and the attachment check agree with it.
+        wavelengths, meta = spectral_axis_in_nm(wavelengths, meta)
         wavelengths_arr = np.asarray(wavelengths, dtype=_WORKING_DTYPE)
         if wavelengths_arr.ndim != 1:
             log_and_raise("wavelengths must be 1-D, got shape {}", wavelengths_arr.shape)

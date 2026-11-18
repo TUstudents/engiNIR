@@ -13,7 +13,7 @@ import pytest
 
 from enginir.viewer._app import ensure_app
 
-from ._project_payloads import recipe_payload, roi_provenance
+from ._project_payloads import recipe_payload, roi_provenance, projection_payload
 
 
 @pytest.fixture(scope="module")
@@ -234,6 +234,7 @@ def project_store_path(tmp_path, wl, sample_provenance):
                     "y_std_": np.ones(1, dtype=np.float32),
                     "wavelengths": wl,
                     "target_names": ["moisture"],
+                    **projection_payload(50),
                 },
                 "cv_outputs": {
                     "roi_ids": np.array(["roi_1"], dtype=object),

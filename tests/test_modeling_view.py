@@ -27,7 +27,7 @@ from enginir.viewer._app import ensure_app
 def _roi_provenance() -> dict[str, str]:
     return {
         "dataset_id": "dataset_1",
-        "calibration_id": "cal_1",
+        "calibration_id": "cal_reflectance",
         "signal_unit": "DN",
         "preview_recipe_summary": "none",
         "created_at": "2026-04-02T10:01:00+00:00",
@@ -140,7 +140,7 @@ def _labelled_rois(state, project, values=(3.2, 3.8), *, unlabelled=0):
     """A Reflectance calibration, target ``moisture`` and one ROI per value (plus unlabelled)."""
     project.set_active_calibration(
         CalibrationSpec(
-            calibration_id="cal_1",
+            calibration_id="cal_reflectance",
             dataset_id="dataset_1",
             mode="dark_white_reference",
             dark_ref_source=None,
@@ -169,7 +169,7 @@ def _labelled_rois(state, project, values=(3.2, 3.8), *, unlabelled=0):
             TrainingROI(
                 roi_id=roi_id,
                 dataset_id="dataset_1",
-                calibration_id="cal_1",
+                calibration_id="cal_reflectance",
                 name=roi_id,
                 wavelengths=state.wavelengths.astype("float32"),
                 n_pixels=4,

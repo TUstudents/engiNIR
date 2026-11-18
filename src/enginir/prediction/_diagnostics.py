@@ -151,13 +151,13 @@ def file_records(path: str, *, checksum: bool = False) -> list[dict[str, Any]]:
 
     With ``checksum`` the SHA-256 of each file is added (one more full read).
     """
+    from ..io.envi_io import envi_file_paths
+
     paths = [os.path.abspath(path)]
-    stem, extension = os.path.splitext(paths[0])
-    if extension.lower() == ".hdr":
-        paths += [stem + ext for ext in ("", ".raw", ".img", ".dat", ".bil", ".bip", ".bsq")
-                  if os.path.isfile(stem + ext)][:1]
-    elif os.path.isfile(stem + ".hdr"):
-        paths.append(stem + ".hdr")
+    envi = envi_file_paths(path)
+    if envi is not None:
+        # The header and the data file the ENVI reader uses (one of several candidates).
+        paths += [file for file in map(os.path.abspath, envi) if file != paths[0]]
     records = []
     for file in paths:
         if not os.path.isfile(file):

@@ -120,20 +120,25 @@ def test_a_prediction_writes_nothing_to_the_project_and_logs_one_entry(tmp_path)
     assert "sha256" not in model.predict(new).provenance["files"][0]
 
 
-def test_a_run_without_projection_data_predicts_without_diagnostics(tmp_path):
-    project, scan = _labelled_project(tmp_path)
+def test_a_stored_model_without_a_core_member_is_refused_at_open(tmp_path):
+    # The executable model is core (project-schema contract): a project whose
+    # model lacks coefficients or projection data does not open, whether the
+    # member is a dataset or a short vector stored as an attribute.
+    project, _scan = _labelled_project(tmp_path)
     model = project.fit("API", n_components=2)
-    with h5py.File(project.path, "r+") as f:
-        blob = f[f"model_runs/{model.ref.model_run_id}/artifact_refs/prediction_model"]
-        for key in ("x_mean", "x_std", "rotations", "loadings", "score_variances"):
+    location = f"model_runs/{model.ref.model_run_id}/artifact_refs/prediction_model"
+    Project.open(project.path)
+    for key in ("coef_", "score_variances"):
+        copy = tmp_path / f"without_{key}.h5"
+        copy.write_bytes(open(project.path, "rb").read())
+        with h5py.File(copy, "r+") as f:
+            blob = f[location]
             if key in blob:
                 del blob[key]
             else:
                 del blob.attrs[key]
-    prediction = Project.open(project.path).model(model.name).predict(scan.path)
-    assert prediction.dmodx_map is None and prediction.t2_map is None
-    assert prediction.diagnostics is None
-    assert np.isfinite(prediction.map).all()
+        with pytest.raises(ValueError, match=f"missing required field.*{key}"):
+            Project.open(copy)
 
 
 def test_diagnostics_without_a_usable_s0_are_nan_and_not_counted():
@@ -182,3 +187,53 @@ def test_a_model_fitted_in_the_viewer_session_gets_the_maps_and_nothing_is_writt
     after = load_project_store(path)
     assert {key: set(value) for key, value in after.items() if isinstance(value, dict)} == \
         {key: set(value) for key, value in before.items() if isinstance(value, dict)}
+
+
+def test_envi_provenance_records_the_files_the_reader_uses(tmp_path):
+    # With .img and .raw next to one header the reader takes .img; the record
+    # (and its checksum) must name that file, also for a "cube.img.hdr" header.
+    from enginir.io import load_spectra, save_envi
+
+    cube = np.arange(2 * 3 * 4, dtype=np.uint16).reshape(2, 3, 4)
+    save_envi(str(tmp_path / "sample"), cube, np.linspace(1000, 1300, 4))
+    (tmp_path / "sample.raw").write_bytes(b"not the data")
+    assert np.array_equal(load_spectra(str(tmp_path / "sample.hdr")).X, cube)
+    records = _diagnostics.file_records(str(tmp_path / "sample.hdr"), checksum=True)
+    assert [r["path"] for r in records] == [str(tmp_path / "sample.hdr"),
+                                            str(tmp_path / "sample.img")]
+    assert records[1]["sha256"] == _file_digest(tmp_path / "sample.img")
+
+    (tmp_path / "sample.hdr").rename(tmp_path / "sample.img.hdr")
+    records = _diagnostics.file_records(str(tmp_path / "sample.img"))
+    assert [r["path"] for r in records] == [str(tmp_path / "sample.img"),
+                                            str(tmp_path / "sample.img.hdr")]
+
+
+def test_a_replaced_registered_file_is_not_predicted(tmp_path, monkeypatch):
+    # The file at a registered path must still be that dataset (attachment
+    # contract, Mismatch validation); the stored shape and axis are not
+    # trusted blindly (external review, 1.6.0).
+    from enginir import _workflow
+    from enginir.io import load_spectra, save_hdf5
+
+    project, scan = _labelled_project(tmp_path)
+    model = project.fit("API", n_components=2)
+    data = load_spectra(scan.path)
+    cube, wavelengths = np.asarray(data.X), np.asarray(data.wavelengths)
+
+    save_hdf5(scan.path, cube, wavelengths + 100.0)
+    with pytest.raises(ValueError, match="Not predicted: .*wavelengths differ"):
+        model.predict(scan.path)
+
+    frames, height, bands = cube.shape
+    swapped = cube.reshape(height, frames, bands)
+    save_hdf5(scan.path, swapped, wavelengths)
+    with pytest.raises(ValueError, match="Not predicted: .*shape"):
+        model.predict(scan.path)
+    # The runtime refuses it too, should a caller skip the check.
+    monkeypatch.setattr(_workflow, "_header_mismatch", lambda *_args: None)
+    with pytest.raises(ValueError, match="not predicted"):
+        model.predict(scan.path)
+
+    save_hdf5(scan.path, cube, wavelengths)
+    assert model.predict(scan.path).map.shape == (frames, height)

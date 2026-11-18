@@ -52,7 +52,8 @@ class ENVIError(EnginirIOError):
     """Raised for invalid or unsupported ENVI files."""
 
 
-def load_envi(path: str | os.PathLike[str], flatten: bool = False) -> SpectralData:
+def load_envi(path: str | os.PathLike[str], flatten: bool = False, *,
+              header_only: bool = False) -> SpectralData:
     """Load an ENVI image cube.
 
     Parameters
@@ -64,6 +65,10 @@ def load_envi(path: str | os.PathLike[str], flatten: bool = False) -> SpectralDa
     flatten:
         If ``True``, return the pixels as rows, shape ``(lines * samples,
         bands)``.
+    header_only:
+        If ``True``, read only the header: ``X`` is empty (no lines, in the
+        file's data type) and ``meta["source_shape"]`` holds the shape of the
+        data, so :attr:`SpectralData.cube_shape` reports it.
 
     Returns
     -------
@@ -88,6 +93,17 @@ def load_envi(path: str | os.PathLike[str], flatten: bool = False) -> SpectralDa
     cubes may need transposing first.
     """
     header_path, header, view = _map_envi(path)
+    if header_only:
+        lines, samples, bands = view.shape
+        shape = (lines * samples, bands) if flatten else (lines, samples, bands)
+        empty = np.empty((0, *shape[1:]), dtype=view.dtype.newbyteorder("="))
+        del view
+        wavelengths, x_units = _wavelengths_in_nm(header, bands, header_path)
+        meta = dict(header)
+        meta.update(base_meta(header_path, "envi", x_units))
+        meta["source_shape"] = shape
+        logger.info("Read ENVI header: shape {} from {}", shape, header_path)
+        return SpectralData(empty, wavelengths, meta)
     # The one copy that reorders the file to (lines, samples, bands) and
     # converts it to native byte order; the file is never read twice.
     cube = np.array(view, dtype=view.dtype.newbyteorder("="), order="C")
@@ -258,6 +274,25 @@ def _resolve_paths(path: Path) -> tuple[Path, Path]:
     return header_path, data_path
 
 
+def envi_file_paths(path: str | Path) -> tuple[Path, Path] | None:
+    """The ``(header, data file)`` the ENVI reader uses for ``path``, or ``None``.
+
+    ``None`` when ``path`` is not an ENVI header or an image file with a
+    header next to it (``cube.hdr`` or ``cube.img.hdr``). Provenance records
+    these files, so that a checksum covers the file that was read.
+    """
+    path = Path(path)
+    suffix = path.suffix.lower()
+    if suffix != ".hdr" and not (
+            suffix in _DATA_SUFFIXES and (path.with_suffix(".hdr").is_file()
+                                          or path.with_name(path.name + ".hdr").is_file())):
+        return None
+    try:
+        return _resolve_paths(path)
+    except (ENVIError, FileNotFoundError):
+        return None
+
+
 def _parse_header(path: Path) -> dict[str, str]:
     """Return the header fields with lower-case keys; ``{...}`` values are joined without braces."""
     fields: dict[str, str] = {}
@@ -327,4 +362,4 @@ def _to_rows_cols_bands(
     log_and_raise("Unknown ENVI interleave {!r}", interleave, error=ENVIError, depth=2)
 
 
-__all__ = ["ENVIError", "iter_envi_frame_chunks", "load_envi", "save_envi"]
+__all__ = ["ENVIError", "envi_file_paths", "iter_envi_frame_chunks", "load_envi", "save_envi"]

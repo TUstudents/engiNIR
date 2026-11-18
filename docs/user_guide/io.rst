@@ -13,12 +13,19 @@ All loaders return a :class:`~enginir.io.SpectralData` named tuple::
    X, wavelengths, meta = load_spectra("data.csv")   # tuple unpacking
    data = load_spectra("data.csv")
    data.X            # spectral matrix
-   data.wavelengths  # nm axis
+   data.wavelengths  # spectral axis, in the unit meta["x_units"]
    data.meta         # format-specific metadata dict
 
 For point spectra ``X`` has shape ``(n_samples, n_wavelengths)``.
 For image formats ``X`` has shape ``(rows, cols, n_wavelengths)`` (ENVI) or
 ``(n_frames, height, n_wavelengths)`` (EIFF) — see :ref:`image-cubes`.
+
+``load_spectra`` returns the axis in the file's unit: nm for the imaging
+formats, often wavenumbers (``meta["x_units"] == "cm-1"``) for JCAMP-DX, SPA
+and SPC files. A project stores every axis in nm: a dataset added to a
+project, and a file shown in the viewer, has a wavenumber axis converted to
+10⁷ / ν nm and a micrometer axis to nm, in the file's band order
+(:func:`enginir.prediction.spectral_axis_in_nm`).
 
 Auto-detection
 --------------

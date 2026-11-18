@@ -118,6 +118,13 @@ Required invariants:
 - `source_format` for this contract version is at least `eiff`
 - `cube_shape` must use the canonical viewer shape
 - `len(wavelengths) == n_bands`
+- `wavelengths` are in nm: an axis the reader gives in wavenumbers
+  (`x_units` `cm-1`) is stored as 10⁷ / ν, one in micrometers × 1000, in
+  the file's band order (a wavenumber axis becomes a decreasing wavelength
+  axis); `loader_metadata` then says `x_units = "nm"` and keeps the file's
+  unit as `x_units_in_file`. An axis of unknown unit, and the band-index
+  fallback, are kept as they are. The viewer shows a file's axis converted
+  the same way. Function mode (`load_spectra`) keeps the file's unit
 - `source_path` must be non-empty for newly imported viewer datasets
 - placeholder viewer cubes must not be promoted into `DatasetRef`
 

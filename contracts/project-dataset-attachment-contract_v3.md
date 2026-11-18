@@ -254,6 +254,7 @@ Behavior:
 - non-interactive API/CLI flows must either:
   - raise, or
   - opt into an explicit `allow_mismatch` policy
+- `Model.predict` on a registered path raises (it has no `allow_mismatch`)
 
 ### Project-only open
 

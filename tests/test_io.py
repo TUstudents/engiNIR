@@ -1107,3 +1107,47 @@ def test_csv_text_columns_round_trip_next_to_the_sample_id(tmp_path):
                                            "data_file": ["a.h5", "b.h5"]}
     with pytest.raises(ValueError, match="non-numeric header"):
         save_csv(path, X, np.array([1000.0, 1100.0, 1200.0]), columns={"1300": ["x", "y"]})
+
+
+def test_an_envi_header_is_read_without_its_pixels(tmp_path):
+    # Model.predict and Project.add_dataset read the header of a new ENVI
+    # cube; the pixels are streamed later, never loaded whole for the header.
+    from enginir._workflow import read_header
+    from enginir.io import envi_io
+
+    cube = np.arange(3 * 4 * 5, dtype=np.uint16).reshape(3, 4, 5)
+    envi_io.save_envi(str(tmp_path / "cube"), cube, np.linspace(1000, 1400, 5))
+    header = read_header(str(tmp_path / "cube.hdr"))
+    assert header.X.shape == (0, 4, 5) and header.X.dtype == np.uint16
+    assert header.cube_shape == (3, 4, 5)
+    assert np.allclose(header.wavelengths, np.linspace(1000, 1400, 5))
+    flat = envi_io.load_envi(str(tmp_path / "cube.hdr"), flatten=True, header_only=True)
+    assert flat.cube_shape == (12, 1, 5)
+
+
+def test_a_wavenumber_axis_enters_a_project_in_nm(tmp_path):
+    # A project's wavelengths are in nm: a JCAMP axis of 5000 .. 4000 cm-1 is
+    # 2000 .. 2500 nm, in the file's band order (external review, 1.6.0).
+    from enginir import Project
+    from enginir.io import load_spectra
+    from enginir.prediction import spectral_axis_in_nm
+    from enginir.viewer._state import ViewerState
+
+    x = np.linspace(5000.0, 4000.0, 11)
+    path = tmp_path / "spectrum.jdx"
+    path.write_text(_build_jcamp_xpluspy(x, np.linspace(0.1, 0.2, 11)), encoding="utf-8")
+    assert load_spectra(str(path)).meta["x_units"] == "cm-1"
+
+    project = Project.create(tmp_path / "project.h5")
+    dataset = project.add_dataset(str(path))
+    assert np.allclose(dataset.ref.wavelengths, 1e7 / x, atol=1e-3)
+    assert dataset.ref.loader_metadata["x_units_in_file"] == "cm-1"
+    assert Project.open(project.path).dataset(str(path)).ref.cube_shape == (1, 1, 11)
+
+    data = load_spectra(str(path))
+    state = ViewerState(np.asarray(data.X)[:, None, :], data.wavelengths, data.meta)
+    assert np.allclose(state.wavelengths, 1e7 / x, atol=1e-3)
+    # Converting again changes nothing; micrometers become nm.
+    axis, meta = spectral_axis_in_nm(state.wavelengths, state.meta)
+    assert np.allclose(axis, state.wavelengths) and meta["x_units"] == "nm"
+    assert np.allclose(spectral_axis_in_nm([1.0, 2.5], {"x_units": "um"})[0], [1000, 2500])

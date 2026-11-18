@@ -34,6 +34,7 @@ from .modeling._service import fold_groups
 from .prediction import (
     PredictionResult,
     build_dataset_ref_from_spectral_data,
+    spectral_axis_in_nm,
     predict_with_model_run,
     preflight_prediction,
 )
@@ -85,6 +86,8 @@ DEFAULT_WHITE_LEVEL = 3500
 
 # Loaders that can read a frame range or only the header instead of the whole cube.
 _FRAME_FORMATS = ("eiff", "hdf5")
+#: Formats whose header (shape, wavelengths, dtype) is read without the pixels.
+_HEADER_FORMATS = ("eiff", "hdf5", "envi")
 
 
 class Project:
@@ -1310,6 +1313,13 @@ class Model:
         recipe_id = ws.sample_sets[self.ref.sample_set_id].preprocessing_recipe_id
         recipe = PreprocessingRecipe.from_dict(ws.recipes[recipe_id])
         registered = project._dataset_ref(_native_path(path))
+        if registered is not None:
+            # A file at a registered path must still be that dataset (attachment contract,
+            # Mismatch validation: a non-interactive flow raises).
+            mismatch = _header_mismatch(registered, _native_path(path))
+            if mismatch is not None:
+                log_and_raise("Not predicted: {}; add the file again under another path, or "
+                              "locate the dataset's own file", mismatch)
         if registered is not None and dark is None and white is None:
             # A registered file is predicted with its own active calibration, the one its
             # ROIs were recorded with (not a new one from the detector levels).
@@ -1433,11 +1443,11 @@ class StoredPrediction:
 def read_header(path: str):
     """Return a file's :class:`~enginir.io.SpectralData` without its pixels where possible.
 
-    EIFF and HDF5 files are read header-only: ``cube_shape``, wavelengths,
-    metadata and the pixel dtype are known, ``X`` holds no frames. Other
-    formats are read completely.
+    EIFF, HDF5 and ENVI files are read header-only: ``cube_shape``,
+    wavelengths, metadata and the pixel dtype are known, ``X`` holds no
+    frames. Other formats are read completely.
     """
-    if file_format(path) in _FRAME_FORMATS:
+    if file_format(path) in _HEADER_FORMATS:
         return load_spectra(path, header_only=True)
     return load_spectra(path)
 
@@ -1528,9 +1538,13 @@ def check_data_file_location(
         log_and_raise("{}", mismatch)
 
 
-def _data_file_mismatch(project_path: str | os.PathLike[str], dataset: DatasetRef,
-                        rois: Iterable[TrainingROI], abs_path: str) -> str | None:
-    """Why the file at ``abs_path`` is not the data file of ``dataset``, or ``None`` if it is."""
+def _header_mismatch(dataset: DatasetRef, abs_path: str) -> str | None:
+    """Why the header of the file at ``abs_path`` is not that of ``dataset``, or ``None``.
+
+    Compares the format, the shape, the modality (if the file states one) and
+    the wavelength axis (attachment contract, Mismatch validation); reads no
+    pixels for EIFF, HDF5 and ENVI files.
+    """
     if not os.path.isfile(abs_path):
         return f"{abs_path} does not exist"
     try:
@@ -1545,10 +1559,19 @@ def _data_file_mismatch(project_path: str | os.PathLike[str], dataset: DatasetRe
         if now != then:
             return (f"{abs_path} is not this dataset: it has {label} {now!r}, the dataset "
                     f"has {then!r}")
-    wavelengths = np.asarray(header.wavelengths, dtype=np.float32)
+    wavelengths = spectral_axis_in_nm(header.wavelengths, header.meta)[0].astype(np.float32)
     if wavelengths.shape != np.shape(dataset.wavelengths) or not np.allclose(
             wavelengths, np.asarray(dataset.wavelengths, dtype=np.float32), atol=1e-6, rtol=0.0):
         return f"{abs_path} is not this dataset: its wavelengths differ"
+    return None
+
+
+def _data_file_mismatch(project_path: str | os.PathLike[str], dataset: DatasetRef,
+                        rois: Iterable[TrainingROI], abs_path: str) -> str | None:
+    """Why the file at ``abs_path`` is not the data file of ``dataset``, or ``None`` if it is."""
+    mismatch = _header_mismatch(dataset, abs_path)
+    if mismatch is not None:
+        return mismatch
     rois = list(rois)
     if not rois:
         logger.warning("Dataset {} has no ROIs; only its format, shape and wavelengths "

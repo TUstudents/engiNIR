@@ -248,8 +248,8 @@ offset and microseconds, e.g. `2026-11-12T09:56:05.852000+00:00`.
 ├── @n_bands
 ├── @import_timestamp
 ├── @active_calibration_id   the dataset's reference correction (written with the dataset)
-├── wavelengths              float32, shape (n_bands,)
-├── loader_metadata/
+├── wavelengths              float32, shape (n_bands,), in nm (a cm-1 or µm axis converted; see below)
+├── loader_metadata/         the reader's metadata; @x_units "nm" and @x_units_in_file after a conversion
 └── calibrations/{calibration_id}/
     ├── @mode                raw_dn | dark_white_reference | precalibrated_import
     ├── @output_signal_unit  DN | Reflectance | Absorbance
@@ -262,8 +262,15 @@ offset and microseconds, e.g. `2026-11-12T09:56:05.852000+00:00`.
     └── white_ref_data       embedded reference array; empty when not used
 ```
 
+A dataset's wavelengths are in nm. A file whose reader gives the axis in
+wavenumbers (`x_units` `cm-1`, e.g. JCAMP, SPA, SPC) is stored as 10⁷ / ν,
+one in micrometers × 1000, in the file's band order; an axis of unknown unit
+and the band-index fallback are stored as they are.
+
 Reference correction is dataset-owned. A project-global `/calibration` group
-is refused.
+is refused. A reference correction id belongs to one dataset, and a stored
+reference correction is never changed: the writer refuses an id of another
+dataset and different content under a stored id.
 
 Object ids are taken from the HDF5 path (`{dataset_id}`, `{calibration_id}`,
 ...). Writers do not need to store them as attributes; a stored id attribute

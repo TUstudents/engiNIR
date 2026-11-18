@@ -12,7 +12,7 @@ matrix products differ in the last bits).
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from typing import Any
@@ -597,6 +597,44 @@ def predict_with_model_run(
     )
 
 
+#: Spectral axis units converted to nm for a project (the factor, or None for 1e7 / x).
+_AXIS_UNITS_TO_NM: dict[str, float | None] = {
+    "nm": 1.0, "nanometers": 1.0, "um": 1000.0, "micrometers": 1000.0, "µm": 1000.0,
+    "cm-1": None, "1/cm": None,
+}
+
+
+def spectral_axis_in_nm(wavelengths: Any, meta: Mapping[str, Any] | None,
+                        *, source: str = "") -> tuple[np.ndarray, dict[str, Any]]:
+    """The spectral axis of loaded data in nm, and its metadata saying so.
+
+    A project's wavelengths are in nm (``DatasetRef.wavelengths``). An axis in
+    wavenumbers (``meta["x_units"] == "cm-1"``) becomes 10⁷ / ν, one in
+    micrometers is multiplied by 1000; the band order is kept, so a wavenumber
+    axis becomes a decreasing wavelength axis. Other units (``"unknown"``,
+    band indices) are kept as they are. The returned metadata says
+    ``x_units="nm"`` and keeps the file's unit as ``x_units_in_file``, so a
+    second call changes nothing.
+    """
+    values = np.asarray(wavelengths, dtype=np.float64)
+    meta = dict(meta or {})
+    units = str(meta.get("x_units") or "nm").strip().lower()
+    if units not in _AXIS_UNITS_TO_NM or units == "nm":
+        return values, meta
+    factor = _AXIS_UNITS_TO_NM[units]
+    if factor is None:
+        if values.size and not np.all(values > 0):
+            log_and_raise("{}: a wavenumber axis must be positive to convert it to nm",
+                          source or "spectral data")
+        values = 1e7 / values
+    else:
+        values = values * factor
+    logger.info("{}: spectral axis converted from {} to nm", source or "spectral data", units)
+    meta["x_units_in_file"] = meta.get("x_units")
+    meta["x_units"] = "nm"
+    return values, meta
+
+
 def build_dataset_ref_from_spectral_data(
     *,
     data_path: str,
@@ -610,17 +648,19 @@ def build_dataset_ref_from_spectral_data(
 
     The format defaults to the loader's ``meta["format"]`` (or the file
     extension), the modality to ``meta["source_modality"]`` or ``"NIR"``.
-    Wavelengths that do not match the band count are replaced by band
+    The wavelengths are converted to nm (:func:`spectral_axis_in_nm`);
+    wavelengths that do not match the band count are replaced by band
     indices (with a warning).
     """
     cube_shape = spectral_data.cube_shape
     n_bands = cube_shape[2]
-    wavelengths = np.asarray(spectral_data.wavelengths, dtype=np.float32)
+    axis, meta = spectral_axis_in_nm(spectral_data.wavelengths, spectral_data.meta,
+                                     source=str(data_path))
+    wavelengths = axis.astype(np.float32)
     if wavelengths.shape != (n_bands,):
         logger.warning("{}: {} wavelengths for {} bands; using band indices", data_path,
                        wavelengths.size, n_bands)
         wavelengths = np.arange(n_bands, dtype=np.float32)
-    meta = spectral_data.meta
     return DatasetRef(
         dataset_id=dataset_id or new_id(),
         source_path=str(data_path),
@@ -672,7 +712,14 @@ def _iter_input_chunks(
         # Point-spectrum formats (CSV, SPC, SPA, JCAMP) hold no image cube.
         X = np.asarray(load_spectra(data_path, **loader_kwargs).X)
         blocks = _blocks_of_array(X, chunk_size, height)
+    n_bands = dataset.cube_shape[2]
     for offset, block in blocks:
+        # The file must still be the registered dataset: a block of another height or
+        # band count would be placed into a map of the wrong shape.
+        if (block.ndim == 3 and block.shape[1:] != (height, n_bands)) \
+                or (block.ndim == 2 and block.shape[1] != n_bands):
+            log_and_raise("{} has blocks of shape {}, the dataset {}: not predicted",
+                          data_path, block.shape[1:], dataset.cube_shape[1:])
         rows_per_frame = height if block.ndim == 3 else 1
         chunk = _flat_chunk(block, offset * rows_per_frame, height)
         del block
@@ -918,6 +965,7 @@ __all__ = [
     "PredictionProgressEvent",
     "PredictionResult",
     "build_dataset_ref_from_spectral_data",
+    "spectral_axis_in_nm",
     "predict_with_model_run",
     "preflight_prediction",
     "wavelength_mismatch",

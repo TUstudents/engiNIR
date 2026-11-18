@@ -34,6 +34,30 @@ The contracts follow the 1.6 viewer; a few viewer fixes found on the way.
 
 ### Fixed
 
+Found by an external review of 1.6.0:
+
+- `Model.predict` on a registered path trusted the stored shape and axis: a
+  replaced file of another shape was predicted into a wrong map. The file is
+  now compared with its registration (format, shape, modality, wavelength
+  axis) and refused on a mismatch; the runtime also refuses blocks that do
+  not fit the dataset's shape.
+- Models with 16 or fewer ROIs lost the DModX check (their per-ROI shares are
+  stored as HDF5 attributes), so their verdict could read Good with many
+  pixels above the limit.
+- `Project.save_calibration` accepted an id of another dataset's reference
+  correction (the project then did not open) and replaced a stored reference
+  correction with different content; both are refused now.
+- A project whose model lacks a core member (coefficients, intercept,
+  wavelengths, target names, projection data) opened and failed only at
+  prediction; it is refused at open, as the schema contract says.
+- A wavenumber axis (JCAMP, SPA, SPC) entered a project as nm values
+  (5000 cm⁻¹ shown as 5000 nm); wavenumber and micrometer axes are
+  converted to nm when a dataset is added and when the viewer shows a file.
+- Predict Map in the viewer loaded the whole cube before the chunked
+  prediction, and a new ENVI file was read whole for its header; the map is
+  streamed now and ENVI headers are read without the pixels.
+- With `cube.img` and `cube.raw` next to one header, prediction provenance
+  (and its checksum) named `.raw` while the reader used `.img`.
 - A project opened without a dataset showed its ROIs in raw counts (DN);
   Explore now starts with the working signal of the ROIs' reference
   corrections (Absorbance for dark/white references), as with a dataset.

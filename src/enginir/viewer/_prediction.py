@@ -32,7 +32,6 @@ from PyQt6.QtWidgets import (
 )
 
 from .._logging import get_logger
-from ..io import load_spectra
 from ..prediction import (
     PredictionProgressEvent,
     PredictionResult,
@@ -1420,12 +1419,12 @@ class PredictionView(QWidget):
 
         def job() -> tuple[PredictionResult, RoiPrediction | None]:
             # Nothing is written: the prediction stays in memory (Result handling).
-            spectral_data = load_spectra(data_path)
+            # The runtime streams the file chunk by chunk; it is never loaded whole.
             result = predict_with_model_run(
                 project_path=context.project_path, model_run=context.model_run,
                 signal_domain=context.signal_domain, recipe=context.recipe, dataset=dataset,
                 calibration=calibration, model_registry=context.model_registry,
-                data_path=data_path, spectral_data=spectral_data,
+                data_path=data_path,
                 preprocessing_recipe_id=context.preprocessing_recipe_id,
                 progress_callback=emit_progress, cancel_callback=cancel_event.is_set,
                 prefer_saved_model=True)

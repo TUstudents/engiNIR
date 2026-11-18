@@ -275,3 +275,13 @@ def test_checks_and_verdicts_change_nothing(tmp_path):
     before = digest()
     assert project.checks() and model.verdict()
     assert digest() == before
+
+
+def test_a_small_model_gets_its_distance_check(tmp_path):
+    # With 16 ROIs or fewer the per-ROI shares are stored as HDF5 attributes,
+    # not datasets; the check must still read them (external review, 1.6.0).
+    project, _scan = _project(tmp_path)
+    model = project.fit("API", n_components=1)
+    guidance._STORED.clear()
+    assert np.asarray(model.diagnostics["roi_share_above_dcrit"]).size == 8
+    assert "model.distance" in _by_id(model.checks())

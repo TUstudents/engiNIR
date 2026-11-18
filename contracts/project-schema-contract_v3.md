@@ -364,6 +364,10 @@ v3 identity rule:
   `calibration_id` alone
 - the reader rejects a project where two dataset subtrees persist the same
   reference correction id
+- the writer refuses such a write before it happens: saving a reference
+  correction under an id of another dataset, under an unknown dataset, or with
+  different content under a stored id is refused; saving identical content
+  again only makes it the active one
 - a persisted dataset `active_calibration_id` must reference an existing
   reference correction owned by that dataset; the reader validates this during
   hydration
@@ -815,7 +819,9 @@ malformed:
 - models: `model_type`, `hyperparameters`, `fit_spec`, `software`, and the
   executable model in `artifact_refs/prediction_model` (coefficients,
   intercept, wavelengths, target names, projection data, and the MSC/EMSC
-  state its recipe needs)
+  state its recipe needs); the members are checked by name when the project
+  opens (a short vector may be an attribute), the arrays are read when the
+  model is used
 - stored predictions: their references, `y_pred`, its shapes and dtype
   (`docs/hdf5_format.md` §3.9)
 

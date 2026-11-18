@@ -471,13 +471,13 @@ def _diagnostics(model: Model, keys: tuple[str, ...]) -> dict[str, Any]:
     found = {key: value for key, value in refs.get("cv_outputs", {}).items() if key in keys}
     import h5py
 
+    from .io._hdf5_groups import read_mapping
+
     with h5py.File(model.project.path, "r") as handle:
         group = handle.get(f"model_runs/{model.ref.model_run_id}/artifact_refs/diagnostics")
         if isinstance(group, h5py.Group):
-            for key in keys:
-                item = group.get(key)
-                if isinstance(item, h5py.Dataset):
-                    found[key] = item[()]
+            # Short vectors (a model of 16 ROIs or fewer) are stored as attributes.
+            found.update(read_mapping(group, keys=set(keys)))
     return found
 
 

@@ -11,7 +11,7 @@ import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QDockWidget, QMainWindow, QSplitter, QTreeWidget
 
-from ._project_payloads import recipe_payload, roi_provenance
+from ._project_payloads import recipe_payload, roi_provenance, projection_payload
 
 
 @pytest.fixture(scope="module")
@@ -186,6 +186,7 @@ def _create_reopenable_model_project(path: str, wavelengths: np.ndarray) -> None
                     "x_std_": np.asarray(model.x_std_, dtype=np.float32),
                     "y_mean_": np.asarray(model.y_mean_, dtype=np.float32),
                     "y_std_": np.asarray(model.y_std_, dtype=np.float32),
+                    **projection_payload(wavelengths.size),
                 },
                 "diagnostics": {
                     "wavelengths": wavelengths.astype(np.float32),

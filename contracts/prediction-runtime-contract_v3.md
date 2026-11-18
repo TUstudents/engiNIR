@@ -288,6 +288,11 @@ Required behavior:
   aggregate
 - non-zero clipping counts must be logged and surfaced in prediction run
   metadata or user-visible run summary
+- a file at a registered path is first compared with its registration
+  (format, shape, modality, wavelength axis; header only); a mismatch is
+  refused (`project-dataset-attachment-contract_v3.md`, Mismatch validation),
+  and the runtime refuses a file whose blocks or spectrum count do not fit
+  the dataset's `cube_shape`, so a map is never filled in the wrong shape
 - a registered scan reuses its stored reference correction read-only; a scan that is
   not registered gets an in-memory reference correction that is never written
   (§Result handling); content deduplication applies to reference corrections written
@@ -693,8 +698,12 @@ Runtime tests must cover:
   result (and persists them with low-level persistence)
 - multi-output predictions require explicit output selection and never silently
   display only output `0`
-- a registered scan reuses its stored active reference correction read-only; a new
-  scan gets an in-memory reference correction
+- a registered scan reuses its stored active reference correction read-only, after
+  its header matched the registration; a new scan gets an in-memory reference
+  correction
+- the data file is streamed chunk by chunk from every entry point (the viewer
+  does not load it first); the header of a new EIFF, HDF5 or ENVI file is read
+  without its pixels
 - signal-unit comparisons are case-normalized
 - the alignment of the dark/white references can infer spatial shape from
   `DatasetRef.cube_shape` for flattened inputs
