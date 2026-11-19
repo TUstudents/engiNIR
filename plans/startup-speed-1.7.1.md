@@ -1,7 +1,6 @@
 # Plan: engiNIR 1.7.1, a fast start that never waits for a network drive
 
-Status: decided (user, 2026-11-19): D1 to D8 below. Phases 1, 2, 3 and 5 done;
-Phase 4 measured, waiting for a decision (see there).
+Status: decided (user, 2026-11-19): D1 to D8 below. All five phases done.
 
 ## Goal
 
@@ -176,7 +175,17 @@ it the embedded Fit settings form (`FitModelRunDialog`, `embed_fit_settings`),
 and the Predict page 0.01 s. The rest is the Explore page: the controls
 panel with its plot panels (0.14 s) and the docks (0.05 s). Lazy pages
 would save about 15 % for a restructuring of 71 uses in 9 files, so the
-phase waits for a decision (user).
+phase waited for a decision (user: build it, 2026-11-19).
+
+*Done (2026-11-19).* As built: `ModelingView` stays (it holds the current
+target, which Explore, the ROI table and the Project ROIs use); its Fit
+settings form is built on the first show of the Model step or by a menu
+item or fix that needs it. `PredictionView` is built on first use and takes
+its placeholder's tab. The window builds in 0.30 s instead of 0.40 s, more
+than estimated (the form's layout and styling no longer run either). Two
+faults found on the way: a form added to a shown window stays hidden until
+shown, and the plot-help setting was not applied to content pages built
+later (a bug of 1.7.0 too).
 
 - Measure first: the time to build `HSIViewer` for an empty project, and the
   share of `ModelingView` and `PredictionView` in it (Linux, warm).

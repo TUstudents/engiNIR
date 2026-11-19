@@ -1277,17 +1277,23 @@ class ModelingView(QWidget):
 
     # -- Fit settings panel (plan gui-1.6, Phase 4, Q2) ----------------------------------
 
-    def embed_fit_settings(self) -> FitModelRunDialog:
+    def embed_fit_settings(self, prepare: Callable[[FitModelRunDialog], None] | None = None
+                           ) -> FitModelRunDialog:
         """Show the fit settings in this view instead of a dialog; returns the form.
 
-        The main window calls this once: from then on Fit Model fits with what
+        The main window calls this once, when the Model step is first shown
+        (plan startup-speed-1.7.1, D8): from then on Fit Model fits with what
         the form shows, the form shows the settings of the selected model
         until they are edited, and the preprocessing follows the Explore
         preview. Target and calibration set are in the form, so the status
         lines and the Target buttons above it go (the menus keep them).
+        ``prepare`` pre-fills the new form (the user's defaults) before the
+        selected model's settings are shown in it.
         """
         if self._fit_form is None:
             self._fit_form = self._new_fit_form()
+            if prepare is not None:
+                prepare(self._fit_form)
             self._fit_form.embed()
             self._fit_form_host.addWidget(self._fit_form)
             self._fit_form.watch_changes(self._update_fit_changed_mark)

@@ -69,3 +69,31 @@ decisions before work starts. 1.7.1 is the startup speedup
    change of the setting (today the setting applies from the next start).
    Also check that no message logged at INFO should really be DEBUG (the
    "Startup timing" lines are DEBUG and INFO mixed).
+8. **A better workflow for Add ROI and Add ROI Grid** (to discuss). The
+   user (2026-11-19): adding ROIs does not switch to the Data file view, the
+   dialog may not appear, and one has to use the menu where buttons could
+   be. As built (`viewer/_eda.py`): the buttons Add ROI (checkable: draw on
+   the Spatial Image) and Add ROI Grid (the dialog with a live preview on
+   the canvas) sit in the ROI group of the Explore settings, with Delete
+   ROI, ROI Table and Export; the ROI menu presses the same buttons
+   (`_menu_button_action`). Both are enabled only while a dataset of the
+   project is shown (`refresh_attachment_state`); a project with ROIs opens
+   on the Project ROIs tab, where no image is shown, so both are disabled
+   there and nothing leads to the Data file tab. Ideas to decide:
+   - pressing either from the Project ROIs tab (or the ROI menu) switches
+     to the Data file tab, showing the last shown dataset or asking for one,
+     then starts drawing or opens the grid dialog;
+   - buttons where the user is: on the Project ROIs tab (per dataset tile
+     group, "Add ROIs to this dataset") and on the empty Data file page;
+   - the workflow strip's ROIs step leads to the same place.
+9. **The image opens as Reset View shows it.** The user (2026-11-19):
+   Reset View changes the plot's size and uses the view better; that should
+   be the default. As built (`viewer/_canvas.py`): showing an image calls
+   `autoRange()` with pyqtgraph's default padding (`set_image`), possibly
+   while the page does not have its final size yet; **Reset View**
+   (`reset_view`, the button in the Spatial image header) calls
+   `autoRange(padding=0.02)` on the view as it is. The fix: one function
+   for both, also applied when the view first gets its size (and after a
+   maximize or a restore of the plot), so a new image looks like Reset View
+   without the button. Check the Sensor frame and the Spatial profile, which
+   share the image's row axis (`link_rows`).

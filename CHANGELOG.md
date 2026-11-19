@@ -21,6 +21,12 @@ project format and the API are unchanged.
   Opening a project looks for its data files in the background and lists
   them as "(checking…)" until then, so an unreachable network drive no
   longer freezes the start or the window.
+- **The project window is built faster** (0.30 s instead of 0.40 s for an
+  empty project on Linux): the Fit settings and the Predict page are built
+  when first shown.
+- **The plot help setting applies to the Model and Predict plots** also
+  when they are first shown after the start (they showed their help
+  buttons whatever the setting).
 - **The Windows installer compiles the bytecode at install**
   (`uv tool install --compile-bytecode`), so the first start after an
   install or update does not compile about 2,200 modules.

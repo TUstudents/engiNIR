@@ -330,6 +330,17 @@ paths on the UI thread (plan `plans/startup-speed-1.7.1.md`):
   "(checking…)", `refresh_checks` asks `Project.checks(files=False)` and the
   last shown file waits. `ProjectState.data_files_checked` then updates them.
   `Project.find_data_file` keeps each answer for the session.
+- The Model step's Fit settings form and the whole Predict page are built
+  when first needed (`HSIViewer._ensure_fit_settings`, the
+  `_prediction_view` property; D8): showing the step, its menu, a fix that
+  leads there. `ModelingView` itself is built with the window, because it
+  holds the current target that Explore and the ROI table use. The built
+  `PredictionView` takes its placeholder's tab. A page built later gets the
+  user's defaults (`_apply_fit_defaults`, `_apply_predict_defaults`), and
+  the plots of a late content page get the plot-help setting. Menu items
+  that press a button of an unbuilt page take a function that returns the
+  button (`_menu_button_action`). An empty project's window builds in
+  0.30 s instead of 0.40 s (Linux, warm).
 - The log states the time since the operating system started the process
   (`_startup_clock`: `GetProcessTimes` on Windows, `/proc` on Linux, `ps`
   elsewhere) when the launcher runs, when the welcome window is shown, when
