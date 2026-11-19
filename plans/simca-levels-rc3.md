@@ -2,7 +2,7 @@
 
 Status: decided (user, 2026-11-18/19): D1 to D9 below. Implemented on branch
 `simca-levels` (aa5de48 Phases 1–2, 096aa6f Phase 3, 5533682 Phase 4, 4fb4520
-Phase 5); not yet released.
+Phase 5). To be released in 1.7.0 directly (user, 2026-11-19: no rc3).
 
 ## Goal
 

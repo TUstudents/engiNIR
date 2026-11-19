@@ -1,13 +1,28 @@
 # Changelog
 
-## 1.7.0rc3 (unreleased)
+## 1.7.0 (2026-11-19)
 
-The third release candidate of 1.7.0: everything of 1.7.0rc2 and rc1
-(below), the DModX and T² limits at SIMCA's default level 0.95, and a check
-for prediction ROIs outside the model. **Projects made with 1.7.0rc1 or rc2
-must be created again:** their models lack the 0.95 limits that format
-`enginir-1.7` requires, and they are not converted. Projects of 1.5.1 to
-1.6.1 are converted by `enginir-migrate` as before.
+The project format `enginir-1.7`: "calibration" now means only model
+calibration, the dark/white step is the reference correction everywhere in
+the file and the API, and the DModX and T² limits follow SIMCA's default
+level 0.95. A new check names prediction ROIs outside the model, and viewer
+windows are deleted when they close. Everything of 1.7.0rc2 and 1.7.0rc1
+(below) is part of 1.7.0.
+
+Upgrading from 1.5.1 to 1.6.1:
+
+- **Projects** must be converted once with `enginir-migrate SOURCE TARGET`
+  (opening one names the command). The conversion writes a new file, keeps
+  every dataset, ROI, value, model and id, and adds the 0.95 limits; the
+  converted model predicts as before.
+- **Scripts** must use the new names (the tables under 1.7.0rc1 and below);
+  the old ones are gone, with no aliases.
+- **Projects made with 1.7.0rc1 or rc2** must be created again: their
+  models lack the 0.95 limits that `enginir-1.7` requires, and they are not
+  converted. (A third release candidate was not released; its changes are
+  the ones below.)
+
+Changes since 1.7.0rc2:
 
 ### Changed
 
