@@ -114,7 +114,7 @@ decisions before work starts. 1.7.1 is the startup speedup
     - modeling: cross-validation, hold-out, Kennard-Stone, component curve;
     - results: R², Q², RMSEC, RMSECV, RMSEP, bias, VIP, scores, loadings,
       coefficients, checks and the verdict.
-11. **The welcome window's tagline.** It says "Reference correction models
+11. *Done (1.7.2, 2026-11-19), with the citation's wording.* **The welcome window's tagline.** It says "Reference correction models
     for NIR spectra and hyperspectral images." (`viewer/_welcome.py`, the
     subtitle under "engiNIR"), which is wrong. The format 1.7 rename (commit
     `7ce1f0c`) turned "Calibration models ..." into it, although

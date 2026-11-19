@@ -20,6 +20,10 @@
 
 ### Fixed
 
+- **The welcome window's tagline** read "Reference correction models for NIR spectra and
+  hyperspectral images", a wrong renaming of 1.7.0; it is engiNIR's tagline again,
+  "A universal engineering tool for near-infrared spectra and hyperspectral
+  imaging".
 - **A project window opens up to a second faster on Windows.** The Log
   tab set its fixed-width font when the window was built, which makes Qt
   load the whole Windows font database (0.94 s in a user's log, 0.25 s on a

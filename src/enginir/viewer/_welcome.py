@@ -83,7 +83,8 @@ class WelcomeWindow(QMainWindow):
         heading.addStretch(1)
         layout.addLayout(heading)
 
-        subtitle = QLabel("Reference correction models for NIR spectra and hyperspectral images.")
+        subtitle = QLabel("A universal engineering tool for near-infrared spectra and "
+                          "hyperspectral imaging")
         subtitle.setWordWrap(True)
         subtitle.setStyleSheet(secondary_text_style())
         layout.addWidget(subtitle)
