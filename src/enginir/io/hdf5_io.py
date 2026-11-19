@@ -30,7 +30,7 @@ from enginir._checks import check_integer, log_and_raise
 from enginir._logging import get_logger
 
 from ._common import base_meta, require_file
-from ._hdf5_groups import read_mapping, write_mapping
+from ._hdf5_groups import compression_options, read_mapping, write_mapping
 from ._types import SpectralData
 from .project_store import format_refusal, has_project_meta, is_project_file
 
@@ -150,7 +150,9 @@ def save_hdf5(
     spectra_key, wavelengths_key, meta_group:
         Names of the datasets and the metadata group.
     compression:
-        HDF5 compression filter (``"gzip"`` or ``"lzf"``).
+        HDF5 compression: ``"gzip"`` (the default, readable by every HDF5 tool),
+        ``"lzf"``, or ``"blosc"`` (Blosc-Zstandard: smaller and faster, but other
+        tools need ``hdf5plugin`` to read it).
     """
     X = np.asarray(X)
     wavelengths = np.asarray(wavelengths)
@@ -163,8 +165,9 @@ def save_hdf5(
     temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
     try:
         with h5py.File(temporary, "w") as f:
-            f.create_dataset(spectra_key, data=X, compression=compression)
-            f.create_dataset(wavelengths_key, data=wavelengths, compression=compression)
+            f.create_dataset(spectra_key, data=X, **compression_options(compression))
+            f.create_dataset(wavelengths_key, data=wavelengths,
+                             **compression_options(compression))
             if meta:
                 write_mapping(f.create_group(meta_group), dict(meta), compression)
         os.replace(temporary, target)

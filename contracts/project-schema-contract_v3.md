@@ -142,6 +142,10 @@ Required invariants:
   when a field becomes required, is removed or changes meaning. A new
   optional field does not change it (Schema validation and extra-field
   policy)
+- the compression of an array (gzip, Blosc) is the writer's choice and not
+  part of the format; a reader decodes every compression engiNIR has
+  written and registers the filters it needs itself (`hdf5plugin`). engiNIR
+  1.7.3 writes Blosc-Zstandard
 - `<version>` is the installed package version (`enginir.__version__`),
   never typed in; a development build is written as it is (e.g.
   `1.5.1.dev3+g1234abc`). `FileCreator` and `FileWriter` are informational:

@@ -55,6 +55,8 @@ from enginir._logging import get_logger
 
 from ._hdf5_groups import (
     MAX_ATTRIBUTE_VECTOR,
+    PROJECT_COMPRESSION,
+    compression_options,
     child_group,
     decode,
     is_scalar_like,
@@ -253,7 +255,7 @@ def load_project_store(
 
 
 def save_dataset_ref(
-    path: PathLike, dataset_id: str, dataset_dict: dict[str, Any], compression: str = "gzip"
+    path: PathLike, dataset_id: str, dataset_dict: dict[str, Any], compression: str = PROJECT_COMPRESSION
 ) -> None:
     """Save a dataset reference to ``/datasets/{dataset_id}``."""
     _save_object(path, "datasets", dataset_id, dataset_dict, "DatasetRef", compression,
@@ -265,7 +267,7 @@ def save_reference_correction(
     dataset_id: str,
     reference_correction_id: str,
     reference_correction_dict: dict[str, Any],
-    compression: str = "gzip",
+    compression: str = PROJECT_COMPRESSION,
 ) -> None:
     """Save a reference correction of a dataset and make it the dataset's active reference correction.
 
@@ -308,7 +310,7 @@ def save_reference_correction(
 
 
 def save_target_definition(
-    path: PathLike, target_id: str, target_dict: dict[str, Any], compression: str = "gzip"
+    path: PathLike, target_id: str, target_dict: dict[str, Any], compression: str = PROJECT_COMPRESSION
 ) -> None:
     """Save a target definition to ``/targets/{target_id}`` (its ``name`` may change)."""
     _save_object(path, "targets", target_id, target_dict, "TargetDefinition", compression,
@@ -320,7 +322,7 @@ def save_target_assignment(
     target_id: str,
     roi_id: str,
     assignment_dict: dict[str, Any],
-    compression: str = "gzip",
+    compression: str = PROJECT_COMPRESSION,
 ) -> None:
     """Save (or replace) the value of one target for one ROI.
 
@@ -336,7 +338,7 @@ def save_target_assignment(
 
 
 def save_preprocessing_recipe(
-    path: PathLike, recipe_id: str, recipe_dict: dict[str, Any], compression: str = "gzip"
+    path: PathLike, recipe_id: str, recipe_dict: dict[str, Any], compression: str = PROJECT_COMPRESSION
 ) -> None:
     """Save a preprocessing recipe to ``/recipes/{recipe_id}`` after validating it.
 
@@ -368,7 +370,7 @@ def save_signal_domain_contract(
     path: PathLike,
     signal_domain_id: str,
     signal_domain_dict: dict[str, Any],
-    compression: str = "gzip",
+    compression: str = PROJECT_COMPRESSION,
 ) -> None:
     """Save a signal-domain contract to ``/signal_domains/{signal_domain_id}``."""
     _save_object(path, "signal_domains", signal_domain_id, signal_domain_dict,
@@ -383,7 +385,7 @@ def save_training_roi(
     *,
     dark_ref_spectra: np.ndarray | None = None,
     white_ref_spectra: np.ndarray | None = None,
-    compression: str = "gzip",
+    compression: str = PROJECT_COMPRESSION,
 ) -> None:
     """Save an ROI with its spectra to ``/rois/{roi_id}`` (its ``name`` may change).
 
@@ -403,7 +405,7 @@ def save_training_roi(
         Optional per-pixel dark and white references (both or neither), same
         shape as ``spectra``, stored under ``reference_spectra``.
     compression:
-        HDF5 compression filter.
+        HDF5 compression (default :data:`PROJECT_COMPRESSION`, Blosc-Zstandard).
     """
     spectra = as_roi_storage_array(spectra)
     if spectra.ndim != 2:
@@ -467,14 +469,14 @@ def save_roi_job(path: PathLike, roi_id: str, job: str) -> None:
 
 
 def save_sample_set(
-    path: PathLike, sample_set_id: str, sample_set_dict: dict[str, Any], compression: str = "gzip"
+    path: PathLike, sample_set_id: str, sample_set_dict: dict[str, Any], compression: str = PROJECT_COMPRESSION
 ) -> None:
     """Save a sample set to ``/sample_sets/{sample_set_id}``."""
     _save_object(path, "sample_sets", sample_set_id, sample_set_dict, "SampleSet", compression)
 
 
 def save_model_run(
-    path: PathLike, model_run_id: str, model_run_dict: dict[str, Any], compression: str = "gzip"
+    path: PathLike, model_run_id: str, model_run_dict: dict[str, Any], compression: str = PROJECT_COMPRESSION
 ) -> None:
     """Save a model run, including its ``artifact_refs``, to ``/model_runs/{model_run_id}``.
 
@@ -490,7 +492,7 @@ def save_prediction_run(
     path: PathLike,
     prediction_run_id: str,
     prediction_run_dict: dict[str, Any],
-    compression: str = "gzip",
+    compression: str = PROJECT_COMPRESSION,
 ) -> None:
     """Save a complete prediction run to ``/predictions/{prediction_run_id}``.
 
@@ -614,7 +616,7 @@ def initialize_prediction_run_artifacts(
     prediction_run_dict: dict[str, Any],
     *,
     y_pred_shape: tuple[int, ...],
-    compression: str = "gzip",
+    compression: str = PROJECT_COMPRESSION,
 ) -> None:
     """Stage a prediction run under ``/staging/{id}``; its ``y_pred`` is filled later.
 
@@ -636,7 +638,7 @@ def initialize_prediction_run_artifacts(
         Shape of the per-pixel predictions, ``(n_pixels,)`` or
         ``(n_pixels, n_targets)``.
     compression:
-        HDF5 compression filter.
+        HDF5 compression (default :data:`PROJECT_COMPRESSION`, Blosc-Zstandard).
     """
     artifact_refs = {key: value for key, value in prediction_run_dict.get("artifact_refs", {}).items()
                      if key not in _PREDICTION_ARRAYS}
@@ -651,7 +653,8 @@ def initialize_prediction_run_artifacts(
             artifact_group = child_group(group, "artifact_refs", create=True)
             shape = tuple(int(dim) for dim in y_pred_shape)
             artifact_group.create_dataset("y_pred", shape=shape, dtype=np.float32,
-                                          compression=compression, chunks=_chunk_shape(shape))
+                                          chunks=_chunk_shape(shape),
+                                          **compression_options(compression))
     logger.info("Staged prediction artifacts '{}' in {}", prediction_run_id, path)
 
 

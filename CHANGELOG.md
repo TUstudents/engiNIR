@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Project files store their arrays with Blosc** (Zstandard, level 5,
+  shuffle) instead of gzip. On a real tray's ROI pixels: 21 % smaller,
+  writing 1.7 times and reading about 5 times as fast. Projects written
+  before keep their gzip arrays and open as before; the format stays
+  `enginir-1.7`. **A project written by 1.7.3 needs engiNIR 1.7.3 or newer**
+  (or `import hdf5plugin` in Python, the Blosc plugin in HDFView or MATLAB):
+  earlier engiNIR versions open it but cannot read its arrays.
+  `save_hdf5` keeps gzip and offers `compression="blosc"`.
+
 ## 1.7.2 (2026-11-19)
 
 Wavelengths for Kestreleye scans, which store none: a wavelength table gives

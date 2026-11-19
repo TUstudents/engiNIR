@@ -1,6 +1,6 @@
 # Plan: engiNIR 1.7.3
 
-Status: decided (user, 2026-11-19): D1 to D8 below. Not started.
+Status: decided (user, 2026-11-19): D1 to D8 below. In progress.
 
 1.7.3 takes the small fixes and the model and storage items of the 1.7.2
 backlog (`plans/backlog-1.7.2.md`). The ROI workflow (items 2, 4, 8) and the
@@ -61,6 +61,12 @@ arrays mix in one file (a project written before keeps its gzip arrays).
 ## Phases
 
 ### Phase 1: Blosc project files (D2, D3, D8)
+
+*Done (2026-11-19).* Measured (Linux, warm): the example project 1.51 MB
+gzip, 1.34 MB Blosc, the same speed; the four ROIs of a real tray
+(`Tablets_10%`, uint16, 8.8 MB raw): gzip 6.28 MB, write 0.17 s, read
+0.039 s; Blosc 4.99 MB, write 0.10 s, read 0.008 s. Importing `hdf5plugin`
+takes about 0.35 s, in `import enginir.io` (the warm-up's background job).
 
 - One place decides a project array's compression (`_hdf5_groups`):
   Blosc-Zstandard 5 with shuffle; the 11 gzip places use it. Chunking stays
