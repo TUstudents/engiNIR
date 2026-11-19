@@ -2560,8 +2560,7 @@ class HSIViewer(QMainWindow):
             path, header, state.datasets,
             {dataset_id: reference_correction for dataset_id in state.datasets
              if (reference_correction := state.active_reference_correction(dataset_id)) is not None},
-            trained_with=trained_with, parent=self,
-            registered=self._registered_dataset_id(path) is not None)
+            trained_with=trained_with, parent=self)
         if dialog.exec() != QDialog.DialogCode.Accepted or dialog.request is None:
             return None
         request = dialog.request

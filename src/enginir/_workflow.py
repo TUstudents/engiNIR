@@ -233,6 +233,7 @@ class Project:
         black_level: float | None = None,
         white_level: float | None = None,
         wavelength_table: str | os.PathLike[str] | WavelengthTable | None = None,
+        name: str | None = None,
     ) -> Dataset:
         """Register a data file with its reference correction.
 
@@ -273,6 +274,12 @@ class Project:
             table must have the file's band count. Without it such a file
             keeps band numbers (:meth:`Dataset.set_wavelengths` gives them
             later).
+        name:
+            The dataset's name ("Layer 7"), shown instead of its file name and
+            used by ``{name}`` in ROI grid names; ``None`` keeps the current one
+            (a new dataset has none), ``""`` removes it. The same as
+            :meth:`Dataset.set_label` afterwards; stored as ``DatasetRef.label``
+            (``@label`` in the project file, the field's name since 1.6).
 
         Returns
         -------
@@ -288,8 +295,13 @@ class Project:
             path, dark=dark, white=white, unit=unit, dark_frames=dark_frames,
             white_frames=white_frames, references_from=references_from,
             black_level=black_level, white_level=white_level, wavelength_table=wavelength_table)
+        if name is not None and new_dataset:
+            dataset = replace(dataset, label=str(name).strip())
         self._write_dataset(dataset, reference_correction, new_dataset, new_reference_correction)
-        return Dataset(self, self.workspace.datasets[dataset.dataset_id])
+        added = Dataset(self, self.workspace.datasets[dataset.dataset_id])
+        if name is not None and not new_dataset and added.ref.label != str(name).strip():
+            added.set_label(str(name))  # a registered dataset: its mutable name
+        return added
 
     def add_target(self, name: str, *, unit: str, value_type: str = "float",
                    missing_value_policy: str = "allowed") -> TargetDefinition:

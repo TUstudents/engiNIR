@@ -240,8 +240,6 @@ def test_the_add_dataset_dialog_preselects_the_one_table(qapp, tmp_path):
     assert dialog.build_request().add_dataset_kwargs()["wavelength_table"] == KESTRELEYE
     combo.setCurrentIndex(0)
     assert dialog.build_request().wavelength_table is None, "band numbers stay possible"
-    assert AddDataFileDialog(path, read_header(path), {}, {}, registered=True)._wavelengths \
-        is None, "a registered file changes its axis only through Set Wavelengths"
     own = tmp_path / "own.h5"
     save_hdf5(str(own), np.full((3, 4, N_BANDS), 2000, np.uint16), np.linspace(1000, 1600, 176))
     assert AddDataFileDialog(str(own), read_header(str(own)), {}, {})._wavelengths is None

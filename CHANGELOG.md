@@ -28,6 +28,9 @@
 
 ### Added
 
+- **Add Dataset has a Name field**, and `Project.add_dataset` a `name=`
+  parameter: the dataset's short name, shown instead of its file name and
+  used by `{name}` in ROI grid names.
 - **ROI grids are named after the dataset's name.** The new placeholder
   `{name}` gives the dataset's name (Project > Name Dataset), else its file
   name, and the default patterns use it: Kestreleye scans, all called

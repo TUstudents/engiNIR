@@ -628,3 +628,51 @@ def test_opening_a_project_never_looks_for_data_files_on_the_ui_thread(qapp, tmp
     finally:
         release.set()
         window.close()
+
+
+def test_a_dataset_is_named_when_it_is_added(tmp_path):
+    """add_dataset(name=...): stored with the new dataset; for a registered one it renames,
+    None keeps the name (the Add Dataset dialog's Name field)."""
+    path = tmp_path / "stream_hsi.h5"
+    save_hdf5(str(path), np.full((4, 3, 6), 2000, np.uint16), np.linspace(1000, 1500, 6))
+    project = Project.create(tmp_path / "p.h5")
+    dataset = project.add_dataset(path, name=" Layer 7 ")
+    assert dataset.ref.label == "Layer 7"
+    assert Project.open(project.path).workspace.datasets[dataset.ref.dataset_id].label \
+        == "Layer 7", "stored"
+    project.add_dataset(path)  # None: the name stays
+    assert project.workspace.datasets[dataset.ref.dataset_id].label == "Layer 7"
+    project.add_dataset(path, name="Layer 8")
+    reopened = Project.open(project.path).workspace.datasets[dataset.ref.dataset_id]
+    assert reopened.label == "Layer 8", "a registered dataset is renamed"
+
+
+def test_the_add_dataset_dialog_names_the_dataset(qapp, tmp_path, monkeypatch):
+    from PyQt6.QtWidgets import QDialog
+
+    from enginir.viewer import open_project
+    from enginir.viewer._data_files import AddDataFileDialog
+
+    path = tmp_path / "stream_hsi.h5"
+    save_hdf5(str(path), np.full((4, 3, 6), 2000, np.uint16), np.linspace(1000, 1500, 6))
+    project = Project.create(tmp_path / "p.h5")
+    shown: list[str] = []
+
+    def accept(dialog):
+        shown.append(dialog._name.text())
+        dialog._name.setText("Layer 7")
+        dialog._accept()
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(AddDataFileDialog, "exec", accept)
+    window = open_project(str(project.path))
+    try:
+        dataset_id = window.add_data_file(str(path))
+        window.wait_for_data_file()
+        assert window.project_state.datasets[dataset_id].label == "Layer 7"
+        assert window.project_state.data_file_label(dataset_id) == "Layer 7"
+        assert shown == [""], "a new dataset starts without a name (its file name shows)"
+        assert window.add_data_file(str(path)) == dataset_id and shown == [""], \
+            "a registered file is shown directly; Project > Name Dataset renames it"
+    finally:
+        window.close()

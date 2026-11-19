@@ -83,13 +83,16 @@ class DataFileRequest:
     white_level: float | None = None
     #: Name of the wavelength table for a file that stores no wavelengths, or ``None``.
     wavelength_table: str | None = None
+    #: The dataset's name ("Layer 7"; ``""``: none, its file name is shown).
+    name: str | None = None
 
     def add_dataset_kwargs(self) -> dict[str, Any]:
         """Keyword arguments for :meth:`enginir.Project.add_dataset` (besides the path)."""
         return {"unit": self.unit, "dark": self.dark, "white": self.white,
                 "dark_frames": self.dark_frames, "white_frames": self.white_frames,
                 "references_from": self.references_from, "black_level": self.black_level,
-                "white_level": self.white_level, "wavelength_table": self.wavelength_table}
+                "white_level": self.white_level, "wavelength_table": self.wavelength_table,
+                "name": self.name}
 
 
 def saturation_level(meta: Mapping[str, Any], dtype: np.dtype) -> float | None:
@@ -180,7 +183,6 @@ class AddDataFileDialog(QDialog):
         parent: QWidget | None = None,
         *,
         trained_with: str | None = None,
-        registered: bool = False,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Add dataset")
@@ -203,8 +205,14 @@ class AddDataFileDialog(QDialog):
                       f"{n_bands} bands, {np.dtype(header.X.dtype).name}")
         layout = QVBoxLayout(self)
         layout.addWidget(info)
-        # A registered file keeps its axis; Project > Set Wavelengths changes it.
-        self._wavelengths = None if registered else self._wavelength_choice(header, n_bands)
+        names = QFormLayout()
+        self._name = QLineEdit()  # a new dataset: the dialog opens for unregistered files only
+        self._name.setPlaceholderText(os.path.basename(path))
+        self._name.setToolTip("A short name shown instead of the file name, and {name} in "
+                              "ROI grid names (e.g. 'Layer 7'). Empty: the file name.")
+        names.addRow("Name:", self._name)
+        layout.addLayout(names)
+        self._wavelengths = self._wavelength_choice(header, n_bands)
         if self._wavelengths is not None:
             row = QFormLayout()
             row.addRow("Wavelengths:", self._wavelengths)
@@ -508,7 +516,7 @@ class AddDataFileDialog(QDialog):
 
     def build_request(self) -> DataFileRequest:
         """The request for the current choices, with the chosen wavelength table."""
-        request = self._reference_request()
+        request = replace(self._reference_request(), name=self._name.text().strip())
         table = None if self._wavelengths is None else self._wavelengths.currentData()
         return replace(request, wavelength_table=table) if table else request
 

@@ -55,7 +55,8 @@ reference set:
 
 .. code-block:: python
 
-   tray1 = project.add_dataset("tray1.eiff", dark_frames=(0, 9), white_frames=(990, 999))
+   tray1 = project.add_dataset("tray1.eiff", dark_frames=(0, 9), white_frames=(990, 999),
+                               name="Tray 1")   # the dataset's name; optional
    tray2 = project.add_dataset("tray2.eiff", references_from="tray1.eiff")
 
 ``project.set_value(roi, target, value)`` sets or replaces a target value;

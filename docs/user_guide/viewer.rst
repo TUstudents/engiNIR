@@ -539,7 +539,10 @@ Projects
 --------
 
 A project collects ROIs from any number of datasets. **File > Add Dataset...** (or **Open Data...** while a project is open) adds a file to the
-project in the same window and asks how it is corrected:
+project in the same window. Its **Name** field gives the dataset a short name
+("Layer 7"), shown instead of the file name and used by ``{name}`` in ROI grid
+names; empty, the file name is shown (**Project > Name Dataset...** changes it
+later). The dialog asks how the file is corrected:
 
 - **Dark and white references**, each from a file or from frames of the dataset itself, such as a white tile or shutter-closed frames at the start of
   the tray;
