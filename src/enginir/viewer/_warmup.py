@@ -66,7 +66,10 @@ def start_warmup(owner: QObject, *, on_done: Callable[[], None] | None = None) -
 
     def finish(reason: str) -> None:
         timer.stop()
-        logger.info("Startup timing: warm-up {} in {:.3f}s", reason, time.perf_counter() - started)
+        from ._startup_clock import since_start
+
+        logger.info("Startup timing: warm-up {} {:.2f}s after the process started ({:.3f}s)",
+                    reason, since_start(), time.perf_counter() - started)
         if on_done is not None:
             on_done()
 

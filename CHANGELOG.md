@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.7.1 (unreleased)
+
+A fast start that never waits for a network drive. A bugfix release: the
+project format and the API are unchanged.
+
+### Fixed
+
+- **The welcome screen appears without the scientific libraries.**
+  `import enginir` and the launcher load scikit-learn, SciPy, pandas, h5py,
+  matplotlib and pyqtgraph only when they are needed; scripts keep
+  `from enginir import Project` unchanged. On Linux the welcome window is
+  painted after about 0.2 s instead of 1.4 s.
+- **The first project opens without loading the libraries:** while the
+  welcome screen waits, the viewer loads them in the background.
+- **No recent file and no data file is touched on the UI thread.** The
+  recent-files list (welcome screen and **Open Recent**) is drawn from the
+  settings file alone and grays out missing files when a background check
+  ends; the list now stores whether an entry is a project or a dataset.
+  Opening a project looks for its data files in the background and lists
+  them as "(checking…)" until then, so an unreachable network drive no
+  longer freezes the start or the window.
+- **The Windows installer compiles the bytecode at install**
+  (`uv tool install --compile-bytecode`), so the first start after an
+  install or update does not compile about 2,200 modules.
+
+### Added
+
+- **Startup times in the log**, counted from the moment the operating
+  system started the process: when the launcher ran, the welcome window was
+  shown, the background loading ended and the first main window was shown
+  (`Startup timing` lines).
+
 ## 1.7.0 (2026-11-19)
 
 The project format `enginir-1.7`: "calibration" now means only model

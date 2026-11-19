@@ -336,6 +336,12 @@ Required behavior:
   dataset list); how it was found ("next to the project", "via drive Z:")
   and the stored path are recorded in the log at info level only
 - when no candidate is found, it is marked as not found
+- the viewer looks for the data files in the background: a project opens
+  without waiting for them (a network drive may be slow or unreachable),
+  each dataset is shown as "checking…" until its file has been looked for,
+  and the file check of the Checks panel follows then; each answer is kept
+  for the session, and a file is looked for on the UI thread only when the
+  user asks for that file
 - its ROIs, their target assignments, calibration sets and models remain fully
   usable, because they need only the project file
 - `Locate File...` accepts a new path only if:

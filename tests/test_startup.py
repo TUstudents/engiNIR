@@ -145,3 +145,55 @@ def test_closing_during_the_warmup_exits_cleanly(tmp_path):
                             capture_output=True, text=True, timeout=90)
     assert result.returncode == 0, result.stderr[-2000:]
     assert "Traceback" not in result.stderr, result.stderr[-3000:]
+
+
+def test_the_process_age_counts_from_the_process_start(tmp_path):
+    """D7: the age comes from the operating system, so it includes the time before Python
+    reached engiNIR (here a sleep before the import)."""
+    script = ("import time; time.sleep(2.2)\n"
+              "from enginir.viewer._startup_clock import process_age; print(process_age())")
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
+                            timeout=60, check=True)
+    age = float(result.stdout.strip().splitlines()[-1])
+    assert 2.0 <= age < 30.0, age  # macOS reads it from ps, to the second
+
+
+_LAUNCH_UNTIL_WARM = textwrap.dedent("""
+    import os, sys
+    from enginir.viewer._app import ensure_app
+    from PyQt6.QtCore import QTimer
+    from PyQt6.QtWidgets import QApplication
+    app = ensure_app()
+    log = os.environ["ENGINIR_LOG_FILE"]
+
+    def close_when_warm():
+        text = open(log, encoding="utf-8").read() if os.path.exists(log) else ""
+        if "warm-up done" in text or "warm-up stopped" in text:
+            QApplication.closeAllWindows()
+
+    timer = QTimer()
+    timer.timeout.connect(close_when_warm)
+    timer.start(100)
+    QTimer.singleShot(80_000, QApplication.closeAllWindows)
+    import enginir.viewer.__main__ as launcher
+    sys.exit(launcher._main([]))
+""")
+
+
+@pytest.mark.timeout(120)
+def test_the_log_shows_the_start_from_the_process_start(tmp_path):
+    """D7: the log states when the launcher ran, the welcome window was shown and the
+    warm-up ended, each counted from the process start."""
+    home = tmp_path / "home"
+    home.mkdir()
+    log = tmp_path / "viewer.log"
+    env = {**os.environ, "QT_QPA_PLATFORM": "offscreen", "HOME": str(home),
+           "USERPROFILE": str(home), "XDG_CONFIG_HOME": str(home / ".config"),
+           "APPDATA": str(home / "AppData"), "ENGINIR_LOG_FILE": str(log)}
+    result = subprocess.run([sys.executable, "-c", _LAUNCH_UNTIL_WARM], env=env,
+                            capture_output=True, text=True, timeout=110)
+    assert result.returncode == 0, result.stderr[-2000:]
+    text = log.read_text(encoding="utf-8")
+    for line in ("the launcher ran", "welcome window shown", "warm-up done"):
+        found = [entry for entry in text.splitlines() if line in entry]
+        assert found and "after the process started" in found[0], (line, text[-3000:])

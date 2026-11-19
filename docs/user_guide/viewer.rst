@@ -20,6 +20,11 @@ Starting
    enginir-viewer project.h5                          # a project on its own
    enginir-viewer --version
 
+The welcome screen lists the recent files at once; a file that no longer
+exists (or whose drive is not reachable) is grayed out a moment later. While
+you choose, the viewer loads what it needs to open a file, so the first
+project opens without that wait.
+
 On Windows, ``enginir-viewer`` starts without a console window; its
 messages (``--help``, ``--version``, errors at start) appear in a message
 box, and the log file records the rest (:doc:`logging`).
@@ -554,7 +559,10 @@ is shown with its own reference correction and its own ROIs. A project opened
 on another computer or platform finds its files by itself when they lie in
 the same place relative to the project file, or on the same drive (``Z:\``
 on Windows is ``/mnt/z`` in WSL); the tooltip of the dataset list shows the
-path it is read from. This changes nothing in the project. A file that is not found is listed as
+path it is read from. This changes nothing in the project. The files are
+looked for in the background, so a project on a slow or unreachable network
+drive opens at once; until a file has been looked for, it is listed as
+"(checking…)". A file that is not found is listed as
 "(not found)"; its ROIs, values and models stay usable. Choosing it offers
 **Locate file...**: the file you pick is accepted only if it is the same
 dataset, with the same shape and wavelengths and, for every ROI, the same

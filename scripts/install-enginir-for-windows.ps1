@@ -63,15 +63,16 @@ param(
     }
     $uv = $uv.Source
 
-    # 2. engiNIR as a uv tool
+    # 2. engiNIR as a uv tool, compiled to bytecode now: the first start does not
+    #    compile about 2,200 modules (and wait for the antivirus scanning each new file)
     if ($Wheel) {
         $package = (Resolve-Path $Wheel).Path
         Step "Installing engiNIR from $package"
-        Invoke-Checked $uv @("tool", "install", "--python", $python, "--reinstall", $package)
+        Invoke-Checked $uv @("tool", "install", "--python", $python, "--reinstall", "--compile-bytecode", $package)
     } else {
         $package = if ($Version) { "enginir==$Version" } else { "enginir" }
         Step "Installing $package (Python $python)"
-        Invoke-Checked $uv @("tool", "install", "--python", $python, "--upgrade", $package)
+        Invoke-Checked $uv @("tool", "install", "--python", $python, "--upgrade", "--compile-bytecode", $package)
     }
 
     # 3. PATH

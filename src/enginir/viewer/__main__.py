@@ -39,6 +39,9 @@ def _main(argv: list[str] | None = None) -> int:
     enable_viewer_logging()
     logger.info("enginir-viewer started")
     logger.info("Log file: {}", log_file_path())
+    from ._startup_clock import mark_start, since_start
+
+    mark_start()  # the times below count from the process start, as the OS saw it (D7)
 
     parser = _Parser(
         prog="enginir-viewer",
@@ -100,9 +103,9 @@ def _main(argv: list[str] | None = None) -> int:
                     project=args.project,
                 )
             logger.info(
-                "Startup timing: direct startup target opened in {:.3f}s: {}",
-                time.perf_counter() - target_started,
-                startup_label,
+                "Startup timing: main window shown {:.2f}s after the process started "
+                "(opened in {:.3f}s): {}",
+                since_start(), time.perf_counter() - target_started, startup_label,
             )
         except Exception as exc:
             from PyQt6.QtWidgets import QMessageBox
@@ -231,10 +234,10 @@ def _main(argv: list[str] | None = None) -> int:
                     logger.error("{}: {}", log_context, exc)
                     QMessageBox.critical(welcome, error_title, str(exc))
                     return
-                logger.debug(
-                    "Startup timing: viewer handoff completed in {:.3f}s ({})",
-                    time.perf_counter() - handoff_started,
-                    text,
+                logger.info(
+                    "Startup timing: main window shown {:.2f}s after the process started "
+                    "(handed over in {:.3f}s; {})",
+                    since_start(), time.perf_counter() - handoff_started, text,
                 )
                 welcome.close()
                 _clear_startup_busy()
@@ -354,8 +357,9 @@ def _main(argv: list[str] | None = None) -> int:
         welcome.project_created.connect(_on_project_created)
         welcome.show()
         logger.info(
-            "Startup timing: welcome window shown in {:.3f}s",
-            time.perf_counter() - app_started,
+            "Startup timing: welcome window shown {:.2f}s after the process started "
+            "({:.3f}s in the launcher)",
+            since_start(), time.perf_counter() - app_started,
         )
         # While the user reads the welcome screen, import what opening a file needs (D3);
         # the timer fires after the window's first paint.

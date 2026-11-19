@@ -19,7 +19,8 @@ to each engiNIR release, does four things:
    engiNIR, with Astral's own installer, unless uv is already there.
 2. It installs engiNIR as a uv *tool*: in a folder of its own, with its own
    Python 3.13, which uv downloads. Other Python installations are not
-   touched.
+   touched. The Python files are compiled during the install, so the first
+   start is not slower than the others.
 3. It adds the tool folder to your ``PATH``, for ``enginir-viewer-console``.
 4. It adds "engiNIR Viewer" with the engiNIR icon to the Start menu.
 
@@ -28,7 +29,7 @@ The same steps by hand:
 .. code-block:: powershell
 
    powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-   uv tool install --python 3.13 enginir
+   uv tool install --python 3.13 --compile-bytecode enginir
    uv tool update-shell
    enginir-viewer-console --install-shortcut      # add --desktop for a desktop icon
 
@@ -48,6 +49,13 @@ If the viewer does not start, start ``enginir-viewer-console`` in a
 PowerShell window to see its messages, and look in the log file
 ``%USERPROFILE%\.enginir\enginir.log`` (:doc:`logging`). The viewer itself
 is described in :doc:`viewer`.
+
+If the start is slow, the lines ``Startup timing`` in the log file say
+where the time went, counted from the moment Windows started the process:
+until the launcher ran, until the welcome window was shown and until the
+first project window was shown. A long time before the launcher ran comes
+from outside engiNIR, usually an antivirus program scanning the files of a
+new install or a busy computer.
 
 On Linux and macOS, ``uv tool install enginir`` installs the viewer the same
 way (``enginir-viewer`` on the ``PATH``).

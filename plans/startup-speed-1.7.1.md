@@ -1,6 +1,7 @@
 # Plan: engiNIR 1.7.1, a fast start that never waits for a network drive
 
-Status: decided (user, 2026-11-19): D1 to D8 below. Phases 1 to 3 done.
+Status: decided (user, 2026-11-19): D1 to D8 below. Phases 1, 2, 3 and 5 done;
+Phase 4 measured, waiting for a decision (see there).
 
 ## Goal
 
@@ -169,6 +170,14 @@ and grays out missing files, like the welcome window.
 
 ### Phase 4: the Model and Predict pages on first show (D8)
 
+*Measured (2026-11-19, Linux, warm, an empty project).* The window takes
+0.41 s to build. The Model page takes about 0.05 s of that, nearly all of
+it the embedded Fit settings form (`FitModelRunDialog`, `embed_fit_settings`),
+and the Predict page 0.01 s. The rest is the Explore page: the controls
+panel with its plot panels (0.14 s) and the docks (0.05 s). Lazy pages
+would save about 15 % for a restructuring of 71 uses in 9 files, so the
+phase waits for a decision (user).
+
 - Measure first: the time to build `HSIViewer` for an empty project, and the
   share of `ModelingView` and `PredictionView` in it (Linux, warm).
 - The two pages become lazily built properties. Construction-time uses
@@ -185,6 +194,12 @@ and grays out missing files, like the welcome window.
   - fault-injected: a page built during construction fails the first test.
 
 ### Phase 5: install, measurement, docs (D6, D7)
+
+*Done (2026-11-19).* The installer passes `--compile-bytecode`;
+`windows-install` checks the `.pyc` files of modules that nothing imports
+before the check. `_startup_clock` gives the time since the process start;
+the `Startup timing` lines at INFO state it for the launcher, the welcome
+window, the warm-up and the first main window.
 
 - `--compile-bytecode` in the installer, and the check in `windows-install`.
 - The process-start time and the step times in the log.
