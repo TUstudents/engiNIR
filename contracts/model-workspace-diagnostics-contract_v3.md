@@ -142,11 +142,11 @@ Required v3 pages, in this order:
    - **per pixel**: R²X(cum) and R²Y(cum) over the drawn pixels, with a note
      that single pixels are noisy, so R²Y per pixel stays below the ROI value
 4. `Distance` (`sample-set-model-run-contract_v3.md` §7.5)
-   - the calibration pixels' normalized DModX with DCrit (0.99) and the share
-     above it next to the 1 % a 0.99 limit expects; bins up to the 99.5th
+   - the calibration pixels' normalized DModX with DCrit (0.95) and the share
+     above it next to the 5 % a 0.95 limit expects; bins up to the 99.5th
      percentile and the pixels above it as one overflow bar (count and
      largest value stated), so a long tail does not hide the distribution
-   - their Hotelling T² with T²Crit (0.99), drawn the same way
+   - their Hotelling T² with T²Crit (0.95), drawn the same way
    - per ROI: the share of its calibration pixels above DCrit (bars, colored
      by target value) and above T²Crit (markers), sorted from the largest
      DModX share, with the expected 1 % as a line; a bar selects its ROI

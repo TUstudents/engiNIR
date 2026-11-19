@@ -182,7 +182,7 @@ Diagnostics and results
    Outside the model
    Above DCrit
    Above T²Crit
-      Above DCrit or above T²Crit (at 0.99). A statement about the spectrum,
+      Above DCrit or above T²Crit (at 0.95, SIMCA's default). A statement about the spectrum,
       not a judgement that it is faulty; engiNIR does not say "outlier".
 
    Excluded pixels

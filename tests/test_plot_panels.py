@@ -358,7 +358,7 @@ def _model_payload() -> dict:
                             "suggested_one_se": 3, "suggested_min_rmsecv": 3,
                             "suggested_q2_limit": 3},
         "score_variances": np.array([1.0, 0.5]),
-        "t2_crit_2_095": 6.1, "t2_crit_2_099": 9.4, "t2_crit_099": 11.5, "dcrit_099": 1.3,
+        "t2_crit_2_095": 6.1, "t2_crit_2_099": 9.4, "t2_crit_095": 11.5, "dcrit_095": 1.3,
         "t2_pixels": rng.chisquare(3, 500).astype(np.float32),
         "dmodx_pixels": rng.gamma(4.0, 0.25, 500).astype(np.float32),
         "roi_share_above_dcrit": rng.uniform(0.0, 0.2, n_rois).astype(np.float32),

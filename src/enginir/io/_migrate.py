@@ -3,8 +3,14 @@
 In ``enginir-1.5`` the stored names of the reference correction said
 "calibration" (``calibrations/``, ``calibration_id``, ``calibration_refs``,
 ``precalibrated_import``, ...), which clashed with model calibration. The
-conversion renames them and changes nothing else (project-schema contract,
-Compatibility policy, "Renamed in format enginir-1.7"):
+conversion renames them (project-schema contract, Compatibility policy,
+"Renamed in format enginir-1.7"). ``enginir-1.7`` also uses SIMCA's 0.95 level
+for the DModX and T² limits: the conversion adds ``dcrit_095`` and
+``t2_crit_095`` to every model, computed from its stored ``n_train``, band
+count and components with the formulas of the fit, and renames the per-ROI
+shares above the 0.99 limits to ``roi_share_above_dcrit_099`` and
+``roi_share_above_t2crit_099`` (the fit stores them at 0.95). Nothing else
+changes:
 
 - it writes a new file and never changes the source;
 - it keeps ``project_id``, ``FileCreator``, ``created_at`` and every object
@@ -26,6 +32,7 @@ from collections import Counter
 from pathlib import Path
 
 import h5py
+import numpy as np
 
 from .._checks import log_and_raise
 from .._logging import get_logger
@@ -54,6 +61,11 @@ RENAMED_ATTRIBUTES = {
 }
 #: Attribute values renamed (the reference correction mode and the input contract's required mode).
 RENAMED_VALUES = {"precalibrated_import": "already_corrected"}
+#: Per-ROI shares in a model's diagnostics that the old fit took at 0.99 (attribute or dataset).
+RENAMED_SHARES = {
+    "roi_share_above_dcrit": "roi_share_above_dcrit_099",
+    "roi_share_above_t2crit": "roi_share_above_t2crit_099",
+}
 
 
 def migrate_project(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> Path:
@@ -105,9 +117,10 @@ def migrate_project(source: str | os.PathLike[str], target: str | os.PathLike[st
         partial.unlink(missing_ok=True)
         logger.error("Conversion of {} to {} failed; nothing was written", source, target)
         raise
-    logger.info("Converted {} ({}) to {} ({}): {} group(s), {} attribute(s), {} value(s) renamed",
-                source, PREVIOUS_FILE_SCHEMA_VERSION, target, FILE_SCHEMA_VERSION,
-                counts["groups"], counts["attributes"], counts["values"])
+    logger.info("Converted {} ({}) to {} ({}): {} group(s), {} attribute(s), {} value(s) "
+                "renamed, {} limit(s) at 0.95 added", source, PREVIOUS_FILE_SCHEMA_VERSION,
+                target, FILE_SCHEMA_VERSION, counts["groups"], counts["attributes"],
+                counts["values"], counts["limits"])
     return target
 
 
@@ -146,11 +159,57 @@ def _rename(path: Path) -> Counter[str]:
             if last in RENAMED_GROUPS and isinstance(obj, h5py.Group) and isinstance(owner, h5py.Group):
                 owner.move(last, RENAMED_GROUPS[last])
                 counts["groups"] += 1
+        models = f.get("model_runs")
+        for run in models.values() if isinstance(models, h5py.Group) else ():
+            if isinstance(run, h5py.Group):
+                counts["limits"] += _add_limits_095(run)
         meta = f["project_meta"].attrs
         meta["FileSchemaVersion"] = FILE_SCHEMA_VERSION
         meta["FileWriter"] = file_writer_label()
         meta["updated_at"] = _now_iso()  # as every write
     return counts
+
+
+def _add_limits_095(run: h5py.Group) -> int:
+    """Add the 0.95 limits to one model and rename its 0.99 shares; the number of limits added.
+
+    DCrit = :func:`~enginir.validation.dmodx_limit` (N, K, A, 0.95) and
+    T²Crit = A(N − 1)/(N − A) · F(0.95; A, N − A), as the fit computes them;
+    NaN where the fit leaves them undefined (K − A < 1 or N − A − 1 < 1 for
+    DCrit, N − A < 1 for T²Crit).
+    """
+    from scipy.stats import f as f_distribution
+
+    from ..validation.outliers import dmodx_limit
+
+    model = run.get("artifact_refs/prediction_model")
+    diagnostics = run.get("artifact_refs/diagnostics")
+    if not isinstance(model, h5py.Group):
+        return 0  # not executable; the reader refuses it as before
+    n = int(np.asarray(model.attrs.get("n_train", -1)))
+    a = int(np.asarray(model.attrs.get("n_components", -1)))
+    k = int(np.asarray(model.attrs["x_mean"]).size) if "x_mean" in model.attrs else -1
+    if min(n, a, k) < 1:
+        return 0
+    dcrit = dmodx_limit(n, k, a, 0.95) if k - a >= 1 and n - a - 1 >= 1 else float("nan")
+    t2_crit = (float(a * (n - 1) / (n - a) * f_distribution.ppf(0.95, a, n - a))
+               if n - a >= 1 else float("nan"))
+    added = 0
+    for group in (model, diagnostics):
+        if not isinstance(group, h5py.Group):
+            continue
+        for key, value in (("dcrit_095", dcrit), ("t2_crit_095", t2_crit)):
+            if key not in group.attrs:
+                group.attrs[key] = float(value)
+                added += 1
+    if isinstance(diagnostics, h5py.Group):
+        for old, new in RENAMED_SHARES.items():
+            if old in diagnostics.attrs:
+                diagnostics.attrs[new] = diagnostics.attrs[old]
+                del diagnostics.attrs[old]
+            elif old in diagnostics:
+                diagnostics.move(old, new)
+    return added
 
 
 def _check(path: Path) -> None:

@@ -184,7 +184,7 @@ interval is computed on demand.
   calibration ROIs' (``roi_scores``). It follows the pixel exclusion, like the
   mean.
 - **Outside the model there is no interval** (NaN): a pixel above DCrit or
-  T²Crit (0.99), or an ROI mean beyond the ROI-level T² limit. The formula
+  T²Crit (0.95), or an ROI mean beyond the ROI-level T² limit. The formula
   assumes the spectrum resembles the calibration spectra; beyond the limits a
   number would mislead.
 

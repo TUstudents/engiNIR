@@ -1031,6 +1031,9 @@ CORE_FIELDS = (
     "model_runs/{model}/artifact_refs/prediction_model",
     "model_runs/{model}/artifact_refs/prediction_model@model_type",
     "model_runs/{model}/artifact_refs/prediction_model@n_components",
+    # the limits in use, SIMCA's 0.95 level (format enginir-1.7)
+    "model_runs/{model}/artifact_refs/prediction_model@dcrit_095",
+    "model_runs/{model}/artifact_refs/prediction_model@t2_crit_095",
 )
 
 
@@ -1038,6 +1041,8 @@ CORE_FIELDS = (
 DISPLAY_FIELDS = (
     "model_runs/{model}/metrics",
     "model_runs/{model}/cv_spec",
+    "model_runs/{model}/artifact_refs/prediction_model@dcrit_099",
+    "model_runs/{model}/artifact_refs/prediction_model@t2_crit_099",
 )
 
 

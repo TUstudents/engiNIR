@@ -327,7 +327,10 @@ viewer, scripts and reports show their results and add none of their own.
 - **Read-only.** They change neither the project file nor the `Project` in
   memory, and they need no dataset file. `Project.checks()` looks whether the
   dataset files are found (as `find_data_file` does) unless called with
-  `files=False`.
+  `files=False`, and predicts the prediction ROIs from the project file (for
+  `predict.rois_outside`) unless called with `predict=False`. The prediction
+  is cached per project file, model and ROI, which never change under their
+  ids.
 - **A check** has a stable id, the workflow step it belongs to (`data`,
   `rois`, `values`, `model`, `predict`), a severity, one sentence in the terms
   of the terminology contract, the ids of the ROIs, datasets, target and model
@@ -359,13 +362,17 @@ Checks (id, severity when not `ok`):
 | `model.rois_deleted` | the calibration set lists deleted ROIs | attention | |
 | `model.values_changed` | current values differ from the values the model was fitted with (compared to float32 precision, relative 1e-6) | attention | `refit` (none after a deletion) |
 | `model.rois_added` | calibration ROIs with a value that the model does not use | info | `fit` |
-| `model.distance` | share of calibration pixels above the DModX limit (0.99 level), weighted by pixels; attention above 5 %, naming the datasets above the overall share | attention | `show_page` Distance |
+| `model.distance` | share of calibration pixels above the DModX limit (0.95 level), weighted by pixels; attention above three times the expected share (15 % at 0.95; decided 2026-11-19), naming the datasets above the overall share | attention | `show_page` Distance |
 | `model.components` | components beyond the structure ceiling: attention; otherwise ok when the chosen number is the most suggested one of the selection rules, else info | attention or info | `show_page` Components |
 | `model.calibration_set` | ROIs and pixels of the fit | | |
-| `predict.no_rois` / `predict.rois_ready` | models exist; no prediction ROI / their number | info | `predict_rois` with the newest model |
+| `predict.no_rois` / `predict.rois_ready` | models exist; no prediction ROI / their number; when predicted with the newest model and none is outside, "all lie within" it | info | `predict_rois` with the newest model |
+| `predict.rois_outside` | prediction ROIs outside the newest model by `enginir.prediction.unusual_rois` (prediction-runtime contract, Prediction ROIs); none for a model without calibration shares at 0.95 | attention | `select_roi` (the first one named) |
 
-Not yet checks (need results that are not stored): reflectance values
-clipped by the reference correction, and predicted ROIs outside the model.
+Not a check: reflectance clipped by the reference correction. Values above
+the white reference are light reflected directly from the surface (specular
+reflection, glare); they need no action, and the DModX exclusion removes
+those pixels (decided 2026-11-18). The conversion still counts and logs them
+(dataset-reference-correction contract).
 
 ## Callback contract
 

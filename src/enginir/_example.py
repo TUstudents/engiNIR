@@ -7,7 +7,9 @@ calibration scans holds tablets with different numbers of printed layers
 same thing; the fifth scan holds tablets to predict. Each scan carries its
 own dark and white reference frames. The project has the target "Layers",
 one sample label per tablet, and a PLS model held out by sample (two
-components: layers and a varying binder). It opens without open checks. The spectra are made up; the numbers mean nothing
+components: layers and a varying binder). Its only open check is in the
+Predict step: the prediction tablet P_T4 lies outside the model
+(``predict.rois_outside``). The spectra are made up; the numbers mean nothing
 beyond the demo.
 """
 

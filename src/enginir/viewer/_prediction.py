@@ -43,6 +43,8 @@ from ..prediction import (
     roi_prediction_statistics,
 )
 from ..project import ReferenceCorrection
+from ..prediction import unusual_rois
+from ..validation.outliers import LIMIT_LEVEL
 from ._predict_dialogs import ModelChoice, PredictMapDialog, PredictRoisDialog
 from ._jobs import BackgroundWorker, BusyStatusWidget, start_background_job
 from ._state import ProjectState
@@ -127,8 +129,8 @@ _MAP_PREVIEW_PIXELS = 512 * 512
 #: Map layers of the Predict workspace; the diagnostics come with the saved model's
 #: projection data (prediction-runtime contract, Applicability diagnostics).
 MAP_LAYERS = ("Prediction", "DModXPS", "T²PS", "Prediction interval")
-_LAYER_LIMITS = {"DModXPS": ("dcrit_099", "n_above_dcrit", "share_above_dcrit", "DCrit"),
-                 "T²PS": ("t2_crit_099", "n_above_t2crit", "share_above_t2crit", "T²Crit")}
+_LAYER_LIMITS = {"DModXPS": ("dcrit_095", "n_above_dcrit", "share_above_dcrit", "DCrit"),
+                 "T²PS": ("t2_crit_095", "n_above_t2crit", "share_above_t2crit", "T²Crit")}
 _NO_DIAGNOSTICS = "No {} map: this model's projection data is not available."
 _NO_INTERVAL = ("No prediction interval map: this model has no prediction-interval inputs "
                 "(a PLS or PCR model with one target, its RMSEE (per pixel) and at least "
@@ -195,7 +197,7 @@ class PredictionMapWidget(QWidget):
     plot frame and puts :meth:`header_widgets` (layer and output selectors,
     pan, zoom, reset view) into the frame header. The layer is the prediction
     or one of the applicability diagnostics (DModXPS, T²PS), whose pixels above
-    the 0.99 limit are overlaid, or the half-width of the 95 % prediction
+    the 0.95 limit are overlaid, or the half-width of the 95 % prediction
     interval (Prediction interval; pixels outside the model marked). Large maps are shown as a subsampled
     preview; the axes, the hover readout and the CSV use the true frame and
     row of each shown pixel (``map_step`` in the payload).
@@ -235,7 +237,7 @@ class PredictionMapWidget(QWidget):
         self._layer_combo.addItems(list(MAP_LAYERS))
         self._layer_combo.setToolTip("Map layer: the prediction; the distance to the model "
                                      "(DModXPS) or within it (T²PS) with the pixels above the "
-                                     "0.99 limit marked; or the ± half-width of the 95 % "
+                                     "0.95 limit marked; or the ± half-width of the 95 % "
                                      "prediction interval, none outside the model")
         self._layer_combo.currentIndexChanged.connect(self._on_output_changed)
         self._overlay: Any = None
@@ -456,7 +458,7 @@ class PredictionMapWidget(QWidget):
 
     @staticmethod
     def _layer_limit(payload: dict[str, Any], layer: str) -> float | None:
-        """The 0.99 limit of a diagnostics layer, or ``None``."""
+        """The 0.95 limit of a diagnostics layer, or ``None``."""
         if layer not in _LAYER_LIMITS:
             return None
         value = (payload.get("diagnostics") or {}).get(_LAYER_LIMITS[layer][0])
@@ -540,7 +542,7 @@ class PredictionMapWidget(QWidget):
                                     "target_unit": str(payload.get("target_unit", ""))}
         limit = self._layer_limit(payload, self.layer)
         if limit is not None:
-            metadata["limit_099"] = f"{limit:.6g}"
+            metadata["limit_095"] = f"{limit:.6g}"
         if self.layer == "Prediction" and self._shown_limits is not None:
             low, high = self._shown_limits
             metadata["colour_scale"] = (f"{low:.6g} .. {high:.6g} "
@@ -682,7 +684,7 @@ class PredictionMapWidget(QWidget):
             dcrit, removed = self._hover.get("dcrit"), self._hover.get("removed")
             notes = []
             if dcrit is not None:
-                notes.append(f"DCrit 0.99 {dcrit:.3g}" + (": above" if value > dcrit else ""))
+                notes.append(f"DCrit 0.95 {dcrit:.3g}" + (": above" if value > dcrit else ""))
             if removed is not None:
                 notes.append(f"exclusion limit {removed:.3g}"
                              + (": excluded" if value > removed else ""))
@@ -907,7 +909,7 @@ class PredictionView(QWidget):
         self._exclusion_level.setRange(0.5, 0.999)
         self._exclusion_level.setDecimals(3)
         self._exclusion_level.setSingleStep(0.01)
-        self._exclusion_level.setValue(0.99)
+        self._exclusion_level.setValue(LIMIT_LEVEL)
         self._exclusion_level.setPrefix("level ")
         self._exclusion_check.toggled.connect(self._recompute_roi_results)
         self._exclusion_level.valueChanged.connect(self._recompute_roi_results)
@@ -1156,7 +1158,7 @@ class PredictionView(QWidget):
         for widget in (self._exclusion_check, self._exclusion_level):
             widget.blockSignals(True)
         self._exclusion_check.setChecked(default is not None)
-        self._exclusion_level.setValue(0.99 if default is None else default)
+        self._exclusion_level.setValue(LIMIT_LEVEL if default is None else default)
         self._exclusion_check.setEnabled(has_projection)
         self._exclusion_check.setToolTip(
             self._exclusion_check.toolTip() if has_projection
@@ -1214,6 +1216,8 @@ class PredictionView(QWidget):
         rows: list[dict[str, Any]] = []
         rmsep: dict[str, str] = {}
         for prediction, summary in zip(self._roi_predictions, self._roi_summaries, strict=True):
+            # Outside the model by the library's one rule (the ring of the per-ROI plot).
+            outside = set(unusual_rois(prediction))
             for row in summary.rois:
                 roi = state.rois.get(row.roi_id)
                 rows.append({
@@ -1225,6 +1229,7 @@ class PredictionView(QWidget):
                     "mean_dmodx": row.mean_dmodx, "mean_t2": row.mean_t2,
                     "share_above_dcrit": row.share_above_dcrit,
                     "share_above_t2crit": row.share_above_t2crit,
+                    "unusual": row.roi_id in outside,
                     "reference": row.reference, "residual": row.residual})
             if summary.rmsep is not None:
                 rmsep[prediction.model_name] = (f"RMSEP (per ROI) {summary.rmsep:.4g}, bias "
@@ -1236,7 +1241,6 @@ class PredictionView(QWidget):
         if first is not None and first.target_id in state.targets:
             unit = shown_unit(state.targets[first.target_id].unit)
         return {"roi_rows": rows, "target_unit": unit, "rmsep": rmsep,
-                "training_share": None if first is None else first.training_share_range,
                 "exclusion_text": ("" if not rows else "all pixels kept" if level is None
                                    else f"pixels above DCrit at {level:g} excluded"),
                 "message": self._roi_note or (
@@ -1688,13 +1692,13 @@ class PredictionView(QWidget):
 
     @staticmethod
     def _diagnostics_summary(result: PredictionResult) -> str:
-        """Shares above the 0.99 limits and the mean prediction within and outside them."""
+        """Shares above the 0.95 limits and the mean prediction within and outside them."""
         summary = result.diagnostics
         if not summary:
             return "not available"
         parts = []
-        for key, share, name in (("dcrit_099", "share_above_dcrit", "DCrit"),
-                                 ("t2_crit_099", "share_above_t2crit", "T²Crit")):
+        for key, share, name in (("dcrit_095", "share_above_dcrit", "DCrit"),
+                                 ("t2_crit_095", "share_above_t2crit", "T²Crit")):
             if summary.get(key) is not None:
                 parts.append(f"{100 * float(summary[share]):.2g} % above {name}")
         lines = [", ".join(parts) + " (whole map, background included)"] if parts else []

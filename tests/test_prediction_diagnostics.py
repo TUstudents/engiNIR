@@ -59,8 +59,8 @@ def test_on_the_training_scan_the_statistics_are_the_training_ones(tmp_path, mod
     np.testing.assert_allclose(prediction.dmodx_map.reshape(-1), diagnostics["dmodx"] / v,
                                rtol=1e-4)
     limits = prediction.diagnostics
-    assert limits["t2_crit_099"] == pytest.approx(diagnostics["t2_crit_099"])
-    assert limits["dcrit_099"] == pytest.approx(diagnostics["dcrit_099"])
+    assert limits["t2_crit_095"] == pytest.approx(diagnostics["t2_crit_095"])
+    assert limits["dcrit_095"] == pytest.approx(diagnostics["dcrit_095"])
     assert limits["n_pixels"] == n
     assert prediction.map.shape == prediction.dmodx_map.shape == prediction.t2_map.shape
 
@@ -90,7 +90,7 @@ def test_the_statistics_equal_their_formulas_and_an_odd_pixel_exceeds_dcrit(tmp_
     np.testing.assert_allclose(prediction.t2_map.reshape(-1), t2, rtol=1e-5)
     np.testing.assert_allclose(prediction.dmodx_map.reshape(-1), distance, rtol=1e-5)
 
-    dcrit = prediction.diagnostics["dcrit_099"]
+    dcrit = prediction.diagnostics["dcrit_095"]
     odd = prediction.dmodx_map[3, 1]
     assert odd > dcrit and odd == prediction.dmodx_map.max()
     summary = prediction.diagnostics
@@ -323,9 +323,9 @@ def test_pixels_outside_the_model_have_no_interval(tray, tmp_path):
     half, dmodx, t2 = prediction.interval_map(), prediction.dmodx_map, prediction.t2_map
     assert half is not None and dmodx is not None and t2 is not None
     limits = prediction.diagnostics or {}
-    assert dmodx[10, 2] > limits["dcrit_099"]
+    assert dmodx[10, 2] > limits["dcrit_095"]
     assert np.isnan(half[10, 2])
-    outside = (dmodx > limits["dcrit_099"]) | (t2 > limits["t2_crit_099"])
+    outside = (dmodx > limits["dcrit_095"]) | (t2 > limits["t2_crit_095"])
     assert np.array_equal(np.isnan(half), outside)
 
 
@@ -340,8 +340,13 @@ def test_the_mean_interval_of_a_prediction_roi_uses_the_calibration_roi_scores(t
     centre, cov_inv = roi_scores.mean(axis=0), np.linalg.inv(np.cov(roi_scores, rowvar=False))
     q = _q(0.95, N_TRAINING_ROIS, a)
 
+    # The ROI-level limit: T²Crit at 0.95 (SIMCA's default) with the R calibration ROIs.
+    roi_t2_limit = a * (r - 1) / (r - a) * stats.f.ppf(0.95, a, r - a)
+
     def expected(mean_scores: np.ndarray) -> float:
         d2 = (mean_scores - centre) @ cov_inv @ (mean_scores - centre)
+        if d2 > roi_t2_limit:
+            return float("nan")
         return q * model.metrics["rmsee"] * np.sqrt(1 + 1 / r + d2 / (r - 1))
 
     assignments = project.workspace.target_assignments
@@ -350,6 +355,7 @@ def test_the_mean_interval_of_a_prediction_roi_uses_the_calibration_roi_scores(t
         pixels = prediction.pixels[row.roi_id]
         assert pixels.scores is not None
         np.testing.assert_allclose(row.interval, expected(pixels.scores.mean(axis=0)), rtol=1e-5)
+    assert sum(np.isfinite(row.interval) for row in summary.rois) >= 2, "intervals to compare"
 
     # Glare in t09: three pixels far outside the model; removing them changes the interval.
     roi_id = project.roi("t09").roi_id
@@ -380,15 +386,15 @@ def test_the_fit_reports_how_often_held_out_predictions_fall_inside_their_interv
                    centred)
     half = (_q(0.95, N_TRAINING_ROIS, a) * metrics["rmsee"]
             * np.sqrt(1 + 1 / r + d2 / (r - 1)))
-    crit = a * (r - 1) / (r - a) * stats.f.ppf(0.99, a, r - a)
+    crit = a * (r - 1) / (r - a) * stats.f.ppf(0.95, a, r - a)
     error = np.abs(np.asarray(diagnostics["y_pred_roi"]) - np.asarray(diagnostics["y_true_roi"]))
     counted = d2 <= crit
     assert metrics["interval_coverage_roi_n"] == int(counted.sum())
     assert metrics["interval_coverage_roi"] == pytest.approx(
         np.mean(error[counted] <= half[counted]))
 
-    inside = ((np.asarray(diagnostics["t2"]) <= diagnostics["t2_crit_099"])
-              & (np.asarray(diagnostics["dmodx"]) <= diagnostics["dcrit_099"]))
+    inside = ((np.asarray(diagnostics["t2"]) <= diagnostics["t2_crit_095"])
+              & (np.asarray(diagnostics["dmodx"]) <= diagnostics["dcrit_095"]))
     assert metrics["interval_coverage_pixel_n"] == int(inside.sum())
     # Pixel noise is normal here, so the held-out pixels fall inside about as often as stated.
     assert 0.85 <= metrics["interval_coverage_pixel"] <= 1.0

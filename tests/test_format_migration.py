@@ -35,7 +35,8 @@ def _content(path: Path, *, renamed: bool) -> dict[str, object]:
     Only the format metadata (FileSchemaVersion, FileWriter, updated_at) is left out.
     """
     groups = dict(_migrate.RENAMED_GROUPS) if renamed else {}
-    attributes = dict(_migrate.RENAMED_ATTRIBUTES) if renamed else {}
+    attributes = ({**_migrate.RENAMED_ATTRIBUTES, **_migrate.RENAMED_SHARES} if renamed
+                  else {})
     values = dict(_migrate.RENAMED_VALUES) if renamed else {}
     content: dict[str, object] = {}
     with h5py.File(path, "r") as f:
@@ -78,7 +79,12 @@ def test_the_converted_project_keeps_everything_and_predicts_the_same_map(tmp_pa
     target = migrate_project(source, source.with_name("converted.h5"))
 
     assert _digest(source) == before, "the source is never changed"
-    assert _content(target, renamed=False) == _content(source, renamed=True)
+    converted = _content(target, renamed=False)
+    added = {key: converted.pop(key) for key in list(converted)
+             if key.endswith(("@dcrit_095", "@t2_crit_095")) and "prediction_model" in key
+             or key.endswith("diagnostics@dcrit_095")}
+    assert converted == _content(source, renamed=True)
+    _the_added_limits_equal_their_formulas(target, added)
     with h5py.File(target, "r") as f:
         meta = f["project_meta"].attrs
         assert meta["FileSchemaVersion"] == FILE_SCHEMA_VERSION
@@ -102,6 +108,28 @@ def test_the_converted_project_keeps_everything_and_predicts_the_same_map(tmp_pa
              for c in d["reference_corrections"].values()}
     assert modes == {"dark_white_reference", "already_corrected"}
     assert len(store["predictions"]) == 1
+
+
+def _the_added_limits_equal_their_formulas(path: Path, added: dict[str, object]) -> None:
+    """dcrit_095 and t2_crit_095 from N, K and A, computed here independently of the tool."""
+    from scipy.stats import f
+
+    from enginir.validation import dmodx_limit
+
+    with h5py.File(path, "r") as file:
+        (run,) = file["model_runs"].values()
+        model = run["artifact_refs/prediction_model"].attrs
+        n, a, k = int(model["n_train"]), int(model["n_components"]), model["x_mean"].size
+        diagnostics = run["artifact_refs/diagnostics"].attrs
+        assert "roi_share_above_dcrit_099" in diagnostics
+        assert "roi_share_above_dcrit" not in diagnostics, "no reader may take 0.99 shares for 0.95"
+        assert float(model["t2_crit_095"]) == pytest.approx(
+            a * (n - 1) / (n - a) * f.ppf(0.95, a, n - a), rel=1e-12)
+        assert float(model["dcrit_095"]) == pytest.approx(dmodx_limit(n, k, a, 0.95), rel=1e-12)
+        assert float(diagnostics["dcrit_095"]) == float(model["dcrit_095"])
+        # t2_crit_095 was already in the diagnostics of 1.5 and stays as it was
+        assert float(diagnostics["t2_crit_095"]) == pytest.approx(float(model["t2_crit_095"]))
+    assert len(added) == 3, sorted(added)
 
 
 def test_an_existing_target_or_the_source_itself_is_refused(tmp_path):

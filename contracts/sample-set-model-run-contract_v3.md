@@ -383,7 +383,7 @@ intervals are, if anything, too narrow and the coverage errs low.
   `roi_scores` row over the fitted pixels
 - `interval_coverage_pixel`: over the drawn pixels with a finite held-out
   prediction and a pixel interval (their calibration T² and DModX, as
-  `roi_share_above_dcrit`, against the stored 0.99 limits; pixels above
+  `roi_share_above_dcrit`, against the stored 0.95 limits; pixels above
   either are left out; pixels excluded by DModX are counted like the
   others), s = `pixel_rmsee`. It is pixel-weighted, and its count is not an
   effective sample size (pixels of one ROI are not independent)
@@ -450,7 +450,7 @@ spectra and values, new ids) gives the same numbers.
 | `pixels/seed` | integer, 0 ≤ seed < 2⁶³ (a signed 64-bit HDF5 attribute) | `0` |
 | `pixels/checksum` | SHA-256 (hex) of the drawn pixel indices (§7.1), written at fit time; empty string for `all` | – |
 | `exclusion/method` | `none`, `dmodx` | `none` |
-| `exclusion/level` | probability of the DCrit limit, 0.5 < level < 1 | `0.99` |
+| `exclusion/level` | probability of the DCrit limit, 0.5 < level < 1 | `0.95` (SIMCA's default) |
 | `exclusion/rounds` | `1` or `2` | `1` |
 | `exclusion/max_fraction` | largest share of an ROI's drawn pixels that may be excluded over all rounds, 0 < value < 1 | `0.2` |
 | `exclusion/formula` | DModX definition (§7.2): `dmodx-1` (unweighted) or `dmodx-2` (weighted by the modeling power, SIMCA's default) | `dmodx-1` |
@@ -593,7 +593,8 @@ are never excluded automatically.
 
 Pixels of one ROI are correlated and *N* is large, so DCrit approaches a
 fixed value and about `1 − level` of normal pixels lie above it in every
-round; the default level 0.99 keeps that loss near 1 % per round.
+round; the default level 0.95 (SIMCA's default significance) removes about
+5 % per round. A model keeps the level it was fitted with (its `fit_spec`).
 
 Definition `dmodx-1` (SIMCA 18 help, pages
 `15-Appendix A Statistics_files/AbsDistWorkset.htm`, `NormDistWorkset.htm`
@@ -774,8 +775,8 @@ it was fitted on):
 - T²Crit = A(N − 1)/(N − A) · F(level; A, N − A) at 0.95 and 0.99 (SIMCA's
   F form; `enginir.validation.outliers.hotelling_t2` uses the Beta form for
   calibration data points, a different number); T²Crit for the first two
-  components (the score-plot ellipse), NaN when A < 2; DModX and DCrit at
-  0.99, NaN when K − A < 1 or N − A₀ − A < 1 (`project-schema-contract_v3.md`, Core and display data)
+  components (the score-plot ellipse), NaN when A < 2; DModX, and DCrit at
+  0.95 (the limit in use) and 0.99, NaN when K − A < 1 or N − A₀ − A < 1 (`project-schema-contract_v3.md`, Core and display data)
 - ROI scores for the score plot (model-workspace-diagnostics contract §2):
   `roi_scores`, per ROI (in `cv_outputs/roi_ids` order) the mean calibration
   score of each component over that ROI's fitted pixels (the drawn pixels
@@ -783,7 +784,8 @@ it was fitted on):
   `roi_score_pixels`, the number of those pixels. An ROI with no fitted
   pixel has NaN scores and 0. The fit computes them because only the fit
   knows which row belongs to which ROI
-- per ROI the share of its drawn pixels above DCrit and above T²Crit (0.99)
+- per ROI the share of its drawn pixels above DCrit and above T²Crit at 0.95
+  (`roi_share_above_dcrit`, `roi_share_above_t2crit`)
 - band importance, on the model's axis:
   `mean_spectrum`, the mean preprocessed spectrum of the N fitted pixels
   (the model's `x_mean` in the units of X; stored with the diagnostics,
@@ -809,7 +811,8 @@ are the *a*-component PLS model for both `kernel` and `nipals`.
 
 The final model's `prediction_model` artifact also stores its projection
 data (`x_mean`, `x_std`, `rotations`, `loadings`, `score_variances`, `s0`,
-`n_train`, `n_components`, `t2_crit_099`, `dcrit_099`), the same values the
+`n_train`, `n_components`, `t2_crit_095`, `dcrit_095`, and as display data
+`t2_crit_099`, `dcrit_099`), the same values the
 calibration diagnostics above use, so predictions can compute DModXPS and T²PS
 (`prediction-runtime-contract_v3.md`, Applicability diagnostics).
 

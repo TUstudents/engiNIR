@@ -264,7 +264,7 @@ same quantity), and the words it replaces.
   *Related*: leverage (see Prediction interval).
 
 **Above DCrit**, **above T²Crit**, **outside the model**
-: A pixel or ROI whose DModX or T² exceeds the 0.99 limit is "above DCrit"
+: A pixel or ROI whose DModX or T² exceeds the 0.95 limit is "above DCrit"
   or "above T²Crit"; above either, it is "outside the model". A limit
   exceedance describes the spectrum; it is not a judgement that the
   spectrum is faulty.

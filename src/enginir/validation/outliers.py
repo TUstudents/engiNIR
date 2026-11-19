@@ -19,6 +19,10 @@ from enginir._logging import get_logger
 logger = get_logger(__name__)
 _EPS = 1e-10
 
+#: Significance level of the DModX and T² limits: SIMCA's default 0.95 (DCrit, T²Crit;
+#: sample-set-model-run contract §7.2, prediction-runtime contract).
+LIMIT_LEVEL = 0.95
+
 
 def _as_float64_matrix(value: Any, name: str) -> np.ndarray:
     return as_float_matrix(value, name).astype(np.float64, copy=False)
@@ -345,5 +349,5 @@ def dmodx_limit(n_samples: int, n_variables: int, n_components: int, level: floa
     return float(np.sqrt(f.ppf(level, df_obs, df_mod)))
 
 
-__all__ = ["dmodx", "dmodx_limit", "hotelling_t2", "leverage_outliers", "modelling_power",
+__all__ = ["LIMIT_LEVEL", "dmodx", "dmodx_limit", "hotelling_t2", "leverage_outliers", "modelling_power",
            "spectral_outliers"]

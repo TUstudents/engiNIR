@@ -275,26 +275,22 @@ def _render_roi_results(fig: Figure, payload: Any, colors: Mapping[str, str]
     note = payload.get("exclusion_text", "")
     ax.set_xlabel(f"ROI ({note})" if note else "ROI", color=colors["fg"], fontsize=8)
     handles, labels_ = ax.get_legend_handles_labels()
-    # Unusual spectra: a tablet with a larger share of pixels above DCrit than 90 % of the
-    # model's training ROIs is ringed (the shares themselves are in the ROI table).
-    band = payload.get("training_share")
-    if band is not None:
-        high = float(band[-1])
-        ring_x, ring_y = [], []
-        for m, model in enumerate(models):
-            mine = [row for row in rows if row["model"] == model]
-            for xi, row in zip(points[m].x, mine, strict=True):
-                if np.isfinite(row["share_above_dcrit"]) and row["share_above_dcrit"] > high \
-                        and np.isfinite(row["mean"]):
-                    ring_x.append(xi)
-                    ring_y.append(row["mean"])
-        if ring_x:
-            ax.scatter(ring_x, ring_y, s=150, facecolors="none", edgecolors=colors["fg"],
-                       linewidths=1.4, zorder=4)
-            handles.append(Line2D([], [], marker="o", linestyle="", markerfacecolor="none",
-                                  markeredgecolor=colors["fg"], markersize=9))
-            labels_.append(f"unusual spectra (> {100 * high:.0f} % of pixels above DCrit, "
-                           "calibration ROIs' 90 %)")
+    # Unusual spectra: the ROIs outside their model by the library's rule
+    # (enginir.prediction.unusual_rois, marked per row); the shares are in the ROI table.
+    ring_x, ring_y = [], []
+    for m, model in enumerate(models):
+        mine = [row for row in rows if row["model"] == model]
+        for xi, row in zip(points[m].x, mine, strict=True):
+            if row.get("unusual") and np.isfinite(row["mean"]):
+                ring_x.append(xi)
+                ring_y.append(row["mean"])
+    if ring_x:
+        ax.scatter(ring_x, ring_y, s=150, facecolors="none", edgecolors=colors["fg"],
+                   linewidths=1.4, zorder=4)
+        handles.append(Line2D([], [], marker="o", linestyle="", markerfacecolor="none",
+                              markeredgecolor=colors["fg"], markersize=9))
+        labels_.append("unusual spectra: outside the model (more pixels above DCrit than "
+                       "90 % of its calibration ROIs)")
     # Headroom above the bars for the legend, so it never hides a tablet.
     low, high = ax.get_ylim()
     ax.set_ylim(low, high + 0.12 * len(handles) * (high - low))
@@ -338,7 +334,7 @@ ROI_RESULTS = PlotSpec(
           "mean of its pixel predictions (the reported value, written next to it), the bar "
           "the 5–95 % range of its pixels; one color per model; × the target value when "
           "the ROI has one. A ring marks unusual spectra: a larger share of the ROI's pixels "
-          "above DCrit (0.99) than 90 % of the model's calibration ROIs have. The shares, SD "
+          "above DCrit (0.95) than 90 % of the model's calibration ROIs have. The shares, SD "
           "and excluded pixels are in the ROI table. Exclude pixels above the DModXPS limit "
           "(Predict controls) to leave glare and substrate out of the statistics."))
 

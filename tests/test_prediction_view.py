@@ -260,7 +260,7 @@ def test_prediction_summary_reports_run_metadata_and_applicability(qapp, project
     view = PredictionView(project_state)
     refs = {"spatial_shape": (2, 3), "prediction_min": 1.0, "prediction_max": 4.0,
             "clip_low_count": 2, "clip_high_count": 3, "near_zero_denominator_count": 1}
-    summary = {"dcrit_099": 2.0, "t2_crit_099": 9.0, "n_pixels": 6, "n_above_dcrit": 3,
+    summary = {"dcrit_095": 2.0, "t2_crit_095": 9.0, "n_pixels": 6, "n_above_dcrit": 3,
                "share_above_dcrit": 0.5, "n_above_t2crit": 0, "share_above_t2crit": 0.0,
                "mean_prediction_within_limits": 1.5, "mean_prediction_outside_limits": 3.5}
     grid = np.ones((2, 3), dtype=np.float32)
@@ -286,8 +286,8 @@ def test_the_layer_selector_shows_the_diagnostics_and_marks_pixels_above_the_lim
     prediction = np.arange(6, dtype=np.float32).reshape(3, 2)
     dmodx = np.array([[0.5, 0.7], [3.0, 0.2], [0.1, 0.9]], dtype=np.float32)
     payload = {"spatial_map": prediction, "layers": {"DModXPS": dmodx, "T²PS": dmodx * 2},
-               "diagnostics": {"dcrit_099": 1.0, "n_above_dcrit": 1, "share_above_dcrit": 1 / 6,
-                               "t2_crit_099": 4.0, "n_above_t2crit": 1,
+               "diagnostics": {"dcrit_095": 1.0, "n_above_dcrit": 1, "share_above_dcrit": 1 / 6,
+                               "t2_crit_095": 4.0, "n_above_t2crit": 1,
                                "share_above_t2crit": 1 / 6}}
     shown: list = []
     widget.displayed_map_changed.connect(shown.append)
@@ -512,16 +512,16 @@ def test_hovering_a_map_pixel_describes_it_in_the_status_line(qapp):
     prediction = np.array([[2.0, 12.0], [5.0, 0.5], [4.0, 6.0]], dtype=np.float32)
     dmodx = np.array([[0.5, 3.0], [1.2, 0.1], [0.2, 0.9]], dtype=np.float32)
     widget.update_data({"spatial_map": prediction, "layers": {"DModXPS": dmodx, "T²PS": dmodx * 2},
-                        "diagnostics": {"dcrit_099": 1.0}, "colour_range": (1.0, 10.0),
+                        "diagnostics": {"dcrit_095": 1.0}, "colour_range": (1.0, 10.0),
                         "removed_limit": 2.0,
                         "roi_overlays": [((0, 0, 1, 1), "03  12", "03")]})
     # spatial_map is (frames, rows): the shown map is (rows, frames).
     text = widget.describe_pixel(1, 0)
-    assert text == ("Frame 1 | Row 0 | Prediction 5 | DModXPS 1.2 (DCrit 0.99 1: above, "
+    assert text == ("Frame 1 | Row 0 | Prediction 5 | DModXPS 1.2 (DCrit 0.95 1: above, "
                     "exclusion limit 2) | T²PS 2.4")
     text = widget.describe_pixel(0, 1)
     assert "Prediction 12 (above the color range)" in text
-    assert "DModXPS 3 (DCrit 0.99 1: above, exclusion limit 2: excluded)" in text
+    assert "DModXPS 3 (DCrit 0.95 1: above, exclusion limit 2: excluded)" in text
     assert text.endswith("ROI 03")
     widget._on_motion(types.SimpleNamespace(inaxes=widget._ax, xdata=0.0, ydata=1.0))
     widget._on_motion(types.SimpleNamespace(inaxes=None, xdata=None, ydata=None))
@@ -583,19 +583,19 @@ def test_the_per_roi_plot_rings_unusual_tablets_and_has_no_share_axis(qapp):
     from enginir.viewer._predict_dialogs import _render_roi_results
     from enginir.viewer._theme import panel_colors
 
-    def row(name, share):
+    def row(name, unusual):
         return {"roi": name, "roi_id": name, "model": "PLS", "mean": 5.0, "p05": 4.0,
-                "p95": 6.0, "reference": None, "share_above_dcrit": share}
+                "p95": 6.0, "reference": None, "share_above_dcrit": 0.5, "unusual": unusual}
 
     def legend_texts(rows):
         fig = Figure()
-        _render_roi_results(fig, {"roi_rows": rows, "training_share": (0.02, 0.1, 0.3)},
-                            panel_colors())
+        _render_roi_results(fig, {"roi_rows": rows}, panel_colors())
         assert len(fig.axes) == 1, "no right axis"
         return [text.get_text() for text in fig.axes[0].get_legend().get_texts()]
 
-    assert not any("unusual" in t for t in legend_texts([row("01", 0.05), row("02", 0.29)]))
-    assert any("unusual" in t for t in legend_texts([row("01", 0.05), row("02", 0.6)]))
+    # The ring follows the library's mark only, not a share the viewer compares itself.
+    assert not any("unusual" in t for t in legend_texts([row("01", False), row("02", False)]))
+    assert any("unusual" in t for t in legend_texts([row("01", False), row("02", True)]))
 
 
 def test_the_summary_names_file_and_model_once_and_controls_change_the_map(
@@ -668,3 +668,47 @@ def test_predict_names_the_waiting_rois_and_the_model(qapp, tmp_path):
         assert summary["model"] != "none", "the model a prediction would use"
     finally:
         window.close()
+
+
+def test_the_ring_marks_exactly_the_rois_the_library_calls_outside(qapp, tmp_path, monkeypatch):
+    """No rule in the viewer: each row's ring is enginir.prediction.unusual_rois."""
+    from enginir.prediction import unusual_rois
+    from enginir.viewer._predict_dialogs import PredictMapDialog
+    from enginir.viewer._prediction import PredictionView
+    from enginir.viewer._state import ProjectState
+    from tests._scans import tray_project
+
+    project, _dataset, _path = tray_project(tmp_path, odd="t09")
+    model = project.fit("API", n_components=2, cv=3)
+    state = ProjectState()
+    state.open_project(str(project.path))
+    monkeypatch.setattr(PredictMapDialog, "exec", lambda self: self.DialogCode.Accepted)
+    view = PredictionView(state)
+    view.predict_btn_clicked()
+    wait_until(qapp, lambda: bool(view._roi_predictions), timeout=30)
+    rows = view.roi_results_payload()["roi_rows"]
+    expected = set(unusual_rois(model.roi_prediction()))
+    assert project.roi("t09").roi_id in expected, "the odd tablet is outside: something to ring"
+    assert {row["roi_id"] for row in rows if row["unusual"]} == expected
+
+
+def test_an_roi_with_some_pixels_above_dcrit_inside_the_model_is_not_ringed(qapp, tmp_path):
+    """Between the calibration median and 90th percentile: inside, no ring (one rule)."""
+    from enginir.prediction import RoiPixels, RoiPrediction, roi_prediction_statistics
+    from enginir.viewer._prediction import PredictionView
+    from enginir.viewer._state import ProjectState
+
+    def pixels(share):
+        dmodx = np.where(np.arange(20) < round(20 * share), 2.0, 0.5).astype(np.float32)
+        return RoiPixels(y=np.ones(20, np.float32), dmodx=dmodx, t2=np.zeros(20, np.float32))
+
+    prediction = RoiPrediction(model_run_id="m", model_name="PLS", target_id="t",
+                               pixels={"inside": pixels(0.1), "outside": pixels(0.5)},
+                               dcrit_095=1.0, training_share_range=(0.0, 0.02, 0.3))
+    view = PredictionView(ProjectState())
+    view._roi_predictions = [prediction]
+    view._roi_summaries = [roi_prediction_statistics(prediction, target_assignments={})]
+    view._results_revision += 1
+    rows = {row["roi_id"]: row for row in view.roi_results_payload()["roi_rows"]}
+    assert rows["inside"]["share_above_dcrit"] == pytest.approx(0.1)
+    assert (rows["inside"]["unusual"], rows["outside"]["unusual"]) == (False, True)

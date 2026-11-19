@@ -116,9 +116,11 @@ their places. **View > Reset Layout** restores the default.
    :width: 80%
 
 **The example project** (first button of the welcome screen, or **File > Open
-Example Project**) has five synthetic tablet scans with a fitted model and
-opens without open checks: each calibration scan holds tablets with
-different numbers of layers, and each tablet is its own sample. It is
+Example Project**) has five synthetic tablet scans with a fitted model:
+each calibration scan holds tablets with different numbers of layers, and
+each tablet is its own sample. It opens with one open check, in the Predict
+step: the prediction tablet P_T4 lies outside the model (**Go to ROI**
+shows it). It is
 created on first use in the settings folder; the fastest way to see how
 everything works.
 
@@ -327,8 +329,8 @@ Model shows the selected model and its diagnostics:
   **Load Model Settings** fills the Fit settings with the model's settings, including
   its signal unit, to try another number
 - the **Distance** page: the distance to the model (DModX) and Hotelling T²
-  of the calibration pixels, with their 0.99 limits and the share above them.
-  A 0.99 limit expects 1 % of the pixels above it; much more means the
+  of the calibration pixels, with their 0.95 limits and the share above them.
+  A 0.95 limit expects 5 % of the pixels above it; much more means the
   pixels are not one homogeneous population. The histograms show bins up to
   the 99.5th percentile and the rest as one gray bar, with the largest value
   stated. Below them, **Pixels Above the Limits, per ROI** shows for every
@@ -453,7 +455,7 @@ per ROI** plot shows each ROI's mean prediction (the reported value) with
 the 5–95 % range of its pixels, one color per model, and the target value
 (×) when the ROI has one. Each mean is written next to its dot. A ring marks
 unusual spectra: a tablet with a larger share of pixels above the DModX limit
-(0.99) than 90 % of the model's own calibration ROIs. The **ROI table** gets
+(0.95) than 90 % of the model's own calibration ROIs. The **ROI table** gets
 columns per model while there are results: mean, SD, % excluded, % above
 DCrit and residual (read-only, not stored); click a header to sort the
 tablets, for example by predicted value. Its CSV is the per-ROI table: ROI, dataset, model, pixels, excluded pixels, mean, median,
@@ -492,7 +494,7 @@ shows the pixel in the status line at the bottom of the window: its frame and
 row, the prediction (and whether it is outside the color scale) with its
 95 % interval, DModXPS against DCrit (and whether the pixel is excluded), T²PS
 and the prediction ROI under it. Hovering a tablet in the per-ROI plot shows its values there. The map header has the **Layer** selector (the
-prediction, **DModXPS** and **T²PS**, with the pixels above the 0.99 limits
+prediction, **DModXPS** and **T²PS**, with the pixels above the 0.95 limits
 marked, and **Prediction interval**, the ± half-width of each pixel's 95 %
 prediction interval with the pixels outside the model, which have none,
 marked; see :ref:`prediction-intervals`), the output selector (models with several targets), **Pan**,

@@ -1097,7 +1097,7 @@ def _save_object(
 #: applicability diagnostics (project-schema contract, Core and display data).
 _EXECUTABLE_MODEL_MEMBERS = ("wavelengths", "target_names", "coef_", "intercept_", "x_mean",
                              "x_std", "rotations", "loadings", "score_variances", "s0",
-                             "n_train", "t2_crit_099", "dcrit_099")
+                             "n_train", "t2_crit_095", "dcrit_095")
 
 
 def _check_executable_model(group: h5py.Group) -> None:

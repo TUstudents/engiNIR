@@ -14,6 +14,7 @@ from enginir.validation import (
     RoundRobinGroups,
     choose_components,
     dmodx,
+    dmodx_limit,
     guarded_choice,
     noise_components,
     structure_ceiling,
@@ -172,6 +173,29 @@ def test_training_dmodx_equals_the_exclusion_formula():
     expected, _s0 = dmodx(residuals, a)
     np.testing.assert_allclose(diagnostics["dmodx"], expected, rtol=1e-5)
     assert diagnostics["roi_share_above_dcrit"].shape == (30,)
+
+
+def test_the_limits_in_use_and_the_roi_shares_are_at_simcas_level_095():
+    """DCrit and T²Crit at 0.95 (and 0.99 for display); per ROI the share above the 0.95 pair."""
+    X, y, roi_index = _three_sources()
+    model = PLSRegression(n_components=2, x_scaling="center").fit(X, y)
+    _metrics, diagnostics, projection = _components.training_diagnostics(
+        model, X, y, np.ones(X.shape[0], bool), roi_index, y_divisor=float(model.y_std_[0]))
+    n, k, a = X.shape[0], X.shape[1], 2
+    for level, suffix in ((0.95, "095"), (0.99, "099")):
+        t2_crit = a * (n - 1) / (n - a) * f.ppf(level, a, n - a)
+        assert diagnostics[f"t2_crit_{suffix}"] == pytest.approx(t2_crit, rel=1e-12)
+        assert diagnostics[f"dcrit_{suffix}"] == pytest.approx(dmodx_limit(n, k, a, level))
+        assert projection[f"dcrit_{suffix}"] == diagnostics[f"dcrit_{suffix}"]
+        assert projection[f"t2_crit_{suffix}"] == diagnostics[f"t2_crit_{suffix}"]
+    for key, values, limit in (("roi_share_above_dcrit", diagnostics["dmodx"], "dcrit_095"),
+                               ("roi_share_above_t2crit", diagnostics["t2"], "t2_crit_095")):
+        expected = [np.mean(np.asarray(values)[roi_index == i] > diagnostics[limit])
+                    for i in range(roi_index.max() + 1)]
+        np.testing.assert_allclose(diagnostics[key], expected, rtol=1e-6)
+    assert np.mean(diagnostics["roi_share_above_dcrit"]) > np.mean(
+        [np.mean(np.asarray(diagnostics["dmodx"])[roi_index == i] > diagnostics["dcrit_099"])
+         for i in range(roi_index.max() + 1)]), "0.95 flags more pixels than 0.99"
 
 
 def test_a_selected_number_that_differs_from_the_model_is_refused_on_reading(tmp_path):

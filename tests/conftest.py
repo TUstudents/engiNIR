@@ -118,6 +118,15 @@ def example(tmp_path_factory):
     return create_example_project(tmp_path_factory.mktemp("example"))
 
 
+def _settle(qapp) -> None:
+    """Let the window's background jobs end (the prediction-ROI checks), so none lands mid-test."""
+    from enginir.viewer._jobs import _RUNNING_JOBS
+    from tests._qt import wait_until
+
+    wait_until(qapp, lambda: not _RUNNING_JOBS, timeout=60)
+    qapp.processEvents()
+
+
 @pytest.fixture()
 def window(qapp, example):
     """A window on :func:`example` at 1536 x 864, with its checks."""
@@ -128,6 +137,7 @@ def window(qapp, example):
     window.show()
     qapp.processEvents()
     window.refresh_checks()
+    _settle(qapp)
     yield window
     window.close()
 
@@ -149,6 +159,7 @@ def edited_window(qapp, tmp_path):
         window.show()
         qapp.processEvents()
         window.refresh_checks()
+        _settle(qapp)
         windows.append(window)
         return window
 

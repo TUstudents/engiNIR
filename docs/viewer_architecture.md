@@ -222,6 +222,15 @@ responsive between selecting a file and the main shell appearing. Main-window
 open/attach paths use the same busy context for status-bar feedback and wait
 cursor coverage around blocking work.
 
+The Checks panel uses a job too. `HSIViewer.refresh_checks` shows
+`Project.checks(predict=False)` at once and starts a job for
+`_guidance.prediction_roi_checks`, which predicts the prediction ROIs with the
+newest model (cached per project file, model and ROI in the library). When
+the job ends, `_apply_prediction_checks` replaces the Predict step's checks,
+unless a newer refresh came first (`_checks_generation`). The Predict page's
+ring is the `unusual` mark that `PredictionView` gives each result row from
+`enginir.prediction.unusual_rois`; the viewer compares no shares itself.
+
 ---
 
 ## Payload protocol
@@ -362,7 +371,7 @@ implement `PlotSource` (`plot_table()`, `print_figure()`) and are shown in a
 - `PredictionMapWidget` is a source too. Its header controls (layer, output,
   pan, zoom, reset) are added to its frame. The layers are `MAP_LAYERS`
   (Prediction, DModXPS, T²PS, Prediction interval); a diagnostics layer marks the pixels
-  above its 0.99 limit and is disabled for a model without projection data.
+  above its 0.95 limit and is disabled for a model without projection data.
   Prediction interval is `PredictionResult.half_width(INTERVAL_LEVEL)` (computed in
   `_map_previews`, with `interval_summary` for the median and the pixels
   without an interval), on its own scale, with the pixels outside the model

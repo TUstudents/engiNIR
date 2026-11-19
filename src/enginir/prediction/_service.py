@@ -181,7 +181,7 @@ class PredictionResult:
         T²PS and DModXPS per spectrum (``None`` for a model without projection
         data, or without ``return_arrays``).
     diagnostics : dict or None
-        Limits (0.99) and summary of the applicability diagnostics
+        Limits (0.95) and summary of the applicability diagnostics
         (prediction-runtime contract).
     intervals : IntervalInputs or None
         What the model run stores for prediction intervals (``None``

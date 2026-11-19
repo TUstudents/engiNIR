@@ -280,7 +280,7 @@ def test_the_fitting_section_becomes_the_fit_specification(qapp, state_and_proje
     assert (spec.pixels_per_roi, spec.seed, spec.fold_rule) == (smallest, 3,
                                                                  "leave_one_group_out")
     assert (spec.exclusion, spec.exclusion_rounds, spec.exclusion_max_fraction,
-            spec.exclusion_formula, spec.exclusion_level) == ("dmodx", 2, 0.1, "dmodx-2", 0.99)
+            spec.exclusion_formula, spec.exclusion_level) == ("dmodx", 2, 0.1, "dmodx-2", 0.95)
     assert dialog.hyperparameters["x_scaling"] == "pareto"
 
     dialog._model_type_combo.setCurrentText("PCR")
@@ -659,8 +659,8 @@ def test_distance_histograms_show_the_tail_as_one_bar_and_rois_by_their_share():
 
     rng = np.random.default_rng(1)
     pixels = np.concatenate([rng.gamma(4.0, 0.2, 5000), [35.0]])
-    spec = _distance_spec("dmodx", "dcrit_099", "x", "x", "DModX")
-    payload = {"dmodx_pixels": pixels, "dcrit_099": 1.5}
+    spec = _distance_spec("dmodx", "dcrit_095", "x", "x", "DModX")
+    payload = {"dmodx_pixels": pixels, "dcrit_095": 1.5}
     fig = Figure()
     spec.render(fig, payload, panel_colors())
     main, overflow = fig.axes[0].patches
@@ -668,7 +668,7 @@ def test_distance_histograms_show_the_tail_as_one_bar_and_rois_by_their_share():
     assert edges[-1] < 5.0, "the bins stop at the 99.5th percentile, not at the far pixel"
     assert overflow.get_data().values[0] == int(np.sum(pixels > edges[-1]))
     text = fig.axes[0].texts[0].get_text()
-    assert "(1 % expected)" in text and "max 35" in text
+    assert "(5 % expected)" in text and "max 35" in text
     rows = spec.table(payload).columns[2].values
     assert int(np.sum(rows)) == pixels.size, "every pixel is in the CSV"
 
@@ -832,22 +832,22 @@ def test_the_distance_notes_stay_inside_their_plot(width):
     from enginir.viewer._theme import panel_colors
 
     values = np.concatenate([np.random.default_rng(0).gamma(4, 0.25, 5000), [36.3] * 20])
-    spec = _distance_spec("dmodx", "dcrit_099", "model.dmodx", "DModX", "Normalized DModX")
+    spec = _distance_spec("dmodx", "dcrit_095", "model.dmodx", "DModX", "Normalized DModX")
     fig = Figure(figsize=(width, 2.4))
     canvas = FigureCanvasAgg(fig)
-    spec.render(fig, {"dmodx_pixels": values, "dcrit_099": 1.17}, panel_colors())
+    spec.render(fig, {"dmodx_pixels": values, "dcrit_095": 1.17}, panel_colors())
     canvas.draw()
     renderer = canvas.get_renderer()
     (ax,) = fig.axes
-    notes = [t for t in ax.texts if "limit 0.99" in t.get_text()]
+    notes = [t for t in ax.texts if "limit 0.95" in t.get_text()]
     assert len(notes) == 1 and "last bar" in notes[0].get_text(), "one block with every note"
     box, axes_box = notes[0].get_window_extent(renderer), ax.get_window_extent(renderer)
     assert box.x0 >= axes_box.x0 - 1 and box.x1 <= axes_box.x1 + 1
 
     fig = Figure(figsize=(width, 2.4))
     FigureCanvasAgg(fig)
-    spec.render(fig, {"dmodx_pixels": values, "dcrit_099": float("nan")}, panel_colors())
-    assert not any("limit 0.99" in t.get_text() for t in fig.axes[0].texts)
+    spec.render(fig, {"dmodx_pixels": values, "dcrit_095": float("nan")}, panel_colors())
+    assert not any("limit 0.95" in t.get_text() for t in fig.axes[0].texts)
 
 
 # -- Fit summary, numbers and the fit form ---------------------------------------------

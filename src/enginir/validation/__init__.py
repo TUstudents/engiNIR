@@ -28,6 +28,7 @@ from .components import (
 )
 from .metrics import bias, metrics_report, r2_score, rmsec, rmsecv, rmsep, rpd, rpiq, sep
 from .outliers import (
+    LIMIT_LEVEL,
     dmodx,
     dmodx_limit,
     hotelling_t2,
@@ -38,6 +39,7 @@ from .outliers import (
 
 __all__ = [
     "DEFAULT_GROUPED_N_SPLITS",
+    "LIMIT_LEVEL",
     "aggregate_regression_predictions",
     "bias",
     "RoundRobinGroups",

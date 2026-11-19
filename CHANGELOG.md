@@ -1,5 +1,71 @@
 # Changelog
 
+## 1.7.0 (2026-11-19)
+
+The project format `enginir-1.7`: "calibration" now means only model
+calibration, the dark/white step is the reference correction everywhere in
+the file and the API, and the DModX and T² limits follow SIMCA's default
+level 0.95. A new check names prediction ROIs outside the model, and viewer
+windows are deleted when they close. Everything of 1.7.0rc2 and 1.7.0rc1
+(below) is part of 1.7.0.
+
+Upgrading from 1.5.1 to 1.6.1:
+
+- **Projects** must be converted once with `enginir-migrate SOURCE TARGET`
+  (opening one names the command). The conversion writes a new file, keeps
+  every dataset, ROI, value, model and id, and adds the 0.95 limits; the
+  converted model predicts as before.
+- **Scripts** must use the new names (the tables under 1.7.0rc1 and below);
+  the old ones are gone, with no aliases.
+- **Projects made with 1.7.0rc1 or rc2** must be created again: their
+  models lack the 0.95 limits that `enginir-1.7` requires, and they are not
+  converted. (A third release candidate was not released; its changes are
+  the ones below.)
+
+Changes since 1.7.0rc2:
+
+### Changed
+
+- **The limits follow SIMCA's default significance level, 0.95,** instead
+  of 0.99:
+  - the DModX exclusion of a fit (`fit_spec` `exclusion/level`, default
+    0.95; a model keeps the level it was fitted with);
+  - the prediction exclusion default (Preferences, Prediction settings);
+  - the limit beyond which a pixel is outside the model (no prediction
+    interval; counted outside in the summaries), including the ROI-level
+    T² limit of the mean interval;
+  - the per-ROI shares the fit stores (`roi_share_above_dcrit`,
+    `roi_share_above_t2crit`), the Model page's Distance plots and texts.
+
+  About 5 % of normal pixels now lie above DCrit (1 % before).
+- Format `enginir-1.7`: `prediction_model/@dcrit_095` and `@t2_crit_095`
+  are the core limits checked at open; the 0.99 pair is kept as display
+  data.
+- Public keys renamed (no aliases): `Prediction.diagnostics` and the
+  `predict_rois` result use `dcrit_095` and `t2_crit_095` instead of
+  `dcrit_099` and `t2_crit_099`.
+- The `model.distance` check asks for attention above three times the
+  expected share, 15 % at 0.95 (5 % before, at 0.99).
+- `enginir-migrate` adds the 0.95 limits to converted models (computed from
+  the stored number of pixels, bands and components) and keeps their 0.99
+  per-ROI shares as `roi_share_above_*_099`; a converted model gets the new
+  check and the Predict ring after a refit.
+- The Predict page's ring now comes from the library
+  (`enginir.prediction.unusual_rois`), per model; it compared every model
+  against the first model's calibration shares before.
+
+### Added
+
+- `predict.rois_outside`: the check names the prediction ROIs outside the
+  newest model (more pixels above DCrit than 90 % of its calibration ROIs),
+  with **Go to ROI**; with none outside, the Predict step says that all lie
+  within the model. `Project.checks(predict=False)` skips the prediction it
+  needs; the predictions are cached. In the viewer it arrives from a
+  background job after the other checks.
+- `enginir.prediction.unusual_rois` and `enginir.validation.LIMIT_LEVEL`.
+- The example project opens with one open check: its prediction tablet
+  P_T4 lies outside the model.
+
 ## 1.7.0rc2 (2026-11-19)
 
 The second release candidate of 1.7.0: everything of 1.7.0rc1 (below), and

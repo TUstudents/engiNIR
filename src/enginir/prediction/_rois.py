@@ -68,7 +68,7 @@ class RoiPrediction:
     data); ``default_exclusion`` the DModX level of the run's own fit
     specification (``None``: no exclusion); ``training_share_range`` the
     10th, 50th and 90th percentile of the training ROIs' shares of pixels
-    above DCrit (0.99): their typical range and median (the extremes are
+    above DCrit (0.95): their typical range and median (the extremes are
     single unusual ROIs); ``intervals`` the run's prediction-interval inputs
     (``None`` without them).
     """
@@ -79,19 +79,19 @@ class RoiPrediction:
     pixels: dict[str, RoiPixels] = field(default_factory=dict)
     refused: dict[str, str] = field(default_factory=dict)
     limit_args: tuple[int, int, int] | None = None
-    dcrit_099: float | None = None
-    t2_crit_099: float | None = None
+    dcrit_095: float | None = None
+    t2_crit_095: float | None = None
     default_exclusion: float | None = None
     training_share_range: tuple[float, float, float] | None = None
     intervals: IntervalInputs | None = None
     wavelength_warnings: dict[str, str] = field(default_factory=dict)
 
     def dmodx_limit_at(self, level: float) -> float | None:
-        """DCrit at ``level`` for this model (the stored one at 0.99), or ``None``."""
+        """DCrit at ``level`` for this model (the stored one at 0.95), or ``None``."""
         if self.limit_args is None:
             return None
-        if abs(level - 0.99) < 1e-12 and self.dcrit_099 is not None:
-            return self.dcrit_099
+        if abs(level - 0.95) < 1e-12 and self.dcrit_095 is not None:
+            return self.dcrit_095
         n_train, n_bands, n_components = self.limit_args
         return dmodx_limit(n_train, n_bands, n_components, level, centred=True)
 
@@ -204,7 +204,7 @@ def predict_rois(
             projection = preflight.projection
             result.limit_args = (int((preflight.model_blob or {}).get("n_train", 0)) or 1,
                                  int(projection.x_mean.size), projection.n_components)
-            result.dcrit_099, result.t2_crit_099 = projection.dcrit, projection.t2_crit
+            result.dcrit_095, result.t2_crit_095 = projection.dcrit, projection.t2_crit
         else:
             t2 = dmodx = np.full(y.shape, np.nan, dtype=np.float32)
             scores = None
@@ -248,11 +248,6 @@ def roi_prediction_statistics(
         values = pixels.y[kept].astype(np.float64)
         n_valid = int(valid.sum())
 
-        def share(values_: np.ndarray, crit: float | None) -> float:
-            if crit is None or n_valid == 0 or not np.isfinite(values_[valid]).any():
-                return float("nan")
-            return float(np.mean(values_[valid] > crit))
-
         assignment = target_assignments.get((roi_id, prediction.target_id))
         reference = None if assignment is None else float(assignment.value)
         mean = float(values.mean()) if values.size else float("nan")
@@ -264,8 +259,8 @@ def roi_prediction_statistics(
             p05=float(np.percentile(values, 5)) if values.size else float("nan"),
             p95=float(np.percentile(values, 95)) if values.size else float("nan"),
             mean_dmodx=_nanmean(pixels.dmodx[kept]), mean_t2=_nanmean(pixels.t2[kept]),
-            share_above_dcrit=share(pixels.dmodx, prediction.dcrit_099),
-            share_above_t2crit=share(pixels.t2, prediction.t2_crit_099),
+            share_above_dcrit=_share_above(pixels.dmodx, valid, prediction.dcrit_095),
+            share_above_t2crit=_share_above(pixels.t2, valid, prediction.t2_crit_095),
             reference=reference,
             residual=None if reference is None or not values.size else mean - reference,
             interval=mean_half_width(
@@ -281,6 +276,34 @@ def roi_prediction_statistics(
         n_reference=int(residuals.size))
 
 
+def unusual_rois(prediction: RoiPrediction) -> tuple[str, ...]:
+    """The predicted ROIs outside the model: their spectra are unusual for it.
+
+    An ROI is outside when its share of pixels above DCrit (0.95) exceeds the
+    90th percentile of the same share over the model's calibration ROIs
+    (``training_share_range``; contract, Prediction ROIs). This is the one rule:
+    the guidance check ``predict.rois_outside`` and the viewer's ring use it.
+    Empty when the model stores no calibration shares at 0.95 (a converted
+    model before its refit) or no projection data.
+    """
+    if prediction.training_share_range is None or prediction.dcrit_095 is None:
+        return ()
+    high = prediction.training_share_range[2]
+    outside = []
+    for roi_id, pixels in prediction.pixels.items():
+        share = _share_above(pixels.dmodx, np.isfinite(pixels.y), prediction.dcrit_095)
+        if np.isfinite(share) and share > high:
+            outside.append(roi_id)
+    return tuple(outside)
+
+
+def _share_above(values: np.ndarray, valid: np.ndarray, crit: float | None) -> float:
+    """The share of the ``valid`` pixels whose ``values`` exceed ``crit``; NaN when undefined."""
+    if crit is None or not valid.any() or not np.isfinite(values[valid]).any():
+        return float("nan")
+    return float(np.mean(values[valid] > crit))
+
+
 def _nanmean(values: np.ndarray) -> float:
     finite = np.asarray(values, dtype=np.float64)
     finite = finite[np.isfinite(finite)]
@@ -288,7 +311,7 @@ def _nanmean(values: np.ndarray) -> float:
 
 
 def _share_percentiles(shares: Any) -> tuple[float, float, float] | None:
-    """10th, 50th and 90th percentile of the training ROIs' share above DCrit (0.99)."""
+    """10th, 50th and 90th percentile of the training ROIs' share above DCrit (0.95)."""
     if shares is None or not np.size(shares):
         return None
     values = np.asarray(shares, dtype=np.float64)
@@ -300,4 +323,4 @@ def _share_percentiles(shares: Any) -> tuple[float, float, float] | None:
 
 
 __all__ = ["RoiPixels", "RoiPrediction", "RoiPredictionSummary", "RoiStatistics",
-           "predict_rois", "roi_prediction_statistics"]
+           "predict_rois", "roi_prediction_statistics", "unusual_rois"]

@@ -73,7 +73,7 @@ class Preferences:
     y_scaling: str = "uv"
     # Prediction defaults (pre-fill the Prediction settings)
     exclude_dmodx: bool = False
-    dmodx_level: float = 0.99
+    dmodx_level: float = 0.95  # LIMIT_LEVEL, SIMCA's default
     # Plots and export
     export_dpi: int = 300
     # Performance

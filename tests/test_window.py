@@ -426,7 +426,7 @@ def test_the_fit_form_folds_and_keeps_fit_model_in_view(qapp, layers):
         form._keep_edit.setText("1100-1500")
         form._exclude_check.setChecked(True)
         assert form.section("bands").summary == "keep 1100-1500"
-        assert "DModX exclusion at 0.99" in form.section("fitting").summary
+        assert "DModX exclusion at 0.95" in form.section("fitting").summary
         assert not form._keep_edit.isVisibleTo(window)
         form.section("bands").header.click()
         assert form._keep_edit.isVisibleTo(window)
@@ -1077,8 +1077,9 @@ def test_the_strip_shows_order_badges_and_names_project_and_model(qapp, edited_w
     assert len(arrows) == len(STEPS) - 1, "an arrow between the steps: their order"
     assert [strip.button(step.key).text() for step in STEPS] \
         == ["Data", "ROIs", "Values", "Model", "Predict"], "no numbers, no counts"
-    assert all(strip.state(step.key)[0] != "open" for step in STEPS if step.key != "values"), \
-        "the example itself has no open check"
+    assert all(strip.state(step.key)[0] != "open" for step in STEPS
+               if step.key not in ("values", "predict")), \
+        "the example's only open check is in Predict (a tablet outside the model)"
     state, count = strip.state("values")
     button = strip.button("values")
     assert state == "open" and count and button.badge_text() == str(count)
@@ -1146,14 +1147,18 @@ def test_the_project_tree_counts_and_properties_are_a_table_with_plain_text(qapp
     assert rendered.count('colspan="2"') == 2, "only 'Target' is a key"
 
 
-def test_the_example_opens_without_open_checks_and_a_good_model(example):
-    """The example shows good practice: values vary within each scan, one sample per tablet."""
+def test_the_example_has_one_open_check_a_tablet_outside_the_model_and_a_good_model(example):
+    """The example shows good practice: values vary within each scan, one sample per tablet.
+
+    Its one open check is in Predict: the prediction tablet P_T4 lies outside the model.
+    """
     from enginir import Project
 
     project = Project.open(example)
-    open_checks = [check.message for check in project.checks()
-                   if check.severity in ("attention", "blocked")]
-    assert open_checks == []
+    open_checks = [check for check in project.checks() if check.is_open]
+    assert [check.check_id for check in open_checks] == ["predict.rois_outside"]
+    assert open_checks[0].roi_ids == (project.roi("P_T4").roi_id,)
+    assert not [check for check in project.checks(predict=False) if check.is_open]
     assert project.model("PLS 2 LV").verdict().level == "good"
 
 
@@ -1175,3 +1180,44 @@ def test_opening_a_dataset_from_the_project_tree_shows_its_image(qapp, tmp_path)
         assert window._eda_view.shown_dataset_id() == scan.ref.dataset_id
     finally:
         window.close()
+
+
+def test_the_prediction_check_arrives_after_the_other_checks(qapp, window):
+    """The panel shows the checks at once; the prediction-ROI check comes from a job."""
+    def ids():
+        return {check.check_id for check in window._checks}
+
+    window.refresh_checks()
+    assert "predict.rois_ready" in ids() and "predict.rois_outside" not in ids(), \
+        "the fast checks first, without predicting"
+    wait_until(qapp, lambda: "predict.rois_outside" in ids(), timeout=30)
+    (outside,) = [check for check in window._checks if check.check_id == "predict.rois_outside"]
+    assert window._workflow.state("predict")[0] == "open"
+    assert window._checks_panel.open_count() >= 1
+
+    # A result of an earlier refresh is dropped.
+    from enginir._guidance import Check
+
+    fast = list(window._checks)
+    window.refresh_checks()
+    stale = window._checks_generation - 1
+    window._apply_prediction_checks(stale, window.project_state.project, fast,
+                                    [Check("predict.stale", "predict", "attention", "stale")])
+    assert "predict.stale" not in ids()
+    wait_until(qapp, lambda: "predict.rois_outside" in ids(), timeout=30)
+    assert outside.roi_ids == next(c for c in window._checks
+                                   if c.check_id == "predict.rois_outside").roi_ids
+
+
+def test_a_refresh_does_not_bring_a_known_check_to_the_front_again(qapp, window):
+    """The prediction check arrives after each refresh; only a new open check raises the tab."""
+    from enginir.viewer._jobs import _RUNNING_JOBS
+
+    assert "predict.rois_outside" in {check.check_id for check in window._checks}
+    window.show_step("values")  # the ROI table in front of the Checks
+    wait_until(qapp, lambda: window._roi_table_in_front())
+    window.refresh_checks()
+    wait_until(qapp, lambda: not _RUNNING_JOBS)
+    qapp.processEvents()
+    assert "predict.rois_outside" in {check.check_id for check in window._checks}
+    assert window._roi_table_in_front(), "the known prediction check raised the Checks tab"

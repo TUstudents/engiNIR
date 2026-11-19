@@ -16,6 +16,7 @@ import numpy as np
 
 from .._checks import log_and_raise
 from .._logging import get_logger
+from ..validation.outliers import LIMIT_LEVEL
 
 logger = get_logger(__name__)
 
@@ -97,7 +98,7 @@ class FitSpec:
     seed: int = 0
     checksum: str = ""
     exclusion: str = "none"
-    exclusion_level: float = 0.99
+    exclusion_level: float = LIMIT_LEVEL
     exclusion_rounds: int = 1
     exclusion_max_fraction: float = 0.2
     exclusion_formula: str = "dmodx-1"

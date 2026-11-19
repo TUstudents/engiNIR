@@ -60,7 +60,7 @@ from ._icons import icon
 from ._workflow_strip import WorkflowStrip
 from . import _preferences as preferences_store
 from ._preferences import Preferences, PreferencesDialog
-from .._guidance import Check, Fix
+from .._guidance import Check, Fix, prediction_roi_checks
 from ._jobs import start_background_job
 from ._loading import ViewerBusyContext
 from ._model_diagnostics import ModelDiagnosticsWidget
@@ -1054,6 +1054,8 @@ class HSIViewer(QMainWindow):
         self._log_dock.setObjectName("LogDock")
         self._log_dock.setWidget(self._log_panel)
         self._checks_panel = ChecksPanel()
+        #: Counts refreshes, so a prediction check that ends after a newer refresh is dropped.
+        self._checks_generation = 0
         self._checks_dock = QDockWidget("Checks", self)
         self._checks_dock.setObjectName("ChecksDock")
         self._checks_dock.setWidget(self._checks_panel)
@@ -1923,7 +1925,13 @@ class HSIViewer(QMainWindow):
         self._refresh_context()
 
     def refresh_checks(self) -> None:
-        """Ask the library for the project's checks and verdicts and show them."""
+        """Ask the library for the project's checks and verdicts and show them.
+
+        The checks that need no prediction are shown at once; the prediction-ROI
+        checks (``predict.rois_outside``) predict the prediction ROIs and come from
+        a background job, which replaces the Predict step's checks when it ends.
+        """
+        self._checks_generation += 1
         project = self.project_state.project
         if project is None:
             self._checks_panel.set_checks([])
@@ -1932,16 +1940,49 @@ class HSIViewer(QMainWindow):
             self._checks_dock.setWindowTitle("Checks")
             return
         try:
-            checks = project.checks()
+            checks = project.checks(predict=False)
         except Exception as exc:  # a check must never take the window down
             logger.exception("Checks failed: {}", exc)
             checks = []
+        predicting = any(check.check_id == "predict.rois_ready" for check in checks)
+        self._show_checks(project, checks, keep_predict=predicting)
+        if predicting:
+            generation = self._checks_generation
+            start_background_job(
+                owner=self, fn=lambda: prediction_roi_checks(project),
+                on_success=lambda result: self._apply_prediction_checks(
+                    generation, project, checks, result),
+                on_error=lambda message: logger.warning("Prediction ROI checks failed: {}",
+                                                        message),
+                on_finished=lambda: None)
+
+    def _apply_prediction_checks(self, generation: int, project: Any, checks: list[Check],
+                                 result: list[Check]) -> None:
+        """Show the background prediction-ROI checks, unless a newer refresh came first."""
+        if generation != self._checks_generation or self.project_state.project is not project:
+            logger.debug("Prediction ROI checks of an earlier refresh dropped")
+            return
+        self._show_checks(project, [check for check in checks if check.step != "predict"]
+                          + list(result))
+
+    def _show_checks(self, project: Any, checks: list[Check], *,
+                     keep_predict: bool = False) -> None:
+        """Show ``checks``: the Checks panel, the workflow strip and the Models panel.
+
+        ``keep_predict``: the Predict step's checks are still being computed (a
+        background job), so its open checks seen before stay "seen"; otherwise
+        each refresh would find them new again and bring the Checks tab forward.
+        """
         names = {run_id: (run.name or run_id) for run_id, run in
                  self.project_state.model_runs.items()}
-        before = {check.check_id for check in getattr(self, "_checks", []) if check.is_open}
+        before = getattr(self, "_seen_open_checks", set())
         self._checks_panel.set_checks(checks, names)
         open_count = self._checks_panel.open_count()
-        new_open = {check.check_id for check in checks if check.is_open} - before
+        opened = {check.check_id for check in checks if check.is_open}
+        new_open = opened - before
+        self._seen_open_checks = opened | (
+            {check_id for check_id in before if check_id.startswith("predict.")}
+            if keep_predict else set())
         if new_open and hasattr(self, "_checks") and getattr(
                 self, "_preferences", Preferences()).raise_checks:
             self.show_checks()

@@ -282,7 +282,7 @@ ROIs, targets, models and predictions by name or by id (see
                               dark="dark.eiff", white="white.eiff")
    prediction.map            # (frames, height), in memory
    prediction.dmodx_map      # distance to the model per pixel (DModXPS)
-   prediction.diagnostics    # 0.99 limits and the share of pixels above them
+   prediction.diagnostics    # 0.95 limits and the share of pixels above them
    prediction.interval_map(0.95)   # ± half-width of each pixel's prediction interval
 
 ``predict`` resolves the scan's reference correction in the model's signal unit (a

@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from ._logging import get_logger
+from .validation.outliers import LIMIT_LEVEL
 
 if TYPE_CHECKING:
     from ._workflow import Model, Project
@@ -34,9 +35,11 @@ SEVERITIES = ("ok", "info", "attention", "blocking")
 #: The levels of a verdict, best first.
 VERDICT_LEVELS = ("good", "usable_with_care", "not_usable")
 
-#: Share of calibration pixels above the DModX limit that needs attention.
-#: The limit is the 0.99 level, so 1 % is expected; 5 % is five times that.
-DMODX_SHARE_ATTENTION = 0.05
+#: Share of calibration pixels expected above the DModX limit at LIMIT_LEVEL (0.95: 5 %).
+DMODX_SHARE_EXPECTED = 1.0 - LIMIT_LEVEL
+#: Share of calibration pixels above the DModX limit that needs attention: three times
+#: the expected share (15 % at 0.95; decided 2026-11-19).
+DMODX_SHARE_ATTENTION = 3 * DMODX_SHARE_EXPECTED
 #: Verdict thresholds on the cross-validated figures of merit per ROI
 #: (model-workspace-diagnostics contract, Verdict). RPD = SD / RMSECV.
 RPD_GOOD, RPD_MIN = 2.5, 1.5
@@ -91,11 +94,13 @@ class Verdict:
     evidence: tuple[Check, ...]
 
 
-def project_checks(project: Project, *, files: bool = True) -> list[Check]:
+def project_checks(project: Project, *, files: bool = True, predict: bool = True) -> list[Check]:
     """The checks of every step of ``project``, in workflow order.
 
     ``files=False`` skips looking for the dataset files (no file access
-    beyond the project file).
+    beyond the project file). ``predict=False`` skips predicting the
+    prediction ROIs for ``predict.rois_outside`` (:func:`prediction_roi_checks`);
+    the predictions are cached, so only the first call costs.
     """
     checks = [*_data_checks(project, files=files), *_roi_checks(project),
               *_value_checks(project)]
@@ -108,7 +113,7 @@ def project_checks(project: Project, *, files: bool = True) -> list[Check]:
                                 fix=Fix("fit", "Fit Model", {"target_id": ready[0]})))
     for model in models:
         checks.extend(model_checks(model))
-    checks.extend(_predict_checks(project))
+    checks.extend(_predict_checks(project, predict=predict))
     order = {step: index for index, step in enumerate(STEPS)}
     return sorted(checks, key=lambda check: order[check.step])  # stable within a step
 
@@ -279,7 +284,7 @@ def _sample_value_checks(project: Project, target_id: str) -> list[Check]:
     return checks
 
 
-def _predict_checks(project: Project) -> list[Check]:
+def _predict_checks(project: Project, *, predict: bool) -> list[Check]:
     models = list(project.models.values())
     if not models:
         return []
@@ -289,12 +294,76 @@ def _predict_checks(project: Project) -> list[Check]:
         return [Check("predict.no_rois", "predict", "info",
                       "No ROI is marked as a prediction ROI; a model can still predict a "
                       "whole dataset.")]
+    return prediction_roi_checks(project) if predict else [_rois_ready(project, prediction)]
+
+
+def prediction_roi_checks(project: Project) -> list[Check]:
+    """The predict-step checks of the prediction ROIs, predicting them with the newest model.
+
+    ``predict.rois_ready`` names the prediction ROIs; ``predict.rois_outside``
+    (attention) names those outside the model by :func:`enginir.prediction.unusual_rois`.
+    With none outside, ``predict.rois_ready`` says so. A model without
+    calibration shares at 0.95 (converted, not refitted) gives neither
+    sentence. The result per (project file, model, ROI) is cached: the model
+    and the ROI's stored pixels never change under their ids.
+    """
+    prediction = tuple(roi.roi_id for roi in project.workspace.rois.values()
+                       if roi.job == "prediction")
+    models = list(project.models.values())
+    if not models or not prediction:
+        return _predict_checks(project, predict=False)
     newest = max(models, key=lambda model: model.ref.created_at)
-    return [Check("predict.rois_ready", "predict", "info",
-                  f"{len(prediction)} prediction ROIs can be predicted.", roi_ids=prediction,
-                  model_run_id=newest.ref.model_run_id,
-                  fix=Fix("predict_rois", "Predict ROIs",
-                          {"model_run_id": newest.ref.model_run_id}))]
+    outside = _outside_rois(newest, prediction)
+    ready = _rois_ready(project, prediction)
+    if outside is None:
+        return [ready]
+    if not outside:
+        return [Check(ready.check_id, ready.step, ready.severity,
+                      ready.message[:-1] + f"; all lie within '{newest.name}'.",
+                      roi_ids=ready.roi_ids, model_run_id=ready.model_run_id, fix=ready.fix)]
+    return [ready, Check(
+        "predict.rois_outside", "predict", "attention",
+        f"{len(outside)} prediction ROI(s) are outside '{newest.name}': more of their pixels "
+        f"lie above DCrit ({LIMIT_LEVEL:g}) than in 90 % of its calibration ROIs, so the model "
+        "does not describe their spectra.",
+        roi_ids=outside, model_run_id=newest.ref.model_run_id,
+        fix=Fix("select_roi", "Go to ROI", {"roi_id": outside[0]}))]
+
+
+def _rois_ready(project: Project, prediction: tuple[str, ...]) -> Check:
+    newest = max(project.models.values(), key=lambda model: model.ref.created_at)
+    return Check("predict.rois_ready", "predict", "info",
+                 f"{len(prediction)} prediction ROIs can be predicted.", roi_ids=prediction,
+                 model_run_id=newest.ref.model_run_id,
+                 fix=Fix("predict_rois", "Predict ROIs",
+                         {"model_run_id": newest.ref.model_run_id}))
+
+
+#: Per (project file, model run id): whether the model has the calibration shares the rule
+#: needs, and per predicted ROI whether it is outside. Sound for the process's lifetime:
+#: a model and an ROI's stored pixels never change under their ids (identity rules).
+_OUTSIDE: dict[tuple[str, str], tuple[bool, dict[str, bool]]] = {}
+
+
+def _outside_rois(model: Model, roi_ids: tuple[str, ...]) -> tuple[str, ...] | None:
+    """The ROIs of ``roi_ids`` outside ``model``, predicting only the ones not seen yet."""
+    import os
+
+    from .prediction import unusual_rois
+
+    key = (os.path.normcase(os.path.abspath(model.project.path)), model.ref.model_run_id)
+    has_rule, known = _OUTSIDE.get(key, (True, {}))
+    missing = [roi_id for roi_id in roi_ids if roi_id not in known]
+    if missing and has_rule:
+        ws = model.project.workspace
+        prediction = model.roi_prediction([ws.rois[roi_id] for roi_id in missing])
+        has_rule = prediction.training_share_range is not None and prediction.dcrit_095 is not None
+        outside = set(unusual_rois(prediction))
+        known = {**known, **{roi_id: roi_id in outside for roi_id in missing}}
+        _OUTSIDE[key] = (has_rule, known)
+    if not has_rule:
+        return None
+    return tuple(roi_id for roi_id in roi_ids if known.get(roi_id))
 
 
 # --- one model -------------------------------------------------------------------------
@@ -382,7 +451,7 @@ def _distance_check(model: Model) -> Check | None:
     if overall <= DMODX_SHARE_ATTENTION:
         return Check("model.distance", "model", "ok",
                      f"{overall:.1%} of the calibration pixels of '{model.name}' are above "
-                     "the DModX limit (1 % expected).".replace("%", " %", 1),
+                     f"the DModX limit ({figure_text(100 * DMODX_SHARE_EXPECTED)} % expected).".replace("%", " %", 1),
                      model_run_id=run_id)
     ws = model.project.workspace
     by_dataset: dict[str, list[int]] = {}
@@ -401,7 +470,8 @@ def _distance_check(model: Model) -> Check | None:
     return Check(
         "model.distance", "model", "attention",
         f"{overall:.1%}".replace("%", " %") + f" of the calibration pixels of '{model.name}' "
-        f"are above the DModX limit (1 % expected){where}; the model does not describe them "
+        f"are above the DModX limit ({figure_text(100 * DMODX_SHARE_EXPECTED)} % expected){where}; "
+        "the model does not describe them "
         "well.", roi_ids=high, dataset_ids=worst, model_run_id=run_id,
         fix=Fix("show_page", "Open Distance Page", {"model_run_id": run_id,
                                                     "page": "Distance"}))

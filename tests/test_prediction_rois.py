@@ -153,3 +153,39 @@ def test_the_default_exclusion_is_the_models_own(tray):
     assert excluding.roi_prediction().default_exclusion == 0.95
     assert excluding.predict_rois().exclusion == 0.95
     assert excluding.predict_rois(exclude_dmodx=False).exclusion is None
+
+
+# -- Prediction ROIs outside the model (one rule: the check and the Predict ring) ------
+
+
+def test_an_roi_with_a_foreign_band_is_outside_the_model_and_a_normal_one_is_not(tmp_path):
+    """Outside: a share of pixels above DCrit (0.95) beyond the calibration ROIs' 90th percentile."""
+    from enginir.prediction import unusual_rois
+    from tests._scans import tray_project
+
+    project, _dataset, _path = tray_project(tmp_path, odd="t09")
+    model = project.fit("API", n_components=2, cv=3)
+    prediction = model.roi_prediction([project.roi("t08"), project.roi("t09")])
+    assert unusual_rois(prediction) == (project.roi("t09").roi_id,)
+    # The rule's shares are the statistics' shares (what the ROI table shows).
+    summary = roi_prediction_statistics(prediction, target_assignments={})
+    high = np.percentile(np.asarray(model.diagnostics["roi_share_above_dcrit"]), 90)
+    assert prediction.training_share_range is not None
+    assert prediction.training_share_range[2] == pytest.approx(high)
+    assert {row.roi_id for row in summary.rois if row.share_above_dcrit > high} \
+        == set(unusual_rois(prediction))
+
+
+def test_a_model_without_calibration_shares_has_no_rule(tmp_path):
+    """A converted model (shares renamed to *_099) is never judged with the 0.99 shares."""
+    from enginir.prediction import unusual_rois
+    from tests._scans import tray_project
+
+    project, _dataset, _path = tray_project(tmp_path, odd="t09")
+    model = project.fit("API", n_components=2, cv=3)
+    with h5py.File(project.path, "r+") as f:
+        diagnostics = f[f"model_runs/{model.ref.model_run_id}/artifact_refs/diagnostics"]
+        diagnostics.attrs["roi_share_above_dcrit_099"] = diagnostics.attrs["roi_share_above_dcrit"]
+        del diagnostics.attrs["roi_share_above_dcrit"]
+    model = Project.open(project.path).model(model_run_id=model.ref.model_run_id)
+    assert unusual_rois(model.roi_prediction([project.roi("t09")])) == ()
