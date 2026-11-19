@@ -296,6 +296,50 @@ same quantity), and the words it replaces.
   "Predict Map...", API `prediction.map`).
 : Elsewhere: NIR chemical imaging *prediction image*, *chemical image*.
 
+### Further terms (engiNIR 1.7.3)
+
+The terms the viewer and the guides use besides those above; the glossary
+gives each with its words elsewhere.
+
+**Dark reference**, **White reference**
+: The detector's response with the shutter closed and on a white tile, per
+  row and band; R = (x − dark) / (white − dark).
+
+**Detector levels**
+: A black and a white level (default 128 and 3500 counts) that convert raw
+  counts to reflectance without references.
+
+**Wavelength table**
+: The wavelengths of a camera setting for files that store none; copied
+  into the dataset when chosen.
+
+**SNV**, **MSC**, **EMSC**, **Savitzky-Golay**, **Detrend**
+: The preprocessing steps by name (Scatter correction, Smoothing and
+  derivatives); MSC and EMSC are fitted inside every cross-validation fold.
+
+**R²**, **Q²**, **RMSEC**, **RMSECV**, **RMSEP**, **Bias**
+: The figures of merit: R² and RMSEC of the fitted values, Q² and RMSECV of
+  the cross-validated predictions, RMSEP of ROIs with a value the model was
+  not fitted on; bias = mean(predicted − reference). Per ROI unless "per
+  pixel" is said.
+
+**Component curve**
+: RMSECV, Q², R²Y and R²X of a PLS or PCR model for 1 … up to 10 components
+  (or the count a fit asks for).
+
+**Scores**, **Loadings**, **Coefficients**, **VIP**
+: The model's diagnostics per spectrum (scores) and per band (loadings,
+  regression coefficients, variable importance in projection).
+
+**Spatial image**, **False-color image**, **Band image**, **Sensor frame**, **Spatial profile**
+: The Explore plots: the scan in false color (frames by rows), three bands as
+  red, green and blue, one band, one frame as bands by rows (never "frame"
+  alone for it), and the shown band along the rows of the shown frame.
+
+**Check**, **Verdict**
+: An item the library evaluates about a project, often with a fix; the
+  library's judgement of a model: good, usable with care or not usable.
+
 ## Internal names
 
 API, file and code names that stay as they are, and the term each stands

@@ -1324,3 +1324,64 @@ def test_the_log_panel_sets_its_fixed_width_font_when_first_shown(qapp, tmp_path
         assert panel._font_set and panel._text.font().family() == fixed.family()
     finally:
         window.close()
+
+
+# -- 1.7.3: About, the Log panel's level, the image fit ---------------------------------
+
+
+def test_the_about_box_cites_engINIR_and_links_its_repository():
+    """The citation of the README, with the concept DOI and the GitHub link."""
+    from pathlib import Path
+
+    from enginir.viewer._viewer import CONCEPT_DOI, GITHUB_URL, about_text
+
+    text = about_text("9.9.9")
+    readme = (Path(__file__).resolve().parent.parent / "README.md").read_text(encoding="utf-8")
+    assert CONCEPT_DOI in readme and GITHUB_URL in readme, "the same as the README"
+    assert f'href="https://doi.org/{CONCEPT_DOI}"' in text and f'href="{GITHUB_URL}"' in text
+    assert "9.9.9" in text and "please cite" in text
+
+
+def test_the_log_panel_shows_the_preferences_level(qapp, tmp_path):
+    from dataclasses import replace
+
+    from enginir._logging import get_logger
+    from enginir.viewer import _preferences
+
+    window = _example_window(qapp, tmp_path)
+    probe = get_logger("enginir.viewer.probe")
+    try:
+        text = window._log_panel._text
+        probe.debug("debug line one")
+        probe.info("info line one")
+        qapp.processEvents()
+        assert "info line one" in text.toPlainText()
+        assert "debug line one" not in text.toPlainText(), "INFO, the default level"
+        window.apply_preferences(replace(_preferences.load(), log_level="DEBUG"))
+        probe.debug("debug line two")
+        qapp.processEvents()
+        assert "debug line two" in text.toPlainText(), "a change applies at once"
+    finally:
+        window.close()
+
+
+def test_an_image_opens_fitted_as_reset_view_fits_it(qapp):
+    """Shown while its view is small (a page not laid out yet), an image used to get
+    pyqtgraph's size-dependent padding (up to 10 %); Reset View uses 2 %."""
+    import numpy as np
+
+    from enginir.viewer._canvas import FalseColourCanvas
+
+    canvas = FalseColourCanvas()
+    canvas.resize(60, 60)
+    canvas.show()
+    qapp.processEvents()
+    try:
+        canvas.set_image(np.random.default_rng(0).random((40, 80, 3)))
+        canvas.resize(900, 600)
+        qapp.processEvents()
+        shown = np.array(canvas.view_box.viewRange())
+        canvas.reset_view()
+        np.testing.assert_allclose(shown, np.array(canvas.view_box.viewRange()), atol=1e-6)
+    finally:
+        canvas.close()

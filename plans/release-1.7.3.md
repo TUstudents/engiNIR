@@ -102,6 +102,13 @@ the band proposal follows it too (it uses `default_max`).
 
 ### Phase 3: small fixes (D5, D6, items 3, 9, wavelength warning)
 
+*Done (2026-11-19).* Reset View: the cause was pyqtgraph's default padding,
+which depends on the view's size (up to 0.1 for a small or not yet laid-out
+view); the image view's aspect is not locked, so its range does not depend
+on the size, and refitting on a resize is not needed (built, tested as
+useless, removed). The glossary terms went into the terminology contract
+too ("Further terms").
+
 - **About box (item 3):** the citation as in the README (with the concept
   DOI 10.5281/zenodo.23235907) and the GitHub link
   (https://github.com/TUstudents/engiNIR), as selectable text and links.

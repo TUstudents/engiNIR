@@ -163,6 +163,25 @@ __all__ = [
 # ------------------------------------------------------------------
 
 
+#: Where engiNIR lives, and its concept DOI (every version; README, Citation).
+GITHUB_URL = "https://github.com/TUstudents/engiNIR"
+CONCEPT_DOI = "10.5281/zenodo.23235907"
+
+
+def about_text(version: str) -> str:
+    """The About box: version, tagline, the citation of the README and the links."""
+    doi = f"https://doi.org/{CONCEPT_DOI}"
+    return (f"<b>engiNIR</b> {version}<br>"
+            "A universal engineering tool for near-infrared spectra and hyperspectral "
+            "imaging.<br><br>"
+            "If you use engiNIR in your work, please cite:<br>"
+            "Johannes Poms. (2026). TUstudents/engiNIR: A universal engineering tool for "
+            f"near-infrared spectra and hyperspectral imaging. Zenodo. "
+            f'<a href="{doi}">{doi}</a><br><br>'
+            f'Source, issues and releases: <a href="{GITHUB_URL}">{GITHUB_URL}</a><br>'
+            "Licensed under CC BY 4.0.")
+
+
 def _shown_axis(dataset: Any, data: Any) -> tuple[np.ndarray, dict[str, Any]]:
     """The axis and metadata a registered file is shown with: the dataset's stored axis.
 
@@ -1212,9 +1231,19 @@ class HSIViewer(QMainWindow):
         self._checks_panel.check_activated.connect(self._show_check)
         self._models_panel.model_selected.connect(self.select_model)
         self._restore_bottom_dock_sizes()
+        self._attach_log_sink(preferences_store.load().log_level)
+
+    def _attach_log_sink(self, level: str) -> None:
+        """Send engiNIR's messages of ``level`` and above to the Log panel.
+
+        The level of Tools > Preferences (default INFO), so the panel never shows
+        DEBUG lines at INFO; a change applies at once (plan release-1.7.3, D5).
+        """
+        self._teardown_log_sink()
+        self._log_sink_level = level
         self._log_sink_id = add_log_sink(
             self._log_panel.sink,
-            level="DEBUG",
+            level=level,
             format="{time:HH:mm:ss} | {level:<7} | {message}",
             filter="enginir",
         )
@@ -2220,6 +2249,8 @@ class HSIViewer(QMainWindow):
         """Make ``preferences`` take effect; defaults pre-fill the docks only at startup."""
         self._preferences = preferences
         preferences_store.apply_environment(preferences)
+        if getattr(self, "_log_sink_level", None) != preferences.log_level:
+            self._attach_log_sink(preferences.log_level)
         if not startup:
             dark = preferences.theme == "dark"
             if preferences.theme == "system":
@@ -3007,8 +3038,10 @@ class HSIViewer(QMainWindow):
 
         box = QMessageBox(self)
         box.setWindowTitle("About engiNIR")
-        box.setText(f"<b>engiNIR</b> v{__version__}<br><br>"
-                    "Hyperspectral NIR spectroscopy library and viewer.")
+        box.setTextFormat(Qt.TextFormat.RichText)
+        box.setText(about_text(__version__))
+        # Selectable (the citation is copied from here) and with links that open.
+        box.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
         box.exec()
 
     def workspace_plot_frames(self) -> list[PlotFrame]:

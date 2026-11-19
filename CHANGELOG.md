@@ -17,6 +17,27 @@
   still gets its count; Auto chooses within the curve. Stored curves keep
   their length.
 
+### Added
+
+- **The About box cites engiNIR** (with the concept DOI) and links its
+  GitHub repository.
+- **The glossary** gives Frame and Row their own entries and adds the terms
+  the viewer and the guides use: the Explore plots (spatial image, sensor
+  frame, band image, spatial profile, false-color image), dark and white
+  references, detector levels, the wavelength table, the preprocessing
+  steps, the figures of merit, scores, loadings, coefficients, VIP, the
+  component curve, check and verdict.
+
+### Fixed
+
+- **The Log tab shows the log level of Tools > Preferences** (INFO by
+  default) instead of every DEBUG line, and follows a change at once.
+- **An image opens as Reset View shows it.** It was fitted with a margin that
+  depended on the view's size at that moment (up to 10 % while the page was
+  not laid out yet).
+- **A Kestreleye scan with a wavelength table is read without the warning
+  that it has no wavelengths.**
+
 ## 1.7.2 (2026-11-19)
 
 Wavelengths for Kestreleye scans, which store none: a wavelength table gives

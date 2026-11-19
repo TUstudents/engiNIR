@@ -302,3 +302,18 @@ def test_the_checks_fix_sets_the_wavelengths_of_the_shown_dataset(qapp, tmp_path
         assert window.state.wavelengths[0] == pytest.approx(1041.75), "the shown file too"
     finally:
         window.close()
+
+
+def test_a_scan_with_a_table_is_read_without_the_no_wavelengths_warning(tmp_path):
+    from enginir.io import load_spectra
+    from tests._scans import warnings_during
+
+    with_table, without = stream_file(tmp_path / "a.h5"), stream_file(tmp_path / "b.h5")
+    project = Project.create(tmp_path / "p.h5")
+
+    def warned(action) -> bool:
+        return any("no 'wavelengths'" in line for line in warnings_during(action)[1])
+
+    assert not warned(lambda: project.add_dataset(with_table, wavelength_table=KESTRELEYE))
+    assert not warned(lambda: load_spectra(with_table))
+    assert warned(lambda: project.add_dataset(without)), "still said for band numbers"

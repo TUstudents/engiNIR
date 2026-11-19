@@ -26,6 +26,7 @@ from .io import project_store as store
 # Through the package, never a submodule first: a thread importing a submodule while
 # another runs the package's __init__ deadlocks Python's import locks.
 from .io import WavelengthTable, is_band_numbers, wavelength_table
+from .io import hdf5_io  # through the package (see above)
 from .modeling import (
     BandProposal,
     fit_model_run,
@@ -732,6 +733,9 @@ class Project:
         if store_contents is None:
             store_contents = store.load_project_store(self.path)
         self.workspace = hydrate_project_store(store_contents, allow_stale_sample_set_rois=True)
+        for ref in self.workspace.datasets.values():
+            if ref.wavelength_table:
+                hdf5_io.note_wavelength_table(_native_path(stored_path(ref.source_path)))
 
     def _dataset_ref(self, abs_path: str) -> DatasetRef | None:
         return next((ref for ref in self.workspace.datasets.values()
@@ -773,6 +777,8 @@ class Project:
         if found is None:
             logger.info("File of dataset '{}' not found (stored: {})", dataset_id,
                         ref.source_path)
+        if found is not None and ref.wavelength_table:
+            hdf5_io.note_wavelength_table(found.path)  # read without a "no wavelengths" warning
         self._found[dataset_id] = found
         return found
 
@@ -792,6 +798,8 @@ class Project:
             log_and_raise("Detector levels correct without references; do not combine "
                           "black_level/white_level with dark/white references")
         abs_path = _native_path(path)
+        if wavelength_table is not None:
+            hdf5_io.note_wavelength_table(abs_path)  # its band numbers are expected
         data = read_header(abs_path)
         table = None
         if wavelength_table is not None:
@@ -803,6 +811,7 @@ class Project:
             if new_dataset:
                 dataset = replace(dataset, wavelength_table=table.name,
                                   wavelength_table_id=table.table_id)
+                hdf5_io.note_wavelength_table(abs_path)
                 logger.info("{} gets the wavelengths of table '{}' ({})", abs_path, table.name,
                             table.table_id)
             elif dataset.wavelength_table_id != table.table_id:
@@ -1066,6 +1075,7 @@ class Dataset:
         axis = np.array(table.wavelengths, dtype=np.float32)
         self.ref = replace(ref, wavelengths=axis.copy(), wavelength_table=table.name,
                            wavelength_table_id=table.table_id)
+        hdf5_io.note_wavelength_table(self.path)
         ws.datasets[ref.dataset_id] = self.ref
         for roi in rois:
             ws.rois[roi.roi_id] = replace(roi, wavelengths=axis.copy())

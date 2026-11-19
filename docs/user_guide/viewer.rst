@@ -133,9 +133,13 @@ everything works.
 the system), the interface scale, the plot help, the folders the project and
 dataset file dialogs start in, the defaults of the Fit and Prediction
 settings, the PNG resolution of exports, the threads of a fit and the log
-file level. **Data and paths** also shows the drive mapping applied to
+level (INFO by default): the **Log** tab shows that level and above at
+once, the log file from the next start. **Data and paths** also shows the drive mapping applied to
 stored paths (``Z:\…`` ↔ ``/mnt/z/…``); it is automatic. They belong to you,
 not to a project: a model stores what it was fitted with.
+
+**Help > About engiNIR** shows the version, how to cite engiNIR (with its
+DOI) and the link to its GitHub repository.
 
 A project opened without a scan shows its stored objects in every
 step; drawing ROIs needs a scan. **Project > Name Dataset...** gives a

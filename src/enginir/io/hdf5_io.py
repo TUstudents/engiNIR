@@ -260,8 +260,31 @@ def _register_compression_plugins() -> None:
     import hdf5plugin  # noqa: F401  (a dependency; importing registers the filters)
 
 
-@cache
+#: Files whose wavelengths a project gives them from a wavelength table (normalized paths).
+_GIVEN_WAVELENGTHS: set[str] = set()
+
+
+def _path_key(path: str | os.PathLike[str]) -> str:
+    return os.path.normcase(os.path.abspath(os.fspath(path)))
+
+
+def note_wavelength_table(path: str | os.PathLike[str]) -> None:
+    """Say that a project gives the file at ``path`` its wavelengths from a table.
+
+    Reading it then logs no warning that it has none: it has them in the project
+    (``enginir.io.wavelength_tables``). For this process only.
+    """
+    _GIVEN_WAVELENGTHS.add(_path_key(path))
+
+
 def _warn_missing_wavelengths(path: str, wavelengths_key: str, n_bands: int) -> None:
+    if _path_key(path) in _GIVEN_WAVELENGTHS:
+        return
+    _warn_missing_wavelengths_once(path, wavelengths_key, n_bands)
+
+
+@cache
+def _warn_missing_wavelengths_once(path: str, wavelengths_key: str, n_bands: int) -> None:
     logger.warning("{} has no '{}' dataset; using band indices 0..{} as wavelengths", path,
                    wavelengths_key, n_bands - 1)
 
