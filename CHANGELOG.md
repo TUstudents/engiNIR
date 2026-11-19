@@ -67,6 +67,8 @@
   not laid out yet).
 - **A Kestreleye scan with a wavelength table is read without the warning
   that it has no wavelengths.**
+- **The Checks table's Where and Fix columns have room** (they were fitted
+  exactly to their contents) and can be widened by hand.
 - **Typing an ROI grid's name pattern no longer logs an error per
   keystroke** (`{fol}` while typing `{folder}`); the grid that is made is
   still checked.

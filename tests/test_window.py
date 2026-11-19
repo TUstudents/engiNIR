@@ -1385,3 +1385,26 @@ def test_an_image_opens_fitted_as_reset_view_fits_it(qapp):
         np.testing.assert_allclose(shown, np.array(canvas.view_box.viewRange()), atol=1e-6)
     finally:
         canvas.close()
+
+
+def test_the_checks_tables_where_and_fix_columns_have_room(qapp):
+    """Fitted exactly they looked cramped: their contents plus a margin, at least a fixed
+    width, and a width dragged by hand survives the next refresh."""
+    from enginir._guidance import Check, Fix
+    from enginir.viewer._bottom_panels import _COLUMN_MARGIN, _MIN_WIDTHS, ChecksPanel
+
+    panel = ChecksPanel()
+    panel.resize(1200, 300)
+    long_name = "a model with a rather long name for its Where cell"
+    checks = [Check("model.x", "model", "attention", "Something to look at.",
+                    model_run_id="m1", fix=Fix("fit_again", "Load Model Settings and Fit")),
+              Check("data.y", "data", "info", "Something else.")]
+    panel.set_checks(checks, {"m1": long_name})
+    table = panel.table
+    for column in (2, 3):
+        width = table.columnWidth(column)
+        content = table.sizeHintForColumn(column)
+        assert width >= max(_MIN_WIDTHS[column], content + _COLUMN_MARGIN), (column, width)
+    table.setColumnWidth(2, 400)  # the user widens it
+    panel.set_checks(checks, {"m1": long_name})
+    assert table.columnWidth(2) == 400, "kept on refresh"
