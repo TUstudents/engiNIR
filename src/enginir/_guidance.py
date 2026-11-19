@@ -94,11 +94,13 @@ class Verdict:
     evidence: tuple[Check, ...]
 
 
-def project_checks(project: Project, *, files: bool = True) -> list[Check]:
+def project_checks(project: Project, *, files: bool = True, predict: bool = True) -> list[Check]:
     """The checks of every step of ``project``, in workflow order.
 
     ``files=False`` skips looking for the dataset files (no file access
-    beyond the project file).
+    beyond the project file). ``predict=False`` skips predicting the
+    prediction ROIs for ``predict.rois_outside`` (:func:`prediction_roi_checks`);
+    the predictions are cached, so only the first call costs.
     """
     checks = [*_data_checks(project, files=files), *_roi_checks(project),
               *_value_checks(project)]
@@ -111,7 +113,7 @@ def project_checks(project: Project, *, files: bool = True) -> list[Check]:
                                 fix=Fix("fit", "Fit Model", {"target_id": ready[0]})))
     for model in models:
         checks.extend(model_checks(model))
-    checks.extend(_predict_checks(project))
+    checks.extend(_predict_checks(project, predict=predict))
     order = {step: index for index, step in enumerate(STEPS)}
     return sorted(checks, key=lambda check: order[check.step])  # stable within a step
 
@@ -282,7 +284,7 @@ def _sample_value_checks(project: Project, target_id: str) -> list[Check]:
     return checks
 
 
-def _predict_checks(project: Project) -> list[Check]:
+def _predict_checks(project: Project, *, predict: bool) -> list[Check]:
     models = list(project.models.values())
     if not models:
         return []
@@ -292,12 +294,76 @@ def _predict_checks(project: Project) -> list[Check]:
         return [Check("predict.no_rois", "predict", "info",
                       "No ROI is marked as a prediction ROI; a model can still predict a "
                       "whole dataset.")]
+    return prediction_roi_checks(project) if predict else [_rois_ready(project, prediction)]
+
+
+def prediction_roi_checks(project: Project) -> list[Check]:
+    """The predict-step checks of the prediction ROIs, predicting them with the newest model.
+
+    ``predict.rois_ready`` names the prediction ROIs; ``predict.rois_outside``
+    (attention) names those outside the model by :func:`enginir.prediction.unusual_rois`.
+    With none outside, ``predict.rois_ready`` says so. A model without
+    calibration shares at 0.95 (converted, not refitted) gives neither
+    sentence. The result per (project file, model, ROI) is cached: the model
+    and the ROI's stored pixels never change under their ids.
+    """
+    prediction = tuple(roi.roi_id for roi in project.workspace.rois.values()
+                       if roi.job == "prediction")
+    models = list(project.models.values())
+    if not models or not prediction:
+        return _predict_checks(project, predict=False)
     newest = max(models, key=lambda model: model.ref.created_at)
-    return [Check("predict.rois_ready", "predict", "info",
-                  f"{len(prediction)} prediction ROIs can be predicted.", roi_ids=prediction,
-                  model_run_id=newest.ref.model_run_id,
-                  fix=Fix("predict_rois", "Predict ROIs",
-                          {"model_run_id": newest.ref.model_run_id}))]
+    outside = _outside_rois(newest, prediction)
+    ready = _rois_ready(project, prediction)
+    if outside is None:
+        return [ready]
+    if not outside:
+        return [Check(ready.check_id, ready.step, ready.severity,
+                      ready.message[:-1] + f"; all lie within '{newest.name}'.",
+                      roi_ids=ready.roi_ids, model_run_id=ready.model_run_id, fix=ready.fix)]
+    return [ready, Check(
+        "predict.rois_outside", "predict", "attention",
+        f"{len(outside)} prediction ROI(s) are outside '{newest.name}': more of their pixels "
+        f"lie above DCrit ({LIMIT_LEVEL:g}) than in 90 % of its calibration ROIs, so the model "
+        "does not describe their spectra.",
+        roi_ids=outside, model_run_id=newest.ref.model_run_id,
+        fix=Fix("select_roi", "Go to ROI", {"roi_id": outside[0]}))]
+
+
+def _rois_ready(project: Project, prediction: tuple[str, ...]) -> Check:
+    newest = max(project.models.values(), key=lambda model: model.ref.created_at)
+    return Check("predict.rois_ready", "predict", "info",
+                 f"{len(prediction)} prediction ROIs can be predicted.", roi_ids=prediction,
+                 model_run_id=newest.ref.model_run_id,
+                 fix=Fix("predict_rois", "Predict ROIs",
+                         {"model_run_id": newest.ref.model_run_id}))
+
+
+#: Per (project file, model run id): whether the model has the calibration shares the rule
+#: needs, and per predicted ROI whether it is outside. Sound for the process's lifetime:
+#: a model and an ROI's stored pixels never change under their ids (identity rules).
+_OUTSIDE: dict[tuple[str, str], tuple[bool, dict[str, bool]]] = {}
+
+
+def _outside_rois(model: Model, roi_ids: tuple[str, ...]) -> tuple[str, ...] | None:
+    """The ROIs of ``roi_ids`` outside ``model``, predicting only the ones not seen yet."""
+    import os
+
+    from .prediction import unusual_rois
+
+    key = (os.path.normcase(os.path.abspath(model.project.path)), model.ref.model_run_id)
+    has_rule, known = _OUTSIDE.get(key, (True, {}))
+    missing = [roi_id for roi_id in roi_ids if roi_id not in known]
+    if missing and has_rule:
+        ws = model.project.workspace
+        prediction = model.roi_prediction([ws.rois[roi_id] for roi_id in missing])
+        has_rule = prediction.training_share_range is not None and prediction.dcrit_095 is not None
+        outside = set(unusual_rois(prediction))
+        known = {**known, **{roi_id: roi_id in outside for roi_id in missing}}
+        _OUTSIDE[key] = (has_rule, known)
+    if not has_rule:
+        return None
+    return tuple(roi_id for roi_id in roi_ids if known.get(roi_id))
 
 
 # --- one model -------------------------------------------------------------------------

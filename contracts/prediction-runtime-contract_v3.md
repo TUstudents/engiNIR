@@ -533,9 +533,12 @@ predicting again.
 For comparison, the 10th, 50th and 90th percentiles of the calibration ROIs'
 stored shares of pixels above DCrit (`roi_share_above_dcrit`, §7.5 of the
 model-run contract) are kept with the result, at level 0.95 only (the
-calibration share uses calibration DModX and the drawn pixels); a prediction ROI
-whose share is above the 90th percentile is marked as unusual. Unavailable
-for runs without it.
+calibration share uses calibration DModX and the drawn pixels). A prediction
+ROI whose share above DCrit (0.95) is above the 90th percentile is **outside
+the model**: `enginir.prediction.unusual_rois` is the one rule, used by the
+guidance check `predict.rois_outside` and by the Predict page's ring.
+Unavailable for runs without the 0.95 shares (a converted model before its
+refit).
 
 Per ROI the half-width of the mean interval at 0.95 (Prediction intervals)
 is part of the per-ROI result in the library (NaN where there is none); the

@@ -13,6 +13,7 @@ from ._rois import (
     RoiStatistics,
     predict_rois,
     roi_prediction_statistics,
+    unusual_rois,
 )
 from ._uncertainty import IntervalInputs, mean_half_width, pixel_half_width
 from ._service import (
@@ -40,6 +41,7 @@ __all__ = [
     "RoiStatistics",
     "predict_rois",
     "roi_prediction_statistics",
+    "unusual_rois",
     "DEFAULT_CHUNK_SIZE",
     "PredictionCancelCallback",
     "PredictionCancelledError",

@@ -114,18 +114,24 @@ def project_with_an_odd_pixel(tmp_path, n_bands=30):
     return project
 
 
-def tray_project(tmp_path):
+def tray_project(tmp_path, odd: str | None = None):
     """One tray of 10 ROIs (levels 1..10, references from frames); ROIs 8-10 for prediction.
 
+    ``odd`` (an ROI name, e.g. ``"t10"``) gives that ROI a foreign absorption band
+    the calibration ROIs lack, so its spectra lie outside the model.
     Returns ``(project, dataset, path)``.
     """
     rng = np.random.default_rng(11)
     peak = np.exp(-((np.arange(TRAY_BANDS) - 9) / 3.0) ** 2)
+    foreign = np.exp(-((np.arange(TRAY_BANDS) - 19) / 1.5) ** 2)
     blocks = [np.full((2, TRAY_HEIGHT, TRAY_BANDS), 120.0)]  # dark frames
     values = np.arange(1.0, 11.0)
-    for value in values:
-        blocks.append(2600 - 110 * value * peak
-                      + rng.normal(0, 20, (TRAY_FRAMES, TRAY_HEIGHT, TRAY_BANDS)))
+    for i, value in enumerate(values):
+        block = (2600 - 110 * value * peak
+                 + rng.normal(0, 20, (TRAY_FRAMES, TRAY_HEIGHT, TRAY_BANDS)))
+        if odd == f"t{i + 1:02d}":
+            block -= 600 * foreign
+        blocks.append(block)
     blocks.append(np.full((2, TRAY_HEIGHT, TRAY_BANDS), 3400.0))  # white frames
     cube = np.vstack(blocks).astype(np.uint16)
     path = tmp_path / "tray.h5"

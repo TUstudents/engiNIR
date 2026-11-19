@@ -116,9 +116,11 @@ their places. **View > Reset Layout** restores the default.
    :width: 80%
 
 **The example project** (first button of the welcome screen, or **File > Open
-Example Project**) has five synthetic tablet scans with a fitted model and
-opens without open checks: each calibration scan holds tablets with
-different numbers of layers, and each tablet is its own sample. It is
+Example Project**) has five synthetic tablet scans with a fitted model:
+each calibration scan holds tablets with different numbers of layers, and
+each tablet is its own sample. It opens with one open check, in the Predict
+step: the prediction tablet P_T4 lies outside the model (**Go to ROI**
+shows it). It is
 created on first use in the settings folder; the fastest way to see how
 everything works.
 

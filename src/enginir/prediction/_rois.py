@@ -248,11 +248,6 @@ def roi_prediction_statistics(
         values = pixels.y[kept].astype(np.float64)
         n_valid = int(valid.sum())
 
-        def share(values_: np.ndarray, crit: float | None) -> float:
-            if crit is None or n_valid == 0 or not np.isfinite(values_[valid]).any():
-                return float("nan")
-            return float(np.mean(values_[valid] > crit))
-
         assignment = target_assignments.get((roi_id, prediction.target_id))
         reference = None if assignment is None else float(assignment.value)
         mean = float(values.mean()) if values.size else float("nan")
@@ -264,8 +259,8 @@ def roi_prediction_statistics(
             p05=float(np.percentile(values, 5)) if values.size else float("nan"),
             p95=float(np.percentile(values, 95)) if values.size else float("nan"),
             mean_dmodx=_nanmean(pixels.dmodx[kept]), mean_t2=_nanmean(pixels.t2[kept]),
-            share_above_dcrit=share(pixels.dmodx, prediction.dcrit_095),
-            share_above_t2crit=share(pixels.t2, prediction.t2_crit_095),
+            share_above_dcrit=_share_above(pixels.dmodx, valid, prediction.dcrit_095),
+            share_above_t2crit=_share_above(pixels.t2, valid, prediction.t2_crit_095),
             reference=reference,
             residual=None if reference is None or not values.size else mean - reference,
             interval=mean_half_width(
@@ -279,6 +274,34 @@ def roi_prediction_statistics(
         rmsep=float(np.sqrt(np.mean(residuals ** 2))) if residuals.size else None,
         bias=float(np.mean(residuals)) if residuals.size else None,
         n_reference=int(residuals.size))
+
+
+def unusual_rois(prediction: RoiPrediction) -> tuple[str, ...]:
+    """The predicted ROIs outside the model: their spectra are unusual for it.
+
+    An ROI is outside when its share of pixels above DCrit (0.95) exceeds the
+    90th percentile of the same share over the model's calibration ROIs
+    (``training_share_range``; contract, Prediction ROIs). This is the one rule:
+    the guidance check ``predict.rois_outside`` and the viewer's ring use it.
+    Empty when the model stores no calibration shares at 0.95 (a converted
+    model before its refit) or no projection data.
+    """
+    if prediction.training_share_range is None or prediction.dcrit_095 is None:
+        return ()
+    high = prediction.training_share_range[2]
+    outside = []
+    for roi_id, pixels in prediction.pixels.items():
+        share = _share_above(pixels.dmodx, np.isfinite(pixels.y), prediction.dcrit_095)
+        if np.isfinite(share) and share > high:
+            outside.append(roi_id)
+    return tuple(outside)
+
+
+def _share_above(values: np.ndarray, valid: np.ndarray, crit: float | None) -> float:
+    """The share of the ``valid`` pixels whose ``values`` exceed ``crit``; NaN when undefined."""
+    if crit is None or not valid.any() or not np.isfinite(values[valid]).any():
+        return float("nan")
+    return float(np.mean(values[valid] > crit))
 
 
 def _nanmean(values: np.ndarray) -> float:
@@ -300,4 +323,4 @@ def _share_percentiles(shares: Any) -> tuple[float, float, float] | None:
 
 
 __all__ = ["RoiPixels", "RoiPrediction", "RoiPredictionSummary", "RoiStatistics",
-           "predict_rois", "roi_prediction_statistics"]
+           "predict_rois", "roi_prediction_statistics", "unusual_rois"]

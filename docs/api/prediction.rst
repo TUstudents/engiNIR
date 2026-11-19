@@ -30,6 +30,8 @@ Prediction ROIs
 
 .. autofunction:: enginir.prediction.roi_prediction_statistics
 
+.. autofunction:: enginir.prediction.unusual_rois
+
 .. autoclass:: enginir.prediction.RoiPrediction
    :members: dmodx_limit_at
 

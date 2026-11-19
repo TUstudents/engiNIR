@@ -289,3 +289,62 @@ def test_a_small_model_gets_its_distance_check(tmp_path):
     guidance._STORED.clear()
     assert np.asarray(model.diagnostics["roi_share_above_dcrit"]).size == 8
     assert "model.distance" in _by_id(model.checks())
+
+
+# -- predict.rois_outside: prediction ROIs outside the newest model -------------------
+
+
+def _count_predictions(monkeypatch) -> list[str]:
+    calls: list[str] = []
+    original = Model.roi_prediction
+
+    def counted(self, rois=None):
+        calls.append(self.ref.model_run_id)
+        return original(self, rois)
+
+    monkeypatch.setattr(Model, "roi_prediction", counted)
+    return calls
+
+
+def test_a_prediction_roi_outside_the_newest_model_is_named_once_predicted(tmp_path, monkeypatch):
+    from tests._scans import tray_project
+
+    project, _dataset, _path = tray_project(tmp_path, odd="t09")
+    project.set_job("t10", "calibration")  # prediction ROIs: t08 (normal) and t09 (odd)
+    older = project.fit("API", n_components=1, cv=3)
+    newest = project.fit("API", n_components=2, cv=3)
+    calls = _count_predictions(monkeypatch)
+
+    assert "predict.rois_outside" not in _by_id(project.checks(predict=False))
+    assert calls == [], "predict=False predicts nothing"
+
+    (check,) = _by_id(project.checks())["predict.rois_outside"]
+    assert check.severity == "attention" and check.is_open
+    assert check.roi_ids == (project.roi("t09").roi_id,)
+    assert check.model_run_id == newest.ref.model_run_id != older.ref.model_run_id
+    assert "1 prediction ROI(s) are outside" in check.message and "0.95" in check.message
+    assert check.fix is not None and check.fix.arguments == {"roi_id": project.roi("t09").roi_id}
+    assert calls == [newest.ref.model_run_id]
+
+    project.checks()
+    assert calls == [newest.ref.model_run_id], "a second call predicts nothing (cached)"
+
+
+def test_prediction_rois_within_the_model_are_said_to_be(tmp_path):
+    from tests._scans import tray_project
+
+    project, _dataset, _path = tray_project(tmp_path)
+    project.set_job("t10", "calibration")  # prediction ROIs: t08 and t09
+    model = project.fit("API", n_components=2, cv=3)
+    # t09 has some pixels above DCrit: more than the median calibration ROI, fewer than the
+    # 90th percentile, so it is inside (a rule with the median would call it outside).
+    high = np.percentile(np.asarray(model.diagnostics["roi_share_above_dcrit"]), 90)
+    median = np.median(np.asarray(model.diagnostics["roi_share_above_dcrit"]))
+    t09 = next(row for row in model.predict_rois(["t09"]).rois)
+    assert median < t09.share_above_dcrit <= high
+    checks = _by_id(project.checks())
+    assert "predict.rois_outside" not in checks
+    (ready,) = checks["predict.rois_ready"]
+    assert ready.message.endswith(f"; all lie within '{model.name}'.")
+    (fast,) = _by_id(project.checks(predict=False))["predict.rois_ready"]
+    assert "all lie within" not in fast.message, "not claimed without predicting"

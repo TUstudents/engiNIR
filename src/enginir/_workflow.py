@@ -658,7 +658,7 @@ class Project:
                            roi_id, affected)
         return affected
 
-    def checks(self, *, files: bool = True) -> list[Check]:
+    def checks(self, *, files: bool = True, predict: bool = True) -> list[Check]:
         """What is done and what needs attention, per step of the workflow.
 
         One :class:`~enginir._guidance.Check` per item, in the order data,
@@ -666,10 +666,12 @@ class Project:
         ``attention``, ``blocking``), a sentence, the ROIs, datasets, target
         or model it refers to and, where one exists, the
         :class:`~enginir._guidance.Fix` that resolves it. Nothing is
-        changed. ``files=False`` skips looking for the dataset files
-        (headless-workflow contract, Guidance).
+        changed. ``files=False`` skips looking for the dataset files;
+        ``predict=False`` skips predicting the prediction ROIs, which
+        ``predict.rois_outside`` needs (the first call per model and ROI
+        predicts, later ones use a cache) (headless-workflow contract, Guidance).
         """
-        return project_checks(self, files=files)
+        return project_checks(self, files=files, predict=predict)
 
     def missing_rois(self, sample_set_id: str) -> list[str]:
         """Ids of deleted ROIs a sample set still lists."""
