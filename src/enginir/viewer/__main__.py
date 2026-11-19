@@ -32,6 +32,54 @@ from .._logging import get_logger, log_file_path
 logger = get_logger(__name__)
 
 
+# The opening code and the library load when the user picks something (the loaders
+# run in background jobs), not before the welcome screen is shown (D2); each first
+# waits for the warm-up's imports, so two threads never import the library at once.
+def _load_dataset_startup(*args: Any, **kwargs: Any) -> Any:
+    from ._warmup import wait_for_library
+
+    wait_for_library()
+    from ._open import _load_dataset_startup as load
+
+    return load(*args, **kwargs)
+
+
+def _load_project_startup(path: str) -> Any:
+    from ._warmup import wait_for_library
+
+    wait_for_library()
+    from ._open import _load_project_startup as load
+
+    return load(path)
+
+
+def _open_loaded_dataset_viewer(payload: Any) -> Any:
+    from ._warmup import wait_for_library
+
+    wait_for_library()
+    from ._open import _open_loaded_dataset_viewer as open_loaded
+
+    return open_loaded(payload)
+
+
+def _open_loaded_project_viewer(payload: Any) -> Any:
+    from ._warmup import wait_for_library
+
+    wait_for_library()
+    from ._open import _open_loaded_project_viewer as open_loaded
+
+    return open_loaded(payload)
+
+
+def create_project(path: str) -> Any:
+    from ._warmup import wait_for_library
+
+    wait_for_library()
+    from ..io.project_store import create_project as create
+
+    return create(path)
+
+
 def _main(argv: list[str] | None = None) -> int:
     from ._app import enable_viewer_logging
 
@@ -120,33 +168,6 @@ def _main(argv: list[str] | None = None) -> int:
         from ._jobs import start_background_job
         from ._loading import LoadingProgressEvent, LoadingProgressRelay, ViewerBusyContext
         from ._welcome import WelcomeWindow
-
-        # The opening code and the library load when the user picks something (the
-        # loaders run in background jobs), not before the welcome screen is shown (D2).
-        def _load_dataset_startup(*args: Any, **kwargs: Any) -> Any:
-            from ._open import _load_dataset_startup as load
-
-            return load(*args, **kwargs)
-
-        def _load_project_startup(path: str) -> Any:
-            from ._open import _load_project_startup as load
-
-            return load(path)
-
-        def _open_loaded_dataset_viewer(payload: Any) -> Any:
-            from ._open import _open_loaded_dataset_viewer as open_loaded
-
-            return open_loaded(payload)
-
-        def _open_loaded_project_viewer(payload: Any) -> Any:
-            from ._open import _open_loaded_project_viewer as open_loaded
-
-            return open_loaded(payload)
-
-        def create_project(path: str) -> Any:
-            from ..io.project_store import create_project as create
-
-            return create(path)
 
         welcome = WelcomeWindow()
         welcome_created_at = time.perf_counter()

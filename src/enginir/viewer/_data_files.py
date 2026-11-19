@@ -52,7 +52,7 @@ from PyQt6.QtWidgets import (
 from .._logging import get_logger
 from .._workflow import DEFAULT_BLACK_LEVEL, DEFAULT_WHITE_LEVEL, data_file_labels, read_frames
 from ..io import load_spectra
-from ..io.wavelength_tables import is_band_numbers, user_table_folder, wavelength_tables
+from ..io import is_band_numbers, user_table_folder, wavelength_tables
 from ..project import ReferenceCorrection, DatasetRef
 from ._preferences import start_folder
 from ._theme import GUIDE_COLOR, panel_colors, secondary_text_style

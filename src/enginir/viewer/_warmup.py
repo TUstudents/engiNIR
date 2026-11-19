@@ -11,14 +11,18 @@ that wait:
    the main window) are imported on the UI thread, one per idle-timer step,
    because Qt modules are only safe to import on the main thread.
 
-A pick before the warm-up ends is not delayed by it: an import the warm-up has
-started makes the other thread wait for that module only (Python's import
-lock), never for the rest.
+A pick before the warm-up ends waits for its background imports
+(:func:`wait_for_library`) before anything else imports the library: two
+threads importing the same packages at once can deadlock Python's import locks
+(a module's lock taken before its package's in one thread, the other way round
+in the other; seen on Python 3.13.18 and 3.14, 2026-11-19). The wait costs
+nothing, since those imports would have blocked the pick anyway.
 """
 
 from __future__ import annotations
 
 import importlib
+import threading
 import time
 from collections.abc import Callable
 
@@ -46,9 +50,30 @@ UI_MODULES = (
 )
 
 
+#: Set when the background imports have ended (or failed); unset while they run.
+_LIBRARY_IMPORTED = threading.Event()
+_LIBRARY_IMPORTED.set()
+
+
 def _import_all(names: tuple[str, ...]) -> None:
-    for name in names:
-        importlib.import_module(name)
+    try:
+        for name in names:
+            importlib.import_module(name)
+    finally:
+        _LIBRARY_IMPORTED.set()
+
+
+def wait_for_library(timeout: float = 120.0) -> None:
+    """Wait until the warm-up's background imports have ended (at once if none runs).
+
+    Call it from any thread before code that imports the library (``_open``,
+    the project store), so no two threads import the same packages at once.
+    """
+    if not _LIBRARY_IMPORTED.is_set():
+        started = time.perf_counter()
+        if not _LIBRARY_IMPORTED.wait(timeout):
+            logger.warning("The warm-up's imports did not end within {:.0f}s", timeout)
+        logger.debug("Waited {:.3f}s for the warm-up's imports", time.perf_counter() - started)
 
 
 def start_warmup(owner: QObject, *, on_done: Callable[[], None] | None = None) -> None:
@@ -93,9 +118,10 @@ def start_warmup(owner: QObject, *, on_done: Callable[[], None] | None = None) -
         finish("stopped")
 
     timer.timeout.connect(step)
+    _LIBRARY_IMPORTED.clear()
     start_background_job(owner=owner, fn=lambda: _import_all(BACKGROUND_MODULES),
                          on_success=background_done, on_error=background_failed,
                          on_finished=lambda: None)
 
 
-__all__ = ["BACKGROUND_MODULES", "UI_MODULES", "start_warmup"]
+__all__ = ["BACKGROUND_MODULES", "UI_MODULES", "start_warmup", "wait_for_library"]

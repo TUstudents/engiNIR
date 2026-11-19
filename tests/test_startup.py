@@ -86,8 +86,8 @@ _WARM_THEN_OPEN = textwrap.dedent("""
         QApplication.processEvents()
         time.sleep(0.005)
     before = set(sys.modules)
-    from enginir.viewer import _open
-    viewer = _open._open_loaded_project_viewer(_open._load_project_startup(sys.argv[1]))
+    launcher = enginir.viewer.__main__  # the launcher's own entry points
+    viewer = launcher._open_loaded_project_viewer(launcher._load_project_startup(sys.argv[1]))
     QApplication.processEvents()
     print(json.dumps({"new": sorted(set(sys.modules) - before),
                       "opened": type(viewer).__name__, "done": bool(done)}))

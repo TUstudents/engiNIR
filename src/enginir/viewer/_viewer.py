@@ -54,7 +54,7 @@ from ._eda import EDAView
 from ._attachment import confirm_project_dataset_binding
 from ._browser import ProjectBrowser
 from ..io import file_format
-from ..io.wavelength_tables import is_band_numbers
+from ..io import is_band_numbers
 from ..prediction import spectral_axis_in_nm
 from ._inspector import ProjectInspector
 from ._data_files import AddDataFileDialog, SetWavelengthsDialog

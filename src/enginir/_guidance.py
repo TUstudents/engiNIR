@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from ._logging import get_logger
-from .io.wavelength_tables import is_band_numbers
+from .io import is_band_numbers  # through the package (see _workflow)
 from .validation.outliers import LIMIT_LEVEL
 
 if TYPE_CHECKING:
@@ -216,7 +216,7 @@ def _no_wavelengths_check(datasets: Mapping[str, Any], unnumbered: list[str]) ->
     With several band counts, the fix covers the datasets of the first band count
     that has exactly one table; the check stays open for the others.
     """
-    from .io.wavelength_tables import wavelength_tables
+    from .io import wavelength_tables
 
     message = f"{len(unnumbered)} dataset(s) have no wavelengths; bands are numbered from 0."
     counts = list(dict.fromkeys(datasets[dataset_id].n_bands for dataset_id in unnumbered))

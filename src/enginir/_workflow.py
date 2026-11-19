@@ -23,7 +23,9 @@ from ._guidance import Check, Verdict, model_checks, model_verdict, project_chec
 from ._logging import get_logger
 from .io import file_format, load_spectra
 from .io import project_store as store
-from .io.wavelength_tables import WavelengthTable, is_band_numbers, wavelength_table
+# Through the package, never a submodule first: a thread importing a submodule while
+# another runs the package's __init__ deadlocks Python's import locks.
+from .io import WavelengthTable, is_band_numbers, wavelength_table
 from .modeling import (
     BandProposal,
     fit_model_run,

@@ -326,8 +326,12 @@ paths on the UI thread (plan `plans/startup-speed-1.7.1.md`):
 - `_warmup.start_warmup` runs once the welcome window is painted: a job
   imports the non-Qt stack (`BACKGROUND_MODULES`), then an idle `QTimer`
   imports the Qt modules (`UI_MODULES`, among them `_viewer`) one per step on
-  the UI thread. A pick before the warm-up ends waits only for the module
-  it needs (Python's import lock). `run()` waits for running jobs before the
+  the UI thread. A pick before the warm-up ends first waits for the
+  background imports (`_warmup.wait_for_library`, called by the launcher's
+  loaders in `__main__`): two threads importing the same packages at once can
+  deadlock Python's import locks (seen on Python 3.13.18 and 3.14). For the
+  same reason, code outside `enginir.io` imports its names through the
+  package (`from ..io import is_band_numbers`), never a submodule first. `run()` waits for running jobs before the
   interpreter exits, so a launcher closed during the warm-up exits cleanly.
 - The recent-files list is drawn from `recent.json` alone (path and kind);
   a job (`_recent.check`) tells which files exist, grays out the missing
