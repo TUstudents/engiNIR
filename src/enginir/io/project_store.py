@@ -522,6 +522,47 @@ def relocate_dataset_ref(path: PathLike, dataset_id: str, source_path: str,
     logger.info("Dataset '{}' moved from {} to {} in {}", dataset_id, previous, source_path, path)
 
 
+def set_dataset_wavelengths(path: PathLike, dataset_id: str, wavelengths: np.ndarray, *,
+                            table: str, table_id: str, roi_ids: list[str]) -> None:
+    """Give a stored dataset and its ROIs the wavelengths of a wavelength table.
+
+    For a dataset added with band numbers (its file stores no wavelengths):
+    the axis of the dataset and of each ROI in ``roi_ids`` is replaced, and
+    the table's name and id are recorded on the dataset. An identity
+    exception of ``project-schema-contract_v3.md`` §5, like a relocation:
+    pixels, values and every other field stay. The caller checks that the
+    replaced axes are band numbers (:meth:`enginir.Dataset.set_wavelengths`).
+    Everything is checked before anything is written.
+    """
+    axis = np.asarray(wavelengths, dtype=np.float32).reshape(-1)
+    if not str(table).strip() or not str(table_id).strip():
+        log_and_raise("A wavelength table needs a name and an id")
+    with _open_project(path, writable=True) as f:
+        group = f["datasets"].get(dataset_id)
+        if not isinstance(group, h5py.Group):
+            log_and_raise("Unknown dataset '{}' in {}", dataset_id, path, error=KeyError)
+        targets: list[h5py.Group] = [group]
+        rois = f["rois"]
+        for roi_id in roi_ids:
+            roi = rois.get(roi_id)
+            if not isinstance(roi, h5py.Group) or roi.attrs.get("dataset_id") != dataset_id:
+                log_and_raise("ROI '{}' is not an ROI of dataset '{}' in {}", roi_id, dataset_id,
+                              path, error=KeyError)
+            targets.append(roi)
+        for target in targets:
+            stored = target.get("wavelengths")
+            if not isinstance(stored, h5py.Dataset) or stored.shape != axis.shape:
+                log_and_raise("{} has no wavelength axis of {} bands", target.name, axis.size)
+        for target in targets:
+            stored = target["wavelengths"]
+            if isinstance(stored, h5py.Dataset):
+                stored[...] = axis.astype(stored.dtype)
+        group.attrs["wavelength_table"] = str(table)
+        group.attrs["wavelength_table_id"] = str(table_id)
+    logger.info("Dataset '{}' and {} ROI(s) have the wavelengths of table '{}' ({}) in {}",
+                dataset_id, len(roi_ids), table, table_id, path)
+
+
 def save_dataset_label(path: PathLike, dataset_id: str, label: str) -> None:
     """Set the display label of a stored dataset (``""``: show the file name).
 
@@ -1220,6 +1261,7 @@ __all__ = [
     "load_roi_spectra_matrix",
     "open_prediction_run_artifact_writer",
     "relocate_dataset_ref",
+    "set_dataset_wavelengths",
     "remove_roi_from_project",
     "remove_target_assignment",
     "load_roi_band_images",

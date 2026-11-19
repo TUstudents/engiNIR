@@ -94,6 +94,22 @@ and ``dataset.add_rois``, all stored or none:
                     name_pattern="{file}-{row}{column:02d}", file="tray1")
    tray1.add_rois(cells)
 
+A file that stores no wavelengths, only band numbers (a Kestreleye
+``stream_hsi.h5``), gets them from a wavelength table:
+
+.. code-block:: python
+
+   from enginir.io import wavelength_tables
+   print([table.name for table in wavelength_tables(176)])   # ['Kestreleye 176 bands']
+   scan = project.add_dataset("stream_hsi.h5", wavelength_table="Kestreleye 176 bands")
+
+The table's values are copied into the project. A dataset added with band
+numbers gets them later, together with its ROIs, with
+``dataset.set_wavelengths("Kestreleye 176 bands")``; models fitted before keep
+their band numbers and predict as before. Your own tables are CSV files
+(``band,wavelength_nm`` with a ``# name: ...`` line) in
+``~/.enginir/wavelength_tables/``.
+
 A scan that was moved or renamed is pointed at its new place with
 ``dataset.locate(new_path)``. The file is accepted only if it is the same
 scan (format, shape, wavelengths, and the stored pixels of every ROI);

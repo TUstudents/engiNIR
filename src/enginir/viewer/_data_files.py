@@ -20,13 +20,13 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -40,6 +40,8 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QRadioButton,
     QSpinBox,
@@ -50,6 +52,7 @@ from PyQt6.QtWidgets import (
 from .._logging import get_logger
 from .._workflow import DEFAULT_BLACK_LEVEL, DEFAULT_WHITE_LEVEL, data_file_labels, read_frames
 from ..io import load_spectra
+from ..io.wavelength_tables import is_band_numbers, user_table_folder, wavelength_tables
 from ..project import ReferenceCorrection, DatasetRef
 from ._preferences import start_folder
 from ._theme import GUIDE_COLOR, panel_colors, secondary_text_style
@@ -77,13 +80,15 @@ class DataFileRequest:
     references_from: str | None = None
     black_level: float | None = None
     white_level: float | None = None
+    #: Name of the wavelength table for a file that stores no wavelengths, or ``None``.
+    wavelength_table: str | None = None
 
     def add_dataset_kwargs(self) -> dict[str, Any]:
         """Keyword arguments for :meth:`enginir.Project.add_dataset` (besides the path)."""
         return {"unit": self.unit, "dark": self.dark, "white": self.white,
                 "dark_frames": self.dark_frames, "white_frames": self.white_frames,
                 "references_from": self.references_from, "black_level": self.black_level,
-                "white_level": self.white_level}
+                "white_level": self.white_level, "wavelength_table": self.wavelength_table}
 
 
 def saturation_level(meta: Mapping[str, Any], dtype: np.dtype) -> float | None:
@@ -174,6 +179,7 @@ class AddDataFileDialog(QDialog):
         parent: QWidget | None = None,
         *,
         trained_with: str | None = None,
+        registered: bool = False,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Add dataset")
@@ -196,6 +202,12 @@ class AddDataFileDialog(QDialog):
                       f"{n_bands} bands, {np.dtype(header.X.dtype).name}")
         layout = QVBoxLayout(self)
         layout.addWidget(info)
+        # A registered file keeps its axis; Project > Set Wavelengths changes it.
+        self._wavelengths = None if registered else self._wavelength_choice(header, n_bands)
+        if self._wavelengths is not None:
+            row = QFormLayout()
+            row.addRow("Wavelengths:", self._wavelengths)
+            layout.addLayout(row)
         if trained_with:
             # Opened from Predict: say what the model used, never reuse it silently
             # (dataset-reference-correction contract).
@@ -449,7 +461,7 @@ class AddDataFileDialog(QDialog):
 
     # -- result ---------------------------------------------------------
 
-    def build_request(self) -> DataFileRequest:
+    def _reference_request(self) -> DataFileRequest:
         """The request for the current choices (without checking the references)."""
         choice = self.choice()
         if choice == RAW:
@@ -470,6 +482,32 @@ class AddDataFileDialog(QDialog):
                                    white_level=self._white_level.value())
         return DataFileRequest(self._path, unit=unit)
 
+    def _wavelength_choice(self, header: Any, n_bands: int) -> QComboBox | None:
+        """For a file that stores no wavelengths: band numbers or a table of its band count.
+
+        The only table of that band count is preselected (plan wavelength-tables, D2);
+        ``None`` for a file with its own wavelengths.
+        """
+        if header.meta.get("x_units") != "band_index" and not is_band_numbers(header.wavelengths):
+            return None
+        combo = QComboBox()
+        combo.addItem("Band numbers (the file has no wavelengths)", None)
+        tables = wavelength_tables(n_bands)
+        for table in tables:
+            combo.addItem(table.describe(), table.name)
+            combo.setItemData(combo.count() - 1, table.path, Qt.ItemDataRole.ToolTipRole)
+        if len(tables) == 1:
+            combo.setCurrentIndex(1)
+        combo.setToolTip(f"Tables of {n_bands} bands: those of engiNIR and the CSV files in "
+                         f"{user_table_folder()}")
+        return combo
+
+    def build_request(self) -> DataFileRequest:
+        """The request for the current choices, with the chosen wavelength table."""
+        request = self._reference_request()
+        table = None if self._wavelengths is None else self._wavelengths.currentData()
+        return replace(request, wavelength_table=table) if table else request
+
     def _accept(self) -> None:
         self._check_timer.stop()
         if not self.check_references():
@@ -478,4 +516,90 @@ class AddDataFileDialog(QDialog):
         self.accept()
 
 
-__all__ = ["AddDataFileDialog", "DataFileRequest", "reference_summary", "saturation_level"]
+class SetWavelengthsDialog(QDialog):
+    """Project > Set Wavelengths: a wavelength table for datasets added with band numbers.
+
+    Lists the datasets whose axis is band numbers (checked: ``preselected``,
+    else all) and the tables of their band counts; :attr:`choice` is
+    ``(table name, dataset ids of its band count)`` after OK. Their ROIs get
+    the wavelengths too (plan wavelength-tables, D1).
+    """
+
+    def __init__(self, datasets: Mapping[str, DatasetRef], labels: Mapping[str, str], *,
+                 preselected: tuple[str, ...] = (), table: str | None = None,
+                 parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Set wavelengths")
+        self.choice: tuple[str, tuple[str, ...]] | None = None
+        self._datasets = {dataset_id: ref for dataset_id, ref in datasets.items()
+                          if is_band_numbers(ref.wavelengths)}
+        layout = QVBoxLayout(self)
+        intro = QLabel("These datasets have band numbers: their files store no wavelengths. "
+                       "A wavelength table gives them and their ROIs wavelengths in nm. Models "
+                       "keep the band numbers they were fitted with and predict as before.")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+        self._list = QListWidget()
+        for dataset_id, ref in self._datasets.items():
+            item = QListWidgetItem(f"{labels.get(dataset_id, dataset_id)}  ({ref.n_bands} bands)")
+            item.setData(Qt.ItemDataRole.UserRole, dataset_id)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            checked = not preselected or dataset_id in preselected
+            item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
+            self._list.addItem(item)
+        layout.addWidget(self._list)
+        self._table = QComboBox()
+        counts = sorted({ref.n_bands for ref in self._datasets.values()})
+        for found in (t for n in counts for t in wavelength_tables(n)):
+            self._table.addItem(found.describe(), found.name)
+            self._table.setItemData(self._table.count() - 1, found.n_bands,
+                                    Qt.ItemDataRole.UserRole + 1)
+        if table is not None and self._table.findData(table) >= 0:
+            self._table.setCurrentIndex(self._table.findData(table))
+        form = QFormLayout()
+        form.addRow("Table:", self._table)
+        layout.addLayout(form)
+        self._note = QLabel()
+        self._note.setWordWrap(True)
+        self._note.setStyleSheet(secondary_text_style())
+        layout.addWidget(self._note)
+        self._buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                                         | QDialogButtonBox.StandardButton.Cancel)
+        self._buttons.accepted.connect(self._accept)
+        self._buttons.rejected.connect(self.reject)
+        layout.addWidget(self._buttons)
+        self._table.currentIndexChanged.connect(self._update)
+        self._list.itemChanged.connect(self._update)
+        self._update()
+
+    def _selected(self) -> tuple[str, ...]:
+        """The checked datasets of the chosen table's band count."""
+        n_bands = self._table.currentData(Qt.ItemDataRole.UserRole + 1)
+        return tuple(str(item.data(Qt.ItemDataRole.UserRole))
+                     for item in (self._list.item(i) for i in range(self._list.count()))
+                     if item is not None and item.checkState() == Qt.CheckState.Checked
+                     and self._datasets[str(item.data(Qt.ItemDataRole.UserRole))].n_bands
+                     == n_bands)
+
+    def _update(self, *_args: Any) -> None:
+        selected = self._selected()
+        ok = self._buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if ok is not None:
+            ok.setEnabled(bool(selected))
+        if self._table.count() == 0:
+            self._note.setText(f"No wavelength table has these band counts. Put one in "
+                               f"{user_table_folder()} (a CSV file 'band,wavelength_nm' with a "
+                               "'# name: ...' line).")
+        else:
+            self._note.setText(f"{len(selected)} dataset(s) of the table's band count are "
+                               "chosen.")
+
+    def _accept(self) -> None:
+        selected = self._selected()
+        if selected and self._table.currentData():
+            self.choice = (str(self._table.currentData()), selected)
+            self.accept()
+
+
+__all__ = ["AddDataFileDialog", "DataFileRequest", "SetWavelengthsDialog", "reference_summary",
+           "saturation_level"]

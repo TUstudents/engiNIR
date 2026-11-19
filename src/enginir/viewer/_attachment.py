@@ -10,7 +10,7 @@ import numpy as np
 from PyQt6.QtWidgets import QMessageBox, QWidget
 
 from .._logging import get_logger
-from .._workflow import is_data_file_of
+from .._workflow import file_wavelengths, is_data_file_of
 from ..io.project_store import load_project_store
 from ..project import hydrate_project_store
 from ._data_helpers import wavelength_axes_match
@@ -113,7 +113,9 @@ def _collect_binding_mismatches(
     if cube_shape is not None and dataset.cube_shape != tuple(int(n) for n in cube_shape):
         mismatches.append(f"shape (frames, rows, bands): registered {dataset.cube_shape}, "
                           f"file {tuple(int(n) for n in cube_shape)}")
-    if wavelengths is not None and not wavelength_axes_match(dataset.wavelengths, wavelengths):
+    # The file's own axis: band numbers for a dataset that got its wavelengths from a table.
+    if wavelengths is not None and not wavelength_axes_match(file_wavelengths(dataset),
+                                                             wavelengths):
         mismatches.append("wavelength axis differs")
     if mismatches:
         names = sorted(roi.name or roi.roi_id for roi in rois.values()

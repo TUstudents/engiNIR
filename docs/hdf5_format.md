@@ -164,7 +164,8 @@ files before reading project objects:
 
 **Display data** never stops a project from opening: metrics, the component
 curve, the calibration diagnostics, `cv_spec`, `cv_outputs`, prediction
-telemetry and a dataset's `relative_path` and `label` may be missing or malformed; the reader logs it, and the viewer
+telemetry and a dataset's `relative_path`, `label` and wavelength table (`wavelength_table`,
+`wavelength_table_id`; both or neither) may be missing or malformed; the reader logs it, and the viewer
 shows "–" in its place. Writers still write all of it.
 
 Unknown extra groups, datasets, and attributes (e.g. an ROI `@y_value`) are
@@ -249,6 +250,8 @@ offset and microseconds, e.g. `2026-11-12T09:56:05.852000+00:00`.
 ├── @source_path
 ├── @relative_path           relative to the project file's folder, "/" separators; "" when not computable (display data)
 ├── @label                   the user's short name for the dataset; "" for none (display data, engiNIR 1.6; missing reads "")
+├── @wavelength_table        name of the wavelength table that gave a file without wavelengths its axis; "" for none (display data, engiNIR 1.7.2; missing reads "")
+├── @wavelength_table_id     the table's content id, "wlt-" and 16 hex digits; "" for none (display data, engiNIR 1.7.2)
 ├── @source_format
 ├── @source_modality
 ├── @cube_shape              (n_frames, height, n_bands)
@@ -273,6 +276,11 @@ A dataset's wavelengths are in nm. A file whose reader gives the axis in
 wavenumbers (`x_units` `cm-1`, e.g. JCAMP, SPA, SPC) is stored as 10⁷ / ν,
 one in micrometers × 1000, in the file's band order; an axis of unknown unit
 and the band-index fallback are stored as they are.
+A file without wavelengths that was added with a wavelength table (or given
+one by Set Wavelengths) stores the table's values here, and the table's name
+and id in `@wavelength_table` and `@wavelength_table_id`; its ROIs store the
+same axis. The file itself keeps band numbers: compare it with the dataset
+by those (`enginir._workflow.file_wavelengths`).
 
 Reference correction is dataset-owned. A project-global `/calibration` group
 is refused. A reference correction id belongs to one dataset, and a stored

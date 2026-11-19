@@ -340,6 +340,14 @@ Explicit exceptions, each already governed by its own contract rule:
 - `DatasetRef.label`: a short display name the user gives a dataset
   ("Layer 7"); a mutable name like every name, set by `Dataset.set_label`,
   shown instead of the file name where datasets are listed (engiNIR 1.6)
+- the wavelength axis of a dataset whose file stores no wavelengths, and of
+  its ROIs: `Dataset.set_wavelengths` replaces band numbers 0 … n − 1 with
+  the wavelengths of a wavelength table and records the table's name and id
+  on the dataset (`wavelength_table`, `wavelength_table_id`). Only band
+  numbers are replaced, all of the dataset's ROIs together, and pixels,
+  values and every other field stay. Models keep the axis of their input
+  contract (`project-dataset-attachment-contract_v3.md`, Files without
+  wavelengths; engiNIR 1.7.2)
 - `TargetAssignment` removal: deleting the assignment of a `(roi_id,
   target_id)` pair returns it to "no value" (`roi-target-contract_v3.md`)
 
@@ -504,6 +512,8 @@ project.h5
 |   +-- @source_path
 |   +-- @relative_path       (display data; "" when not computable)
 |   +-- @label               (display data; the user's short name, "" for none)
+|   +-- @wavelength_table    (display data; the wavelength table's name, "" for none)
+|   +-- @wavelength_table_id (display data; its content id, "" for none)
 |   +-- @source_format
 |   +-- @source_modality
 |   +-- @cube_shape
@@ -832,7 +842,8 @@ malformed:
 
 **Display data:** metrics, the component curve, the calibration
 diagnostics, shares above the limits, coverage, `cv_spec` and `cv_outputs`,
-the telemetry of stored predictions, and a dataset's `relative_path` and `label`. A missing or malformed display
+the telemetry of stored predictions, and a dataset's `relative_path`, `label`,
+`wavelength_table` and `wavelength_table_id`. A missing or malformed display
 value never stops a project from opening: the reader logs it, and the
 viewer shows "–" (or "not available") in its place and never fails on it.
 

@@ -24,6 +24,10 @@ The Thermo SPA reader follows the published reverse-engineered layout and has
 only been tested with synthetic files; check its output against OMNIC before
 relying on it.
 
+Files that store no wavelengths (band numbers only) get them from a
+wavelength table: :func:`wavelength_tables`, :func:`wavelength_table`,
+:func:`load_wavelength_table` (:mod:`enginir.io.wavelength_tables`).
+
 Project files (the v3 scientific workspace) are read and written by the
 functions of :mod:`enginir.io.project_store` re-exported here.
 """
@@ -40,6 +44,8 @@ from .spc_io import load_spc, SPCError
 from .jcamp_io import load_jcamp, JCAMPError
 from .envi_io import iter_envi_frame_chunks, load_envi, save_envi, ENVIError
 from .hdf5_io import iter_hdf5_frame_chunks, load_hdf5, save_hdf5
+from .wavelength_tables import (WavelengthTable, load_wavelength_table, wavelength_table,
+                                wavelength_tables)
 from ._migrate import migrate_project
 from .project_store import (
     FILE_SCHEMA_VERSION,
@@ -163,6 +169,11 @@ __all__ = [
     "save_csv",
     "save_envi",
     "save_hdf5",
+    # wavelength tables (files without wavelengths)
+    "WavelengthTable",
+    "load_wavelength_table",
+    "wavelength_table",
+    "wavelength_tables",
     # project files
     "FILE_SCHEMA_VERSION",
     "migrate_project",

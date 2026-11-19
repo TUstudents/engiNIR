@@ -91,6 +91,43 @@ save_hdf5
 
 .. autofunction:: enginir.io.save_hdf5
 
+Wavelength tables
+-----------------
+
+.. automodule:: enginir.io.wavelength_tables
+   :no-members:
+
+wavelength_tables
+~~~~~~~~~~~~~~~~~
+
+.. autofunction:: enginir.io.wavelength_tables.wavelength_tables
+
+wavelength_table
+~~~~~~~~~~~~~~~~
+
+.. autofunction:: enginir.io.wavelength_tables.wavelength_table
+
+load_wavelength_table
+~~~~~~~~~~~~~~~~~~~~~
+
+.. autofunction:: enginir.io.wavelength_tables.load_wavelength_table
+
+is_band_numbers
+~~~~~~~~~~~~~~~
+
+.. autofunction:: enginir.io.wavelength_tables.is_band_numbers
+
+user_table_folder
+~~~~~~~~~~~~~~~~~
+
+.. autofunction:: enginir.io.wavelength_tables.user_table_folder
+
+WavelengthTable
+~~~~~~~~~~~~~~~
+
+.. autoclass:: enginir.io.wavelength_tables.WavelengthTable
+   :members:
+
 Project files
 -------------
 
@@ -144,6 +181,8 @@ Saving objects
 
 
 .. autofunction:: enginir.io.project_store.relocate_dataset_ref
+
+.. autofunction:: enginir.io.project_store.set_dataset_wavelengths
 
 Writing large predictions incrementally
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

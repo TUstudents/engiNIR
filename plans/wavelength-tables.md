@@ -1,4 +1,4 @@
-# Wavelength tables (planned after 1.6.0; approved 2026-11-17)
+# Wavelength tables (approved 2026-11-17; built 2026-11-19 for 1.7.2)
 
 ## Problem
 
@@ -12,13 +12,40 @@ checked so far (EVK-AlphaVision, serial 220332240003) has 220 bands,
 991.675–1677.125 nm, 3.125–3.15 nm apart. The 176 Kestreleye bands are most
 likely 176 consecutive bands of those 220; which ones is not known yet.
 
-## Input still missing
+## Input (found 2026-11-19)
 
-The 176 wavelengths. The user will provide an `.eiff` (and, if possible, the
-Kestreleye spectral window) to extract them. Ways to get them, best first:
-the Kestreleye configuration (first row and number of rows), the vendor's
-calibration, or aligning spectra of the same material from both programs
-(an estimate, only to check the others).
+The Kestreleye scans come from an **EVK-Helios-EC-32** (serial
+181642214419), not the AlphaVision of the earlier `.eiff` files. Its
+acquisition setting (Helios configuration, Acquisition): 176 spectral
+pixels from wavelength start 36, 312 spatial pixels. The vendor software
+writes `.eiff` files with this setting and their wavelengths
+(`FrischerAbgleich.eiff` and `Sensor_roh.eiff`, 2026-11-19, identical):
+176 bands, 1041.75–1589.5 nm, 3.125 or 3.15 nm apart.
+
+Extracted to `src/enginir/_resources/wavelength_tables/kestreleye_176.csv`
+(rounded to 0.001 nm; the file's float noise is below 1e-12 nm). The band
+order was checked against a Kestreleye `stream_hsi.h5` of 10 % API tablets:
+its derivative absorbance spectrum matches tablets measured on the
+AlphaVision's known axis with r = 0.97 at a shift under one band; reversed,
+r = −0.71.
+
+`FrischerAbgleich.eiff` is a white balance (flat at about 3100 counts, the
+camera's white-balance target), so the camera applies the white balance to
+the data it sends, Kestreleye streams included.
+
+## Decisions (user, 2026-11-19)
+
+- **D1. Set Wavelengths changes the dataset and its ROIs.** Only band-number
+  axes are replaced by the table; the change is logged and is an identity
+  exception of the schema contract, like Locate. Models keep their stored
+  band-number axis (prediction builds its steps from the model's own input
+  contract) and predict as before; a refit gives nm.
+- **D2. The viewer preselects.** A file without wavelengths whose band
+  count matches exactly one table: the Add Dataset dialog preselects it and
+  the Data check offers it for existing datasets. `Project.add_dataset`
+  uses a table only when one is given.
+- **D3. Release 1.7.2**, with the 1.7.2 backlog. No format change: the table
+  name and id are new optional dataset attributes.
 
 ## Design
 

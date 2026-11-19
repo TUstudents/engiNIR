@@ -54,9 +54,10 @@ from ._eda import EDAView
 from ._attachment import confirm_project_dataset_binding
 from ._browser import ProjectBrowser
 from ..io import file_format
+from ..io.wavelength_tables import is_band_numbers
 from ..prediction import spectral_axis_in_nm
 from ._inspector import ProjectInspector
-from ._data_files import AddDataFileDialog
+from ._data_files import AddDataFileDialog, SetWavelengthsDialog
 from ._project_rois import ProjectRoisView
 from ._roi_table import RoiTableWidget
 from ._bottom_panels import ChecksPanel, ModelsPanel, verdict_mark
@@ -160,6 +161,18 @@ __all__ = [
 # ------------------------------------------------------------------
 # LogPanel - dock widget for loguru output
 # ------------------------------------------------------------------
+
+
+def _shown_axis(dataset: Any, data: Any) -> tuple[np.ndarray, dict[str, Any]]:
+    """The axis and metadata a registered file is shown with: the dataset's stored axis.
+
+    The same as the file's, except for a file without wavelengths that a
+    wavelength table gave them (``dataset.wavelength_table``).
+    """
+    if not getattr(dataset, "wavelength_table", ""):
+        return data.wavelengths, data.meta
+    return (np.asarray(dataset.wavelengths), {**data.meta, "x_units": "nm",
+                                               "wavelength_table": dataset.wavelength_table})
 
 
 def _button_of(button: QAbstractButton | Callable[[], QAbstractButton]) -> QAbstractButton:
@@ -1917,6 +1930,9 @@ class HSIViewer(QMainWindow):
         act = _add_required_action(m, "Name Dataset...")
         act.setToolTip("A short name for a dataset, shown instead of its file name")
         act.triggered.connect(lambda: self.name_dataset())
+        act = _add_required_action(m, "Set Wavelengths...")
+        act.setToolTip("Wavelengths from a table for datasets whose files have none")
+        act.triggered.connect(lambda: self.set_wavelengths())
         act = _add_required_action(m, "Locate Moved Datasets...")
         act.setToolTip("Find the files of datasets that are not at their stored place")
         act.triggered.connect(self._locate_first_missing)
@@ -2317,6 +2333,8 @@ class HSIViewer(QMainWindow):
             self.add_data_file()
         elif action == "locate_dataset":
             self.locate_data_file(str(args["dataset_id"]))
+        elif action == "set_wavelengths":
+            self.set_wavelengths(tuple(args.get("dataset_ids") or ()), args.get("table"))
         elif action == "add_roi":
             self.show_step("data")
         elif action == "add_target":
@@ -2503,7 +2521,8 @@ class HSIViewer(QMainWindow):
             path, header, state.datasets,
             {dataset_id: reference_correction for dataset_id in state.datasets
              if (reference_correction := state.active_reference_correction(dataset_id)) is not None},
-            trained_with=trained_with, parent=self)
+            trained_with=trained_with, parent=self,
+            registered=self._registered_dataset_id(path) is not None)
         if dialog.exec() != QDialog.DialogCode.Accepted or dialog.request is None:
             return None
         request = dialog.request
@@ -2649,7 +2668,7 @@ class HSIViewer(QMainWindow):
             wavelengths=spectral_axis_in_nm(data.wavelengths, data.meta)[0],
         ):
             return
-        self.state.load_dataset(X, data.wavelengths, data.meta)
+        self.state.load_dataset(X, *_shown_axis(self.project_state.datasets[dataset_id], data))
         self._cube_path = os.path.abspath(path)
         self.apply_shown_reference_correction()
         self._refresh_canvas_image()
@@ -2705,6 +2724,27 @@ class HSIViewer(QMainWindow):
             reference_correction.output_signal_unit for roi in state.rois.values()
             if (reference_correction := state.reference_corrections.get(roi.reference_correction_id)) is not None)
         return units.most_common(1)[0][0] if units else None
+
+    def use_registered_axis(self) -> None:
+        """Show the file with its dataset's stored axis when a wavelength table gave it one.
+
+        For a file shown before its project was attached, and after Set
+        Wavelengths; a file loaded through :meth:`show_data_file` has it already.
+        """
+        if not self._cube_path or self.state.cube is None:
+            return
+        dataset_id = self._registered_dataset_id(self._cube_path)
+        dataset = None if dataset_id is None else self.project_state.datasets.get(dataset_id)
+        if dataset is None or not dataset.wavelength_table:
+            return
+        if np.allclose(self.state.wavelengths, dataset.wavelengths, atol=1e-6, rtol=0.0):
+            return
+        logger.info("Showing {} with the wavelengths of table '{}'", self._cube_path,
+                    dataset.wavelength_table)
+        self.state.use_axis(dataset.wavelengths, {**self.state.meta, "x_units": "nm",
+                                                  "wavelength_table": dataset.wavelength_table})
+        self._refresh_canvas_image()
+        self._update_status_strip()
 
     def _registered_dataset_id(self, path: str) -> str | None:
         return self.project_state.dataset_id_of(path)
@@ -2768,6 +2808,34 @@ class HSIViewer(QMainWindow):
             f0, f1, r0, r1 = rois[0].spatial_bounds
             self.state.set_frame((f0 + f1) // 2)
             self.state.set_row((r0 + r1) // 2)
+
+    def set_wavelengths(self, dataset_ids: tuple[str, ...] = (),
+                        table: str | None = None) -> bool:
+        """Project > Set Wavelengths: a wavelength table for datasets with band numbers.
+
+        ``dataset_ids`` and ``table`` preselect the dialog (the check's fix);
+        ``True`` when wavelengths were set.
+        """
+        state = self.project_state
+        if state.project is None:
+            return False
+        if not any(is_band_numbers(ref.wavelengths) for ref in state.datasets.values()):
+            QMessageBox.information(self, "Set wavelengths",
+                                    "Every dataset of the project has wavelengths.")
+            return False
+        dialog = SetWavelengthsDialog(state.datasets, state.data_file_labels,
+                                      preselected=dataset_ids, table=table, parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted or dialog.choice is None:
+            return False
+        name, chosen = dialog.choice
+        try:
+            state.set_dataset_wavelengths(chosen, name)
+        except (OSError, ValueError, KeyError) as exc:
+            logger.error("Cannot set the wavelengths of {}: {}", chosen, exc)
+            QMessageBox.critical(self, "Cannot set wavelengths", str(exc))
+            return False
+        self.use_registered_axis()
+        return True
 
     def name_dataset(self, dataset_id: str | None = None) -> bool:
         """Project > Name Dataset: give a dataset a short display name ("Layer 7")."""

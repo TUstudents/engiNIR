@@ -541,6 +541,16 @@ project in the same window and asks how it is corrected:
 - **Raw counts**, without references or levels (only raw counts (DN) can be
   shown and modeled).
 
+A file that stores no wavelengths, only band numbers (a Kestreleye
+``stream_hsi.h5``), gets a **Wavelengths** choice: band numbers, or a
+wavelength table of its band count. The table of the Kestreleye camera
+setting (176 bands, 1041.75 to 1589.5 nm) ships with engiNIR and is
+preselected for such files; your own tables go in
+``~/.enginir/wavelength_tables/``. A dataset added with band numbers gets
+its wavelengths later with **Project > Set Wavelengths...**, together with its
+ROIs; models fitted before keep their band numbers and predict as before.
+The Checks tab offers the table for datasets that have band numbers.
+
 The dialog asks for no signal unit: DN, reflectance and absorbance are
 chosen in Explore and in **Fit Model**. Only a file that already holds
 corrected values (floating point) asks what it holds, reflectance or

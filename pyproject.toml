@@ -61,7 +61,7 @@ enginir-viewer = "enginir.viewer.__main__:main"
 constraint-dependencies = ["pyqt6<6.12"]
 
 [tool.uv-build]
-include = ["src/enginir/_resources/*.ico", "src/enginir/_resources/*.svg", "src/enginir/_resources/icons/*", "src/enginir/viewer/themes/*.xml"]
+include = ["src/enginir/_resources/*.ico", "src/enginir/_resources/*.svg", "src/enginir/_resources/icons/*", "src/enginir/_resources/wavelength_tables/*.csv", "src/enginir/viewer/themes/*.xml"]
 
 [tool.ruff]
 line-length = 100

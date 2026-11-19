@@ -23,6 +23,7 @@ from ._guidance import Check, Verdict, model_checks, model_verdict, project_chec
 from ._logging import get_logger
 from .io import file_format, load_spectra
 from .io import project_store as store
+from .io.wavelength_tables import WavelengthTable, is_band_numbers, wavelength_table
 from .modeling import (
     BandProposal,
     fit_model_run,
@@ -73,7 +74,7 @@ logger = get_logger(__name__)
 
 __all__ = ["DEFAULT_BLACK_LEVEL", "DEFAULT_WHITE_LEVEL", "Dataset", "GridCell", "Model",
            "Prediction", "Project", "StoredPrediction", "check_data_file_location", "data_file_labels",
-           "is_data_file_of",
+           "file_wavelengths", "is_data_file_of",
            "make_reference_correction", "make_roi", "read_frames", "read_header",
            "recipe_id_for", "resolve_reference_correction", "resolve_dataset",
            "resolve_prediction_reference_correction", "resolve_sample_set", "resolve_signal_domain",
@@ -230,6 +231,7 @@ class Project:
         references_from: str | os.PathLike[str] | None = None,
         black_level: float | None = None,
         white_level: float | None = None,
+        wavelength_table: str | os.PathLike[str] | WavelengthTable | None = None,
     ) -> Dataset:
         """Register a data file with its reference correction.
 
@@ -262,6 +264,14 @@ class Project:
             Detector levels for raw counts calibrated without references,
             instead of the file's metadata or the defaults. Not combined with
             references; ``white_level`` must exceed ``black_level``.
+        wavelength_table:
+            For a file that stores no wavelengths (band numbers only, e.g. a
+            Kestreleye ``stream_hsi.h5``): a table's name, CSV path or
+            :class:`~enginir.io.WavelengthTable` (:func:`enginir.io.wavelength_tables`).
+            Its wavelengths, name and id are copied into the dataset; the
+            table must have the file's band count. Without it such a file
+            keeps band numbers (:meth:`Dataset.set_wavelengths` gives them
+            later).
 
         Returns
         -------
@@ -276,7 +286,7 @@ class Project:
         dataset, reference_correction, new_dataset, new_reference_correction = self._resolve_dataset(
             path, dark=dark, white=white, unit=unit, dark_frames=dark_frames,
             white_frames=white_frames, references_from=references_from,
-            black_level=black_level, white_level=white_level)
+            black_level=black_level, white_level=white_level, wavelength_table=wavelength_table)
         self._write_dataset(dataset, reference_correction, new_dataset, new_reference_correction)
         return Dataset(self, self.workspace.datasets[dataset.dataset_id])
 
@@ -770,7 +780,8 @@ class Project:
         return None if found is None else found.path
 
     def _resolve_dataset(self, path, *, dark, white, unit, dark_frames=None, white_frames=None,
-                         references_from=None, black_level=None, white_level=None):
+                         references_from=None, black_level=None, white_level=None,
+                         wavelength_table=None):
         """Return ``(dataset, reference_correction, dataset_is_new, reference_correction_is_new)``, writing nothing."""
         ws = self.workspace
         levels_given = black_level is not None or white_level is not None
@@ -780,7 +791,24 @@ class Project:
                           "black_level/white_level with dark/white references")
         abs_path = _native_path(path)
         data = read_header(abs_path)
+        table = None
+        if wavelength_table is not None:
+            table = _table_for_file(wavelength_table, data, abs_path)
+            data = data._replace(wavelengths=table.wavelengths.astype(np.float64),
+                                 meta={**data.meta, "x_units": "nm"})
         dataset, new_dataset = resolve_dataset(ws.datasets, path, data, project_path=self.path)
+        if table is not None:
+            if new_dataset:
+                dataset = replace(dataset, wavelength_table=table.name,
+                                  wavelength_table_id=table.table_id)
+                logger.info("{} gets the wavelengths of table '{}' ({})", abs_path, table.name,
+                            table.table_id)
+            elif dataset.wavelength_table_id != table.table_id:
+                log_and_raise("{} is registered with {}; give a registered dataset a table with "
+                              "Dataset.set_wavelengths", abs_path,
+                              f"the table '{dataset.wavelength_table}'" if dataset.wavelength_table
+                              else "band numbers" if is_band_numbers(dataset.wavelengths)
+                              else "its own wavelengths")
         sensor = dataset.cube_shape[1:]
         if references_from is not None:
             if any(value is not None for value in (dark, white, dark_frames, white_frames)):
@@ -996,6 +1024,49 @@ class Dataset:
         store.save_dataset_label(project.path, self.ref.dataset_id, label)
         self.ref = replace(self.ref, label=label)
         ws.datasets[self.ref.dataset_id] = self.ref
+        return self
+
+    def set_wavelengths(self, table: str | os.PathLike[str] | WavelengthTable) -> Dataset:
+        """Give a dataset added with band numbers the wavelengths of a table.
+
+        For a file that stores no wavelengths (e.g. a Kestreleye
+        ``stream_hsi.h5``) that was added without a table. The wavelength
+        axis of the dataset and of each of its ROIs is replaced by the table's
+        (``table``: a name, CSV path or :class:`~enginir.io.WavelengthTable`);
+        the table's name and id are recorded. Pixels and values stay. Models
+        keep the band-number axis they were fitted with and predict as before;
+        a model fitted after this uses nm (band ranges in nm then).
+
+        Refused unless the dataset and all its ROIs have band numbers and the
+        table has the dataset's band count. Giving the same table again
+        changes nothing.
+        """
+        project, ws = self.project, self.project.workspace
+        ref = self.ref
+        table = wavelength_table(table)
+        if ref.wavelength_table_id == table.table_id:
+            return self
+        if not is_band_numbers(ref.wavelengths):
+            log_and_raise("Dataset '{}' already has wavelengths ({:g}-{:g} nm); a wavelength "
+                          "table replaces band numbers only", ref.dataset_id,
+                          float(ref.wavelengths[0]), float(ref.wavelengths[-1]))
+        if table.n_bands != ref.n_bands:
+            log_and_raise("Wavelength table '{}' has {} bands, dataset '{}' has {}", table.name,
+                          table.n_bands, ref.dataset_id, ref.n_bands)
+        rois = [roi for roi in ws.rois.values() if roi.dataset_id == ref.dataset_id]
+        other = [roi.name for roi in rois if not is_band_numbers(roi.wavelengths)]
+        if other:
+            log_and_raise("ROI(s) {} of dataset '{}' do not have band numbers; nothing is "
+                          "changed", other, ref.dataset_id)
+        store.set_dataset_wavelengths(project.path, ref.dataset_id, table.wavelengths,
+                                      table=table.name, table_id=table.table_id,
+                                      roi_ids=[roi.roi_id for roi in rois])
+        axis = np.array(table.wavelengths, dtype=np.float32)
+        self.ref = replace(ref, wavelengths=axis.copy(), wavelength_table=table.name,
+                           wavelength_table_id=table.table_id)
+        ws.datasets[ref.dataset_id] = self.ref
+        for roi in rois:
+            ws.rois[roi.roi_id] = replace(roi, wavelengths=axis.copy())
         return self
 
     def add_rois(self, cells: Sequence[GridCell]) -> list[TrainingROI]:
@@ -1540,6 +1611,31 @@ def check_data_file_location(
         log_and_raise("{}", mismatch)
 
 
+def file_wavelengths(dataset: DatasetRef) -> np.ndarray:
+    """The wavelength axis the data file of ``dataset`` states itself, float32.
+
+    Band numbers 0 … n − 1 when a wavelength table gave the dataset its
+    wavelengths (the file stores none); otherwise the dataset's wavelengths.
+    Compare a file with this, never with ``dataset.wavelengths`` directly.
+    """
+    if dataset.wavelength_table:
+        return np.arange(dataset.n_bands, dtype=np.float32)
+    return np.asarray(dataset.wavelengths, dtype=np.float32)
+
+
+def _table_for_file(table: Any, data: Any, abs_path: str) -> WavelengthTable:
+    """The wavelength table for the file at ``abs_path``: it must store none and fit its bands."""
+    table = wavelength_table(table)
+    if data.meta.get("x_units") != "band_index" and not is_band_numbers(data.wavelengths):
+        log_and_raise("{} has its own wavelengths; a wavelength table is for files that store "
+                      "none", abs_path, depth=2)
+    n_bands = int(data.cube_shape[-1])
+    if table.n_bands != n_bands:
+        log_and_raise("Wavelength table '{}' has {} bands, {} has {}", table.name, table.n_bands,
+                      abs_path, n_bands, depth=2)
+    return table
+
+
 def _header_mismatch(dataset: DatasetRef, abs_path: str) -> str | None:
     """Why the header of the file at ``abs_path`` is not that of ``dataset``, or ``None``.
 
@@ -1562,8 +1658,9 @@ def _header_mismatch(dataset: DatasetRef, abs_path: str) -> str | None:
             return (f"{abs_path} is not this dataset: it has {label} {now!r}, the dataset "
                     f"has {then!r}")
     wavelengths = spectral_axis_in_nm(header.wavelengths, header.meta)[0].astype(np.float32)
-    if wavelengths.shape != np.shape(dataset.wavelengths) or not np.allclose(
-            wavelengths, np.asarray(dataset.wavelengths, dtype=np.float32), atol=1e-6, rtol=0.0):
+    expected = file_wavelengths(dataset)
+    if wavelengths.shape != expected.shape or not np.allclose(
+            wavelengths, expected, atol=1e-6, rtol=0.0):
         return f"{abs_path} is not this dataset: its wavelengths differ"
     return None
 

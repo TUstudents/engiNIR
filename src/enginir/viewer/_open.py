@@ -384,6 +384,7 @@ def _load_project_store_into_viewer(
     ):
         log_and_raise("Project attachment canceled due to source mismatch")
     viewer.project_state.open_project(project_path, store=store)
+    viewer.use_registered_axis()  # a file without wavelengths that a table gave them
     if viewer.state.dark_ref is None and viewer.state.white_ref is None:
         # A registered data file is shown with its stored reference correction; references
         # given at startup take precedence (drawing then asks before replacing it).

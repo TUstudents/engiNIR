@@ -31,7 +31,7 @@ _PROJECT_META_FIELDS = ("project_id", "FileSchemaVersion", "FileCreator", "FileW
                         "created_at", "updated_at")
 _MODEL_DISPLAY_FIELDS = ("cv_spec", "metrics")
 #: Display data of a dataset: tolerated when missing or malformed (schema contract).
-_DATASET_DISPLAY_FIELDS = ("relative_path", "label")
+_DATASET_DISPLAY_FIELDS = ("relative_path", "label", "wavelength_table", "wavelength_table_id")
 _REFERENCE_FIELDS = ("dark_ref_source", "white_ref_source", "dark_ref_data",
                                  "white_ref_data", "black_level", "white_level")
 
@@ -220,8 +220,8 @@ def _check_executable_models(model_runs: dict[str, ModelRun], sample_sets: dict[
 
 
 def _dataset_ref(location: str, payload: dict[str, Any], dataset_id: str) -> DatasetRef:
-    """A dataset; ``relative_path`` and ``label`` are display data: missing or malformed read
-    as ``""``."""
+    """A dataset; ``relative_path``, ``label`` and the wavelength table's name and id are
+    display data: missing or malformed read as ``""``."""
     display = {}
     for key in _DATASET_DISPLAY_FIELDS:
         value = payload.get(key, "")
@@ -229,6 +229,11 @@ def _dataset_ref(location: str, payload: dict[str, Any], dataset_id: str) -> Dat
             logger.warning("{}: {} {!r} is not text; it is ignored", location, key, value)
             value = ""
         display[key] = value
+    if bool(display["wavelength_table"]) != bool(display["wavelength_table_id"]):
+        logger.warning("{}: the wavelength table's name and id come together; {!r} and {!r} "
+                       "are ignored", location, display["wavelength_table"],
+                       display["wavelength_table_id"])
+        display["wavelength_table"] = display["wavelength_table_id"] = ""
     return _build(DatasetRef, location, {**payload, **display},
                   {"dataset_id": dataset_id}, ignored={"reference_corrections", "active_reference_correction_id"})
 

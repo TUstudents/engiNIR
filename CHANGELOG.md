@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Added
+
+- **Wavelength tables for files without wavelengths.** A Kestreleye
+  `stream_hsi.h5` stores band numbers only; the wavelengths of its camera
+  setting (EVK-Helios-EC-32, 176 bands, 1041.75 to 1589.5 nm, taken from an
+  `.eiff` the vendor software wrote with the same setting) now ship as the
+  table "Kestreleye 176 bands". `Project.add_dataset(path,
+  wavelength_table=...)` and the **Wavelengths** choice of **Add Dataset...**
+  (preselected when one table fits) copy them into the project;
+  `Dataset.set_wavelengths` and **Project > Set Wavelengths...** give them to a
+  dataset added with band numbers and to its ROIs. Models fitted on band
+  numbers predict as before. Your own tables are CSV files in
+  `~/.enginir/wavelength_tables/` (`enginir.io.wavelength_tables`). The
+  dataset records the table's name and id in two new optional attributes;
+  the format stays `enginir-1.7`.
+
 ### Fixed
 
 - **A project window opens up to a second faster on Windows.** The Log

@@ -294,6 +294,24 @@ class ProjectState(QObject):
         self.datasets_changed.emit()
         self.saved.emit(f"Dataset named '{label}'" if label else "Dataset name removed")
 
+    def set_dataset_wavelengths(self, dataset_ids: tuple[str, ...] | list[str],
+                                table: str) -> None:
+        """Give datasets with band numbers, and their ROIs, the wavelengths of a table.
+
+        See :meth:`enginir.Dataset.set_wavelengths`; each dataset is checked first
+        and written on its own.
+        """
+        project = self._require_project("set_dataset_wavelengths")
+        for dataset_id in dataset_ids:
+            ref = self.datasets.get(dataset_id)
+            if ref is None:
+                log_and_raise("Unknown dataset '{}'", dataset_id, error=KeyError)
+            Dataset(project, ref).set_wavelengths(table)
+        self._written()
+        self.datasets_changed.emit()
+        self.rois_changed.emit()
+        self.saved.emit(f"Wavelengths of '{table}' set for {len(dataset_ids)} dataset(s)")
+
     def moved_data_files(self, old_path: str, new_path: str) -> dict[str, str]:
         """Data files not found this session that exist where ``old_path`` → ``new_path`` puts them.
 
@@ -945,6 +963,25 @@ class ViewerState(QObject):
         self.bands_keep: tuple[tuple[float, float], ...] = ()
         self.bands_exclude: tuple[tuple[float, float], ...] = ()
         self._image_cache = None
+
+    def use_axis(self, wavelengths: np.ndarray, meta: dict | None = None) -> None:
+        """Show the loaded cube with another axis of the same band count, e.g. the
+        wavelengths a wavelength table gave a registered file without wavelengths.
+
+        The preview's band ranges are dropped (they were in the old axis's units).
+        """
+        axis = np.asarray(wavelengths, dtype=_WORKING_DTYPE).reshape(-1)
+        if self.cube is None or axis.shape[0] != self.cube.shape[2] \
+                or not np.all(np.isfinite(axis)):
+            log_and_raise("A new axis needs {} finite values, got shape {}",
+                          None if self.cube is None else self.cube.shape[2], axis.shape)
+        self.wavelengths = axis
+        if meta is not None:
+            self.meta = dict(meta)
+        self.bands_keep = ()
+        self.bands_exclude = ()
+        self._image_cache = None
+        self.units_changed.emit()
 
     # ------------------------------------------------------------------
     # Shape helpers

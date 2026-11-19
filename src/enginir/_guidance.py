@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from ._logging import get_logger
+from .io.wavelength_tables import is_band_numbers
 from .validation.outliers import LIMIT_LEVEL
 
 if TYPE_CHECKING:
@@ -202,14 +203,35 @@ def _data_checks(project: Project, *, files: bool) -> list[Check]:
             checks.append(Check("data.files_found", "data", "ok",
                                 f"The files of all {len(datasets)} datasets were found.",
                                 dataset_ids=tuple(datasets)))
-    unnumbered = sorted({roi.dataset_id for roi in project.workspace.rois.values()
-                         if _is_band_index(roi.wavelengths)})
+    unnumbered = sorted(dataset_id for dataset_id, ref in datasets.items()
+                        if is_band_numbers(ref.wavelengths))
     if unnumbered:
-        checks.append(Check(
-            "data.no_wavelengths", "data", "info",
-            f"{len(unnumbered)} dataset(s) have no wavelengths; bands are numbered from 0.",
-            dataset_ids=tuple(unnumbered)))
+        checks.append(_no_wavelengths_check(datasets, unnumbered))
     return checks
+
+
+def _no_wavelengths_check(datasets: Mapping[str, Any], unnumbered: list[str]) -> Check:
+    """Datasets with band numbers; the fix applies the one table of their band count, if any.
+
+    With several band counts, the fix covers the datasets of the first band count
+    that has exactly one table; the check stays open for the others.
+    """
+    from .io.wavelength_tables import wavelength_tables
+
+    message = f"{len(unnumbered)} dataset(s) have no wavelengths; bands are numbered from 0."
+    counts = list(dict.fromkeys(datasets[dataset_id].n_bands for dataset_id in unnumbered))
+    found = next(((n, tables) for n in counts if len(tables := wavelength_tables(n)) == 1), None)
+    if found is None:
+        return Check("data.no_wavelengths", "data", "info", message,
+                     dataset_ids=tuple(unnumbered))
+    n_bands, tables = found
+    same = tuple(dataset_id for dataset_id in unnumbered if datasets[dataset_id].n_bands == n_bands)
+    return Check("data.no_wavelengths", "data", "info",
+                 f"{message} The wavelength table '{tables[0].name}' fits "
+                 f"{'them' if len(same) > 1 else 'it'} ({tables[0].camera or 'its camera'}).",
+                 dataset_ids=tuple(unnumbered),
+                 fix=Fix("set_wavelengths", "Set Wavelengths",
+                         {"dataset_ids": same, "table": tables[0].name}))
 
 
 def _roi_checks(project: Project) -> list[Check]:
@@ -556,11 +578,6 @@ def _targets_ready_to_fit(project: Project) -> list[str]:
     return [target_id for target_id in ws.targets
             if sum(1 for roi in ws.rois.values() if roi.job == "calibration"
                    and (roi.roi_id, target_id) in ws.target_assignments) >= 2]
-
-
-def _is_band_index(wavelengths: Any) -> bool:
-    axis = np.asarray(wavelengths, dtype=float).reshape(-1)
-    return axis.size > 1 and bool(np.allclose(axis, np.arange(axis.size), atol=1e-6, rtol=0.0))
 
 
 def _finite(value: Any) -> float | None:

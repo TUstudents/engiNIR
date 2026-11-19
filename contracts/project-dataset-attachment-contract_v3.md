@@ -228,7 +228,8 @@ Comparison basis:
 - `source_format`
 - `source_modality`
 - `cube_shape`
-- wavelength axis
+- wavelength axis: the axis the file states, which is band numbers for a
+  dataset that got its wavelengths from a table (Files without wavelengths)
 
 v3 result categories:
 
@@ -290,6 +291,36 @@ Required behavior:
   ROI is drawn; if either fails, neither is written
 - the added file becomes the shown dataset
 - a dataset is never opened in a separate window without the project
+
+### Files without wavelengths
+
+Some files store band numbers only (e.g. the `stream_hsi.h5` scans of the
+Kestreleye software). A **wavelength table** gives their bands wavelengths in
+nm: a CSV file (`band,wavelength_nm`, with a `# name:` line) that ships with
+engiNIR or that the user puts in `~/.enginir/wavelength_tables/`.
+
+Required behavior:
+
+- a dataset is added with a table only when one is chosen
+  (`Project.add_dataset(path, wavelength_table=...)`); `Add Dataset...`
+  offers band numbers and every table of the file's band count, and
+  preselects the table when exactly one has that band count. A table is
+  refused for a file that has wavelengths and for another band count
+- the table's values are copied into the dataset (`wavelengths`) with the
+  table's name and content id; the project never depends on the table file
+- every ROI of such a dataset stores the table's wavelengths, like any ROI
+  stores its dataset's axis
+- the file is compared with its registration by the axis it states (band
+  numbers), and is shown with the dataset's wavelengths
+- `Project > Set Wavelengths...` (`Dataset.set_wavelengths`) gives a dataset
+  added with band numbers the table's wavelengths, together with all its
+  ROIs, after the user confirms; only band numbers are replaced (an identity
+  exception of `project-schema-contract_v3.md` §5)
+- a model keeps the axis of its input contract: one fitted on band numbers
+  predicts as before; a model fitted afterwards uses the wavelengths
+- the Data check names the datasets with band numbers; when exactly one
+  table has their band count, its fix opens Set Wavelengths with them and
+  that table
 
 ### Switching the shown dataset
 
