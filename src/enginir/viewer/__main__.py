@@ -357,6 +357,14 @@ def _main(argv: list[str] | None = None) -> int:
             "Startup timing: welcome window shown in {:.3f}s",
             time.perf_counter() - app_started,
         )
+        # While the user reads the welcome screen, import what opening a file needs (D3);
+        # the timer fires after the window's first paint.
+        from PyQt6 import sip
+        from PyQt6.QtCore import QTimer
+
+        from ._warmup import start_warmup
+
+        QTimer.singleShot(0, lambda: None if sip.isdeleted(welcome) else start_warmup(welcome))
 
     run()
     logger.debug("Shutdown")

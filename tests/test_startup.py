@@ -59,3 +59,89 @@ def test_every_public_name_still_resolves(package):
         assert getattr(module, name) is not None, name
     with pytest.raises(AttributeError):
         module.__getattr__("no_such_name")
+
+
+_WARM_THEN_OPEN = textwrap.dedent("""
+    import json, sys, time
+    import enginir.viewer.__main__
+    from enginir.viewer._app import enable_viewer_logging, ensure_app
+    enable_viewer_logging()
+    ensure_app()
+    from enginir.viewer._welcome import WelcomeWindow
+    from enginir.viewer._warmup import start_warmup
+    from PyQt6.QtWidgets import QApplication
+    window = WelcomeWindow()
+    window.show()
+    QApplication.processEvents()
+    done = []
+    start_warmup(window, on_done=lambda: done.append(True))
+    wait = sys.argv[2] == "wait"
+    while wait and not done:
+        QApplication.processEvents()
+        time.sleep(0.005)
+    before = set(sys.modules)
+    from enginir.viewer import _open
+    viewer = _open._open_loaded_project_viewer(_open._load_project_startup(sys.argv[1]))
+    QApplication.processEvents()
+    print(json.dumps({"new": sorted(set(sys.modules) - before),
+                      "opened": type(viewer).__name__, "done": bool(done)}))
+""")
+
+
+def _open_after_warmup(tmp_path, mode):
+    from enginir.io.project_store import create_project
+
+    path = tmp_path / "empty.h5"
+    create_project(path)
+    home = tmp_path / "home"
+    home.mkdir()
+    env = {**os.environ, "QT_QPA_PLATFORM": "offscreen", "HOME": str(home),
+           "USERPROFILE": str(home), "XDG_CONFIG_HOME": str(home / ".config"),
+           "APPDATA": str(home / "AppData"), "ENGINIR_LOG_FILE": str(tmp_path / "viewer.log")}
+    result = subprocess.run([sys.executable, "-c", _WARM_THEN_OPEN, str(path), mode], env=env,
+                            capture_output=True, text=True, timeout=90, check=True)
+    return json.loads(result.stdout.strip().splitlines()[-1])
+
+
+def test_after_the_warmup_opening_a_project_imports_nothing_heavy(tmp_path):
+    """D3: the warm-up has loaded the library and the main window before the first pick."""
+    outcome = _open_after_warmup(tmp_path, "wait")
+    assert outcome["done"] and outcome["opened"] == "HSIViewer"
+    heavy = [name for name in outcome["new"] if name.split(".")[0] in
+             ("sklearn", "scipy", "pandas", "h5py", "matplotlib", "pyqtgraph")
+             or name in HEAVY]
+    assert heavy == [], f"imported only when the project opened: {heavy}"
+
+
+def test_a_pick_before_the_warmup_ends_opens_the_project(tmp_path):
+    outcome = _open_after_warmup(tmp_path, "now")
+    assert outcome["opened"] == "HSIViewer"
+
+
+_QUIT_DURING_WARMUP = textwrap.dedent("""
+    import enginir.viewer.__main__
+    from enginir.viewer._app import enable_viewer_logging, ensure_app, run
+    enable_viewer_logging()
+    ensure_app()
+    from enginir.viewer._welcome import WelcomeWindow
+    from enginir.viewer._warmup import start_warmup
+    from PyQt6.QtCore import QTimer
+    window = WelcomeWindow()
+    window.show()
+    start_warmup(window)
+    QTimer.singleShot(50, window.close)  # the user closes the launcher at once
+    run()
+""")
+
+
+def test_closing_during_the_warmup_exits_cleanly(tmp_path):
+    """The warm-up's import job ends before the interpreter does (no crash, no hang)."""
+    home = tmp_path / "home"
+    home.mkdir()
+    env = {**os.environ, "QT_QPA_PLATFORM": "offscreen", "HOME": str(home),
+           "USERPROFILE": str(home), "XDG_CONFIG_HOME": str(home / ".config"),
+           "APPDATA": str(home / "AppData"), "ENGINIR_LOG_FILE": str(tmp_path / "viewer.log")}
+    result = subprocess.run([sys.executable, "-c", _QUIT_DURING_WARMUP], env=env,
+                            capture_output=True, text=True, timeout=90)
+    assert result.returncode == 0, result.stderr[-2000:]
+    assert "Traceback" not in result.stderr, result.stderr[-3000:]
