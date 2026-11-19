@@ -37,8 +37,7 @@ logger = get_logger(__name__)
 _EPS = 1e-10
 #: Rows per chunk of a pass over the pixels (float64 chunk: 16 384 × K × 8 B).
 CHUNK_ROWS = 16_384
-#: Environment variable that sets the BLAS threads of the engine's passes.
-BLAS_THREADS_ENV = "ENGINIR_BLAS_THREADS"
+from .._env import BLAS_THREADS_ENV  # noqa: E402  (shared with the viewer's preferences)
 #: PCR uses ``gram`` when σ_A / σ₁ is at least this (sample-set-model-run contract §7).
 GRAM_CONDITION_LIMIT = 1e-6
 

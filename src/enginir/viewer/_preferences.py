@@ -39,8 +39,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .._logging import get_logger
-from ..models._gram import BLAS_THREADS_ENV
-from ..project._data_paths import wsl_mount_root
+from .._env import BLAS_THREADS_ENV
 from ._icons import icon
 from ._recent import config_dir
 from ._theme import HEAT_STOPS, SERIES, secondary_text_style, value_colormap
@@ -124,6 +123,8 @@ def drive_mapping_text(*, windows: bool | None = None, wsl_root: str | None = No
     windows = os.name == "nt" if windows is None else windows
     if windows:
         return "/mnt/z/… and /z/…  →  Z:\\…  (every drive letter)"
+    from ..project._data_paths import wsl_mount_root  # the library, only when needed
+
     root = wsl_mount_root() if wsl_root is None else wsl_root
     return f"Z:\\…  →  {root}z/…  (every drive letter)"
 

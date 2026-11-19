@@ -12,8 +12,6 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import QLabel, QProgressBar, QVBoxLayout, QWidget
 
 from .._logging import get_logger
-from ..modeling import BandProposalCancelledError
-from ..prediction import PredictionCancelledError
 from ._theme import secondary_text_style
 
 if TYPE_CHECKING:
@@ -21,8 +19,14 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-#: Raised when the user cancels a job: reported to the caller, logged as info, not as a failure.
-_CANCELLED = (BandProposalCancelledError, PredictionCancelledError)
+
+def _cancelled_errors() -> tuple[type[BaseException], ...]:
+    """The library's cancellation errors: reported to the caller, logged as info, not as a
+    failure. Imported when a job runs, not with this module."""
+    from ..modeling import BandProposalCancelledError
+    from ..prediction import PredictionCancelledError
+
+    return (BandProposalCancelledError, PredictionCancelledError)
 
 
 class BackgroundWorker(QObject):
@@ -42,7 +46,7 @@ class BackgroundWorker(QObject):
     def run(self) -> None:
         try:
             result = self._fn()
-        except _CANCELLED as exc:
+        except _cancelled_errors() as exc:
             logger.info("Background viewer job canceled: {}", exc)
             self.failed.emit(str(exc))
         except Exception as exc:

@@ -75,8 +75,6 @@ def _main(argv: list[str] | None = None) -> int:
         return _shortcuts(install=args.install_shortcut, desktop=args.desktop)
 
     from ._app import ensure_app, run
-    from . import open_project, open_viewer
-
     ensure_app()
     logger.debug(
         "Startup timing: QApplication ready in {:.3f}s",
@@ -86,6 +84,8 @@ def _main(argv: list[str] | None = None) -> int:
     # Open windows are kept alive by the window registry (viewer/_windows.py) until they close.
 
     if args.path is not None or args.project is not None:
+        from . import open_project, open_viewer  # lazy package names (D2)
+
         startup_label = args.project if args.path is None else args.path
         logger.info("Opening startup target: {}", startup_label)
         target_started = time.perf_counter()
@@ -114,16 +114,36 @@ def _main(argv: list[str] | None = None) -> int:
         logger.info("Showing welcome screen")
         from PyQt6.QtWidgets import QApplication, QMessageBox
 
-        from ..io.project_store import create_project
-        from . import (
-            _load_dataset_startup,
-            _load_project_startup,
-            _open_loaded_dataset_viewer,
-            _open_loaded_project_viewer,
-        )
         from ._jobs import start_background_job
         from ._loading import LoadingProgressEvent, LoadingProgressRelay, ViewerBusyContext
         from ._welcome import WelcomeWindow
+
+        # The opening code and the library load when the user picks something (the
+        # loaders run in background jobs), not before the welcome screen is shown (D2).
+        def _load_dataset_startup(*args: Any, **kwargs: Any) -> Any:
+            from ._open import _load_dataset_startup as load
+
+            return load(*args, **kwargs)
+
+        def _load_project_startup(path: str) -> Any:
+            from ._open import _load_project_startup as load
+
+            return load(path)
+
+        def _open_loaded_dataset_viewer(payload: Any) -> Any:
+            from ._open import _open_loaded_dataset_viewer as open_loaded
+
+            return open_loaded(payload)
+
+        def _open_loaded_project_viewer(payload: Any) -> Any:
+            from ._open import _open_loaded_project_viewer as open_loaded
+
+            return open_loaded(payload)
+
+        def create_project(path: str) -> Any:
+            from ..io.project_store import create_project as create
+
+            return create(path)
 
         welcome = WelcomeWindow()
         welcome_created_at = time.perf_counter()

@@ -144,7 +144,7 @@ def test_the_drive_mapping_shown_is_the_one_applied(qapp, monkeypatch):
 
     from enginir.project._data_paths import drive_mapped
 
-    monkeypatch.setattr(prefs, "wsl_mount_root", lambda: "/wsl/")
+    monkeypatch.setattr("enginir.project._data_paths.wsl_mount_root", lambda: "/wsl/")
     dialog = prefs.PreferencesDialog(prefs.Preferences())
     assert dialog.drive_mapping.text() == prefs.drive_mapping_text(), "this platform's rule"
     shown = prefs.drive_mapping_text(windows=False)

@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .._logging import get_logger
-from . import _is_project_file
+from ._files import _is_project_file
 from ._app import app_icon
 from ._windows import keep_open
 from ._icons import icon
