@@ -41,7 +41,8 @@ from PyQt6.QtWidgets import (
     QMenuBar,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QActionGroup, QFont, QCloseEvent, QKeySequence, QShortcut
+from PyQt6.QtGui import (QAction, QActionGroup, QCloseEvent, QFontDatabase,
+                         QKeySequence, QShortcut)
 
 from .._checks import log_and_raise
 from .._workflow import own_reference_frames, read_header
@@ -231,7 +232,7 @@ class LogPanel(QWidget):
         self._text = QPlainTextEdit()
         self._text.setReadOnly(True)
         self._text.setMaximumBlockCount(1000)
-        self._text.setFont(QFont("Monospace", 9))
+        self._font_set = False  # the fixed-width font comes with the first look (use_font)
         self.restyle_theme()
 
         layout = QVBoxLayout(self)
@@ -241,6 +242,22 @@ class LogPanel(QWidget):
         self.setMinimumHeight(80)
 
         self._append.connect(self._text.appendPlainText)
+
+    def use_font(self) -> None:
+        """Set the fixed-width font, once: when the Log tab is first selected.
+
+        On Windows the first font family other than the UI font makes Qt load its
+        whole font database (0.3 s warm, 0.94 s in a user's log, 2026-11-19); the
+        Log tab is behind the Checks tab when a window opens. Not on show: Qt
+        shows the hidden tabs of a dock area too (off-screen). The system's
+        fixed-width font, since a family name such as "Monospace" exists on Linux
+        only.
+        """
+        if not self._font_set:
+            self._font_set = True
+            font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+            font.setPointSize(9)
+            self._text.setFont(font)
 
     def sink(self, message) -> None:
         """Loguru sink safe to call from any thread."""
@@ -1151,6 +1168,8 @@ class HSIViewer(QMainWindow):
         self._log_dock = QDockWidget("Log", self)
         self._log_dock.setObjectName("LogDock")
         self._log_dock.setWidget(self._log_panel)
+        self._log_dock.visibilityChanged.connect(
+            lambda visible: self._log_panel.use_font() if visible else None)
         self._checks_panel = ChecksPanel()
         #: Counts refreshes, so a prediction check that ends after a newer refresh is dropped.
         self._checks_generation = 0

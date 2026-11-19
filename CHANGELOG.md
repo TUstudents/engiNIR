@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A project window opens up to a second faster on Windows.** The Log
+  tab set its fixed-width font when the window was built, which makes Qt
+  load the whole Windows font database (0.94 s in a user's log, 0.25 s on a
+  warm test machine); the font is now set when the Log tab is first
+  selected. It is the system's fixed-width font, since the family
+  "Monospace" exists on Linux only.
+
 ## 1.7.1 (2026-11-19)
 
 A fast start that never waits for a network drive. A bugfix release: the

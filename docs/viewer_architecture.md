@@ -349,6 +349,11 @@ paths on the UI thread (plan `plans/startup-speed-1.7.1.md`):
   that press a button of an unbuilt page take a function that returns the
   button (`_menu_button_action`). An empty project's window builds in
   0.30 s instead of 0.40 s (Linux, warm).
+- The Log tab sets its fixed-width font when it is first selected
+  (`LogPanel.use_font`, from the dock's `visibilityChanged`), not when the
+  window is built and not on show: Qt shows the hidden tabs of a dock area
+  too, off-screen. On Windows the first font family besides the UI font
+  loads Qt's whole font database (0.94 s in a user's log).
 - The log states the time since the operating system started the process
   (`_startup_clock`: `GetProcessTimes` on Windows, `/proc` on Linux, `ps`
   elsewhere) when the launcher runs, when the welcome window is shown, when

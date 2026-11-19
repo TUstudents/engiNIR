@@ -1306,3 +1306,21 @@ def test_menus_and_fixes_reach_pages_that_were_never_shown(qapp, tmp_path, monke
         assert window._prediction_page is not None
     finally:
         window.close()
+
+
+def test_the_log_panel_sets_its_fixed_width_font_when_first_shown(qapp, tmp_path):
+    """On Windows the first font family besides the UI font loads Qt's whole font
+    database (0.94 s in a user's log, 2026-11-19): a new window leaves the Log tab's
+    font alone until the tab is shown, and then uses the system's fixed-width font."""
+    from PyQt6.QtGui import QFontDatabase
+
+    window = _example_window(qapp, tmp_path)
+    try:
+        panel = window._log_panel
+        assert not panel._font_set, "the Checks tab is in front, the Log tab never was"
+        window._log_dock.raise_()
+        wait_until(qapp, lambda: panel._font_set)
+        fixed = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        assert panel._font_set and panel._text.font().family() == fixed.family()
+    finally:
+        window.close()
