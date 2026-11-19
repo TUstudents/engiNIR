@@ -33,7 +33,7 @@ from PyQt6.QtWidgets import (
 
 from .._logging import get_logger
 from .._workflow import GridCell, roi_grid
-from ._grid_settings import NAME_PATTERNS, GridDefaults, save_grid_defaults
+from ._grid_settings import NAME_PATTERNS, PLACEHOLDERS, GridDefaults, save_grid_defaults
 from ._theme import secondary_text_style
 
 logger = get_logger(__name__)
@@ -65,8 +65,7 @@ class GridGeometryForm(QWidget):
         self._pattern = QComboBox()
         self._pattern.setEditable(True)
         self._pattern.addItems(list(NAME_PATTERNS))
-        self._pattern.setToolTip("{file}: dataset file name, {row}: A, B, ..., {column}: 1, 2, "
-                                 "..., {n}: running number. Pick one or type your own.")
+        self._pattern.setToolTip("Pick a pattern or type your own.")
         self._pattern.currentTextChanged.connect(self.changed)
         self._order = QComboBox()
         self._order.addItem("Row by row", "rows")
@@ -90,8 +89,12 @@ class GridGeometryForm(QWidget):
         grid.addWidget(self._extent, 5, 0, 1, 3)
         grid.addWidget(QLabel("Names:"), 6, 0)
         grid.addWidget(self._pattern, 6, 1, 1, 2)
-        grid.addWidget(QLabel("Order:"), 7, 0)
-        grid.addWidget(self._order, 7, 1, 1, 2)
+        self._placeholders = QLabel(PLACEHOLDERS)  # listed, not only in a tooltip (R2)
+        self._placeholders.setWordWrap(True)
+        self._placeholders.setStyleSheet(secondary_text_style())
+        grid.addWidget(self._placeholders, 7, 1, 1, 2)
+        grid.addWidget(QLabel("Order:"), 8, 0)
+        grid.addWidget(self._order, 8, 1, 1, 2)
         self.changed.connect(self._update_extent)
         self.set_values(values)
 
@@ -171,10 +174,12 @@ class RoiGridDialog(QDialog):
 
     def __init__(self, image_size: tuple[int, int], *, file: str, defaults: GridDefaults,
                  taken_names: Iterable[str] = (), prediction: bool = False,
+                 name: str = "", folder: str = "",
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Add ROI grid")
         self._image_size, self._file = image_size, file
+        self._name, self._folder = name, folder  # the values of {name} and {folder}
         #: Names of the project's ROIs. Names are labels: repeating one is allowed and only
         #: mentioned, because ROIs are told apart by id and data file.
         self._taken = set(taken_names)
@@ -305,7 +310,8 @@ class RoiGridDialog(QDialog):
             origin=(v.origin_x, v.origin_y), spacing=(v.spacing_x, v.spacing_y))
         try:
             planned = roi_grid(**geometry, skip=self._skip, order=v.order,
-                               name_pattern=v.name_pattern, file=self._file)
+                               name_pattern=v.name_pattern, file=self._file,
+                               name=self._name, folder=self._folder)
         except ValueError as exc:
             self._show([], [], [], str(exc), ok)
             return

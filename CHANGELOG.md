@@ -19,6 +19,11 @@
 
 ### Added
 
+- **ROI grids are named after the dataset's name.** The new placeholder
+  `{name}` gives the dataset's name (Project > Name Dataset), else its file
+  name, and the default patterns use it: Kestreleye scans, all called
+  `stream_hsi.h5`, no longer give every grid `stream_hsi-A01`. `{folder}`
+  gives the file's folder. The grid dialog lists the placeholders.
 - **The About box cites engiNIR** (with the concept DOI) and links its
   GitHub repository.
 - **The glossary** gives Frame and Row their own entries and adds the terms

@@ -1737,6 +1737,8 @@ def roi_grid(
     order: str = "rows",
     name_pattern: str = "{row}{column:02d}",
     file: str = "",
+    name: str = "",
+    folder: str = "",
     image_size: tuple[int, int] | None = None,
 ) -> list[GridCell]:
     """Lay out a grid of equal ROIs (a tray of samples) in pixels.
@@ -1764,10 +1766,16 @@ def roi_grid(
         of ``{n}``.
     name_pattern:
         Format string with ``{row}`` (``A``, ``B``, ..., ``AA``),
-        ``{column}`` (1-based), ``{n}`` (1-based running number in ``order``)
-        and ``{file}``.
+        ``{column}`` (1-based), ``{n}`` (1-based running number in ``order``),
+        ``{name}``, ``{file}`` and ``{folder}``.
     file:
         Value of ``{file}``, e.g. the data file's name without extension.
+    name:
+        Value of ``{name}``: the dataset's name ("Layer 7"); ``""`` gives ``file``.
+        Files of one instrument often share a file name (every Kestreleye scan
+        is ``stream_hsi.h5``), so ``{name}`` tells the scans apart.
+    folder:
+        Value of ``{folder}``: the name of the data file's folder.
     image_size:
         ``(n_frames, height)`` of the image; every created cell must lie
         inside it.
@@ -1804,16 +1812,17 @@ def roi_grid(
             continue
         f0, r0 = x0 + c * (width + gap_x), y0 + r * (height + gap_y)
         try:
-            name = name_pattern.format(row=_row_letters(r), column=c + 1, n=len(cells) + 1,
-                                       file=file)
+            cell_name = name_pattern.format(row=_row_letters(r), column=c + 1,
+                                            n=len(cells) + 1, file=file,
+                                            name=name or file, folder=folder)
         except (KeyError, IndexError, ValueError) as exc:
             log_and_raise("Name pattern {!r} is not valid: {}", name_pattern, exc, cause=exc)
         cell = GridCell(row=r, column=c, frames=(f0, f0 + width - 1),
-                        rows=(r0, r0 + height - 1), name=name, grid=grid)
+                        rows=(r0, r0 + height - 1), name=cell_name, grid=grid)
         if image_size is not None and (cell.frames[1] >= image_size[0]
                                        or cell.rows[1] >= image_size[1]):
             log_and_raise("ROI {} ({}) lies outside the image of {} frames x {} rows",
-                          cell.position, name, image_size[0], image_size[1])
+                          cell.position, cell_name, image_size[0], image_size[1])
         cells.append(cell)
     names = [cell.name for cell in cells]
     if len(set(names)) != len(names):

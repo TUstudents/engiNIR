@@ -566,7 +566,10 @@ class EDAView(QWidget):
             return
         cube_path = self._cube_path_provider() or ""
         n_frames, height = (int(n) for n in self.state.cube.shape[:2])
+        dataset = self.project_state.datasets.get(self.shown_dataset_id() or "")
         dialog = RoiGridDialog((n_frames, height), file=pathlib.Path(cube_path).stem,
+                               name="" if dataset is None else dataset.label,
+                               folder=pathlib.Path(cube_path).parent.name,
                                defaults=load_grid_defaults(),
                                taken_names={roi.name
                                             for roi in self.project_state.rois.values()},

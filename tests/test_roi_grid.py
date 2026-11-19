@@ -125,3 +125,18 @@ def test_a_grid_whose_cells_repeat_a_name_writes_nothing(tray):
     with pytest.raises(ValueError, match="ROI names repeat within the grid"):
         dataset.add_rois(cells)
     assert Project.open(project.path).workspace.rois == {}
+
+
+def test_name_and_folder_tell_scans_with_one_file_name_apart():
+    """Every Kestreleye scan is stream_hsi.h5: {name} is the dataset's name (else the file
+    name), {folder} the file's folder (plan roi-workflow, R1, R2)."""
+    def names(**kwargs):
+        return [cell.name for cell in roi_grid(n_rows=1, n_columns=2, size=(2, 2),
+                                               file="stream_hsi", **kwargs)]
+
+    assert names(name_pattern="{name}-{row}{column}", name="Layer 7") == ["Layer 7-A1",
+                                                                            "Layer 7-A2"]
+    assert names(name_pattern="{name}-{row}{column}") == ["stream_hsi-A1", "stream_hsi-A2"]
+    assert names(name_pattern="{folder}_{n}", folder="lay-10_API-5") == ["lay-10_API-5_1",
+                                                                         "lay-10_API-5_2"]
+    assert names(name_pattern="{file}-{n}", name="Layer 7") == ["stream_hsi-1", "stream_hsi-2"]

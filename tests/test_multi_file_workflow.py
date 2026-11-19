@@ -705,3 +705,28 @@ def test_make_defaults_in_the_grid_dialog_sets_the_next_grid(qapp):
     assert load_grid_defaults().width == 170
     following = RoiGridDialog((2000, 300), file="tray", defaults=load_grid_defaults())
     assert following.form.values() == dialog.form.values()
+
+
+def test_the_grid_names_rois_after_the_datasets_name(qapp, two_file_project, monkeypatch):
+    """The default pattern uses {name}: the dataset's name, not its (shared) file name."""
+    from enginir.viewer import open_viewer
+    from enginir.viewer._grid_settings import GridDefaults, save_grid_defaults
+
+    project_path, paths = two_file_project
+    save_grid_defaults(GridDefaults(n_rows=1, n_columns=2, width=2, height=2, origin_x=8,
+                                    origin_y=0, spacing_x=0, spacing_y=0))
+    window = open_viewer(paths["tray_b"], project=project_path)
+    try:
+        state = window.project_state
+        dataset_id = window._registered_dataset_id(str(paths["tray_b"]))
+        state.set_dataset_label(dataset_id, "Layer 7")
+        _grid_answers(monkeypatch, lambda dialog: None)
+        window._eda_view._btn_roi_grid.click()
+        assert sorted(r.name for r in state.rois.values() if r.name.startswith("Layer 7")) \
+            == ["Layer 7-A01", "Layer 7-A02"]
+        folder = paths["tray_b"].parent.name
+        _grid_answers(monkeypatch, lambda d: d.set_grid(name_pattern="{folder}+{n}"))
+        window._eda_view._btn_roi_grid.click()
+        assert {f"{folder}+1", f"{folder}+2"} <= {r.name for r in state.rois.values()}
+    finally:
+        window.close()

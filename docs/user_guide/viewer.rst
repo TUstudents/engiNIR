@@ -222,8 +222,13 @@ lays out equal ROIs in pixels, with x along frames and y along rows:
 - **Origin**: the frame and row of the first ROI's top-left corner (A1).
 - **Spacing**: the gap between neighboring ROIs; the dialog shows the
   resulting pitch and the frames and rows the grid covers.
-- **Names**: a pattern from the list (``{file}-{row}{column:02d}`` gives
-  ``tray03-B04``; ``{n:03d}`` numbers them) or your own, and the order.
+- **Names**: a pattern from the list (``{name}-{row}{column:02d}`` gives
+  ``Layer 7-B04``; ``{n:03d}`` numbers them) or your own, and the order. The
+  dialog lists the placeholders: ``{name}`` is the dataset's name (**Project >
+  Name Dataset...**), or its file name when it has none; ``{file}`` the file
+  name; ``{folder}`` the name of the file's folder; ``{row}``, ``{column}``
+  and ``{n}`` the position. Name the datasets first when their files share a
+  name (every Kestreleye scan is ``stream_hsi.h5``).
 
 The grid is drawn on the image while you type. Click a cell button to mark
 an empty position (**Select all** / **Select none** help with sparse trays);
