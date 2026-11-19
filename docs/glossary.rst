@@ -17,7 +17,7 @@ Data
       frame range of a file; "file" means the file on disk.
       Elsewhere: SIMCA *dataset*, The Unscrambler *data set*, PLS_Toolbox
       *DataSet object*, ENVI *image* or *file*.
-      API: ``DatasetRef``, ``add_dataset``, ``dataset_id``.
+      API: ``DatasetRecord``, ``add_dataset``, ``dataset_id``.
 
    Frame
       One line the push-broom camera reads as the sample moves: the first axis

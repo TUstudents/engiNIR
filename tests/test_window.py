@@ -481,7 +481,7 @@ def test_a_reopened_project_shows_its_latest_model_whatever_its_preprocessing(qa
             "the verdict of the model shown"
         assert view.fit_form._snv.isChecked() and view.fit_form._components_spin.value() == 2
 
-        view.selected_target_id = other.ref.target_id if hasattr(other, "ref") else other.target_id
+        view.selected_target_id = other.record.target_id if hasattr(other, "ref") else other.target_id
         assert view._resolved_workspace_model_run() is None, "no model of this target"
     finally:
         reopened.close()
@@ -1023,7 +1023,7 @@ def test_a_model_shows_its_calibration_set_and_input_contract_beneath_it(qapp, t
     assert kinds["sample_set"].startswith("Calibration set: 7 ROIs, API")
     assert kinds["signal_domain"].startswith("Input contract: ")
 
-    browser.select_payload({"kind": "signal_domain", "id": model.ref.signal_domain_id})
+    browser.select_payload({"kind": "signal_domain", "id": model.record.signal_domain_id})
     assert browser.currentItem() is not None
     assert browser.currentItem().parent() is item, "selection finds the nested item"
 
@@ -1182,10 +1182,10 @@ def test_opening_a_dataset_from_the_project_tree_shows_its_image(qapp, tmp_path)
     window = open_project(project.path)
     try:
         window.show_step("rois")
-        window.show_dataset(scan.ref.dataset_id)
+        window.show_dataset(scan.record.dataset_id)
         window.wait_for_data_file()
         assert window._explore_tabs.currentWidget() is window._data_file_page
-        assert window._eda_view.shown_dataset_id() == scan.ref.dataset_id
+        assert window._eda_view.shown_dataset_id() == scan.record.dataset_id
     finally:
         window.close()
 

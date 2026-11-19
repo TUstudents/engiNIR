@@ -76,7 +76,7 @@ def prediction_model_payload(wavelengths: Any, target: str = "moisture") -> dict
 
 
 def dataset(wavelengths: Any, dataset_id: str = "dataset_1", **fields: Any):
-    from enginir.project import DatasetRef
+    from enginir.project import DatasetRecord
 
     wavelengths = np.asarray(wavelengths, dtype=np.float32)
     values: dict[str, Any] = dict(
@@ -85,7 +85,7 @@ def dataset(wavelengths: Any, dataset_id: str = "dataset_1", **fields: Any):
         n_bands=wavelengths.size, wavelengths=wavelengths, loader_metadata={},
         import_timestamp=T0)
     values.update(fields)
-    return DatasetRef(**values)
+    return DatasetRecord(**values)
 
 
 def reference_correction(dataset_id: str = "dataset_1", reference_correction_id: str = "cal_1", **fields: Any):

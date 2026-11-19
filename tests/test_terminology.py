@@ -356,3 +356,15 @@ def test_an_old_stored_name_is_found(tmp_path):
 def test_no_public_name_says_calibration_for_the_reference_correction():
     """Every public name with "calibrat" means model calibration, with a reason."""
     assert public_calibration_names() == set(MODEL_CALIBRATION_NAMES)
+
+
+def test_the_record_names_have_no_alias(tmp_path):
+    """1.7.3: DatasetRef became DatasetRecord and .ref became .record (user: no alias)."""
+    import enginir.project as project_types
+    from enginir import Project
+    from enginir._example import create_example_project
+
+    assert not hasattr(project_types, "DatasetRef") and hasattr(project_types, "DatasetRecord")
+    project = Project.open(create_example_project(tmp_path))
+    for obj in (next(iter(project.datasets.values())), next(iter(project.models.values()))):
+        assert hasattr(obj, "record") and not hasattr(obj, "ref"), type(obj).__name__

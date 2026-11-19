@@ -31,7 +31,7 @@ from .._logging import get_logger
 from .._workflow import make_reference_correction, make_roi, resolve_reference_correction, resolve_dataset
 from ..io import SpectralData, save_csv
 from ..io.project_store import load_project_store, load_roi_spectra_batch
-from ..project import ReferenceCorrection, DatasetRef, TargetDefinition
+from ..project import ReferenceCorrection, DatasetRecord, TargetDefinition
 from ._attachment import confirm_project_dataset_binding
 from ._data_helpers import wavelength_axes_match
 from ..io import file_format
@@ -713,7 +713,7 @@ class EDAView(QWidget):
                 )
             )
 
-    def _ensure_current_dataset_context(self) -> tuple[DatasetRef, ReferenceCorrection] | None:
+    def _ensure_current_dataset_context(self) -> tuple[DatasetRecord, ReferenceCorrection] | None:
         """Register the attached dataset and its current reference correction (or reuse them).
 
         ``None`` when the user declines replacing the reference correction of a data file

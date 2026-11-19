@@ -526,7 +526,7 @@ A project may hold ROIs from several datasets. The canvas draws only the
 ROIs whose `dataset_id` is the project dataset of the shown file
 (`EDAView.refresh_roi_overlays`, `EDAView.shown_dataset_id`). Attach
 validation is per dataset: an unregistered file is a new dataset, and only
-a registered file that no longer matches its `DatasetRef` raises the warning
+a registered file that no longer matches its `DatasetRecord` raises the warning
 gate (`_attachment.confirm_project_dataset_binding`).
 
 A dataset whose `source_path` no longer exists is listed as "(not found)".

@@ -1056,9 +1056,9 @@ def test_a_wavenumber_axis_enters_a_project_in_nm(tmp_path):
 
     project = Project.create(tmp_path / "project.h5")
     dataset = project.add_dataset(str(path))
-    assert np.allclose(dataset.ref.wavelengths, 1e7 / x, atol=1e-3)
-    assert dataset.ref.loader_metadata["x_units_in_file"] == "cm-1"
-    assert Project.open(project.path).dataset(str(path)).ref.cube_shape == (1, 1, 11)
+    assert np.allclose(dataset.record.wavelengths, 1e7 / x, atol=1e-3)
+    assert dataset.record.loader_metadata["x_units_in_file"] == "cm-1"
+    assert Project.open(project.path).dataset(str(path)).record.cube_shape == (1, 1, 11)
 
     data = load_spectra(str(path))
     state = ViewerState(np.asarray(data.X)[:, None, :], data.wavelengths, data.meta)

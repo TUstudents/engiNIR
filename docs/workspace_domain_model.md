@@ -11,7 +11,7 @@ format is `enginir-1.7`.
 | Term | Python class | Project file | Contract |
 |---|---|---|---|
 | Project | `enginir.Project` (the workflow facade) | `/project_meta/` (`project_id`, `FileSchemaVersion`) | project-schema |
-| Dataset | `DatasetRef`; `enginir.Dataset` wraps it | `/datasets/{dataset_id}/` | project-dataset-attachment |
+| Dataset | `DatasetRecord`; `enginir.Dataset` wraps it | `/datasets/{dataset_id}/` | project-dataset-attachment |
 | Reference correction | `ReferenceCorrection` | `/datasets/{dataset_id}/reference_corrections/{id}/` | dataset-reference-correction |
 | ROI (calibration ROI, prediction ROI: its `job`) | `TrainingROI` | `/rois/{roi_id}/` with its raw pixels `spectra` | roi-target |
 | Target | `TargetDefinition` | `/targets/{target_id}/` | roi-target |

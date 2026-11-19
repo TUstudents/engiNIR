@@ -258,7 +258,7 @@ def save_dataset_ref(
     path: PathLike, dataset_id: str, dataset_dict: dict[str, Any], compression: str = PROJECT_COMPRESSION
 ) -> None:
     """Save a dataset reference to ``/datasets/{dataset_id}``."""
-    _save_object(path, "datasets", dataset_id, dataset_dict, "DatasetRef", compression,
+    _save_object(path, "datasets", dataset_id, dataset_dict, "DatasetRecord", compression,
                  child_members=frozenset({"reference_corrections", "active_reference_correction_id"}))
 
 

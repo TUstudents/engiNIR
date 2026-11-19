@@ -194,7 +194,7 @@ def test_explore_signals_follow_the_shown_file_and_keep_the_choice(qapp, tmp_pat
         assert not buttons["Reflectance"].isEnabled() and "no references" in \
             buttons["Reflectance"].toolTip()
 
-        window.show_data_file(calibrated.ref.dataset_id)  # back: the choice returns
+        window.show_data_file(calibrated.record.dataset_id)  # back: the choice returns
         window.wait_for_data_file()
         assert window.state.y_unit == "Reflectance" and buttons["Reflectance"].isChecked()
         assert buttons["Reflectance"].isEnabled()
@@ -577,7 +577,7 @@ def test_two_trays_with_the_same_file_name_work_by_id(qapp, tmp_path, monkeypatc
 
         # A fit uses all four ROIs; the export carries four distinct ids.
         fitted = Project.open(project.path).fit(project.target("API"), n_components=1)
-        sample_set = Project.open(project.path).workspace.sample_sets[fitted.ref.sample_set_id]
+        sample_set = Project.open(project.path).workspace.sample_sets[fitted.record.sample_set_id]
         assert sorted(sample_set.roi_ids) == sorted(r.roi_id for r in rois)
         window._eda_view.export_csv(str(tmp_path / "rois.csv"))
         exported = load_csv(tmp_path / "rois.csv")

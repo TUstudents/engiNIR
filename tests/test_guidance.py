@@ -142,12 +142,12 @@ def test_files_that_are_gone_and_bands_without_wavelengths_are_reported(tmp_path
     found = _by_id(project.checks())
     assert found["data.files_found"][0].severity == "ok"
     (axis,) = found["data.no_wavelengths"]
-    assert axis.severity == "info" and axis.dataset_ids == (scan.ref.dataset_id,)
+    assert axis.severity == "info" and axis.dataset_ids == (scan.record.dataset_id,)
 
     os.rename(path, tmp_path / "moved_away.bin")
     reopened = Project.open(project.path)
     (gone,) = _by_id(reopened.checks())["data.files_missing"]
-    assert gone.severity == "attention" and gone.dataset_ids == (scan.ref.dataset_id,)
+    assert gone.severity == "attention" and gone.dataset_ids == (scan.record.dataset_id,)
     assert gone.fix is not None and gone.fix.action == "locate_dataset"
     assert not any(check.check_id.startswith("data.files")
                    for check in reopened.checks(files=False))
@@ -157,14 +157,14 @@ def test_files_that_are_gone_and_bands_without_wavelengths_are_reported(tmp_path
 def test_an_optimistic_cross_validation_is_a_check_with_its_fix(tmp_path, sample_labels):
     project = _two_level_project(tmp_path, sample_labels=sample_labels)
     model = project.fit("API", n_components=1, fit_spec={"folds": {"group_by": "roi"}})
-    assert "one_level_per_file" in str(model.ref.cv_spec["warnings"])
+    assert "one_level_per_file" in str(model.record.cv_spec["warnings"])
 
     (check,) = _by_id(model.checks())["model.validation.one_level_per_file"]
-    assert check.severity == "attention" and check.model_run_id == model.ref.model_run_id
+    assert check.severity == "attention" and check.model_run_id == model.record.model_run_id
     assert check.fix is not None
     if sample_labels:
         assert check.fix.action == "fit_again"
-        assert check.fix.arguments == {"model_run_id": model.ref.model_run_id,
+        assert check.fix.arguments == {"model_run_id": model.record.model_run_id,
                                        "group_by": "sample"}
     else:
         assert check.fix.action == "edit_samples" and len(check.fix.arguments["roi_ids"]) == 8
@@ -234,7 +234,7 @@ def test_pixels_far_from_the_model_are_reported_with_their_dataset(tmp_path, mon
 
 
 def _with_metrics(model, **metrics):
-    return Model(model.project, replace(model.ref, metrics={**model.ref.metrics, **metrics}))
+    return Model(model.project, replace(model.record, metrics={**model.record.metrics, **metrics}))
 
 
 def test_the_verdict_follows_its_thresholds_and_the_open_checks(tmp_path):
@@ -299,7 +299,7 @@ def _count_predictions(monkeypatch) -> list[str]:
     original = Model.roi_prediction
 
     def counted(self, rois=None):
-        calls.append(self.ref.model_run_id)
+        calls.append(self.record.model_run_id)
         return original(self, rois)
 
     monkeypatch.setattr(Model, "roi_prediction", counted)
@@ -321,13 +321,13 @@ def test_a_prediction_roi_outside_the_newest_model_is_named_once_predicted(tmp_p
     (check,) = _by_id(project.checks())["predict.rois_outside"]
     assert check.severity == "attention" and check.is_open
     assert check.roi_ids == (project.roi("t09").roi_id,)
-    assert check.model_run_id == newest.ref.model_run_id != older.ref.model_run_id
+    assert check.model_run_id == newest.record.model_run_id != older.record.model_run_id
     assert "1 prediction ROI(s) are outside" in check.message and "0.95" in check.message
     assert check.fix is not None and check.fix.arguments == {"roi_id": project.roi("t09").roi_id}
-    assert calls == [newest.ref.model_run_id]
+    assert calls == [newest.record.model_run_id]
 
     project.checks()
-    assert calls == [newest.ref.model_run_id], "a second call predicts nothing (cached)"
+    assert calls == [newest.record.model_run_id], "a second call predicts nothing (cached)"
 
 
 def test_prediction_rois_within_the_model_are_said_to_be(tmp_path):

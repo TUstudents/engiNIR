@@ -68,12 +68,12 @@ def _both(project, *, model="PLS", recipe=None, n_components=3, fit_spec=None, r
         if algorithm is not None:
             hyperparameters["algorithm"] = algorithm
         results.append(fit_model_run(
-            project_path=project.path, sample_set=ws.sample_sets[first.ref.sample_set_id],
+            project_path=project.path, sample_set=ws.sample_sets[first.record.sample_set_id],
             datasets=ws.datasets, reference_corrections=ws.reference_corrections, rois=ws.rois,
             target_assignments=ws.target_assignments, recipes=ws.recipes,
-            signal_domains=ws.signal_domains, signal_domain_id=first.ref.signal_domain_id,
+            signal_domains=ws.signal_domains, signal_domain_id=first.record.signal_domain_id,
             model_type=model, hyperparameters=hyperparameters,
-            fit_spec=first.ref.fit_specification.to_dict()))
+            fit_spec=first.record.fit_specification.to_dict()))
     return results
 
 
@@ -205,18 +205,18 @@ def test_a_model_without_algorithm_refits_with_nipals_and_a_kernel_model_with_ke
 
     project = _project(tmp_path)
     model = project.fit("API", recipe=PreprocessingRecipe(snv=True), n_components=3)
-    assert model.ref.hyperparameters["algorithm"] == "kernel"
+    assert model.record.hyperparameters["algorithm"] == "kernel"
     again = model.refit()
-    assert again.ref.hyperparameters["algorithm"] == "kernel"
+    assert again.record.hyperparameters["algorithm"] == "kernel"
     assert again.metrics["rmsecv"] == model.metrics["rmsecv"]
     with h5py.File(project.path, "r+") as f:  # as a 1.5 project stored it
-        del f[f"model_runs/{model.ref.model_run_id}/hyperparameters"].attrs["algorithm"]
+        del f[f"model_runs/{model.record.model_run_id}/hyperparameters"].attrs["algorithm"]
     old = Project.open(project.path).model(model.name)
-    assert "algorithm" not in old.ref.hyperparameters
+    assert "algorithm" not in old.record.hyperparameters
     nipals = project.fit("API", recipe=PreprocessingRecipe(snv=True), n_components=3,
                          algorithm="nipals")
     refitted = old.refit()
-    assert refitted.ref.hyperparameters["algorithm"] == "nipals"
+    assert refitted.record.hyperparameters["algorithm"] == "nipals"
     assert refitted.metrics["rmsecv"] == nipals.metrics["rmsecv"]
 
 
@@ -238,8 +238,8 @@ def test_a_pcr_run_stores_the_algorithm_its_guard_chose(tmp_path, monkeypatch, l
     monkeypatch.setattr(_service, "GRAM_CONDITION_LIMIT", limit)
     model = _project(tmp_path).fit("API", model="PCR", recipe=PreprocessingRecipe(snv=True),
                                    n_components=3)
-    assert model.ref.hyperparameters["algorithm"] == stored
-    assert model.refit().ref.hyperparameters["algorithm"] == stored
+    assert model.record.hyperparameters["algorithm"] == stored
+    assert model.refit().record.hyperparameters["algorithm"] == stored
 
 
 def test_a_stored_model_without_algorithm_reads_nipals_or_svd():

@@ -53,7 +53,7 @@ from .._logging import get_logger
 from .._workflow import data_file_labels, read_frames
 from ..io import load_spectra
 from ..io import is_band_numbers, user_table_folder, wavelength_tables
-from ..project import ReferenceCorrection, DatasetRef
+from ..project import ReferenceCorrection, DatasetRecord
 from ._preferences import load as load_preferences
 from ._preferences import start_folder
 from ._theme import GUIDE_COLOR, panel_colors, secondary_text_style
@@ -178,7 +178,7 @@ class AddDataFileDialog(QDialog):
         self,
         path: str,
         header: Any,
-        datasets: Mapping[str, DatasetRef],
+        datasets: Mapping[str, DatasetRecord],
         active_reference_corrections: Mapping[str, ReferenceCorrection],
         parent: QWidget | None = None,
         *,
@@ -537,7 +537,7 @@ class SetWavelengthsDialog(QDialog):
     the wavelengths too (plan wavelength-tables, D1).
     """
 
-    def __init__(self, datasets: Mapping[str, DatasetRef], labels: Mapping[str, str], *,
+    def __init__(self, datasets: Mapping[str, DatasetRecord], labels: Mapping[str, str], *,
                  preselected: tuple[str, ...] = (), table: str | None = None,
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)

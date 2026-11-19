@@ -168,7 +168,7 @@ def test_a_registered_file_that_changed_uses_the_warning_gate(
     reply,
     should_load,
 ):
-    """The file at a registered path no longer matches its DatasetRef (here: its shape)."""
+    """The file at a registered path no longer matches its DatasetRecord (here: its shape)."""
     from PyQt6.QtWidgets import QMessageBox
 
     from enginir.viewer._viewer import HSIViewer

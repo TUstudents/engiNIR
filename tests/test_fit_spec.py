@@ -51,13 +51,13 @@ def test_every_key_is_stored_and_reopens_unchanged(tmp_path):
     project = uneven_project(tmp_path)
     model = project.fit("API", n_components=1, fit_spec={"pixels": {"per_roi": 4, "seed": 9}})
     with h5py.File(project.path, "r") as f:
-        group = f[f"/model_runs/{model.ref.model_run_id}/fit_spec"]
+        group = f[f"/model_runs/{model.record.model_run_id}/fit_spec"]
         stored = {part: dict(group[part].attrs) for part in group}
     assert {part: set(keys) for part, keys in stored.items()} == {
         part: set(keys) for part, keys in FitSpec().to_dict().items()}
-    reopened = Project.open(project.path).model(model_run_id=model.ref.model_run_id)
-    assert reopened.ref.fit_specification == model.ref.fit_specification
-    assert reopened.ref.fit_specification.checksum == model.ref.fit_specification.checksum != ""
+    reopened = Project.open(project.path).model(model_run_id=model.record.model_run_id)
+    assert reopened.record.fit_specification == model.record.fit_specification
+    assert reopened.record.fit_specification.checksum == model.record.fit_specification.checksum != ""
 
 
 def test_cv_and_a_fit_spec_with_folds_are_refused_together(tmp_path):
@@ -65,9 +65,9 @@ def test_cv_and_a_fit_spec_with_folds_are_refused_together(tmp_path):
     with pytest.raises(ValueError, match="either as cv"):
         project.fit("API", n_components=1, cv=3, fit_spec={"folds": {"rule": "leave_one_group_out"}})
     model = project.fit("API", n_components=1, cv=3, fit_spec={"pixels": {"per_roi": 4}})
-    spec = model.ref.fit_specification
+    spec = model.record.fit_specification
     assert (spec.fold_rule, spec.n_folds, spec.pixels_per_roi) == ("round_robin", 3, 4)
-    assert model.ref.cv_spec["requested"] == 3
+    assert model.record.cv_spec["requested"] == 3
 
 
 def test_exclusion_without_residual_degrees_of_freedom_blocks_the_fit(tmp_path):
@@ -88,10 +88,10 @@ def test_group_kfold_is_an_optional_rule_that_refits_identically(tmp_path, reque
                          fit_spec={"folds": {"rule": "group_kfold", "n_folds": n_folds}})
     round_robin = project.fit("API", n_components=2, cv=n_folds)
     assert chosen.metrics["rmsecv"] != pytest.approx(round_robin.metrics["rmsecv"], rel=1e-6)
-    assert chosen.ref.cv_spec["type"] == "GroupKFold"
+    assert chosen.record.cv_spec["type"] == "GroupKFold"
 
     refitted, warnings = warnings_during(chosen.refit)
-    assert refitted.ref.cv_spec["type"] == "GroupKFold"
+    assert refitted.record.cv_spec["type"] == "GroupKFold"
     assert refitted.metrics["rmsecv"] == pytest.approx(chosen.metrics["rmsecv"], rel=1e-9)
     assert not warnings
 
@@ -101,7 +101,7 @@ def test_a_model_without_its_fit_specification_is_refused(tmp_path):
     project = uneven_project(tmp_path)
     model = project.fit("API", n_components=2)
     with h5py.File(project.path, "a") as f:
-        del f[f"/model_runs/{model.ref.model_run_id}/fit_spec"]
+        del f[f"/model_runs/{model.record.model_run_id}/fit_spec"]
     with pytest.raises(ValueError, match="fit_spec"):
         Project.open(project.path)
 
@@ -121,7 +121,7 @@ def test_round_robin_holds_out_the_group_at_position_i_in_fold_i_mod_k(n_groups,
 def test_more_folds_than_rois_hold_out_one_roi_each(tmp_path):
     project = uneven_project(tmp_path, n_rois=4)
     model = project.fit("API", n_components=1, cv=7)
-    assert (model.ref.cv_spec["type"], model.ref.cv_spec["n_splits"]) == ("RoundRobinGroups", 4)
+    assert (model.record.cv_spec["type"], model.record.cv_spec["n_splits"]) == ("RoundRobinGroups", 4)
 
 
 def test_the_fit_draws_the_pixels_of_the_simca_reference_table(tmp_path):
@@ -135,12 +135,12 @@ def test_the_fit_draws_the_pixels_of_the_simca_reference_table(tmp_path):
                         fit_spec={"pixels": {"per_roi": ref.PIXELS_PER_ROI, "seed": ref.SEED}})
     ws = project.workspace
     result = fit_model_run(
-        project_path=project.path, sample_set=ws.sample_sets[model.ref.sample_set_id],
+        project_path=project.path, sample_set=ws.sample_sets[model.record.sample_set_id],
         datasets=ws.datasets, reference_corrections=ws.reference_corrections, rois=ws.rois,
         target_assignments=ws.target_assignments, recipes=ws.recipes,
-        signal_domains=ws.signal_domains, signal_domain_id=model.ref.signal_domain_id,
+        signal_domains=ws.signal_domains, signal_domain_id=model.record.signal_domain_id,
         model_type="PLS", hyperparameters={"n_components": 1},
-        fit_spec=model.ref.fit_specification)
+        fit_spec=model.record.fit_specification)
     ids, rois, _y, _X = ref.read_table(ref.DATA_DIR / "pixels.csv")
     data = result.sample_set_data  # the raw spectra stay in the project file (kernel-pls D7)
     assert data.pixel_indices is not None
@@ -150,7 +150,7 @@ def test_the_fit_draws_the_pixels_of_the_simca_reference_table(tmp_path):
             table = [int(i.split("_p")[1]) for i, roi in zip(ids, rois) if roi == name]
             np.testing.assert_array_equal(drawn, reference.raw[name][table])
     assert model.metrics["n_pixels"] == ref.PIXELS_PER_ROI * len(reference.names)
-    assert result.model_run.fit_specification.checksum == model.ref.fit_specification.checksum
+    assert result.model_run.fit_specification.checksum == model.record.fit_specification.checksum
 
 
 def test_the_draw_depends_only_on_the_seed_and_the_roi_spectra():
@@ -174,7 +174,7 @@ def test_adding_an_roi_keeps_the_other_rois_pixels_and_metrics_repeat(tmp_path):
     first = project.fit("API", n_components=1, cv="logo", fit_spec=spec)
     again = project.fit("API", n_components=1, cv="logo", fit_spec=spec)
     assert again.metrics["rmsecv"] == pytest.approx(first.metrics["rmsecv"], rel=1e-12)
-    assert again.ref.fit_specification.checksum == first.ref.fit_specification.checksum
+    assert again.record.fit_specification.checksum == first.record.fit_specification.checksum
 
     from enginir.io import project_store as store
     ws = project.workspace
@@ -201,11 +201,11 @@ def test_a_refit_reports_a_different_pixel_sample(tmp_path):
     model = project.fit("API", n_components=1, fit_spec={"pixels": {"per_roi": 5}})
     refitted, warnings = warnings_during(model.refit)
     assert not warnings
-    assert refitted.ref.fit_specification == model.ref.fit_specification
+    assert refitted.record.fit_specification == model.record.fit_specification
 
     with h5py.File(project.path, "a") as f:  # as if an ROI's stored spectra had changed
-        f[f"/model_runs/{model.ref.model_run_id}/fit_spec/pixels"].attrs["checksum"] = "0" * 64
-    changed = Project.open(project.path).model(model_run_id=model.ref.model_run_id)
+        f[f"/model_runs/{model.record.model_run_id}/fit_spec/pixels"].attrs["checksum"] = "0" * 64
+    changed = Project.open(project.path).model(model_run_id=model.record.model_run_id)
     _refitted, warnings = warnings_during(changed.refit)
     assert any("different pixel subsample" in w for w in warnings)
 
@@ -214,13 +214,13 @@ def test_runs_store_their_scaling_with_the_defaults_filled_in(tmp_path):
     """§7: defaults x_scaling center, y_scaling uv (PCR: x only), algorithm kernel (PCR: the
     one the guard chose, never "auto"); an explicit choice is kept."""
     project = uneven_project(tmp_path)
-    assert project.fit("API", n_components=2).ref.hyperparameters == {
+    assert project.fit("API", n_components=2).record.hyperparameters == {
         "n_components": 2, "x_scaling": "center", "y_scaling": "uv", "algorithm": "kernel"}
-    assert project.fit("API", model="PCR", n_components=2).ref.hyperparameters == {
+    assert project.fit("API", model="PCR", n_components=2).record.hyperparameters == {
         "n_components": 2, "x_scaling": "center", "algorithm": "gram"}
-    assert project.fit("API", n_components=2, x_scaling="pareto").ref.hyperparameters == {
+    assert project.fit("API", n_components=2, x_scaling="pareto").record.hyperparameters == {
         "n_components": 2, "x_scaling": "pareto", "y_scaling": "uv", "algorithm": "kernel"}
-    assert project.fit("API", n_components=2, algorithm="nipals").ref.hyperparameters[
+    assert project.fit("API", n_components=2, algorithm="nipals").record.hyperparameters[
         "algorithm"] == "nipals"
     with pytest.raises(ValueError, match="scale switch was removed"):
         project.fit("API", n_components=2, scale=True)
@@ -279,7 +279,7 @@ def _held_out_folds(project, monkeypatch, **fit_args):
     monkeypatch.setattr(_service, "cross_validate", recording)
     monkeypatch.setattr(_gram_fit, "folds", recording_folds)
     model = project.fit("API", n_components=1, **fit_args)
-    run, ws = model.ref, project.workspace
+    run, ws = model.record, project.workspace
     sample_set = ws.sample_sets[run.sample_set_id]
     data = _service.build_sample_set(
         project_path=project.path, rois=ws.rois, target_assignments=ws.target_assignments,
@@ -330,8 +330,8 @@ def test_round_robin_by_target_deals_the_levels_in_value_order(tmp_path, monkeyp
     model, folds = _held_out_folds(project, monkeypatch,
                                    fit_spec={"folds": {"n_folds": 3, "group_by": "target"}})
     assert folds == _levels("AD", "BE", "C")
-    assert model.ref.cv_spec["n_groups"] == 5
-    assert model.ref.fit_specification.groups == tuple(j for j in (4, 3, 2, 1, 0) for _ in range(3))
+    assert model.record.cv_spec["n_groups"] == 5
+    assert model.record.fit_specification.groups == tuple(j for j in (4, 3, 2, 1, 0) for _ in range(3))
 
 
 def test_rois_without_a_label_are_their_own_group(tmp_path, monkeypatch):
@@ -368,11 +368,11 @@ def test_a_refit_keeps_the_stored_groups_and_warns_when_labels_changed(tmp_path)
     _label_by_level(project, names)
     model = project.fit("API", n_components=1,
                         fit_spec={"folds": {"rule": "leave_one_group_out", "group_by": "sample"}})
-    stored = model.ref.fit_specification.groups
+    stored = model.record.fit_specification.groups
     for name in names:  # every ROI its own sample now
         project.set_sample(name, name)
     refitted, messages = warnings_during(model.refit)
-    assert refitted.ref.fit_specification.groups == stored
+    assert refitted.record.fit_specification.groups == stored
     assert refitted.metrics["rmsecv"] == pytest.approx(model.metrics["rmsecv"], rel=1e-6)
     assert any("keeps its stored fold groups" in message for message in messages)
 
@@ -388,7 +388,7 @@ def test_a_project_with_malformed_stored_groups_is_refused(tmp_path, groups):
     project, _names = _blend_project(tmp_path)
     model = project.fit("API", n_components=1, fit_spec={"folds": {"group_by": "target"}})
     with h5py.File(project.path, "r+") as f:
-        f[f"model_runs/{model.ref.model_run_id}/fit_spec/folds"].attrs["groups"] = np.asarray(
+        f[f"model_runs/{model.record.model_run_id}/fit_spec/folds"].attrs["groups"] = np.asarray(
             groups, dtype=np.int64)
     with pytest.raises(ValueError, match="folds/groups is not well-formed"):
         Project.open(project.path)

@@ -14,7 +14,7 @@ training and prediction. The normative specification is in
 from ._fit_spec import FitSpec
 from ._models import (
     ReferenceCorrection,
-    DatasetRef,
+    DatasetRecord,
     ModelRun,
     PredictionRun,
     SampleSet,
@@ -38,7 +38,7 @@ __all__ = [
     "ReferenceCorrection",
     "FitSpec",
     "ReferenceCorrectionStats",
-    "DatasetRef",
+    "DatasetRecord",
     "ModelRun",
     "PredictionRun",
     "ProjectRelationshipError",

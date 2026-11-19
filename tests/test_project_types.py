@@ -12,7 +12,7 @@ import pytest
 
 from enginir.project import (
     ReferenceCorrection,
-    DatasetRef,
+    DatasetRecord,
     ModelRun,
     PredictionRun,
     ProjectRelationshipError,
@@ -46,7 +46,7 @@ def wavelengths():
 def valid_project_graph(wavelengths):
     return {
         "datasets": {
-            "dataset_1": DatasetRef(
+            "dataset_1": DatasetRecord(
                 dataset_id="dataset_1",
                 source_path="/data/train.eiff",
                 source_format="eiff",
@@ -171,7 +171,7 @@ def valid_project_graph(wavelengths):
 
 def test_project_models_round_trip_representative_instances(wavelengths):
     instances = [
-        DatasetRef(
+        DatasetRecord(
             dataset_id="dataset_1",
             source_path="/data/train.eiff",
             source_format="eiff",
@@ -465,7 +465,7 @@ def test_calibration_spec_contract_validation():
 
 def test_dataset_ref_rejects_inconsistent_band_metadata(wavelengths):
     with pytest.raises(ValueError, match="does not have n_bands=50"):
-        DatasetRef(
+        DatasetRecord(
             dataset_id="dataset_1",
             source_path="/data/train.eiff",
             source_format="eiff",
@@ -478,7 +478,7 @@ def test_dataset_ref_rejects_inconsistent_band_metadata(wavelengths):
         )
 
     with pytest.raises(ValueError, match="wavelengths has 49 values, expected 50"):
-        DatasetRef(
+        DatasetRecord(
             dataset_id="dataset_1",
             source_path="/data/train.eiff",
             source_format="eiff",

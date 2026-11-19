@@ -298,10 +298,10 @@ def test_the_inspector_summarises_how_a_run_was_fitted(tmp_path):
         "pixels": {"per_roi": 10, "seed": 3},
         "exclusion": {"method": "dmodx", "formula": "dmodx-2", "level": 0.51,
                       "max_fraction": 0.1}})
-    exclusion = load_model_run_artifact_refs(project.path, model.ref.model_run_id,
+    exclusion = load_model_run_artifact_refs(project.path, model.record.model_run_id,
                                              keys=("exclusion",))["exclusion"]
     names = {roi_id: roi.name for roi_id, roi in project.workspace.rois.items()}
-    lines = fit_summary(model.ref, names, exclusion)
+    lines = fit_summary(model.record, names, exclusion)
     assert lines[0] == "Folds: round-robin, 7 folds; held out together: each ROI"
     assert lines[1] == "Pixels: 10 per ROI (seed 3)"
     assert lines[2] == "Scaling: X center, Y unit variance"
@@ -313,11 +313,11 @@ def test_the_inspector_summarises_how_a_run_was_fitted(tmp_path):
     assert lines[6] == "Excluded per ROI: " + ", ".join(
         f"{names[r]} {len(v)}" for r, v in excluded.items())
     assert any(line.startswith("Flagged ROIs") for line in lines)
-    assert fit_summary(project.fit("API", n_components=2).ref, names)[5] \
+    assert fit_summary(project.fit("API", n_components=2).record, names)[5] \
         == "Pixel exclusion: none"
     # A 1.5 model (no stored algorithm) was fitted by NIPALS (contract §7).
-    old = replace(model.ref, hyperparameters={
-        k: v for k, v in model.ref.hyperparameters.items() if k != "algorithm"})
+    old = replace(model.record, hyperparameters={
+        k: v for k, v in model.record.hyperparameters.items() if k != "algorithm"})
     assert fit_summary(old, names, exclusion)[3] == "Algorithm: NIPALS"
 
 
@@ -472,20 +472,20 @@ def test_fit_again_presets_the_dialog_from_the_selected_model(tmp_path):
                                recipe=__import__("enginir").PreprocessingRecipe(),
                                default_signal_unit="Absorbance",
                                readiness=lambda _t: ("", True))
-    dialog.apply_model_run(model.ref)
+    dialog.apply_model_run(model.record)
     assert dialog.n_components == 3 and dialog.model_type == "PLS"
     assert dialog.hyperparameters == {"n_components": 3, "x_scaling": "pareto",
                                       "y_scaling": "uv", "algorithm": "kernel"}
     assert dialog.cv == "logo"
     # A 1.5 model has no stored algorithm: it was fitted, and is fitted again, by NIPALS.
-    old = replace(model.ref, hyperparameters={
-        k: v for k, v in model.ref.hyperparameters.items() if k != "algorithm"})
+    old = replace(model.record, hyperparameters={
+        k: v for k, v in model.record.hyperparameters.items() if k != "algorithm"})
     dialog.apply_model_run(old)
     assert dialog.hyperparameters["algorithm"] == "nipals"
 
     excluded = project.fit("API", n_components=2, fit_spec={
         "pixels": {"per_roi": 6, "seed": 4}, "exclusion": {"method": "dmodx", "rounds": 2}})
-    dialog.apply_model_run(excluded.ref)
+    dialog.apply_model_run(excluded.record)
     spec = dialog.fit_spec
     assert (spec.pixels_per_roi, spec.seed, spec.exclusion, spec.exclusion_rounds) == (
         6, 4, "dmodx", 2)
@@ -499,10 +499,10 @@ def test_the_diagnostics_payload_carries_the_curve_and_the_training_distances(tm
     model = project.fit("API", n_components=2)
     from enginir.io.project_store import load_model_run_artifact_refs
 
-    refs = load_model_run_artifact_refs(project.path, model.ref.model_run_id)
+    refs = load_model_run_artifact_refs(project.path, model.record.model_run_id)
     artifact = {**refs["prediction_model"], **refs["diagnostics"],
                 "component_curve": refs["component_curve"]}
-    payload = _component_payload(model.ref, artifact)
+    payload = _component_payload(model.record, artifact)
     assert payload["n_components"] == 2 and "rmsecv" in payload["component_curve"]
     assert payload["loadings_matrix"].shape[1] == 2
     assert payload["dmodx_pixels"].shape == payload["t2_pixels"].shape == (96,)

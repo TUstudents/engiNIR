@@ -165,7 +165,7 @@ pixels from every ROI, and leaving out outlying pixels by DModX. See
 
    model = project.fit("API content", recipe=PreprocessingRecipe(snv=True),
                        n_components=2, fit_spec={"pixels": {"per_roi": 40, "seed": 1}})
-   model.ref.fit_specification      # FitSpec(fold_rule='round_robin', ...)
+   model.record.fit_specification      # FitSpec(fold_rule='round_robin', ...)
 
 Reopen the project later with ``Project.open("tablets.h5")``; datasets are
 available by path and ROIs, targets and models by name, e.g.
@@ -227,7 +227,7 @@ same result later use the objects or their ids:
    api = project.target(target_id="91ab…")
    project.set_value(roi, api, 4.2)               # objects instead of names
    model = project.fit(api, n_components=3)
-   same = project.model(model_run_id=model.ref.model_run_id)
+   same = project.model(model_run_id=model.record.model_run_id)
 
 A stored model can be fitted again on exactly its own data: ``model.refit()``
 uses its calibration set (the ROI ids), preprocessing, signal, model settings and
@@ -237,7 +237,7 @@ differing metrics are reported in the log:
 
 .. code-block:: python
 
-   again = project.model(model_run_id=model.ref.model_run_id).refit()
+   again = project.model(model_run_id=model.record.model_run_id).refit()
    again.metrics["rmsecv"] == model.metrics["rmsecv"]   # True for unchanged data
 
 ``project.rois``, ``project.targets`` and ``project.models`` are keyed by

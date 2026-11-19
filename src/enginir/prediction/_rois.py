@@ -29,7 +29,7 @@ from ..io.project_store import (
 from ..preprocessing import PreprocessingRecipe
 from ..project import (
     ReferenceCorrection,
-    DatasetRef,
+    DatasetRecord,
     ModelRun,
     SampleSet,
     SignalDomainContract,
@@ -139,7 +139,7 @@ def predict_rois(
     model_run: ModelRun,
     model_name: str,
     rois: Sequence[TrainingROI],
-    datasets: Mapping[str, DatasetRef],
+    datasets: Mapping[str, DatasetRecord],
     reference_corrections: Mapping[str, ReferenceCorrection],
     signal_domains: Mapping[str, SignalDomainContract],
     recipes: Mapping[str, dict[str, Any]],

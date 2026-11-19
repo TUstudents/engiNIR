@@ -4,6 +4,12 @@
 
 ### Changed
 
+- **`DatasetRef` is now `DatasetRecord`, and `.ref` is `.record`**
+  (`dataset.record`, `model.record`, `stored_prediction.record`). "Ref"
+  read like the dark and white references; it meant the stored record of a
+  dataset or model. The old names are gone, with no aliases: scripts must
+  use the new ones (e.g. `model.record.model_run_id`). The project file is
+  unchanged.
 - **Project files store their arrays with Blosc** (Zstandard, level 5,
   shuffle) instead of gzip. On a real tray's ROI pixels: 21 % smaller,
   writing 1.7 times and reading about 5 times as fast. Projects written

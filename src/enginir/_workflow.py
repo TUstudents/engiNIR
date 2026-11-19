@@ -45,7 +45,7 @@ from .prediction import (
 from .preprocessing import PreprocessingRecipe
 from .project import (
     ReferenceCorrection,
-    DatasetRef,
+    DatasetRecord,
     FitSpec,
     ModelRun,
     PredictionRun,
@@ -278,7 +278,7 @@ class Project:
             The dataset's name ("Layer 7"), shown instead of its file name and
             used by ``{name}`` in ROI grid names; ``None`` keeps the current one
             (a new dataset has none), ``""`` removes it. The same as
-            :meth:`Dataset.set_label` afterwards; stored as ``DatasetRef.label``
+            :meth:`Dataset.set_label` afterwards; stored as ``DatasetRecord.label``
             (``@label`` in the project file, the field's name since 1.6).
 
         Returns
@@ -299,7 +299,7 @@ class Project:
             dataset = replace(dataset, label=str(name).strip())
         self._write_dataset(dataset, reference_correction, new_dataset, new_reference_correction)
         added = Dataset(self, self.workspace.datasets[dataset.dataset_id])
-        if name is not None and not new_dataset and added.ref.label != str(name).strip():
+        if name is not None and not new_dataset and added.record.label != str(name).strip():
             added.set_label(str(name))  # a registered dataset: its mutable name
         return added
 
@@ -520,7 +520,7 @@ class Project:
     # Each method validates one complete object against the project, writes it
     # and rereads the project. The viewer stores everything through these.
 
-    def save_dataset(self, dataset: DatasetRef) -> None:
+    def save_dataset(self, dataset: DatasetRecord) -> None:
         """Store a dataset reference.
 
         A new dataset gets its ``relative_path`` to the project file here, so
@@ -747,7 +747,7 @@ class Project:
             if ref.wavelength_table:
                 hdf5_io.note_wavelength_table(_native_path(stored_path(ref.source_path)))
 
-    def _dataset_ref(self, abs_path: str) -> DatasetRef | None:
+    def _dataset_ref(self, abs_path: str) -> DatasetRecord | None:
         return next((ref for ref in self.workspace.datasets.values()
                      if is_data_file_of(self.path, ref, abs_path)), None)
 
@@ -871,7 +871,7 @@ class Project:
     def _references_of(self, path, sensor):
         """The dark and white references of another registered data file, with their sources."""
         shared = self.dataset(path)
-        source, reference_correction = shared.ref, shared.reference_correction
+        source, reference_correction = shared.record, shared.reference_correction
         if reference_correction.dark_ref_data is None or reference_correction.white_ref_data is None:
             log_and_raise("{} has no dark and white reference spectra to share",
                           source.source_path, depth=2)
@@ -936,29 +936,29 @@ class Project:
 class Dataset:
     """A registered data file with its active reference correction."""
 
-    def __init__(self, project: Project, ref: DatasetRef) -> None:
+    def __init__(self, project: Project, record: DatasetRecord) -> None:
         self.project = project
-        self.ref = ref
+        self.record = record
 
     def __repr__(self) -> str:
-        return f"Dataset({self.path!r}, shape={self.ref.cube_shape}, {self.reference_correction.mode})"
+        return f"Dataset({self.path!r}, shape={self.record.cube_shape}, {self.reference_correction.mode})"
 
     @property
     def path(self) -> str:
         """Where the data file is this session (:meth:`Project.data_file`), else the stored path."""
-        return self.project.data_file(self.ref.dataset_id) or self.ref.source_path
+        return self.project.data_file(self.record.dataset_id) or self.record.source_path
 
     @property
     def reference_correction(self) -> ReferenceCorrection:
         """The reference correction new ROIs of this dataset are recorded with."""
         ws = self.project.workspace
-        return ws.reference_corrections[ws.active_reference_correction_ids[self.ref.dataset_id]]
+        return ws.reference_corrections[ws.active_reference_correction_ids[self.record.dataset_id]]
 
     @property
     def rois(self) -> dict[str, TrainingROI]:
         """The ROIs of this dataset by name; an error if names repeat."""
         return _by_name([roi for roi in self.project.workspace.rois.values()
-                         if roi.dataset_id == self.ref.dataset_id], "ROI", "roi_id")
+                         if roi.dataset_id == self.record.dataset_id], "ROI", "roi_id")
 
     def add_roi(self, name: str, *, frames: tuple[int, int], rows: tuple[int, int],
                 values: Mapping[str, float] | None = None,
@@ -986,9 +986,9 @@ class Dataset:
         project, ws = self.project, self.project.workspace
         project._require_new_name(ws.rois.values(), name, "ROI")
         targets = {target_name: project.target(target_name) for target_name in values or {}}
-        n_frames = self.ref.cube_shape[0]
+        n_frames = self.record.cube_shape[0]
         first, last = _index_range(frames, n_frames, "frames")
-        roi, spectra, refs = make_roi(self.ref, self.reference_correction, name=name,
+        roi, spectra, refs = make_roi(self.record, self.reference_correction, name=name,
                                       frames=(first, last), rows=rows,
                                       pixels=read_frames(self.path, first, last), job=job)
         created_at = roi.created_at
@@ -1022,16 +1022,16 @@ class Dataset:
         project, ws = self.project, self.project.workspace
         abs_path = _native_path(path)
         other = project._dataset_ref(abs_path)
-        if other is not None and other.dataset_id != self.ref.dataset_id:
+        if other is not None and other.dataset_id != self.record.dataset_id:
             log_and_raise("{} is already registered as another dataset of the project",
                           abs_path)
-        rois = [roi for roi in ws.rois.values() if roi.dataset_id == self.ref.dataset_id]
-        check_data_file_location(project.path, self.ref, rois, abs_path)
+        rois = [roi for roi in ws.rois.values() if roi.dataset_id == self.record.dataset_id]
+        check_data_file_location(project.path, self.record, rois, abs_path)
         relative = relative_data_path(project.path, abs_path)
-        store.relocate_dataset_ref(project.path, self.ref.dataset_id, abs_path, relative)
-        self.ref = replace(self.ref, source_path=abs_path, relative_path=relative)
-        ws.datasets[self.ref.dataset_id] = self.ref
-        project._found[self.ref.dataset_id] = DataFileCandidate(abs_path, STORED)
+        store.relocate_dataset_ref(project.path, self.record.dataset_id, abs_path, relative)
+        self.record = replace(self.record, source_path=abs_path, relative_path=relative)
+        ws.datasets[self.record.dataset_id] = self.record
+        project._found[self.record.dataset_id] = DataFileCandidate(abs_path, STORED)
         return self
 
     def set_label(self, label: str) -> Dataset:
@@ -1042,9 +1042,9 @@ class Dataset:
         """
         project, ws = self.project, self.project.workspace
         label = str(label).strip()
-        store.save_dataset_label(project.path, self.ref.dataset_id, label)
-        self.ref = replace(self.ref, label=label)
-        ws.datasets[self.ref.dataset_id] = self.ref
+        store.save_dataset_label(project.path, self.record.dataset_id, label)
+        self.record = replace(self.record, label=label)
+        ws.datasets[self.record.dataset_id] = self.record
         return self
 
     def set_wavelengths(self, table: str | os.PathLike[str] | WavelengthTable) -> Dataset:
@@ -1063,7 +1063,7 @@ class Dataset:
         changes nothing.
         """
         project, ws = self.project, self.project.workspace
-        ref = self.ref
+        ref = self.record
         table = wavelength_table(table)
         if ref.wavelength_table_id == table.table_id:
             return self
@@ -1083,10 +1083,10 @@ class Dataset:
                                       table=table.name, table_id=table.table_id,
                                       roi_ids=[roi.roi_id for roi in rois])
         axis = np.array(table.wavelengths, dtype=np.float32)
-        self.ref = replace(ref, wavelengths=axis.copy(), wavelength_table=table.name,
+        self.record = replace(ref, wavelengths=axis.copy(), wavelength_table=table.name,
                            wavelength_table_id=table.table_id)
         hdf5_io.note_wavelength_table(self.path)
-        ws.datasets[ref.dataset_id] = self.ref
+        ws.datasets[ref.dataset_id] = self.record
         for roi in rois:
             ws.rois[roi.roi_id] = replace(roi, wavelengths=axis.copy())
         return self
@@ -1109,11 +1109,11 @@ class Dataset:
         if len(set(names)) != len(names):
             log_and_raise("ROI names repeat within the grid: {}",
                           sorted({name for name in names if names.count(name) > 1}))
-        n_frames = self.ref.cube_shape[0]
+        n_frames = self.record.cube_shape[0]
         first = min(_index_range(cell.frames, n_frames, "frames")[0] for cell in cells)
         last = max(_index_range(cell.frames, n_frames, "frames")[1] for cell in cells)
         pixels = read_frames(self.path, first, last)
-        built = [make_roi(self.ref, self.reference_correction, name=cell.name, frames=cell.frames,
+        built = [make_roi(self.record, self.reference_correction, name=cell.name, frames=cell.frames,
                           rows=cell.rows, pixels=pixels[cell.frames[0] - first:
                                                         cell.frames[1] - first + 1],
                           grid_cell=cell)
@@ -1125,33 +1125,33 @@ class Dataset:
 class Model:
     """A fitted, cross-validated model."""
 
-    def __init__(self, project: Project, ref: ModelRun) -> None:
+    def __init__(self, project: Project, record: ModelRun) -> None:
         self.project = project
-        self.ref = ref
+        self.record = record
 
     def __repr__(self) -> str:
         return f"Model({self.name!r}, {_summary(self.metrics)})"
 
     @property
     def name(self) -> str:
-        return self.project._model_name(self.ref)
+        return self.project._model_name(self.record)
 
     @property
     def metrics(self) -> dict[str, Any]:
         """Figures of merit: ROI-level ``rmsecv``, ``r2``, ``bias``, ``rpd``, ``rpiq``,
         and their pixel-level ``pixel_*`` variants."""
-        return dict(self.ref.metrics)
+        return dict(self.record.metrics)
 
     @property
     def target(self) -> TargetDefinition:
         ws = self.project.workspace
-        return ws.targets[ws.sample_sets[self.ref.sample_set_id].target_id]
+        return ws.targets[ws.sample_sets[self.record.sample_set_id].target_id]
 
     @property
     def recipe(self) -> PreprocessingRecipe:
         ws = self.project.workspace
         return PreprocessingRecipe.from_dict(
-            ws.recipes[ws.sample_sets[self.ref.sample_set_id].preprocessing_recipe_id])
+            ws.recipes[ws.sample_sets[self.record.sample_set_id].preprocessing_recipe_id])
 
     @property
     def diagnostics(self) -> dict[str, Any]:
@@ -1161,7 +1161,7 @@ class Model:
         cross-validated values per ROI), and the stored model diagnostics
         such as coefficients, loadings and scores.
         """
-        refs = store.load_model_run_artifact_refs(self.project.path, self.ref.model_run_id,
+        refs = store.load_model_run_artifact_refs(self.project.path, self.record.model_run_id,
                                                   keys=("cv_outputs", "diagnostics"))
         return {**refs.get("diagnostics", {}), **refs.get("cv_outputs", {})}
 
@@ -1176,7 +1176,7 @@ class Model:
         ``structure_ceiling``. ``None`` for a model fitted before engiNIR 1.3
         (sample-set-model-run contract §7.4).
         """
-        refs = store.load_model_run_artifact_refs(self.project.path, self.ref.model_run_id,
+        refs = store.load_model_run_artifact_refs(self.project.path, self.record.model_run_id,
                                                   keys=("component_curve",))
         return refs.get("component_curve") or None
 
@@ -1187,7 +1187,7 @@ class Model:
         Indices into each ROI's stored spectra; empty without exclusion
         (sample-set-model-run contract §7.2).
         """
-        refs = store.load_model_run_artifact_refs(self.project.path, self.ref.model_run_id,
+        refs = store.load_model_run_artifact_refs(self.project.path, self.record.model_run_id,
                                                   keys=("exclusion",))
         exclusion = refs.get("exclusion", {})
         if not exclusion:
@@ -1235,7 +1235,7 @@ class Model:
             The new model; compare ``refitted.metrics`` with ``self.metrics``.
         """
         project, ws = self.project, self.project.workspace
-        sample_set = ws.sample_sets[self.ref.sample_set_id]
+        sample_set = ws.sample_sets[self.record.sample_set_id]
         project.require_current_sample_set(sample_set.sample_set_id, action="refit the model")
         if name is not None:
             project._require_new_name(ws.model_runs.values(), name, "model",
@@ -1245,17 +1245,17 @@ class Model:
             logger.warning("Refitting model '{}': {} target value(s) changed since it was "
                            "fitted (ROI ids {}); the metrics will differ", self.name,
                            len(changed), changed[:5])
-        spec = self.ref.fit_specification
+        spec = self.record.fit_specification
         self._warn_on_group_drift(spec, sample_set)
         # The stored algorithm (a 1.5 model without one: nipals or svd), so the refit
         # reproduces the model (sample-set-model-run contract §7).
-        hyperparameters = stored_hyperparameters(self.ref.model_type, self.ref.hyperparameters)
+        hyperparameters = stored_hyperparameters(self.record.model_type, self.record.hyperparameters)
         result = fit_model_run(
             project_path=project.path, sample_set=sample_set, datasets=ws.datasets,
             reference_corrections=ws.reference_corrections, rois=ws.rois,
             target_assignments=ws.target_assignments, recipes=ws.recipes,
-            signal_domains=ws.signal_domains, signal_domain_id=self.ref.signal_domain_id,
-            model_type=self.ref.model_type, hyperparameters=hyperparameters,
+            signal_domains=ws.signal_domains, signal_domain_id=self.record.signal_domain_id,
+            model_type=self.record.model_type, hyperparameters=hyperparameters,
             fit_spec=spec, target_name=self.target.name)
         if spec.exclusion == "dmodx":
             self._warn_on_exclusion_drift(result.model_run)
@@ -1270,9 +1270,9 @@ class Model:
         refitted = Model(project, project.workspace.model_runs[run.model_run_id])
         differences = _metric_differences(self.metrics, refitted.metrics)
         if differences:
-            before = self.ref.software or {}
+            before = self.record.software or {}
             changed = [f"{package} {before.get(package, '?')} -> {version}"
-                       for package, version in (refitted.ref.software or {}).items()
+                       for package, version in (refitted.record.software or {}).items()
                        if before.get(package) != version]
             logger.warning("Refit of '{}' differs in {}{}", self.name, differences,
                            f"; fitted with other software ({', '.join(changed)})" if changed
@@ -1366,7 +1366,7 @@ class Model:
             exclude_dmodx=level)
         logger.info("Predicted {} ROI(s) of {} with model '{}' ({}); exclusion {}; {} refused; "
                     "RMSEP (per ROI) {} over {} ROI(s) with a value", len(prediction.pixels),
-                    self.project.path, self.name, self.ref.model_run_id,
+                    self.project.path, self.name, self.record.model_run_id,
                     "none" if summary.exclusion is None else f"DModX {summary.exclusion}",
                     len(prediction.refused), summary.rmsep, summary.n_reference)
         return summary
@@ -1379,7 +1379,7 @@ class Model:
         if not chosen:
             log_and_raise("No prediction ROIs to predict; mark ROIs with job='prediction'")
         return predict_rois(
-            project_path=self.project.path, model_run=self.ref, model_name=self.name,
+            project_path=self.project.path, model_run=self.record, model_name=self.name,
             rois=chosen, datasets=ws.datasets, reference_corrections=ws.reference_corrections,
             signal_domains=ws.signal_domains, recipes=ws.recipes, sample_sets=ws.sample_sets)
 
@@ -1404,8 +1404,8 @@ class Model:
             their 0.95 limits and summary, and the provenance.
         """
         project, ws = self.project, self.project.workspace
-        domain = ws.signal_domains[self.ref.signal_domain_id]
-        recipe_id = ws.sample_sets[self.ref.sample_set_id].preprocessing_recipe_id
+        domain = ws.signal_domains[self.record.signal_domain_id]
+        recipe_id = ws.sample_sets[self.record.sample_set_id].preprocessing_recipe_id
         recipe = PreprocessingRecipe.from_dict(ws.recipes[recipe_id])
         registered = project._dataset_ref(_native_path(path))
         if registered is not None:
@@ -1423,7 +1423,7 @@ class Model:
         else:
             dataset, reference_correction, _new_dataset, _new_reference_correction = project._resolve_dataset(
                 path, dark=dark, white=white, unit=domain.required_signal_unit)
-        common: dict[str, Any] = dict(project_path=project.path, model_run=self.ref, signal_domain=domain,
+        common: dict[str, Any] = dict(project_path=project.path, model_run=self.record, signal_domain=domain,
                       recipe=recipe, dataset=dataset, reference_correction=reference_correction,
                       model_registry={})
         preflight_prediction(**common)
@@ -1501,20 +1501,20 @@ def _required(values: np.ndarray | None) -> np.ndarray:
 class StoredPrediction:
     """A prediction persisted by the low-level writers (``enginir.io.project_store``)."""
 
-    def __init__(self, project: Project, ref: PredictionRun) -> None:
+    def __init__(self, project: Project, record: PredictionRun) -> None:
         self.project = project
-        self.ref = ref
+        self.record = record
 
     def __repr__(self) -> str:
-        return f"StoredPrediction({self.ref.prediction_run_id!r}, dataset={self.dataset.path!r})"
+        return f"StoredPrediction({self.record.prediction_run_id!r}, dataset={self.dataset.path!r})"
 
     @property
     def model(self) -> Model:
-        return Model(self.project, self.project.workspace.model_runs[self.ref.model_run_id])
+        return Model(self.project, self.project.workspace.model_runs[self.record.model_run_id])
 
     @property
     def dataset(self) -> Dataset:
-        return Dataset(self.project, self.project.workspace.datasets[self.ref.dataset_id])
+        return Dataset(self.project, self.project.workspace.datasets[self.record.dataset_id])
 
     @property
     def y_pred(self) -> np.ndarray:
@@ -1528,7 +1528,7 @@ class StoredPrediction:
 
     def _artifact(self, key: str) -> np.ndarray:
         refs = store.load_prediction_run_artifact_refs(self.project.path,
-                                                       self.ref.prediction_run_id, keys=(key,))
+                                                       self.record.prediction_run_id, keys=(key,))
         return np.asarray(refs[key])
 
 
@@ -1566,7 +1566,7 @@ def read_frames(path: str, first: int, last: int) -> np.ndarray:
 _LABEL_FOLDER_CHARS = 40
 
 
-def data_file_labels(datasets: Mapping[str, DatasetRef], *,
+def data_file_labels(datasets: Mapping[str, DatasetRecord], *,
                      shorten: bool = True) -> dict[str, str]:
     """A short, unique display label per dataset id (viewer identity rule).
 
@@ -1616,7 +1616,7 @@ def _shorten_middle(text: str, limit: int) -> str:
 
 def check_data_file_location(
     project_path: str | os.PathLike[str],
-    dataset: DatasetRef,
+    dataset: DatasetRecord,
     rois: Iterable[TrainingROI],
     path: str | os.PathLike[str],
 ) -> None:
@@ -1633,7 +1633,7 @@ def check_data_file_location(
         log_and_raise("{}", mismatch)
 
 
-def file_wavelengths(dataset: DatasetRef) -> np.ndarray:
+def file_wavelengths(dataset: DatasetRecord) -> np.ndarray:
     """The wavelength axis the data file of ``dataset`` states itself, float32.
 
     Band numbers 0 … n − 1 when a wavelength table gave the dataset its
@@ -1658,7 +1658,7 @@ def _table_for_file(table: Any, data: Any, abs_path: str) -> WavelengthTable:
     return table
 
 
-def _header_mismatch(dataset: DatasetRef, abs_path: str) -> str | None:
+def _header_mismatch(dataset: DatasetRecord, abs_path: str) -> str | None:
     """Why the header of the file at ``abs_path`` is not that of ``dataset``, or ``None``.
 
     Compares the format, the shape, the modality (if the file states one) and
@@ -1687,7 +1687,7 @@ def _header_mismatch(dataset: DatasetRef, abs_path: str) -> str | None:
     return None
 
 
-def _data_file_mismatch(project_path: str | os.PathLike[str], dataset: DatasetRef,
+def _data_file_mismatch(project_path: str | os.PathLike[str], dataset: DatasetRecord,
                         rois: Iterable[TrainingROI], abs_path: str) -> str | None:
     """Why the file at ``abs_path`` is not the data file of ``dataset``, or ``None`` if it is."""
     mismatch = _header_mismatch(dataset, abs_path)
@@ -1914,14 +1914,14 @@ def resolve_sample_set(
 
 
 def resolve_dataset(
-    datasets: Mapping[str, DatasetRef],
+    datasets: Mapping[str, DatasetRecord],
     path: str | os.PathLike[str],
     data,
     *,
     dataset_id: str | None = None,
     created_at: str | None = None,
     project_path: str | os.PathLike[str] | None = None,
-) -> tuple[DatasetRef, bool]:
+) -> tuple[DatasetRecord, bool]:
     """Return the registered dataset of ``path``, or a new one; and whether it is new.
 
     With ``project_path``, a registered dataset is also recognized at its other
@@ -1961,7 +1961,7 @@ def resolve_dataset(
 
 
 def make_reference_correction(
-    dataset: DatasetRef,
+    dataset: DatasetRecord,
     *,
     unit: str,
     already_corrected: bool,
@@ -2005,7 +2005,7 @@ def make_reference_correction(
 
 
 def resolve_reference_correction(
-    dataset: DatasetRef,
+    dataset: DatasetRecord,
     reference_corrections: Mapping[str, ReferenceCorrection],
     reference_correction: ReferenceCorrection,
 ) -> tuple[ReferenceCorrection, bool]:
@@ -2022,7 +2022,7 @@ def resolve_reference_correction(
 
 
 def resolve_prediction_reference_correction(
-    dataset: DatasetRef,
+    dataset: DatasetRecord,
     reference_corrections: Mapping[str, ReferenceCorrection],
     active_reference_correction_ids: Mapping[str, str],
     reference_correction: ReferenceCorrection | None,
@@ -2042,7 +2042,7 @@ def resolve_prediction_reference_correction(
 
 
 def make_roi(
-    dataset: DatasetRef,
+    dataset: DatasetRecord,
     reference_correction: ReferenceCorrection,
     *,
     name: str,
@@ -2105,7 +2105,7 @@ def _same_path(left: str, right: str) -> bool:
     return os.path.normcase(_native_path(left)) == os.path.normcase(_native_path(right))
 
 
-def is_data_file_of(project_path: str | os.PathLike[str] | None, dataset: DatasetRef,
+def is_data_file_of(project_path: str | os.PathLike[str] | None, dataset: DatasetRecord,
                     path: str | os.PathLike[str]) -> bool:
     """Whether ``path`` names the data file of ``dataset`` at any of its candidate paths.
 

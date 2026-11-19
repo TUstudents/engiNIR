@@ -12,7 +12,7 @@ from enginir.preprocessing import PreprocessingRecipe
 
 from ._models import (
     ReferenceCorrection,
-    DatasetRef,
+    DatasetRecord,
     ModelRun,
     PredictionRun,
     SampleSet,
@@ -57,7 +57,7 @@ class ProjectWorkspace:
     """
 
     project_meta: dict[str, Any]
-    datasets: dict[str, DatasetRef]
+    datasets: dict[str, DatasetRecord]
     active_reference_correction_ids: dict[str, str]
     reference_corrections: dict[str, ReferenceCorrection]
     rois: dict[str, TrainingROI]
@@ -109,7 +109,7 @@ def hydrate_project_store(
         file_schema_version=FILE_SCHEMA_VERSION,
     )
 
-    datasets: dict[str, DatasetRef] = {}
+    datasets: dict[str, DatasetRecord] = {}
     reference_corrections: dict[str, ReferenceCorrection] = {}
     active_reference_correction_ids: dict[str, str] = {}
     for dataset_id, payload in store.get("datasets", {}).items():
@@ -219,7 +219,7 @@ def _check_executable_models(model_runs: dict[str, ModelRun], sample_sets: dict[
                           location)
 
 
-def _dataset_ref(location: str, payload: dict[str, Any], dataset_id: str) -> DatasetRef:
+def _dataset_ref(location: str, payload: dict[str, Any], dataset_id: str) -> DatasetRecord:
     """A dataset; ``relative_path``, ``label`` and the wavelength table's name and id are
     display data: missing or malformed read as ``""``."""
     display = {}
@@ -234,7 +234,7 @@ def _dataset_ref(location: str, payload: dict[str, Any], dataset_id: str) -> Dat
                        "are ignored", location, display["wavelength_table"],
                        display["wavelength_table_id"])
         display["wavelength_table"] = display["wavelength_table_id"] = ""
-    return _build(DatasetRef, location, {**payload, **display},
+    return _build(DatasetRecord, location, {**payload, **display},
                   {"dataset_id": dataset_id}, ignored={"reference_corrections", "active_reference_correction_id"})
 
 
@@ -308,7 +308,7 @@ def _known_fields(
 
 
 _WRITABLE_MODELS: dict[str, type] = {
-    "DatasetRef": DatasetRef,
+    "DatasetRecord": DatasetRecord,
     "ReferenceCorrection": ReferenceCorrection,
     "TargetDefinition": TargetDefinition,
     "TargetAssignment": TargetAssignment,
@@ -319,7 +319,7 @@ _WRITABLE_MODELS: dict[str, type] = {
     "PredictionRun": PredictionRun,
 }
 _WRITE_OPTIONS: dict[str, dict[str, Any]] = {
-    "DatasetRef": {"ignored": {"reference_corrections", "active_reference_correction_id"},
+    "DatasetRecord": {"ignored": {"reference_corrections", "active_reference_correction_id"},
                    "optional": _DATASET_DISPLAY_FIELDS},
     "ReferenceCorrection": {"optional": _REFERENCE_FIELDS},
     "TrainingROI": {"ignored": {"spectra", "reference_spectra"}, "optional": ("sample",)},

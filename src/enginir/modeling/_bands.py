@@ -23,7 +23,7 @@ from ..preprocessing import PreprocessingRecipe
 from ..preprocessing._pipeline import apply_preprocessing_recipe
 from ..project import (
     ReferenceCorrection,
-    DatasetRef,
+    DatasetRecord,
     SampleSet,
     SignalDomainContract,
     TargetAssignment,
@@ -339,7 +339,7 @@ def propose_bands(
     *,
     project_path: str,
     sample_set: SampleSet,
-    datasets: dict[str, DatasetRef],
+    datasets: dict[str, DatasetRecord],
     reference_corrections: dict[str, ReferenceCorrection],
     rois: dict[str, TrainingROI],
     target_assignments: dict[tuple[str, str], TargetAssignment],

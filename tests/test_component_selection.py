@@ -92,7 +92,7 @@ def test_the_curve_at_the_runs_components_is_the_runs_cross_validation(tmp_path)
     model = project.fit("API", n_components=2)
     curve = model.component_curve
     assert curve["rmsecv"][1] == pytest.approx(model.metrics["rmsecv"], rel=1e-6)
-    spec = model.ref.fit_specification
+    spec = model.record.fit_specification
     assert (spec.components_rule, spec.components_selected) == ("fixed", 2)
     assert spec.components_max == len(curve["rmsecv"]) >= 2
 
@@ -101,8 +101,8 @@ def test_auto_chooses_by_the_rule_and_a_refit_keeps_the_number(tmp_path):
     project = uneven_project(tmp_path)
     model = project.fit("API", n_components="auto")
     curve = model.component_curve
-    chosen = model.ref.hyperparameters["n_components"]
-    spec = model.ref.fit_specification
+    chosen = model.record.hyperparameters["n_components"]
+    spec = model.record.fit_specification
     assert spec.components_rule_choice == curve["suggested_one_se"]
     assert chosen == guarded_choice(curve, curve["suggested_one_se"], n_samples=9)
     assert (spec.components_rule, spec.components_selected, spec.components_noise_guard) \
@@ -110,20 +110,20 @@ def test_auto_chooses_by_the_rule_and_a_refit_keeps_the_number(tmp_path):
     by_minimum = project.fit("API", n_components="auto",
                              fit_spec={"components": {"rule": "min_rmsecv"}})
     # "auto" turns the noise guard on unless the request says otherwise (contract §7.4).
-    assert by_minimum.ref.hyperparameters["n_components"] == guarded_choice(
+    assert by_minimum.record.hyperparameters["n_components"] == guarded_choice(
         curve, curve["suggested_min_rmsecv"], n_samples=9)
     unguarded = project.fit("API", n_components="auto", fit_spec={"components": {
         "rule": "min_rmsecv", "noise_guard": "off"}})
-    assert unguarded.ref.hyperparameters["n_components"] == curve["suggested_min_rmsecv"]
+    assert unguarded.record.hyperparameters["n_components"] == curve["suggested_min_rmsecv"]
 
     other = 1 if chosen != 1 else 2  # pretend the stored model chose another number
     with h5py.File(project.path, "r+") as f:
-        group = f[f"model_runs/{model.ref.model_run_id}"]
+        group = f[f"model_runs/{model.record.model_run_id}"]
         group["hyperparameters"].attrs["n_components"] = other
         group["fit_spec/components"].attrs["selected"] = other
-    stored = Project.open(project.path).model(model_run_id=model.ref.model_run_id)
+    stored = Project.open(project.path).model(model_run_id=model.record.model_run_id)
     refitted, messages = warnings_during(stored.refit)
-    assert refitted.ref.hyperparameters["n_components"] == other
+    assert refitted.record.hyperparameters["n_components"] == other
     assert any("would now choose" in message for message in messages)
 
 
@@ -202,7 +202,7 @@ def test_a_selected_number_that_differs_from_the_model_is_refused_on_reading(tmp
     project = uneven_project(tmp_path)
     model = project.fit("API", n_components=2)
     with h5py.File(project.path, "r+") as f:
-        f[f"model_runs/{model.ref.model_run_id}/fit_spec/components"].attrs["selected"] = 3
+        f[f"model_runs/{model.record.model_run_id}/fit_spec/components"].attrs["selected"] = 3
     with pytest.raises(ValueError, match="differs from hyperparameters/n_components"):
         Project.open(project.path)
 
@@ -272,20 +272,20 @@ def test_the_guard_can_be_switched_off_and_the_curve_stores_the_new_fields(tmp_p
     model = project.fit("API", n_components="auto",
                         fit_spec={"components": {"rule": "min_rmsecv", "noise_guard": "off"}})
     curve = model.component_curve
-    spec = model.ref.fit_specification
+    spec = model.record.fit_specification
     assert spec.components_noise_guard == "off"
-    assert model.ref.hyperparameters["n_components"] == curve["suggested_min_rmsecv"] \
+    assert model.record.hyperparameters["n_components"] == curve["suggested_min_rmsecv"] \
         == spec.components_rule_choice
-    a = model.ref.hyperparameters["n_components"]
+    a = model.record.hyperparameters["n_components"]
     assert curve["rmsee_roi"][a - 1] == pytest.approx(model.metrics["rmsee"], rel=1e-6)
     assert np.array_equal(curve["noise"], noise_components(curve, n_samples=9))
     assert int(curve["structure_ceiling"]) == structure_ceiling(curve)
     roughness = np.asarray(curve["dw_weights"])
     assert roughness.shape == (len(curve["rmsecv"]),) and np.all(roughness >= 0)
     fixed = project.fit("API", n_components=2)
-    assert fixed.ref.fit_specification.components_noise_guard == "off"
-    assert fixed.ref.fit_specification.components_rule_choice == 2
-    assert "warnings" in fixed.ref.cv_spec
+    assert fixed.record.fit_specification.components_noise_guard == "off"
+    assert fixed.record.fit_specification.components_rule_choice == 2
+    assert "warnings" in fixed.record.cv_spec
 
 
 def test_a_stored_specification_must_have_every_key():
@@ -331,7 +331,7 @@ def test_the_curve_ends_at_10_components_unless_a_fit_asks_for_more(tmp_path):
     project = uneven_project(tmp_path, n_rois=30, n_bands=30)
     auto = project.fit("API", n_components="auto")
     assert len(auto.component_curve["rmsecv"]) == 10, "G - 2 = 28 and the rank allow more"
-    assert 1 <= auto.ref.hyperparameters["n_components"] <= 10
+    assert 1 <= auto.record.hyperparameters["n_components"] <= 10
     twelve = project.fit("API", n_components=12)
     assert len(twelve.component_curve["rmsecv"]) == 12, "the count asked for"
-    assert twelve.ref.fit_specification.components_max == 12
+    assert twelve.record.fit_specification.components_max == 12

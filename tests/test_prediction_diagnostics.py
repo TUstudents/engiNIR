@@ -52,7 +52,7 @@ def test_on_the_training_scan_the_statistics_are_the_training_ones(tmp_path, mod
                         n_components=2)
     prediction = model.predict(scan.path)
     diagnostics = model.diagnostics
-    n, a = len(diagnostics["t2"]), model.ref.hyperparameters["n_components"]
+    n, a = len(diagnostics["t2"]), model.record.hyperparameters["n_components"]
     v = np.sqrt(n / (n - a - 1))
     # the ROIs tile the scan frame by frame, in the order of the map
     np.testing.assert_allclose(prediction.t2_map.reshape(-1), diagnostics["t2"], rtol=1e-4)
@@ -78,8 +78,8 @@ def test_the_statistics_equal_their_formulas_and_an_odd_pixel_exceeds_dcrit(tmp_
     from enginir.io import load_model_run_prediction_artifact, load_spectra
     from enginir.project import transform_spectra_to_signal_domain
 
-    blob = load_model_run_prediction_artifact(project.path, model.ref.model_run_id)
-    domain = project.workspace.signal_domains[model.ref.signal_domain_id]
+    blob = load_model_run_prediction_artifact(project.path, model.record.model_run_id)
+    domain = project.workspace.signal_domains[model.record.signal_domain_id]
     dataset, reference_correction, _, _ = project._resolve_dataset(
         path, dark=None, white=None, unit=domain.required_signal_unit)
     raw = load_spectra(path).X
@@ -131,7 +131,7 @@ def test_a_prediction_writes_nothing_to_the_project_and_logs_one_entry(tmp_path)
     assert _file_digest(project.path) == digest, "the project file is unchanged"
     assert new not in Project.open(project.path).datasets
     entries = [m for m in messages if "Prediction with model" in m]
-    assert len(entries) == 2 and model.ref.model_run_id in entries[0]
+    assert len(entries) == 2 and model.record.model_run_id in entries[0]
     record = prediction.provenance["files"][0]
     assert record["sha256"] == _file_digest(new) and record["size"] > 0
     assert "sha256" not in model.predict(new).provenance["files"][0]
@@ -143,7 +143,7 @@ def test_a_stored_model_without_a_core_member_is_refused_at_open(tmp_path):
     # member is a dataset or a short vector stored as an attribute.
     project, _scan = labelled_project(tmp_path)
     model = project.fit("API", n_components=2)
-    location = f"model_runs/{model.ref.model_run_id}/artifact_refs/prediction_model"
+    location = f"model_runs/{model.record.model_run_id}/artifact_refs/prediction_model"
     Project.open(project.path)
     for key in ("coef_", "score_variances"):
         copy = tmp_path / f"without_{key}.h5"
@@ -263,11 +263,11 @@ N_TRAINING_ROIS = 7
 
 def _scores(project, model, path) -> np.ndarray:
     """Scores of every scan pixel, from the stored projection data (independent of prediction)."""
-    blob = load_model_run_prediction_artifact(project.path, model.ref.model_run_id)
+    blob = load_model_run_prediction_artifact(project.path, model.record.model_run_id)
     dataset = project._dataset_ref(str(path))
     reference_correction = project.workspace.reference_corrections[
         project.workspace.active_reference_correction_ids[dataset.dataset_id]]
-    domain = project.workspace.signal_domains[model.ref.signal_domain_id]
+    domain = project.workspace.signal_domains[model.record.signal_domain_id]
     raw = load_spectra(path).X
     X = transform_spectra_to_signal_domain(
         raw.reshape(-1, TRAY_BANDS), dataset=dataset, reference_correction=reference_correction,

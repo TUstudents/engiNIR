@@ -351,7 +351,7 @@ for:
 
 | Internal name | Term |
 |---|---|
-| `DatasetRef`, `add_dataset`, `dataset_id` | Dataset |
+| `DatasetRecord` (`dataset.record`; `DatasetRef` and `.ref` before 1.7.3: "Ref" read as a dark/white reference), `add_dataset`, `dataset_id` | Dataset |
 | `ReferenceCorrection`, `reference_correction_id`, `/reference_corrections/`, `dataset-reference-correction-contract_v3.md` | Reference correction |
 | `SignalDomainContract`, `signal_domain_id` | Input contract |
 | `SampleSet`, `sample_set_id`, `sample-set-model-run-contract_v3.md` | Calibration set |

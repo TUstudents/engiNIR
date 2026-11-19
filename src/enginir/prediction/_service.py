@@ -62,7 +62,7 @@ from ..preprocessing._pipeline import (
 from ..project import (
     ReferenceCorrection,
     ReferenceCorrectionStats,
-    DatasetRef,
+    DatasetRecord,
     ModelRun,
     PredictionRun,
     SignalDomainContract,
@@ -165,7 +165,7 @@ class PredictionResult:
 
     Attributes
     ----------
-    dataset, reference correction : DatasetRef, ReferenceCorrection
+    dataset, reference correction : DatasetRecord, ReferenceCorrection
         The predicted dataset and the reference correction used.
     prediction_run : PredictionRun
         Metadata of the run (stored in the project when
@@ -192,7 +192,7 @@ class PredictionResult:
         content of the prediction's log entry.
     """
 
-    dataset: DatasetRef
+    dataset: DatasetRecord
     reference_correction: ReferenceCorrection
     prediction_run: PredictionRun
     y_pred: np.ndarray | None
@@ -242,7 +242,7 @@ def preflight_prediction(
     model_run: ModelRun,
     signal_domain: SignalDomainContract,
     recipe: PreprocessingRecipe,
-    dataset: DatasetRef,
+    dataset: DatasetRecord,
     reference_correction: ReferenceCorrection,
     model_registry: dict[str, Any],
     chunk_size: int | None = None,
@@ -424,7 +424,7 @@ def predict_with_model_run(
     model_run: ModelRun,
     signal_domain: SignalDomainContract,
     recipe: PreprocessingRecipe,
-    dataset: DatasetRef,
+    dataset: DatasetRecord,
     reference_correction: ReferenceCorrection,
     model_registry: dict[str, Any],
     data_path: str | None = None,
@@ -608,7 +608,7 @@ def spectral_axis_in_nm(wavelengths: Any, meta: Mapping[str, Any] | None,
                         *, source: str = "") -> tuple[np.ndarray, dict[str, Any]]:
     """The spectral axis of loaded data in nm, and its metadata saying so.
 
-    A project's wavelengths are in nm (``DatasetRef.wavelengths``). An axis in
+    A project's wavelengths are in nm (``DatasetRecord.wavelengths``). An axis in
     wavenumbers (``meta["x_units"] == "cm-1"``) becomes 10⁷ / ν, one in
     micrometers is multiplied by 1000; the band order is kept, so a wavenumber
     axis becomes a decreasing wavelength axis. Other units (``"unknown"``,
@@ -643,8 +643,8 @@ def build_dataset_ref_from_spectral_data(
     source_format: str | None = None,
     source_modality: str | None = None,
     import_timestamp: str | None = None,
-) -> DatasetRef:
-    """Describe a newly loaded dataset as a :class:`~enginir.project.DatasetRef`.
+) -> DatasetRecord:
+    """Describe a newly loaded dataset as a :class:`~enginir.project.DatasetRecord`.
 
     The format defaults to the loader's ``meta["format"]`` (or the file
     extension), the modality to ``meta["source_modality"]`` or ``"NIR"``.
@@ -661,7 +661,7 @@ def build_dataset_ref_from_spectral_data(
         logger.warning("{}: {} wavelengths for {} bands; using band indices", data_path,
                        wavelengths.size, n_bands)
         wavelengths = np.arange(n_bands, dtype=np.float32)
-    return DatasetRef(
+    return DatasetRecord(
         dataset_id=dataset_id or new_id(),
         source_path=str(data_path),
         source_format=source_format or str(meta.get("format") or file_format(data_path)),
@@ -684,7 +684,7 @@ def build_dataset_ref_from_spectral_data(
 def _iter_input_chunks(
     data_path: str,
     spectral_data: SpectralData | None,
-    dataset: DatasetRef,
+    dataset: DatasetRecord,
     loader_kwargs: dict[str, Any],
     chunk_size: int,
 ) -> Iterator[_InputChunk]:
@@ -903,7 +903,7 @@ def _artifact_metadata(
     project_path: str,
     data_path: str,
     preflight: PredictionPreflight,
-    dataset: DatasetRef,
+    dataset: DatasetRecord,
     model_run: ModelRun,
 ) -> dict[str, Any]:
     metadata: dict[str, Any] = {

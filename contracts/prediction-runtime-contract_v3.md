@@ -145,7 +145,7 @@ summary). It never refuses or changes the prediction
 - `output_signal_unit`, `required_signal_unit`, and related enum strings must be
   compared after canonical normalization
 - if flat spectra are supplied without an explicit `spatial_shape`, the alignment of
-  the dark/white references must infer shape from `DatasetRef.cube_shape` when that
+  the dark/white references must infer shape from `DatasetRecord.cube_shape` when that
   metadata is available
 
 v3 dtype rule:
@@ -581,7 +581,7 @@ asks for it, keeps the following rules.
 
 Required behavior:
 
-- the caller writes the scan's `DatasetRef` and its `ReferenceCorrection` first
+- the caller writes the scan's `DatasetRecord` and its `ReferenceCorrection` first
   (dependency order; `project-schema-contract_v3.md` referential
   integrity), e.g. with `Project.add_dataset`, then calls
   `predict_with_model_run(..., persist_artifacts=True)`; a run whose
@@ -710,7 +710,7 @@ Runtime tests must cover:
   without its pixels
 - signal-unit comparisons are case-normalized
 - the alignment of the dark/white references can infer spatial shape from
-  `DatasetRef.cube_shape` for flattened inputs
+  `DatasetRecord.cube_shape` for flattened inputs
 - saved-artifact prediction is not blocked by model artifact wavelength metadata
   when band count/source/reference correction/recipe checks pass
 - progress events include preflight, loading, prediction, writing, and final

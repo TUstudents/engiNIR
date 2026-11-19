@@ -20,7 +20,7 @@ scaling is a model setting and is passed like ``n_components``:
            "pixels": {"per_roi": 40, "seed": 1},
            "exclusion": {"method": "dmodx", "level": 0.95},
        })
-   model.ref.fit_specification      # the complete FitSpec, as stored
+   model.record.fit_specification      # the complete FitSpec, as stored
 
 The viewer's Fit settings sets the same options (**Hold out together** and
 the **Fitting** group), and the Project browser's inspector shows them for a
@@ -78,7 +78,7 @@ repeats it:
 
    model = project.fit("API content", recipe=PreprocessingRecipe(snv=True),
                        n_components="auto")              # rule: one SE
-   model.ref.hyperparameters["n_components"]               # the chosen number
+   model.record.hyperparameters["n_components"]               # the chosen number
    curve = model.component_curve                           # the arrays, and every
    curve["suggested_one_se"], curve["suggested_min_rmsecv"], curve["suggested_q2_limit"]
 
@@ -111,7 +111,7 @@ chooses as engiNIR 1.3 did.
 
    model = project.fit("API content", n_components="auto",
                        fit_spec={"components": {"rule": "f_test"}})
-   spec = model.ref.fit_specification
+   spec = model.record.fit_specification
    spec.components_rule_choice, spec.components_selected  # before and after the guard
    curve["noise"], curve["structure_ceiling"], curve["dw_weights"]
 
@@ -130,7 +130,7 @@ Durbin–Watson value of each component's weights, a measure of how noise-like i
 is (a diagnostic, not a rule).
 
 **Fold warnings.** A fit records, and the viewer shows, conditions that make
-the cross-validation optimistic (``model.ref.cv_spec["warnings"]``):
+the cross-validation optimistic (``model.record.cv_spec["warnings"]``):
 
 - ``few_groups``: fewer than 7 independent samples;
 - ``one_level_per_file``: the ROIs of a dataset share one target value but
