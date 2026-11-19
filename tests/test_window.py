@@ -1405,6 +1405,7 @@ def test_the_checks_tables_where_and_fix_columns_have_room(qapp):
         width = table.columnWidth(column)
         content = table.sizeHintForColumn(column)
         assert width >= max(_MIN_WIDTHS[column], content + _COLUMN_MARGIN), (column, width)
-    table.setColumnWidth(2, 400)  # the user widens it
+    wider = table.columnWidth(2) + 120  # the user widens it (fonts differ by platform)
+    table.setColumnWidth(2, wider)
     panel.set_checks(checks, {"m1": long_name})
-    assert table.columnWidth(2) == 400, "kept on refresh"
+    assert table.columnWidth(2) == wider, "kept on refresh"
