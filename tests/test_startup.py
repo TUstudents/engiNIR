@@ -200,3 +200,79 @@ def test_the_log_shows_the_start_from_the_process_start(tmp_path):
     for line in ("the launcher ran", "welcome window shown", "warm-up done"):
         found = [entry for entry in text.splitlines() if line in entry]
         assert found and "after the process started" in found[0], (line, text[-3000:])
+
+
+
+def _record_job_starts(monkeypatch):
+    """Record each job start in the viewer: (owner, a window was being shown, its window
+    was visible). The job starter is wrapped in every viewer module, ``show`` in the
+    window classes."""
+    import enginir.viewer._jobs as jobs
+    from enginir.viewer._viewer import HSIViewer
+    from enginir.viewer._welcome import WelcomeWindow
+
+    started: list[tuple[str, bool, bool]] = []
+    showing: list[bool] = []
+    real = jobs.start_background_job
+
+    def recording(**kwargs):
+        owner = kwargs["owner"]
+        started.append((type(owner).__name__, bool(showing), owner.window().isVisible()))
+        return real(**kwargs)
+
+    for name, module in list(sys.modules.items()):
+        if (name == "enginir.viewer" or name.startswith("enginir.viewer.")) \
+                and getattr(module, "start_background_job", None) is real:
+            monkeypatch.setattr(module, "start_background_job", recording)
+    for cls in (HSIViewer, WelcomeWindow):
+        real_show = cls.show
+
+        def show(self, _real=real_show):
+            showing.append(True)
+            try:
+                _real(self)
+            finally:
+                showing.pop()
+
+        monkeypatch.setattr(cls, "show", show)
+    return started
+
+
+def test_no_job_thread_starts_while_a_window_is_built_or_shown(qapp, tmp_path, monkeypatch):
+    """A job thread that started during show() hung a project window on macOS
+    (2026-11-19): the jobs of opening a project, of the welcome window and of the
+    Open Recent menu start from the event loop, once their window is shown."""
+    from enginir._example import create_example_project
+    from enginir.viewer import _recent, open_project
+    from enginir.viewer._welcome import WelcomeWindow
+    from tests._qt import wait_until
+
+    path = create_example_project(tmp_path)
+    monkeypatch.setattr(_recent, "config_dir", lambda: tmp_path / "config")
+    _recent.add(str(path), "project")
+    started = _record_job_starts(monkeypatch)
+
+    def early() -> list[tuple[str, bool, bool]]:
+        return [job for job in started if job[1] or not job[2]]
+
+    window = open_project(str(path))
+    try:
+        wait_until(qapp, lambda: not window.project_state.data_files_unknown())
+        assert any(owner == "HSIViewer" for owner, _, _ in started), "the lookup ran"
+        assert early() == [], f"started before or while the window was shown: {early()}"
+        started.clear()
+        window._menu_open_recent.aboutToShow.emit()
+        assert started == [], "the Open Recent check started while the menu popped up"
+        wait_until(qapp, lambda: started)
+    finally:
+        window.close()
+
+    started.clear()
+    welcome = WelcomeWindow()
+    assert started == [], f"started while the welcome window was built: {started}"
+    welcome.show()
+    try:
+        wait_until(qapp, lambda: welcome._recent_checked)
+        assert started and early() == [], started
+    finally:
+        welcome.close()

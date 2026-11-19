@@ -64,7 +64,7 @@ from ._workflow_strip import WorkflowStrip
 from . import _preferences as preferences_store
 from ._preferences import Preferences, PreferencesDialog
 from .._guidance import Check, Fix, prediction_roi_checks
-from ._jobs import start_background_job
+from ._jobs import start_background_job, start_background_job_soon
 from ._loading import ViewerBusyContext
 from ._model_diagnostics import ModelDiagnosticsWidget
 from . import _layout_settings as layout_settings
@@ -1386,7 +1386,9 @@ class HSIViewer(QMainWindow):
             if state.project is project and state.data_files_unknown():
                 self._look_up_data_files()  # datasets added while it ran
 
-        start_background_job(
+        # From the event loop: opening a project calls this before the window is shown,
+        # and no thread may start during show() (a hang on macOS, 2026-11-19).
+        start_background_job_soon(
             owner=self, fn=lambda: look_up_data_files(project, unknown),
             on_success=lambda ids: state.data_files_looked_up(project, list(ids)),
             on_error=lambda message: logger.warning("The files of the datasets could not be looked up: {}",
@@ -2597,10 +2599,15 @@ class HSIViewer(QMainWindow):
         QMessageBox.critical(self, "Cannot open file", message)
 
     def wait_for_data_file(self, timeout_s: float = 30.0) -> None:
-        """Process events until a data file load has finished (for scripts and tests)."""
+        """Process events until a data file load has finished (for scripts and tests).
+
+        Also waits for the background lookup of the project's data files, which
+        decides whether the last shown file is loaded and which files are found.
+        """
         deadline = time.monotonic() + timeout_s
         app = QApplication.instance()
-        while self._data_file_job is not None and time.monotonic() < deadline:
+        while (self._data_file_job is not None or getattr(self, "_data_file_lookup", False)) \
+                and time.monotonic() < deadline:
             if app is not None:
                 app.processEvents()
             time.sleep(0.005)
@@ -2816,10 +2823,12 @@ class HSIViewer(QMainWindow):
                 if not sip.isdeleted(act) and act in menu.actions():
                     act.setEnabled(bool(result.get(path, (True, None))[0]))
 
-        start_background_job(owner=menu, fn=lambda: _recent.check(recent), on_success=checked,
-                             on_error=lambda message: logger.warning(
-                                 "Recent files could not be checked: {}", message),
-                             on_finished=lambda: None)
+        # After the menu has popped up, not while it does.
+        start_background_job_soon(owner=menu, fn=lambda: _recent.check(recent),
+                                  on_success=checked,
+                                  on_error=lambda message: logger.warning(
+                                      "Recent files could not be checked: {}", message),
+                                  on_finished=lambda: None)
 
     def _populate_view_menu(self) -> None:
         m = self._menu_view

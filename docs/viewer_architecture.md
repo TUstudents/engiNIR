@@ -203,6 +203,14 @@ Pattern: `_jobs.py:start_background_job(owner, fn, on_success, on_error, on_fini
 
 **Used by:** `_modeling.py` (fit model), `_prediction.py` (predict dataset), `_loading.py` (launcher startup jobs)
 
+**No job starts while a window is built or shown.** A job that a window starts
+while it is built, or just before it is shown, uses
+`start_background_job_soon`, which starts it from the event loop once the
+current call has returned: the data-file lookup at project open, the
+welcome window's recent-files check and the Open Recent menu's check. A
+project window hung on macOS in `show()` while such a thread started
+(2026-11-19); `tests/test_startup.py` checks the order.
+
 **Error contract:** `BackgroundWorker.run()` catches `Exception`, logs via `logger.error`, emits `failed(str)`. Callers show `QMessageBox` in `on_error` callback.
 
 Both Modeling and Prediction expose `BusyStatusWidget` state in two places:

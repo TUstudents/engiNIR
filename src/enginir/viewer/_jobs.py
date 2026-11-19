@@ -207,6 +207,32 @@ def start_background_job(
     return job
 
 
+def start_background_job_soon(
+    *,
+    owner: QObject,
+    fn: Callable[[], Any],
+    on_success: Callable[[Any], None],
+    on_error: Callable[[str], None],
+    on_finished: Callable[[], None],
+) -> None:
+    """:func:`start_background_job`, once control is back in the event loop.
+
+    For jobs started while a window is built or about to be shown: the thread
+    then never starts during ``show()`` (on macOS a project window hung there
+    while a job thread started, 2026-11-19). Nothing starts if ``owner`` is
+    deleted before.
+    """
+    from PyQt6 import sip
+    from PyQt6.QtCore import QTimer
+
+    def start() -> None:
+        if not sip.isdeleted(owner):
+            start_background_job(owner=owner, fn=fn, on_success=on_success,
+                                 on_error=on_error, on_finished=on_finished)
+
+    QTimer.singleShot(0, start)
+
+
 def wait_for_running_jobs(timeout: float = 10.0) -> bool:
     """Let running jobs finish (up to ``timeout`` seconds); ``True`` if none is left.
 
@@ -240,4 +266,5 @@ atexit.register(wait_for_running_jobs)
 
 
 __all__ = ["BackgroundWorker", "BusyStatusWidget", "start_background_job",
+           "start_background_job_soon",
            "wait_for_running_jobs"]

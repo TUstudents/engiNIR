@@ -525,6 +525,7 @@ def test_the_dataset_list_shows_only_the_path_a_file_is_read_from(tmp_path):
     shutil.move(tmp_path / "share", tmp_path / "moved")  # found next to the project
     window = open_project(str(tmp_path / "moved" / "demo.h5"))
     try:
+        window.wait_for_data_file()  # the files are looked up in the background
         combo = window._data_file_combo
         tips = [combo.itemData(i, Qt.ItemDataRole.ToolTipRole) for i in range(combo.count())
                 if isinstance(combo.itemData(i), str)]

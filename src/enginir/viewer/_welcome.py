@@ -27,7 +27,7 @@ from ._files import _is_project_file
 from ._app import app_icon
 from ._windows import keep_open
 from ._icons import icon
-from ._jobs import BusyStatusWidget, start_background_job
+from ._jobs import BusyStatusWidget, start_background_job_soon
 from ._preferences import start_folder
 from . import _recent
 from ._theme import secondary_text_style
@@ -201,7 +201,8 @@ class WelcomeWindow(QMainWindow):
             _show_kind(item, entry.kind)
         self._recent_checked = False
         if recent:
-            start_background_job(owner=self, fn=lambda: _recent.check(recent),
+            # From the event loop: no thread starts while the window is built or shown.
+            start_background_job_soon(owner=self, fn=lambda: _recent.check(recent),
                                  on_success=self._apply_recent_check,
                                  on_error=lambda message: logger.warning(
                                      "Recent files could not be checked: {}", message),

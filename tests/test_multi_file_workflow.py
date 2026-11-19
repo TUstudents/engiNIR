@@ -327,6 +327,7 @@ def test_a_missing_data_file_is_reported_and_nothing_changes(qapp, two_file_proj
     paths["tray_b"].unlink()
     window = open_project(project_path)
     try:
+        window.wait_for_data_file()  # the files are looked up in the background
         combo = window._data_file_combo
         assert "tray_b.h5 (not found)" in [combo.itemText(i) for i in range(combo.count())]
         dataset_id = window._registered_dataset_id(str(paths["tray_b"]))
