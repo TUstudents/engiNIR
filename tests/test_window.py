@@ -1180,3 +1180,44 @@ def test_opening_a_dataset_from_the_project_tree_shows_its_image(qapp, tmp_path)
         assert window._eda_view.shown_dataset_id() == scan.ref.dataset_id
     finally:
         window.close()
+
+
+def test_the_prediction_check_arrives_after_the_other_checks(qapp, window):
+    """The panel shows the checks at once; the prediction-ROI check comes from a job."""
+    def ids():
+        return {check.check_id for check in window._checks}
+
+    window.refresh_checks()
+    assert "predict.rois_ready" in ids() and "predict.rois_outside" not in ids(), \
+        "the fast checks first, without predicting"
+    wait_until(qapp, lambda: "predict.rois_outside" in ids(), timeout=30)
+    (outside,) = [check for check in window._checks if check.check_id == "predict.rois_outside"]
+    assert window._workflow.state("predict")[0] == "open"
+    assert window._checks_panel.open_count() >= 1
+
+    # A result of an earlier refresh is dropped.
+    from enginir._guidance import Check
+
+    fast = list(window._checks)
+    window.refresh_checks()
+    stale = window._checks_generation - 1
+    window._apply_prediction_checks(stale, window.project_state.project, fast,
+                                    [Check("predict.stale", "predict", "attention", "stale")])
+    assert "predict.stale" not in ids()
+    wait_until(qapp, lambda: "predict.rois_outside" in ids(), timeout=30)
+    assert outside.roi_ids == next(c for c in window._checks
+                                   if c.check_id == "predict.rois_outside").roi_ids
+
+
+def test_a_refresh_does_not_bring_a_known_check_to_the_front_again(qapp, window):
+    """The prediction check arrives after each refresh; only a new open check raises the tab."""
+    from enginir.viewer._jobs import _RUNNING_JOBS
+
+    assert "predict.rois_outside" in {check.check_id for check in window._checks}
+    window.show_step("values")  # the ROI table in front of the Checks
+    wait_until(qapp, lambda: window._roi_table_in_front())
+    window.refresh_checks()
+    wait_until(qapp, lambda: not _RUNNING_JOBS)
+    qapp.processEvents()
+    assert "predict.rois_outside" in {check.check_id for check in window._checks}
+    assert window._roi_table_in_front(), "the known prediction check raised the Checks tab"

@@ -43,6 +43,7 @@ from ..prediction import (
     roi_prediction_statistics,
 )
 from ..project import ReferenceCorrection
+from ..prediction import unusual_rois
 from ..validation.outliers import LIMIT_LEVEL
 from ._predict_dialogs import ModelChoice, PredictMapDialog, PredictRoisDialog
 from ._jobs import BackgroundWorker, BusyStatusWidget, start_background_job
@@ -1215,6 +1216,8 @@ class PredictionView(QWidget):
         rows: list[dict[str, Any]] = []
         rmsep: dict[str, str] = {}
         for prediction, summary in zip(self._roi_predictions, self._roi_summaries, strict=True):
+            # Outside the model by the library's one rule (the ring of the per-ROI plot).
+            outside = set(unusual_rois(prediction))
             for row in summary.rois:
                 roi = state.rois.get(row.roi_id)
                 rows.append({
@@ -1226,6 +1229,7 @@ class PredictionView(QWidget):
                     "mean_dmodx": row.mean_dmodx, "mean_t2": row.mean_t2,
                     "share_above_dcrit": row.share_above_dcrit,
                     "share_above_t2crit": row.share_above_t2crit,
+                    "unusual": row.roi_id in outside,
                     "reference": row.reference, "residual": row.residual})
             if summary.rmsep is not None:
                 rmsep[prediction.model_name] = (f"RMSEP (per ROI) {summary.rmsep:.4g}, bias "
@@ -1237,7 +1241,6 @@ class PredictionView(QWidget):
         if first is not None and first.target_id in state.targets:
             unit = shown_unit(state.targets[first.target_id].unit)
         return {"roi_rows": rows, "target_unit": unit, "rmsep": rmsep,
-                "training_share": None if first is None else first.training_share_range,
                 "exclusion_text": ("" if not rows else "all pixels kept" if level is None
                                    else f"pixels above DCrit at {level:g} excluded"),
                 "message": self._roi_note or (

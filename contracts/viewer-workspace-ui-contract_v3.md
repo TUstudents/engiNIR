@@ -642,8 +642,9 @@ Required prediction-map interaction:
   mean; with the exclusion on, excluded pixels are grayed
 - a per-ROI plot (a plot panel): each ROI's mean with its 5–95 % range,
   the value at each mean and the target value when present, ROIs in name
-  order; a ring marks a tablet with a larger share of pixels above DCrit
-  (0.95) than 90 % of the model's calibration ROIs (like for like; the shares
+  order; a ring marks a tablet outside its model, exactly the ROIs of
+  `enginir.prediction.unusual_rois` (a larger share of pixels above DCrit
+  (0.95) than 90 % of the model's calibration ROIs; like for like; the shares
   and the excluded counts are in the ROI table and the CSV); a bar selects
   its ROI; with several models, one bar per ROI and
   model, grouped by ROI and colored by model. Its CSV is the per-ROI table
@@ -736,7 +737,11 @@ Verdict). The viewer shows; it judges nothing of its own.
   first, with where it applies and its fix as a button; two or more passed
   checks are one row ("n checks passed") that unfolds; the tab title
   counts the open checks. A new open check brings the tab to the front
-  (switchable in Preferences).
+  (switchable in Preferences). The checks that need no prediction are shown
+  at once (`checks(predict=False)`); the prediction-ROI checks
+  (`predict.rois_outside`) come from a background job and replace the
+  Predict step's checks when it ends; a result of an earlier refresh is
+  dropped.
 - **No guide bar** (user decision 2026-11-16): a bar above the pages
   repeated the first line of the Checks tab and cost height. The verdict
   of the shown model (`Model.verdict()`) is the first line of the Model

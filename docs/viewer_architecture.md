@@ -222,6 +222,15 @@ responsive between selecting a file and the main shell appearing. Main-window
 open/attach paths use the same busy context for status-bar feedback and wait
 cursor coverage around blocking work.
 
+The Checks panel uses a job too. `HSIViewer.refresh_checks` shows
+`Project.checks(predict=False)` at once and starts a job for
+`_guidance.prediction_roi_checks`, which predicts the prediction ROIs with the
+newest model (cached per project file, model and ROI in the library). When
+the job ends, `_apply_prediction_checks` replaces the Predict step's checks,
+unless a newer refresh came first (`_checks_generation`). The Predict page's
+ring is the `unusual` mark that `PredictionView` gives each result row from
+`enginir.prediction.unusual_rois`; the viewer compares no shares itself.
+
 ---
 
 ## Payload protocol
