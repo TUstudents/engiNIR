@@ -49,3 +49,23 @@ decisions before work starts. 1.7.1 is the startup speedup
    `SignalDomainContract`) without the terms of the terminology contract
    (calibration set, input contract). Compare it with the contracts and
    `docs/hdf5_format.md`, which are current.
+6. **The PLS and PCR component curve up to 10 components.** Each fit
+   already stores its component curve (`component_curve`, RMSECV and Q²
+   per component count; `modeling/_components.py`, `_gram_fit.py`,
+   `_service.py`), up to `A_max = max(n, min(15, max(1, G - 2), M))`
+   (`default_max`; `contracts/sample-set-model-run-contract_v3.md`, `components/max`). The user (2026-11-19): only up to
+   10 components; 5 is often the best Pareto option. So the cap 15 becomes
+   10. *To decide:* whether a fit with a given count above 10 still extends
+   the curve to that count (today `max(n, …)` does), and whether the
+   suggested count (`suggested_*`, `guarded_choice`) changes with the
+   shorter curve. A contract change, with the tests that pin 15.
+7. **The log respects the logging level; the default is INFO.** No DEBUG
+   message appears at INFO. The log file already follows the level of
+   Tools > Preferences ("Log file level", default INFO;
+   `viewer/_preferences.py`, `enable_viewer_logging` in `viewer/_app.py`).
+   The **Log panel** does not: its sink is added with `level="DEBUG"`
+   (`viewer/_viewer.py`, `add_log_sink(self._log_panel.sink, ...)`), so
+   it shows every debug message. It should use the same level and follow a
+   change of the setting (today the setting applies from the next start).
+   Also check that no message logged at INFO should really be DEBUG (the
+   "Startup timing" lines are DEBUG and INFO mixed).

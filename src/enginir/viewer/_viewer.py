@@ -8,6 +8,7 @@ import os
 import time
 
 import numpy as np
+from PyQt6 import sip
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -78,6 +79,7 @@ from ._state import (
     DEFAULT_WHITE_LEVEL,
     ProjectState,
     ViewerState,
+    look_up_data_files,
     signal_label,
 )
 from ._panels import (
@@ -1216,6 +1218,10 @@ class HSIViewer(QMainWindow):
 
         self.project_state.project_loaded.connect(self._refresh_data_file_choices)
         self.project_state.datasets_changed.connect(self._refresh_data_file_choices)
+        self.project_state.data_files_checked.connect(self._refresh_data_file_choices)
+        # The data files are looked up in the background (plan startup-speed-1.7.1, D5).
+        self.project_state.project_loaded.connect(self._look_up_data_files)
+        self.project_state.datasets_changed.connect(self._look_up_data_files)
         self._project_browser.itemDoubleClicked.connect(self._on_browser_item_activated)
         self._eda_view.roi_table_requested.connect(self.show_roi_table)
         self._project_rois = ProjectRoisView(
@@ -1231,6 +1237,7 @@ class HSIViewer(QMainWindow):
         self.project_state.project_loaded.connect(self._update_project_rois_tab)
         self.project_state.project_loaded.connect(self._choose_explore_tab)
         self._explore_tabs.currentChanged.connect(self._show_last_data_file)
+        self.project_state.data_files_checked.connect(self._show_last_data_file)
         self._explore_tabs.currentChanged.connect(self._on_explore_tab_changed)
         self._project_rois.data_file_filter_changed.connect(self._follow_roi_table_filter)
         self.project_state.project_loaded.connect(self._sync_roi_table)
@@ -1275,6 +1282,27 @@ class HSIViewer(QMainWindow):
         else:
             self._show_last_data_file()
 
+    def _look_up_data_files(self) -> None:
+        """Look up the data files not looked up yet, in a background job (D5)."""
+        state = self.project_state
+        project, unknown = state.project, state.data_files_unknown()
+        if project is None or not unknown or getattr(self, "_data_file_lookup", False):
+            return
+        self._data_file_lookup = True
+        logger.debug("Looking up the files of {} dataset(s) in the background", len(unknown))
+
+        def done() -> None:
+            self._data_file_lookup = False
+            if state.project is project and state.data_files_unknown():
+                self._look_up_data_files()  # datasets added while it ran
+
+        start_background_job(
+            owner=self, fn=lambda: look_up_data_files(project, unknown),
+            on_success=lambda ids: state.data_files_looked_up(project, list(ids)),
+            on_error=lambda message: logger.warning("The files of the datasets could not be looked up: {}",
+                                                    message),
+            on_finished=done)
+
     def _show_last_data_file(self, *_args: Any) -> None:
         """Load the project's last shown data file when the Data file tab shows nothing.
 
@@ -1287,8 +1315,11 @@ class HSIViewer(QMainWindow):
         project_id = self.project_state.project_meta.get("project_id")
         dataset_id = None if not project_id else load_last_data_file(str(project_id))
         dataset = self.project_state.datasets.get(dataset_id or "")
-        if dataset_id is not None and dataset is not None \
-                and self.project_state.data_file(dataset_id) is not None:
+        if dataset_id is None or dataset is None:
+            return
+        if not self.project_state.data_file_known(dataset_id):
+            return  # shown when the background lookup has answered (data_files_checked)
+        if self.project_state.data_file(dataset_id) is not None:
             self.show_data_file(dataset_id)
 
     def show_roi_table(self) -> None:
@@ -1871,7 +1902,8 @@ class HSIViewer(QMainWindow):
         state = self.project_state
         for signal in (state.project_loaded, state.datasets_changed, state.rois_changed,
                        state.targets_changed, state.target_assignments_changed,
-                       state.model_runs_changed, state.sample_sets_changed):
+                       state.model_runs_changed, state.sample_sets_changed,
+                       state.data_files_checked):
             signal.connect(self._checks_timer.start)
         self._explore_tabs.currentChanged.connect(self._sync_workflow_step)
         self._explore_tabs.currentChanged.connect(self._update_status_strip)
@@ -1940,7 +1972,10 @@ class HSIViewer(QMainWindow):
             self._checks_dock.setWindowTitle("Checks")
             return
         try:
-            checks = project.checks(predict=False)
+            # The file check only once the background lookup has answered (D5): looking up
+            # here would wait for every data file's drive on the UI thread.
+            checks = project.checks(files=not self.project_state.data_files_unknown(),
+                                    predict=False)
         except Exception as exc:  # a check must never take the window down
             logger.exception("Checks failed: {}", exc)
             checks = []
@@ -2496,7 +2531,7 @@ class HSIViewer(QMainWindow):
             self._centre_on_first_roi(dataset_id)
         from ._recent import add as _recent_add
 
-        _recent_add(path)
+        _recent_add(path, "dataset")
         project_id = self.project_state.project_meta.get("project_id")
         if project_id:
             save_last_data_file(str(project_id), dataset_id)
@@ -2551,6 +2586,11 @@ class HSIViewer(QMainWindow):
         for dataset_id, dataset in datasets:
             name = state.data_file_label(dataset_id)
             # The tooltip is the path the file is read from; how it was found is logged only.
+            if not state.data_file_known(dataset_id):
+                combo.addItem(f"{name} (checking…)", dataset_id)
+                combo.setItemData(combo.count() - 1, f"{dataset.source_path} (looking for it)",
+                                  Qt.ItemDataRole.ToolTipRole)
+                continue
             found = state.find_data_file(dataset_id)
             if found is None:
                 name += " (not found)"
@@ -2638,17 +2678,40 @@ class HSIViewer(QMainWindow):
         self._canvas.set_crosshair(s.frame, s.row)
 
     def _populate_open_recent(self) -> None:
-        from ._recent import load as _recent_load
+        """The recent files, drawn from the list alone (no file access on the UI thread).
 
-        self._menu_open_recent.clear()
-        paths = [p for p in _recent_load() if os.path.isfile(p)]
-        if not paths:
-            act = _add_required_action(self._menu_open_recent, "(No recent files)")
+        A file the last background check found missing is grayed out; each opening of
+        the menu checks again in the background and updates the entries still shown
+        (plan startup-speed-1.7.1, D4).
+        """
+        from . import _recent
+
+        menu = self._menu_open_recent
+        menu.clear()
+        recent = _recent.entries()
+        if not recent:
+            act = _add_required_action(menu, "(No recent files)")
             act.setEnabled(False)
             return
-        for path in paths:
-            act = _add_required_action(self._menu_open_recent, path)
-            act.triggered.connect(lambda checked, p=path: self._open_data_path(p))
+        known = _recent.last_check()
+        actions = {}
+        for entry in recent:
+            act = _add_required_action(menu, entry.path)
+            act.setEnabled(known.get(entry.path, (True, None))[0])
+            act.triggered.connect(lambda checked, p=entry.path: self._open_data_path(p))
+            actions[entry.path] = act
+
+        def checked(result: object) -> None:
+            if not isinstance(result, dict) or sip.isdeleted(menu):
+                return
+            for path, act in actions.items():
+                if not sip.isdeleted(act) and act in menu.actions():
+                    act.setEnabled(bool(result.get(path, (True, None))[0]))
+
+        start_background_job(owner=menu, fn=lambda: _recent.check(recent), on_success=checked,
+                             on_error=lambda message: logger.warning(
+                                 "Recent files could not be checked: {}", message),
+                             on_finished=lambda: None)
 
     def _populate_view_menu(self) -> None:
         m = self._menu_view

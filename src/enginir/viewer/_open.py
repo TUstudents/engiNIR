@@ -314,7 +314,7 @@ def _open_loaded_dataset_viewer(payload: _DatasetStartupPayload) -> "HSIViewer":
     viewer._refresh_data_file_choices()  # the selector names the file, not "none"
     from ._recent import add as _recent_add
 
-    _recent_add(payload.path)
+    _recent_add(payload.path, "dataset")
     logger.info(
         "Dataset viewer metadata/status prepared in {:.3f}s for {}",
         time.perf_counter() - t1,
@@ -391,7 +391,7 @@ def _load_project_store_into_viewer(
     viewer._update_status_strip()
     from ._recent import add as _recent_add
 
-    _recent_add(project_path)
+    _recent_add(project_path, "project")
 
 
 

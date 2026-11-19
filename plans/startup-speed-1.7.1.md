@@ -1,6 +1,6 @@
 # Plan: engiNIR 1.7.1, a fast start that never waits for a network drive
 
-Status: decided (user, 2026-11-19): D1 to D8 below. Not started.
+Status: decided (user, 2026-11-19): D1 to D8 below. Phases 1 to 3 done.
 
 ## Goal
 
@@ -144,6 +144,15 @@ builds them.
     (`wait_for_running_jobs`).
 
 ### Phase 3: recent files and data files off the UI thread (D4, D5)
+
+*Done (2026-11-19).* As built: the session cache of D5 already existed
+(`Project.find_data_file` keeps each answer, Locate sets it), so
+`ProjectState` only records which datasets were looked up
+(`data_file_known`) and the window leaves the others to one background job
+(`look_up_data_files`, signal `data_files_checked`). The data-file selector
+says "(checking…)", the checks leave out the file check, and the last shown
+file waits for the job. The Open Recent menu checks in the background too
+and grays out missing files, like the welcome window.
 
 - `recent.json` with the kind per entry; the background existence check.
 - The data-file cache and the background lookup at project open; checks
