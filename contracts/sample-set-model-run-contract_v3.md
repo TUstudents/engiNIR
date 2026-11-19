@@ -444,7 +444,7 @@ spectra and values, new ids) gives the same numbers.
 | `components/rule` | `fixed` (the number was given), `one_se`, `min_rmsecv`, `q2_limit`, `f_test`, `q2_lookahead` (§7.4) | `fixed` with a number; `one_se` with `n_components="auto"` |
 | `components/noise_guard` | `on`, `off`: `on` applies the structure ceiling and the noise drop after an autofit rule (§7.4), `off` gives the rule's plain choice; no effect with `fixed` | `on` with `"auto"`, `off` with a number |
 | `components/rule_choice` | the rule's number before the ceiling and the noise drop (§7.4); equal to `selected` with `fixed` or `noise_guard = off`; a fit output (a value in a request is ignored and replaced by the fit), and on read 1 ≤ `selected` ≤ `rule_choice` ≤ `max` | – |
-| `components/max` | integer ≥ 1, the largest number of components of the curve (*A*max) | max(*n*, min(15, max(1, *G* − 2), *M*)), *n* the given number (0 for `"auto"`), *M* the rank limit (§7.4) |
+| `components/max` | integer ≥ 1, the largest number of components of the curve (*A*max) | max(*n*, min(10, max(1, *G* − 2), *M*)), *n* the given number (0 for `"auto"`), *M* the rank limit (§7.4); 15 before engiNIR 1.7.3, and a stored curve keeps its length |
 | `components/selected` | the number of components of the run (equal to `hyperparameters/n_components`); a fit output | – |
 | `pixels/per_roi` | `all`, or an integer from 1 to the pixel count of the smallest ROI of the calibration set | `all` |
 | `pixels/seed` | integer, 0 ≤ seed < 2⁶³ (a signed 64-bit HDF5 attribute) | `0` |

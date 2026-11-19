@@ -64,7 +64,8 @@ Choosing the number of components
 ---------------------------------
 
 Every PLS and PCR model stores its **component curve**: for 1, 2, … up to
-15 components (fewer with few samples), the cross-validated RMSECV (per ROI) with its
+10 components (fewer with few samples, more when the fit asks for more; 15
+before engiNIR 1.7.3), the cross-validated RMSECV (per ROI) with its
 standard error, Q²(cum), R²Y(cum) and R²X(cum), computed with the model's own
 folds. R²Y always rises with more components; RMSECV (per ROI) and Q² improve, level off
 and then get worse once components fit noise. The gap between R² and Q² shows
@@ -114,7 +115,8 @@ chooses as engiNIR 1.3 did.
    spec.components_rule_choice, spec.components_selected  # before and after the guard
    curve["noise"], curve["structure_ceiling"], curve["dw_weights"]
 
-A worked example, a real model of 20 ROIs from 4 scans (levels 1, 4, 7, 10):
+A worked example, a real model of 20 ROIs from 4 scans (levels 1, 4, 7, 10),
+fitted before engiNIR 1.7.3 with a curve to 15 components:
 RMSECV (per ROI) fell steeply to 4 components and then crept down to 15. ``one_se``
 chose 7, ``min_rmsecv`` 15, ``q2_limit`` 1 (component 2, a scatter component,
 had Q² = −0.02), ``f_test`` and ``q2_lookahead`` 6. Components 6 and later each

@@ -127,9 +127,16 @@ def rank_limit(n_rows: list[int], n_variables: int) -> int:
     return max(1, min(min(n - 1 for n in n_rows), n_variables))
 
 
+#: The default component curve ends here; a fit that asks for more gets more (contract §7).
+CURVE_COMPONENTS = 10
+
+
 def default_max(n_given: int, n_groups: int, limit: int) -> int:
-    """A_max of the curve: max(n, min(15, max(1, G - 2), M)) (contract §7)."""
-    return max(n_given, min(15, max(1, n_groups - 2), limit))
+    """A_max of the curve: max(n, min(10, max(1, G - 2), M)) (contract §7).
+
+    Up to 10 components (15 before engiNIR 1.7.3), or the count a fit asks for.
+    """
+    return max(n_given, min(CURVE_COMPONENTS, max(1, n_groups - 2), limit))
 
 
 def _ratio(numerator: np.ndarray, denominator: np.ndarray, what: str) -> np.ndarray:

@@ -90,6 +90,9 @@ takes about 0.35 s, in `import enginir.io` (the warm-up's background job).
 
 ### Phase 2: the component curve up to 10 (D4)
 
+*Done (2026-11-19).* `CURVE_COMPONENTS = 10` in `modeling/_components.py`;
+the band proposal follows it too (it uses `default_max`).
+
 - `default_max`: 15 becomes 10, as `max(n, min(10, max(1, G − 2), M))`.
 - Contract `components/max` and coverage; the tests that pin the curve's
   length; the viewer's curve plot needs nothing (it draws what is stored).

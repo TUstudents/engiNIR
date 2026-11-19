@@ -12,6 +12,10 @@
   (or `import hdf5plugin` in Python, the Blosc plugin in HDFView or MATLAB):
   earlier engiNIR versions open it but cannot read its arrays.
   `save_hdf5` keeps gzip and offers `compression="blosc"`.
+- **The component curve of PLS and PCR ends at 10 components** (15
+  before): A_max = max(n, min(10, G − 2, rank)). A fit asking for more
+  still gets its count; Auto chooses within the curve. Stored curves keep
+  their length.
 
 ## 1.7.2 (2026-11-19)
 

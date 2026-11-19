@@ -324,3 +324,14 @@ def test_fold_warnings_find_a_data_file_held_out_roi_by_roi():
     assert fold_warnings(roi_ids=roi_ids, roi_index=roi_index, splitter=RoundRobinGroups(7),
                          X=X, cv_groups=roi_index, dataset_of=dataset_of, value_of=mixed,
                          n_groups=8) == []
+
+
+def test_the_curve_ends_at_10_components_unless_a_fit_asks_for_more(tmp_path):
+    """Plan release-1.7.3, D4: max(n, min(10, G - 2, rank)); 15 before 1.7.3."""
+    project = uneven_project(tmp_path, n_rois=30, n_bands=30)
+    auto = project.fit("API", n_components="auto")
+    assert len(auto.component_curve["rmsecv"]) == 10, "G - 2 = 28 and the rank allow more"
+    assert 1 <= auto.ref.hyperparameters["n_components"] <= 10
+    twelve = project.fit("API", n_components=12)
+    assert len(twelve.component_curve["rmsecv"]) == 12, "the count asked for"
+    assert twelve.ref.fit_specification.components_max == 12
