@@ -592,7 +592,14 @@ them as well; each is checked the same way.
 
 A project with ROIs opens on the **Project ROIs** tab without loading any
 dataset. The **Dataset** tab then loads the file you showed last for this
-project (remembered in your user settings, not in the project). Several
+project (remembered in your user settings, not in the project).
+**Add ROI** and **Add ROI Grid** work from anywhere: from the Settings, the
+**ROI** menu, the Checks tab or the Project ROIs tab (which has both next to
+its **Dataset** filter). Without an image shown, they switch to the Dataset
+tab and show a dataset first (the one chosen in the filter, the one you
+showed last, the only one, or the one you pick; in a project without
+datasets, **Add Dataset...** opens), then start drawing or open the grid
+dialog. Several
 windows on one project stay in step: a value typed in one appears in the
 others.
 

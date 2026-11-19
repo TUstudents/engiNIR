@@ -1375,6 +1375,7 @@ class HSIViewer(QMainWindow):
         self.project_state.datasets_changed.connect(self._look_up_data_files)
         self._project_browser.itemDoubleClicked.connect(self._on_browser_item_activated)
         self._eda_view.roi_table_requested.connect(self.show_roi_table)
+        self._eda_view.dataset_needed.connect(self.add_rois_on)
         self._project_rois = ProjectRoisView(
             self.state, self.project_state,
             current_target_id=lambda: (None if (target := self._modeling_view.current_target())
@@ -1383,6 +1384,7 @@ class HSIViewer(QMainWindow):
         self._explore_tabs.addTab(self._project_rois, "Project ROIs")
         self._project_rois.roi_selected.connect(self._on_canvas_roi_selected)
         self._project_rois.roi_opened.connect(self.open_roi)
+        self._project_rois.add_rois_requested.connect(self.add_rois_on)
         self._modeling_view.view_state_changed.connect(self._project_rois.current_target_changed)
         self.project_state.rois_changed.connect(self._update_project_rois_tab)
         self.project_state.project_loaded.connect(self._update_project_rois_tab)
@@ -2367,7 +2369,7 @@ class HSIViewer(QMainWindow):
         elif action == "set_wavelengths":
             self.set_wavelengths(tuple(args.get("dataset_ids") or ()), args.get("table"))
         elif action == "add_roi":
-            self.show_step("data")
+            self.add_rois_on("add_roi")  # shows a dataset, then starts drawing
         elif action == "add_target":
             self.show_step("model")
             self._modeling_view.select_target_btn_clicked()
@@ -2566,6 +2568,62 @@ class HSIViewer(QMainWindow):
         self.show_data_file(dataset_id)
         return dataset_id
 
+    def add_rois_on(self, action: str, dataset_id: str | None = None) -> None:
+        """Add ROI (``"add_roi"``) or Add ROI Grid (``"add_roi_grid"``) from anywhere.
+
+        Shows the Data file tab and a dataset first when none is shown, or when
+        ``dataset_id`` is another one: ``dataset_id``, else the last shown, else
+        the only one, else the one the user picks; with none, Add Dataset. Then
+        starts drawing or opens the grid dialog (plan roi-workflow, R3).
+        """
+        if action not in ("add_roi", "add_roi_grid"):
+            log_and_raise("Unknown ROI action {!r}", action, error=ValueError)
+        if self.project_state.project is None:
+            return
+        self.show_step("data")
+        shown = self._eda_view.shown_dataset_id()
+        if shown is not None and dataset_id in (None, shown):
+            self._start_roi_action(action)
+            return
+        target = dataset_id or self._dataset_for_rois()
+        if target is None and not self.project_state.datasets:
+            self._after_shown = ("", action)  # the dataset Add Dataset adds and shows
+            added = self.add_data_file()
+            if added is None:
+                self._after_shown = None
+            elif self._after_shown is not None:
+                self._after_shown = (added, action)
+            return
+        if target is None:
+            return  # the user chose no dataset
+        self._after_shown = (target, action)
+        self.show_data_file(target)
+
+    def _start_roi_action(self, action: str) -> None:
+        if not self.has_attached_dataset():
+            return
+        if action == "add_roi":
+            self._eda_view._btn_roi_training.setChecked(True)
+        else:
+            self._eda_view.open_roi_grid_dialog()
+
+    def _dataset_for_rois(self) -> str | None:
+        """The dataset to draw ROIs on: the last shown, the only one, or the user's choice."""
+        state = self.project_state
+        project_id = state.project_meta.get("project_id")
+        last = None if not project_id else load_last_data_file(str(project_id))
+        if last in state.datasets:
+            return last
+        if len(state.datasets) == 1:
+            return next(iter(state.datasets))
+        if not state.datasets:
+            return None
+        ids = sorted(state.datasets, key=lambda d: state.data_file_label(d).casefold())
+        labels = [state.data_file_label(d) for d in ids]
+        choice, ok = QInputDialog.getItem(self, "Add ROIs", "Dataset to draw ROIs on:",
+                                          labels, 0, False)
+        return ids[labels.index(choice)] if ok and choice in labels else None
+
     def show_data_file(self, dataset_id: str) -> None:
         """Load a registered data file in the background and show it with its reference correction."""
         dataset = self.project_state.datasets.get(dataset_id)
@@ -2584,6 +2642,8 @@ class HSIViewer(QMainWindow):
             box.exec()
             if box.clickedButton() is locate:
                 self.locate_data_file(dataset_id)
+            else:
+                self._after_shown = None  # Add ROI waited for this dataset
             return
         if self._data_file_job is not None:
             return
@@ -2664,6 +2724,7 @@ class HSIViewer(QMainWindow):
                 + "\n".join(failed))
 
     def _data_file_failed(self, message: str) -> None:
+        self._after_shown = None
         logger.error("Cannot load dataset: {}", message)
         QMessageBox.critical(self, "Cannot open file", message)
 
@@ -2720,6 +2781,9 @@ class HSIViewer(QMainWindow):
         if project_id:
             save_last_data_file(str(project_id), dataset_id)
         logger.info("Showing dataset {} ({})", path, self.state.y_unit)
+        pending, self._after_shown = getattr(self, "_after_shown", None), None
+        if pending is not None and pending[0] == dataset_id:
+            QTimer.singleShot(0, lambda: self._start_roi_action(pending[1]))
 
     def apply_shown_reference_correction(self) -> None:
         """Convert the shown data file with its stored reference correction (references or levels).

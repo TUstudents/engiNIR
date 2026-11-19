@@ -24,6 +24,11 @@
   name, and the default patterns use it: Kestreleye scans, all called
   `stream_hsi.h5`, no longer give every grid `stream_hsi-A01`. `{folder}`
   gives the file's folder. The grid dialog lists the placeholders.
+- **Add ROI and Add ROI Grid work from anywhere.** Pressed without an
+  image shown (from the Settings, the ROI menu, the Checks tab's fix or the
+  new buttons of the Project ROIs tab), they show a dataset first, then start
+  drawing or open the grid dialog. They were disabled where a project with
+  ROIs opens, and the fix only switched the step.
 - **The About box cites engiNIR** (with the concept DOI) and links its
   GitHub repository.
 - **The glossary** gives Frame and Row their own entries and adds the terms
