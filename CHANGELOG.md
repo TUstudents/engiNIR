@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.7.2 (2026-11-19)
+
+Wavelengths for Kestreleye scans, which store none: a wavelength table gives
+them, when a scan is added or later. Also a faster project window on Windows
+and the welcome window's tagline. The format stays `enginir-1.7`.
 
 ### Added
 
