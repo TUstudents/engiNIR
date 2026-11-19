@@ -30,7 +30,7 @@ def process_age() -> float | None:
             return _age_linux()
         return _age_ps()
     except Exception as exc:  # a log line must never stop the start
-        logger.debug("The process start time is not known: {}", exc)
+        logger.warning("The process start time is not known: {!r}", exc)
         return None
 
 
@@ -40,12 +40,21 @@ def _age_windows() -> float:
     import ctypes
     from ctypes import wintypes
 
-    kernel32 = ctypes.WinDLL("kernel32")
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    # Without argtypes ctypes passes the process handle (the 64-bit pseudo handle -1)
+    # as a C int, which overflows.
     kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel32.GetCurrentProcess.argtypes = []
+    filetime_p = ctypes.POINTER(wintypes.FILETIME)
+    kernel32.GetProcessTimes.restype = wintypes.BOOL
+    kernel32.GetProcessTimes.argtypes = [wintypes.HANDLE, filetime_p, filetime_p, filetime_p,
+                                         filetime_p]
+    kernel32.GetSystemTimeAsFileTime.restype = None
+    kernel32.GetSystemTimeAsFileTime.argtypes = [filetime_p]
     times = [wintypes.FILETIME() for _ in range(4)]  # creation, exit, kernel, user
     if not kernel32.GetProcessTimes(kernel32.GetCurrentProcess(),
                                     *(ctypes.byref(t) for t in times)):
-        raise OSError("GetProcessTimes failed")
+        raise OSError(f"GetProcessTimes failed (error {ctypes.get_last_error()})")
     now = wintypes.FILETIME()
     kernel32.GetSystemTimeAsFileTime(ctypes.byref(now))
 

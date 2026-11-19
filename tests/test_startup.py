@@ -151,10 +151,13 @@ def test_the_process_age_counts_from_the_process_start(tmp_path):
     """D7: the age comes from the operating system, so it includes the time before Python
     reached engiNIR (here a sleep before the import)."""
     script = ("import time; time.sleep(2.2)\n"
+              "import enginir; enginir.enable_logging('WARNING')\n"
               "from enginir.viewer._startup_clock import process_age; print(process_age())")
     result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
                             timeout=60, check=True)
-    age = float(result.stdout.strip().splitlines()[-1])
+    said = result.stdout.strip().splitlines()[-1]
+    assert said != "None", result.stderr[-2000:]  # the reason is logged as a warning
+    age = float(said)
     assert 2.0 <= age < 30.0, age  # macOS reads it from ps, to the second
 
 
