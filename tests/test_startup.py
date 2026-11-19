@@ -31,14 +31,20 @@ _LAUNCHER = textwrap.dedent("""
 """)
 
 
+def _run(args: list[str], *, timeout: float, env: dict[str, str] | None = None):
+    """Run a Python subprocess; on failure, the assertion shows its stderr (CI logs)."""
+    result = subprocess.run(args, env=env, capture_output=True, text=True, timeout=timeout)
+    assert result.returncode == 0, f"exit {result.returncode}:\n{result.stderr[-4000:]}"
+    return result
+
+
 def _modules_at_welcome(tmp_path) -> set[str]:
     home = tmp_path / "home"
     home.mkdir()
     env = {**os.environ, "QT_QPA_PLATFORM": "offscreen", "HOME": str(home),
            "USERPROFILE": str(home), "XDG_CONFIG_HOME": str(home / ".config"),
            "APPDATA": str(home / "AppData"), "ENGINIR_LOG_FILE": str(tmp_path / "viewer.log")}
-    result = subprocess.run([sys.executable, "-c", _LAUNCHER], env=env, capture_output=True,
-                            text=True, timeout=60, check=True)
+    result = _run([sys.executable, "-c", _LAUNCHER], env=env, timeout=60)
     return set(json.loads(result.stdout.strip().splitlines()[-1]))
 
 
@@ -98,8 +104,7 @@ def _open_after_warmup(tmp_path, mode):
     env = {**os.environ, "QT_QPA_PLATFORM": "offscreen", "HOME": str(home),
            "USERPROFILE": str(home), "XDG_CONFIG_HOME": str(home / ".config"),
            "APPDATA": str(home / "AppData"), "ENGINIR_LOG_FILE": str(tmp_path / "viewer.log")}
-    result = subprocess.run([sys.executable, "-c", _WARM_THEN_OPEN, str(path), mode], env=env,
-                            capture_output=True, text=True, timeout=90, check=True)
+    result = _run([sys.executable, "-c", _WARM_THEN_OPEN, str(path), mode], env=env, timeout=90)
     return json.loads(result.stdout.strip().splitlines()[-1])
 
 
@@ -153,8 +158,7 @@ def test_the_process_age_counts_from_the_process_start(tmp_path):
     script = ("import time; time.sleep(2.2)\n"
               "import enginir; enginir.enable_logging('WARNING')\n"
               "from enginir.viewer._startup_clock import process_age; print(process_age())")
-    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
-                            timeout=60, check=True)
+    result = _run([sys.executable, "-c", script], timeout=60)
     said = result.stdout.strip().splitlines()[-1]
     assert said != "None", result.stderr[-2000:]  # the reason is logged as a warning
     age = float(said)
