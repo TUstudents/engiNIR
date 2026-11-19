@@ -344,13 +344,18 @@ def training_diagnostics(fitted: Any, X: np.ndarray, y: np.ndarray, kept: np.nda
     # Undefined limits and distances are NaN, never left out (project-schema
     # contract, Core and display data).
     nan = float("nan")
+    # The limits at 0.95 (SIMCA's default, LIMIT_LEVEL) are the ones in use and core in
+    # prediction_model; the 0.99 pair is display data (the Model page draws both levels).
     diagnostics.update(t2_crit_095=nan, t2_crit_099=nan, t2_crit_2_095=nan, t2_crit_2_099=nan,
-                       dcrit_099=nan, dmodx=np.full(X.shape[0], np.nan, dtype=np.float32))
-    projection_fields.update(t2_crit_099=nan, s0=nan, dcrit_099=nan)
+                       dcrit_095=nan, dcrit_099=nan,
+                       dmodx=np.full(X.shape[0], np.nan, dtype=np.float32))
+    projection_fields.update(t2_crit_095=nan, t2_crit_099=nan, s0=nan, dcrit_095=nan,
+                             dcrit_099=nan)
     if n - a >= 1:
         diagnostics["t2_crit_095"] = t2_crit(a, 0.95)
         diagnostics["t2_crit_099"] = t2_crit(a, 0.99)
-        projection_fields["t2_crit_099"] = diagnostics["t2_crit_099"]
+        projection_fields.update(t2_crit_095=diagnostics["t2_crit_095"],
+                                 t2_crit_099=diagnostics["t2_crit_099"])
     if a >= 2 and n - 2 >= 1:
         diagnostics["t2_crit_2_095"] = t2_crit(2, 0.95)
         diagnostics["t2_crit_2_099"] = t2_crit(2, 0.99)
@@ -360,13 +365,16 @@ def training_diagnostics(fitted: Any, X: np.ndarray, y: np.ndarray, kept: np.nda
         distance = (np.sqrt(projection.residual_ss / (k - a)) * v / s0 if s0 >= _EPS
                     else np.zeros(X.shape[0]))
         diagnostics["dmodx"] = distance.astype(np.float32)
+        diagnostics["dcrit_095"] = dmodx_limit(n, k, a, 0.95)
         diagnostics["dcrit_099"] = dmodx_limit(n, k, a, 0.99)
-        projection_fields.update(s0=s0, dcrit_099=diagnostics["dcrit_099"])
+        projection_fields.update(s0=s0, dcrit_095=diagnostics["dcrit_095"],
+                                 dcrit_099=diagnostics["dcrit_099"])
 
     n_rois = int(roi_index.max()) + 1
     counts = np.bincount(roi_index, minlength=n_rois)
-    for key, values, limit in (("roi_share_above_dcrit", diagnostics["dmodx"], "dcrit_099"),
-                               ("roi_share_above_t2crit", t2, "t2_crit_099")):
+    # Per ROI, the share of its fitted pixels above the limits in use (0.95).
+    for key, values, limit in (("roi_share_above_dcrit", diagnostics["dmodx"], "dcrit_095"),
+                               ("roi_share_above_t2crit", t2, "t2_crit_095")):
         if np.isfinite(diagnostics[limit]):
             above = values > diagnostics[limit]
             diagnostics[key] = (np.bincount(roi_index, weights=above, minlength=n_rois)

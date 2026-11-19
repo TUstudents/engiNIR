@@ -58,8 +58,8 @@ def projection_of(blob: dict[str, Any] | None) -> Projection | None:
         loadings=np.atleast_2d(np.asarray(blob["loadings"], dtype=np.float64)),
         score_variances=np.asarray(blob["score_variances"], dtype=np.float64).reshape(-1),
         s0=limit("s0"),
-        t2_crit=limit("t2_crit_099"),
-        dcrit=limit("dcrit_099"),
+        t2_crit=limit("t2_crit_095"),
+        dcrit=limit("dcrit_095"),
     )
 
 
@@ -135,7 +135,7 @@ class DiagnosticsSummary:
         """The summary values (limits, counts, shares, mean predictions)."""
         n = max(self.n_pixels, 1)
         return {
-            "t2_crit_099": self.t2_crit, "dcrit_099": self.dcrit,
+            "t2_crit_095": self.t2_crit, "dcrit_095": self.dcrit,
             "n_pixels": self.n_pixels,
             "n_above_t2crit": self.above_t2, "share_above_t2crit": self.above_t2 / n,
             "n_above_dcrit": self.above_dcrit, "share_above_dcrit": self.above_dcrit / n,

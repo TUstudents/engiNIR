@@ -359,7 +359,7 @@ Checks (id, severity when not `ok`):
 | `model.rois_deleted` | the calibration set lists deleted ROIs | attention | |
 | `model.values_changed` | current values differ from the values the model was fitted with (compared to float32 precision, relative 1e-6) | attention | `refit` (none after a deletion) |
 | `model.rois_added` | calibration ROIs with a value that the model does not use | info | `fit` |
-| `model.distance` | share of calibration pixels above the DModX limit (0.99 level), weighted by pixels; attention above 5 %, naming the datasets above the overall share | attention | `show_page` Distance |
+| `model.distance` | share of calibration pixels above the DModX limit (0.95 level), weighted by pixels; attention above three times the expected share (15 % at 0.95; decided 2026-11-19), naming the datasets above the overall share | attention | `show_page` Distance |
 | `model.components` | components beyond the structure ceiling: attention; otherwise ok when the chosen number is the most suggested one of the selection rules, else info | attention or info | `show_page` Components |
 | `model.calibration_set` | ROIs and pixels of the fit | | |
 | `predict.no_rois` / `predict.rois_ready` | models exist; no prediction ROI / their number | info | `predict_rois` with the newest model |

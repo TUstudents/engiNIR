@@ -217,6 +217,10 @@ def test_pixels_far_from_the_model_are_reported_with_their_dataset(tmp_path, mon
     assert with_shares([0.02] * 8).severity == "ok"
     assert with_shares([DMODX_SHARE_ATTENTION - 0.001] * 8).severity == "ok"
     assert with_shares([DMODX_SHARE_ATTENTION + 0.001] * 8).severity == "attention"
+    # Decided 2026-11-19: three times the 5 % a 0.95 limit expects, so 15 %.
+    assert with_shares([0.14] * 8).severity == "ok"
+    assert "(5 % expected)" in with_shares([0.16] * 8).message
+    assert with_shares([0.16] * 8).severity == "attention"
 
     shares = [0.6 if roi_id in low else 0.02 for roi_id in roi_ids]
     check = with_shares(shares)

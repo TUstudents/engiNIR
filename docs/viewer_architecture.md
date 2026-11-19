@@ -362,7 +362,7 @@ implement `PlotSource` (`plot_table()`, `print_figure()`) and are shown in a
 - `PredictionMapWidget` is a source too. Its header controls (layer, output,
   pan, zoom, reset) are added to its frame. The layers are `MAP_LAYERS`
   (Prediction, DModXPS, T²PS, Prediction interval); a diagnostics layer marks the pixels
-  above its 0.99 limit and is disabled for a model without projection data.
+  above its 0.95 limit and is disabled for a model without projection data.
   Prediction interval is `PredictionResult.half_width(INTERVAL_LEVEL)` (computed in
   `_map_previews`, with `interval_summary` for the median and the pixels
   without an interval), on its own scale, with the pixels outside the model

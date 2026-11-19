@@ -426,7 +426,7 @@ def test_the_fit_form_folds_and_keeps_fit_model_in_view(qapp, layers):
         form._keep_edit.setText("1100-1500")
         form._exclude_check.setChecked(True)
         assert form.section("bands").summary == "keep 1100-1500"
-        assert "DModX exclusion at 0.99" in form.section("fitting").summary
+        assert "DModX exclusion at 0.95" in form.section("fitting").summary
         assert not form._keep_edit.isVisibleTo(window)
         form.section("bands").header.click()
         assert form._keep_edit.isVisibleTo(window)

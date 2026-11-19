@@ -821,8 +821,10 @@ malformed:
 - calibration sets
 - models: `model_type`, `hyperparameters`, `fit_spec`, `software`, and the
   executable model in `artifact_refs/prediction_model` (coefficients,
-  intercept, wavelengths, target names, projection data, and the MSC/EMSC
-  state its recipe needs); the members are checked by name when the project
+  intercept, wavelengths, target names, projection data with the limits at
+  SIMCA's 0.95 level `dcrit_095` and `t2_crit_095`, and the MSC/EMSC state its
+  recipe needs; `dcrit_099` and `t2_crit_099` are display data); the members
+  are checked by name when the project
   opens (a short vector may be an attribute), the arrays are read when the
   model is used
 - stored predictions: their references, `y_pred`, its shapes and dtype
@@ -836,7 +838,7 @@ viewer shows "–" (or "not available") in its place and never fails on it.
 
 **Undefined values.** Writers always write every field. A value that is not
 defined in a given case is stored as "not defined": NaN for numbers (e.g.
-`s0` and `dcrit_099` when K − A < 1, `rmsee` when R − 1 − A < 1, the
+`s0`, `dcrit_095` and `dcrit_099` when K − A < 1, `rmsee` when R − 1 − A < 1, the
 two-component T²Crit when A < 2), an empty string for text, an empty array
 for arrays (e.g. `artifact_refs/exclusion` without DModX exclusion).
 Readers and the viewer treat NaN as "not defined", never as a number;
@@ -994,7 +996,15 @@ renames:
 | input contract `@calibrated_input_allowed` | `@corrected_input_allowed` |
 | mode value `precalibrated_import` (reference correction `@mode`, input contract `@required_correction_mode`) | `already_corrected` |
 
-Nothing else changes.
+The limits change level (decided 2026-11-19, plan `plans/simca-levels-rc3.md`):
+`enginir-1.7` uses SIMCA's 0.95 level. The conversion adds `dcrit_095` and
+`t2_crit_095` to every model's `prediction_model` and `diagnostics`,
+computed from its `n_train`, band count and components with the fit's
+formulas (sample-set-model-run contract §7.2, §7.5), and renames the per-ROI
+shares `roi_share_above_dcrit` and `roi_share_above_t2crit` (taken at 0.99)
+to `roi_share_above_dcrit_099` and `roi_share_above_t2crit_099`. Projects
+written by 1.7.0rc1 or rc2 lack the 0.95 limits and are refused; they are
+not converted. Nothing else changes.
 
 ## Acceptance criteria
 

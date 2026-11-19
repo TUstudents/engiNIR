@@ -338,7 +338,7 @@ ROI_RESULTS = PlotSpec(
           "mean of its pixel predictions (the reported value, written next to it), the bar "
           "the 5–95 % range of its pixels; one color per model; × the target value when "
           "the ROI has one. A ring marks unusual spectra: a larger share of the ROI's pixels "
-          "above DCrit (0.99) than 90 % of the model's calibration ROIs have. The shares, SD "
+          "above DCrit (0.95) than 90 % of the model's calibration ROIs have. The shares, SD "
           "and excluded pixels are in the ROI table. Exclude pixels above the DModXPS limit "
           "(Predict controls) to leave glare and substrate out of the statistics."))
 

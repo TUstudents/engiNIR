@@ -586,7 +586,8 @@ score_variances          (A,), calibration score variances (N - 1); NaN for a co
 @s0                      calibration pooled residual SD (unweighted); NaN when K - A < 1
 @n_train                 kept calibration pixels N of the final model (after DModX exclusion)
 @n_components            A
-@t2_crit_099, @dcrit_099 limits for the applicability diagnostics (NaN when undefined)
+@t2_crit_095, @dcrit_095 limits at 0.95 in use (core; NaN when undefined)
+@t2_crit_099, @dcrit_099 the same at 0.99 (display data)
 ```
 
 `x_mean` is the center in the model's input space: for PCR the PCA mean is
@@ -635,9 +636,9 @@ t2                       float32, Hotelling's T² per drawn pixel (ROI order, th
 dmodx                    float32, normalized unweighted DModX per drawn pixel (NaN when K - A < 1)
 @t2_crit_095, @t2_crit_099   T²Crit with A components
 @t2_crit_2_095, @t2_crit_2_099   T²Crit for the first two components (ellipse; NaN when A < 2)
-@dcrit_099               DCrit at 0.99 (normalized; NaN when K - A < 1)
-roi_share_above_dcrit    float32 per ROI (cv_outputs/roi_ids order), share of pixels above DCrit
-roi_share_above_t2crit   float32 per ROI, share of pixels above T²Crit (0.99)
+@dcrit_095, @dcrit_099   DCrit at 0.95 and 0.99 (normalized; NaN when K - A < 1)
+roi_share_above_dcrit    float32 per ROI (cv_outputs/roi_ids order), share of pixels above DCrit (0.95)
+roi_share_above_t2crit   float32 per ROI, share of pixels above T²Crit (0.95)
 roi_scores               float32 (n_rois, A), mean calibration score of each ROI's fitted pixels
 roi_score_pixels         int (n_rois,), fitted pixels behind each ROI score (0: NaN scores)
 ```

@@ -18,7 +18,7 @@ scaling is a model setting and is passed like ``n_components``:
        fit_spec={
            "folds": {"rule": "round_robin", "n_folds": 7, "group_by": "sample"},
            "pixels": {"per_roi": 40, "seed": 1},
-           "exclusion": {"method": "dmodx", "level": 0.99},
+           "exclusion": {"method": "dmodx", "level": 0.95},
        })
    model.ref.fit_specification      # the complete FitSpec, as stored
 
@@ -161,7 +161,8 @@ engiNIR refits every fold with all components, so its Q² is stricter than
 SIMCA's (see the comparison below). Every model also stores RMSEE and the
 adjusted R² (per pixel as SIMCA computes them, and per ROI), the scaled
 coefficients (CoeffCS), and the Hotelling T² and distance to the model of
-every calibration pixel with their 0.99 limits.
+every calibration pixel with their limits at 0.95 (SIMCA's default level)
+and at 0.99.
 
 Pixel subsample
 ---------------
@@ -193,8 +194,8 @@ model cannot describe, relative to the typical residual of the calibration
 spectra (1 is typical). It finds spectra the calibration set has never seen,
 such as glare, shadows, background at a tablet's edge or a foreign material;
 a pixel that is only more concentrated lies along the model and is not above
-DCrit. DCrit is the limit at a chosen level: at 0.99, about 1 %
-of normal spectra lie above it.
+DCrit. DCrit is the limit at a chosen level: at SIMCA's default 0.95, about
+5 % of normal spectra lie above it (at 0.99, about 1 %).
 
 ``"exclusion": {"method": "dmodx"}`` fits the model, leaves out the pixels
 above DCrit (largest distance first) and refits, in one or two

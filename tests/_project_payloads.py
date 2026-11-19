@@ -60,7 +60,7 @@ def projection_payload(n_bands: int, n_components: int = 1) -> dict[str, Any]:
     return {"x_mean": np.zeros(n_bands), "x_std": np.ones(n_bands),
             "rotations": components, "loadings": components,
             "score_variances": np.ones(n_components), "s0": 1.0, "n_train": 10,
-            "t2_crit_099": 10.0, "dcrit_099": 2.0}
+            "t2_crit_095": 10.0, "dcrit_095": 2.0}
 
 
 def prediction_model_payload(wavelengths: Any, target: str = "moisture") -> dict[str, Any]:

@@ -374,15 +374,16 @@ components, N kept calibration pixels, i.e. after DModX exclusion):
 - **DModXPS** = √(Σₖ eₖ² / (K − A)) / `s0`, e = z − t · `loadings`ᵀ, without the
   factor v of the calibration DModX (as SIMCA's DModXPS) and without
   modeling-power weighting
-- limits from the calibration data at 0.99: T²Crit = A(N − 1)/(N − A) ·
-  F(0.99; A, N − A) and DCrit (`sample-set-model-run-contract_v3.md` §7.2),
-  stored with the model as `t2_crit_099`, `dcrit_099`
+- limits from the calibration data at 0.95 (SIMCA's default): T²Crit =
+  A(N − 1)/(N − A) · F(0.95; A, N − A) and DCrit
+  (`sample-set-model-run-contract_v3.md` §7.2), stored with the model as
+  `t2_crit_095`, `dcrit_095`
 - summary over the scan: pixels above each limit (count, share), and the
   mean prediction of the pixels within both limits and of the others
   (single-output models; the diagnostics are per pixel, not per output)
 - pixels with a non-finite statistic are left out of the counts, shares and
   means; shares use the finite pixels as denominator
-- `t2_crit_099` is NaN when N − A < 1, and `s0`/`dcrit_099` when K − A < 1
+- `t2_crit_095` is NaN when N − A < 1, and `s0`/`dcrit_095` when K − A < 1
   or N − A₀ − A < 1 (as in `sample-set-model-run-contract_v3.md` §7.5); an
   undefined (NaN) limit means no pixel is counted above it.
   `score_variances` may be NaN (a component without variance), and then
@@ -410,7 +411,7 @@ Inputs, all stored with the model (an input that is missing or not
 finite counts as missing, and a run without one has no interval of that
 kind, and says so):
 
-- *A* `n_components`, T²Crit `t2_crit_099` and DCrit `dcrit_099` from
+- *A* `n_components`, T²Crit `t2_crit_095` and DCrit `dcrit_095` from
   `prediction_model` (with *N* `n_train`, the kept calibration pixels, behind
   the score variances)
 - *R* the metric `n_rois`, the calibration ROIs
@@ -463,7 +464,7 @@ pixel fit.
   is singular (rank below A, e.g. collinear ROI scores)
 - h̄ = 1/R′ + d² / (R′ − 1); half-width q · s · √(1 + h̄)
 - NaN without a kept pixel, with R′ − A < 1, or when d² is above the
-  ROI-level limit A(R′ − 1)/(R′ − A) · F(0.99; A, R′ − A) (outside the
+  ROI-level limit A(R′ − 1)/(R′ − A) · F(0.95; A, R′ − A) (outside the
   model at the ROI level). DModX is judged per pixel (the exclusion and the
   shares), not for the mean
 - the mean interval follows the pixel exclusion, like the mean: the
@@ -510,7 +511,7 @@ Per ROI and model, over its pixels:
   predictions by the mean), median, standard deviation (n − 1; NaN for one
   pixel), and 5 % and 95 % percentiles (linear interpolation, the
   `numpy.percentile` default), and the mean DModXPS and T²PS; over the valid
-  pixels, the share above DCrit and above T²Crit at 0.99 (the exclusion does
+  pixels, the share above DCrit and above T²Crit at 0.95 (the exclusion does
   not change these shares). An ROI with no kept pixel has no value
 - if the ROI has a value for the model's target: the residual (mean −
   value). Per model, over the predicted ROIs (the chosen dataset or all)
@@ -521,7 +522,7 @@ Per ROI and model, over its pixels:
 above the limit at a chosen level are excluded. The limit is
 `dmodx_limit(n_train, K, A, level, centred=True)` with the run's stored
 `n_train`, *K* the band count on the model's axis (after a band selection)
-and *A* its components; at 0.99 it is the stored DCrit. DModXPS is
+and *A* its components; at 0.95 it is the stored DCrit. DModXPS is
 unweighted and compared with this unweighted DCrit, as in Applicability
 Diagnostics. The default comes from the run's fit specification: on at
 `exclusion/level` when `exclusion/method = dmodx`, off otherwise; its
@@ -531,7 +532,7 @@ predicting again.
 
 For comparison, the 10th, 50th and 90th percentiles of the calibration ROIs'
 stored shares of pixels above DCrit (`roi_share_above_dcrit`, §7.5 of the
-model-run contract) are kept with the result, at level 0.99 only (the
+model-run contract) are kept with the result, at level 0.95 only (the
 calibration share uses calibration DModX and the drawn pixels); a prediction ROI
 whose share is above the 90th percentile is marked as unusual. Unavailable
 for runs without it.
@@ -655,7 +656,7 @@ Required behavior:
 - multi-output predictions must expose an explicit output/target selector before
   display
 - a layer selector shows the prediction, DModXPS or T²PS; on the diagnostics
-  layers the pixels above the 0.99 limit are marked and their share is shown
+  layers the pixels above the 0.95 limit are marked and their share is shown
 - with the interval inputs, a Prediction interval layer shows the pixel
   half-width at 0.95 (Prediction intervals); pixels without an interval are
   marked as outside the model, and the median half-width and the share

@@ -22,6 +22,7 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from ..validation import bias, r2_score, rmsecv
+from ..validation.outliers import LIMIT_LEVEL
 from ._plot_grid import PlotGrid, PlotPage, PlotSlot
 from ._plot_help import MODEL_PLOT_HELP
 from ._plot_panel import PlotColumn, PlotSpec, PlotTable, RoiPoints, draw_placeholder
@@ -812,8 +813,8 @@ def _table_selectivity(payload: Any) -> PlotTable:
 
 #: Share of the pixels the distance histograms show bin by bin; the rest is one overflow bar.
 _SHOWN_QUANTILE = 99.5
-#: The share of training pixels expected above a 0.99 limit.
-_EXPECTED_ABOVE = 0.01
+#: The share of training pixels expected above the limit in use (0.95: 5 %).
+_EXPECTED_ABOVE = 1.0 - LIMIT_LEVEL
 
 
 def _histogram(values: Any) -> tuple[np.ndarray, np.ndarray, int, float]:
@@ -882,7 +883,7 @@ def _distance_spec(key: str, limit_key: str, plot_id: str, title: str, xlabel: s
         if limit is not None and np.isfinite(float(limit)):  # NaN: not defined, not drawn
             ax.axvline(float(limit), color=colors["fg"], linewidth=1.0, linestyle="--")
             share = float(np.mean(values > float(limit)))
-            lines[:0] = [f"limit 0.99: {float(limit):.3g}",
+            lines[:0] = [f"limit 0.95: {float(limit):.3g}",
                          f"above: {share:.1%} ({_EXPECTED_ABOVE:.0%} expected)".replace(
                              "%", " %")]
         if lines:
@@ -902,7 +903,7 @@ def _distance_spec(key: str, limit_key: str, plot_id: str, title: str, xlabel: s
             metadata["last_row"] = f"pixels above {start:.6g}, up to {largest:.6g}"
         limit = payload.get(limit_key)
         if limit is not None:
-            metadata["limit_099"] = f"{float(limit):.6g}"
+            metadata["limit_095"] = f"{float(limit):.6g}"
         return PlotTable(columns=(PlotColumn("bin_start", np.asarray(starts)),
                                   PlotColumn("bin_end", np.asarray(ends)),
                                   PlotColumn("pixel_count", np.asarray(pixel_counts))),
@@ -963,13 +964,13 @@ def _render_roi_distance(fig: Figure, payload: Any, colors: Mapping[str, str]
                    edgecolors=colors["ax_bg"], linewidths=0.9,
                    label="T² > limit")
     ax.axhline(_EXPECTED_ABOVE * 100.0, color=GUIDE_COLOR, linewidth=0.9, linestyle="--",
-               label="expected 1 %")
+               label=f"expected {_EXPECTED_ABOVE:.0%}".replace("%", " %"))
     ax.set_xticks(x)
     ax.set_xticklabels(_roi_labels(payload, ids), rotation=60, ha="right", fontsize=7)
     ax.set_xlim(0.3, dmodx.size + 0.7)
     _legend(ax, colors, loc="upper right")
     _label(ax, "ROI, from the largest DModX share (bar color: target value)",
-           "Pixels above the 0.99 limit (%)", colors)
+           "Pixels above the 0.95 limit (%)", colors)
     return [RoiPoints(ax, x, dmodx * 100.0, ids)]
 
 
@@ -984,8 +985,8 @@ def _table_roi_distance(payload: Any) -> PlotTable:
     if t2 is not None:
         columns.append(PlotColumn("t2_share_above_percent", t2 * 100.0))
     return PlotTable(columns=tuple(columns),
-                     metadata={"limits": "0.99 limits of the calibration pixels",
-                               "expected_percent": "1",
+                     metadata={"limits": "0.95 limits of the calibration pixels",
+                               "expected_percent": "5",
                                "bar_colour": "target value of the ROI"})
 
 
@@ -1023,9 +1024,9 @@ _SPECS = (
              _render_per_component, _table_per_component, empty_text=_EMPTY),
     PlotSpec("model.r2_pixels", "R²X and R²Y vs components, per pixel", _render_r2_pixels,
              _table_r2_pixels, empty_text=_EMPTY),
-    _distance_spec("dmodx", "dcrit_099", "model.dmodx", "Distance to the model (DModX), per pixel",
+    _distance_spec("dmodx", "dcrit_095", "model.dmodx", "Distance to the model (DModX), per pixel",
                    "Normalized DModX"),
-    _distance_spec("t2", "t2_crit_099", "model.t2", "Hotelling's T², per pixel", "T²"),
+    _distance_spec("t2", "t2_crit_095", "model.t2", "Hotelling's T², per pixel", "T²"),
     PlotSpec("model.roi_distance", "Pixels above the limits, per ROI", _render_roi_distance,
              _table_roi_distance, empty_text=_EMPTY),
 )

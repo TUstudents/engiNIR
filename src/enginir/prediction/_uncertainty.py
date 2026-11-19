@@ -5,7 +5,7 @@ model's RMSEE, q the two-sided Student t quantile with R − A − 1 degrees of
 freedom and h the leverage. A pixel's leverage comes from its T²PS with the
 ROIs as the independent samples, h = 1/R + T²PS / (R − 1); a ROI mean's from its mean scores against the
 training ROI scores, h̄ = 1/R′ + d² / (R′ − 1). Outside the model (above
-the 0.99 limits) there is no interval (NaN). Nothing here is stored.
+the 0.95 limits) there is no interval (NaN). Nothing here is stored.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from scipy.stats import f, t
 
 from .._checks import log_and_raise
 from .._logging import get_logger
+from ..validation.outliers import LIMIT_LEVEL
 
 logger = get_logger(__name__)
 
@@ -95,7 +96,7 @@ def roi_score_statistics(roi_scores: np.ndarray | None,
                        "use the pseudo-inverse of their covariance", a)
     return RoiScoreStatistics(
         mean=scores.mean(axis=0), cov_inv=np.linalg.pinv(cov), n_rois=r,
-        t2_crit=float(a * (r - 1) / (r - a) * f.ppf(0.99, a, r - a)))
+        t2_crit=float(a * (r - 1) / (r - a) * f.ppf(LIMIT_LEVEL, a, r - a)))
 
 
 def interval_inputs(metrics: dict[str, Any] | None, model_blob: dict[str, Any] | None,
@@ -112,7 +113,7 @@ def interval_inputs(metrics: dict[str, Any] | None, model_blob: dict[str, Any] |
     inputs = IntervalInputs(
         n_components=a, n_train=int(np.asarray(n_train)), n_rois=int(n_rois),
         pixel_rmsee=_number(metrics, "pixel_rmsee"), rmsee=_number(metrics, "rmsee"),
-        t2_crit=_number(blob, "t2_crit_099"), dcrit=_number(blob, "dcrit_099"),
+        t2_crit=_number(blob, "t2_crit_095"), dcrit=_number(blob, "dcrit_095"),
         roi_scores=roi_score_statistics(roi_scores, a))
     if inputs.pixel_rmsee is None and inputs.rmsee is None:
         return None

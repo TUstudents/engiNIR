@@ -68,7 +68,7 @@ class RoiPrediction:
     data); ``default_exclusion`` the DModX level of the run's own fit
     specification (``None``: no exclusion); ``training_share_range`` the
     10th, 50th and 90th percentile of the training ROIs' shares of pixels
-    above DCrit (0.99): their typical range and median (the extremes are
+    above DCrit (0.95): their typical range and median (the extremes are
     single unusual ROIs); ``intervals`` the run's prediction-interval inputs
     (``None`` without them).
     """
@@ -79,19 +79,19 @@ class RoiPrediction:
     pixels: dict[str, RoiPixels] = field(default_factory=dict)
     refused: dict[str, str] = field(default_factory=dict)
     limit_args: tuple[int, int, int] | None = None
-    dcrit_099: float | None = None
-    t2_crit_099: float | None = None
+    dcrit_095: float | None = None
+    t2_crit_095: float | None = None
     default_exclusion: float | None = None
     training_share_range: tuple[float, float, float] | None = None
     intervals: IntervalInputs | None = None
     wavelength_warnings: dict[str, str] = field(default_factory=dict)
 
     def dmodx_limit_at(self, level: float) -> float | None:
-        """DCrit at ``level`` for this model (the stored one at 0.99), or ``None``."""
+        """DCrit at ``level`` for this model (the stored one at 0.95), or ``None``."""
         if self.limit_args is None:
             return None
-        if abs(level - 0.99) < 1e-12 and self.dcrit_099 is not None:
-            return self.dcrit_099
+        if abs(level - 0.95) < 1e-12 and self.dcrit_095 is not None:
+            return self.dcrit_095
         n_train, n_bands, n_components = self.limit_args
         return dmodx_limit(n_train, n_bands, n_components, level, centred=True)
 
@@ -204,7 +204,7 @@ def predict_rois(
             projection = preflight.projection
             result.limit_args = (int((preflight.model_blob or {}).get("n_train", 0)) or 1,
                                  int(projection.x_mean.size), projection.n_components)
-            result.dcrit_099, result.t2_crit_099 = projection.dcrit, projection.t2_crit
+            result.dcrit_095, result.t2_crit_095 = projection.dcrit, projection.t2_crit
         else:
             t2 = dmodx = np.full(y.shape, np.nan, dtype=np.float32)
             scores = None
@@ -264,8 +264,8 @@ def roi_prediction_statistics(
             p05=float(np.percentile(values, 5)) if values.size else float("nan"),
             p95=float(np.percentile(values, 95)) if values.size else float("nan"),
             mean_dmodx=_nanmean(pixels.dmodx[kept]), mean_t2=_nanmean(pixels.t2[kept]),
-            share_above_dcrit=share(pixels.dmodx, prediction.dcrit_099),
-            share_above_t2crit=share(pixels.t2, prediction.t2_crit_099),
+            share_above_dcrit=share(pixels.dmodx, prediction.dcrit_095),
+            share_above_t2crit=share(pixels.t2, prediction.t2_crit_095),
             reference=reference,
             residual=None if reference is None or not values.size else mean - reference,
             interval=mean_half_width(
@@ -288,7 +288,7 @@ def _nanmean(values: np.ndarray) -> float:
 
 
 def _share_percentiles(shares: Any) -> tuple[float, float, float] | None:
-    """10th, 50th and 90th percentile of the training ROIs' share above DCrit (0.99)."""
+    """10th, 50th and 90th percentile of the training ROIs' share above DCrit (0.95)."""
     if shares is None or not np.size(shares):
         return None
     values = np.asarray(shares, dtype=np.float64)

@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from ._logging import get_logger
+from .validation.outliers import LIMIT_LEVEL
 
 if TYPE_CHECKING:
     from ._workflow import Model, Project
@@ -34,9 +35,11 @@ SEVERITIES = ("ok", "info", "attention", "blocking")
 #: The levels of a verdict, best first.
 VERDICT_LEVELS = ("good", "usable_with_care", "not_usable")
 
-#: Share of calibration pixels above the DModX limit that needs attention.
-#: The limit is the 0.99 level, so 1 % is expected; 5 % is five times that.
-DMODX_SHARE_ATTENTION = 0.05
+#: Share of calibration pixels expected above the DModX limit at LIMIT_LEVEL (0.95: 5 %).
+DMODX_SHARE_EXPECTED = 1.0 - LIMIT_LEVEL
+#: Share of calibration pixels above the DModX limit that needs attention: three times
+#: the expected share (15 % at 0.95; decided 2026-11-19).
+DMODX_SHARE_ATTENTION = 3 * DMODX_SHARE_EXPECTED
 #: Verdict thresholds on the cross-validated figures of merit per ROI
 #: (model-workspace-diagnostics contract, Verdict). RPD = SD / RMSECV.
 RPD_GOOD, RPD_MIN = 2.5, 1.5
@@ -382,7 +385,7 @@ def _distance_check(model: Model) -> Check | None:
     if overall <= DMODX_SHARE_ATTENTION:
         return Check("model.distance", "model", "ok",
                      f"{overall:.1%} of the calibration pixels of '{model.name}' are above "
-                     "the DModX limit (1 % expected).".replace("%", " %", 1),
+                     f"the DModX limit ({figure_text(100 * DMODX_SHARE_EXPECTED)} % expected).".replace("%", " %", 1),
                      model_run_id=run_id)
     ws = model.project.workspace
     by_dataset: dict[str, list[int]] = {}
@@ -401,7 +404,8 @@ def _distance_check(model: Model) -> Check | None:
     return Check(
         "model.distance", "model", "attention",
         f"{overall:.1%}".replace("%", " %") + f" of the calibration pixels of '{model.name}' "
-        f"are above the DModX limit (1 % expected){where}; the model does not describe them "
+        f"are above the DModX limit ({figure_text(100 * DMODX_SHARE_EXPECTED)} % expected){where}; "
+        "the model does not describe them "
         "well.", roi_ids=high, dataset_ids=worst, model_run_id=run_id,
         fix=Fix("show_page", "Open Distance Page", {"model_run_id": run_id,
                                                     "page": "Distance"}))

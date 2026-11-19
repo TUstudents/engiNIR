@@ -60,6 +60,7 @@ from ._theme import secondary_text_style
 from ._ui_helpers import (CollapsibleSection, FlowLayout, recipe_text, spectral_axis_label,
                           with_unit)
 from ..project._ids import now_iso
+from ..validation.outliers import LIMIT_LEVEL
 
 logger = get_logger(__name__)
 
@@ -742,7 +743,7 @@ class FitModelRunDialog(QDialog):
         self._level_spin.setRange(0.9, 0.999)
         self._level_spin.setDecimals(3)
         self._level_spin.setSingleStep(0.005)
-        self._level_spin.setValue(0.99)
+        self._level_spin.setValue(LIMIT_LEVEL)
         self._rounds_spin = QSpinBox()
         self._rounds_spin.setRange(1, 2)
         self._share_spin = QSpinBox()
@@ -1073,7 +1074,7 @@ def _component_payload(model_run: ModelRun, artifact: dict[str, Any]) -> dict[st
     for key in ("t2", "dmodx"):
         if artifact.get(key) is not None:
             payload[f"{key}_pixels"] = np.asarray(artifact[key], dtype=np.float32)
-    for key in ("t2_crit_099", "t2_crit_2_095", "t2_crit_2_099", "dcrit_099"):
+    for key in ("t2_crit_095", "t2_crit_099", "t2_crit_2_095", "t2_crit_2_099", "dcrit_095", "dcrit_099"):
         if artifact.get(key) is not None:
             payload[key] = float(np.asarray(artifact[key]))
     for key in ("roi_share_above_dcrit", "roi_share_above_t2crit"):  # per ROI, as stored

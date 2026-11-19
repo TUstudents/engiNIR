@@ -85,18 +85,18 @@ MODEL_PLOT_HELP: dict[str, str] = {
         "off shows where the spectra have no more structure."),
     "model.dmodx": (
         "Per pixel: the distance of each calibration pixel to the model (normalized DModX), "
-        "with its 0.99 limit. About 1 % of the pixels should lie above it; many more mean the "
+        "with its 0.95 limit. About 5 % of the pixels should lie above it; many more mean the "
         "pixels are not one homogeneous population. Bins go up to the 99.5th percentile; the "
         "gray bar holds the rest."),
     "model.t2": (
         "Per pixel: Hotelling's T² of each calibration pixel in the model's components, with "
-        "its 0.99 limit. About 1 % should lie above it; a long tail means extreme pixels such "
+        "its 0.95 limit. About 5 % should lie above it; a long tail means extreme pixels such "
         "as glints or edges. Bins go up to the 99.5th percentile; the gray bar holds the "
         "rest."),
     "model.roi_distance": (
         "Per ROI: the share of its calibration pixels above the DModX limit (bars, colored by "
         "target value) and above the T² limit (markers), sorted from the largest. The dashed "
-        "line is the 1 % a 0.99 limit expects. ROIs far above it have spectra the model does "
+        "line is the 5 % a 0.95 limit expects. ROIs far above it have spectra the model does "
         "not describe: another substrate, saturation, drift along a scan. Click a bar to "
         "select the ROI."),
 }

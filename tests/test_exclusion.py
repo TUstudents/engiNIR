@@ -91,6 +91,20 @@ def test_an_odd_pixel_is_excluded_and_stored(tmp_path):
     assert plain.excluded_pixels == {} and plain.metrics["n_excluded_pixels"] == 0
 
 
+def test_an_exclusion_without_a_level_uses_simcas_095(tmp_path):
+    """The default level is 0.95: DCrit of the fit before the exclusion, at 0.95, is stored."""
+    project = project_with_an_odd_pixel(tmp_path)
+    model = project.fit("API", n_components=2, cv=4, fit_spec={"exclusion": {"method": "dmodx"}})
+    assert model.ref.fit_specification.exclusion_level == 0.95
+    assert model.metrics["n_excluded_pixels"] > 0
+    n_drawn = int(model.metrics["n_pixels"])  # every drawn pixel, the excluded ones included
+    k = int(np.asarray(model.diagnostics["mean_spectrum"]).size)
+    with h5py.File(project.path, "r") as f:
+        dcrit = float(f[f"model_runs/{model.ref.model_run_id}/artifact_refs/exclusion"]
+                      .attrs["dcrit"])
+    assert dcrit == pytest.approx(dmodx_limit(n_drawn, k, 2, 0.95), rel=1e-6)
+
+
 def test_no_roi_loses_more_than_its_share(tmp_path):
     """A low level puts many pixels above DCrit; every ROI keeps at least 1 - max_fraction."""
     project = project_with_an_odd_pixel(tmp_path)

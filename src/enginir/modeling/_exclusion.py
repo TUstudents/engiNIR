@@ -18,7 +18,7 @@ from sklearn.pipeline import Pipeline
 from .._checks import log_and_raise
 from .._logging import get_logger
 from ..models import PCR, PLSRegression
-from ..validation.outliers import dmodx, dmodx_limit, modelling_power
+from ..validation.outliers import LIMIT_LEVEL, dmodx, dmodx_limit, modelling_power
 
 logger = get_logger(__name__)
 
@@ -88,7 +88,7 @@ class DModXExclusion(BaseEstimator):
     #: :func:`enginir.validation.cross_validate` passes the training rows.
     uses_sample_index = True
 
-    def __init__(self, estimator: Any = None, roi_index: Any = None, level: float = 0.99,
+    def __init__(self, estimator: Any = None, roi_index: Any = None, level: float = LIMIT_LEVEL,
                  rounds: int = 1, max_fraction: float = 0.2,
                  formula: str = "dmodx-1") -> None:
         self.estimator = estimator

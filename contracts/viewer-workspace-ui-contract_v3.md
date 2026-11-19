@@ -643,7 +643,7 @@ Required prediction-map interaction:
 - a per-ROI plot (a plot panel): each ROI's mean with its 5–95 % range,
   the value at each mean and the target value when present, ROIs in name
   order; a ring marks a tablet with a larger share of pixels above DCrit
-  (0.99) than 90 % of the model's calibration ROIs (like for like; the shares
+  (0.95) than 90 % of the model's calibration ROIs (like for like; the shares
   and the excluded counts are in the ROI table and the CSV); a bar selects
   its ROI; with several models, one bar per ROI and
   model, grouped by ROI and colored by model. Its CSV is the per-ROI table
@@ -667,7 +667,7 @@ Required prediction-map interaction:
 - multi-output prediction artifacts must expose an explicit target/output
   selector before the map is rendered
 - a layer selector shows the prediction, the distance to the model (DModXPS)
-  or Hotelling T² (T²PS); on these two the pixels above the 0.99 limit are
+  or Hotelling T² (T²PS); on these two the pixels above the 0.95 limit are
   marked and the share above is shown (`prediction-runtime-contract_v3.md`,
   Applicability diagnostics)
 - a Prediction interval layer shows the ± half-width of each pixel's 0.95

@@ -21,7 +21,7 @@ What engiNIR guarantees
   instrument format, number of bands, reference correction or signal unit is
   not predicted.
 - **Every prediction states its applicability.** Each pixel is tested against
-  the model's DModXPS and T²PS limits (0.99) and gets a 95 % prediction
+  the model's DModXPS and T²PS limits (0.95) and gets a 95 % prediction
   interval; outside the model it gets no interval (:doc:`model_plots`).
 - **Records are traceable and never overwritten.** One project file links
   data, references, ROIs, recipes and models by stable ids, with the engiNIR

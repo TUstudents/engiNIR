@@ -1306,7 +1306,7 @@ class Model:
         -------
         Prediction
             The prediction map and vector, the DModXPS and T²PS maps with
-            their 0.99 limits and summary, and the provenance.
+            their 0.95 limits and summary, and the provenance.
         """
         project, ws = self.project, self.project.workspace
         domain = ws.signal_domains[self.ref.signal_domain_id]
@@ -1345,7 +1345,7 @@ class Prediction:
     ``map``/``y_pred`` are the predictions, ``dmodx_map``/``t2_map`` the
     applicability diagnostics (``None`` for a model fitted before engiNIR 1.3:
     refit it), :meth:`interval_map` the prediction intervals,
-    ``diagnostics`` the 0.99 limits and the summary, and ``provenance`` the
+    ``diagnostics`` the 0.95 limits and the summary, and ``provenance`` the
     record also written to the log.
     """
 
@@ -1381,7 +1381,7 @@ class Prediction:
 
         The interval is ŷ ± q · s · √(1 + h) with s the model's pixel RMSEE
         and h the leverage from T²PS (ASTM E1655); pixels outside the model
-        (above DCrit or T²Crit at 0.99) are NaN. ``None`` when the model has
+        (above DCrit or T²Crit at 0.95) are NaN. ``None`` when the model has
         no interval inputs (prediction-runtime contract, Prediction
         Intervals). Computed on demand, never stored.
         """
@@ -1389,7 +1389,7 @@ class Prediction:
 
     @property
     def diagnostics(self) -> dict[str, Any] | None:
-        """Limits (``t2_crit_099``, ``dcrit_099``) and summary over the scan."""
+        """Limits (``t2_crit_095``, ``dcrit_095``) and summary over the scan."""
         return self.result.diagnostics
 
     @property
