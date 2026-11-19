@@ -1,6 +1,8 @@
 # Plan: SIMCA's 0.95 limits, and predicted ROIs outside the model (engiNIR 1.7.0rc3)
 
-Status: decided (user, 2026-11-18/19): D1 to D9 below. Not started.
+Status: decided (user, 2026-11-18/19): D1 to D9 below. Implemented on branch
+`simca-levels` (aa5de48 Phases 1–2, 096aa6f Phase 3, 5533682 Phase 4, 4fb4520
+Phase 5); not yet released.
 
 ## Goal
 
