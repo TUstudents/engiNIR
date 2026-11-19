@@ -1,7 +1,8 @@
 # Plan: engiNIR 1.7.3
 
-Status: decided (user, 2026-11-19): D1 to D8 below. Phases 1 to 3 done; Phase 4
-(the release) waits for the go-ahead.
+Status: decided (user, 2026-11-19): D1 to D8 below. Phases 1 to 3 done, with
+the ROI workflow (`plans/roi-workflow.md`) and later requests; Phase 4 (the
+release) prepared 2026-11-19.
 
 1.7.3 takes the small fixes and the model and storage items of the 1.7.2
 backlog (`plans/backlog-1.7.2.md`), and (user, 2026-11-19) the ROI workflow

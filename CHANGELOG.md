@@ -1,6 +1,22 @@
 # Changelog
 
-## Unreleased
+## 1.7.3 (2026-11-19)
+
+Smaller and faster project files (Blosc), ROIs added from anywhere and named
+after their dataset, the white level of the Helios setting, and the rest of
+the 1.7.2 backlog. The format stays `enginir-1.7`.
+
+Upgrading from 1.7.2:
+
+- **Projects** open as before. A project saved by 1.7.3 stores its new
+  arrays with Blosc and needs engiNIR 1.7.3 or newer (or `hdf5plugin`) to be
+  read: update every computer that opens it.
+- **Scripts** use `DatasetRecord` and `.record` (was `DatasetRef` and
+  `.ref`); there are no aliases.
+- **New datasets** without levels get the white level 3100 (was 3500). Do
+  not mix them into one calibration set with datasets of the same camera
+  added at 3500; set the level in Tools > Preferences or pass
+  `white_level=` to keep 3500.
 
 ### Changed
 
