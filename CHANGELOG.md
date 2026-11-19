@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.7.1 (unreleased)
+## 1.7.1 (2026-11-19)
 
 A fast start that never waits for a network drive. A bugfix release: the
 project format and the API are unchanged.
