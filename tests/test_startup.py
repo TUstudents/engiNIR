@@ -91,6 +91,10 @@ _WARM_THEN_OPEN = textwrap.dedent("""
     QApplication.processEvents()
     print(json.dumps({"new": sorted(set(sys.modules) - before),
                       "opened": type(viewer).__name__, "done": bool(done)}))
+    # Exit as the launcher does (run()): a warm-up import still running when Python
+    # shuts down fails ("can't register atexit after shutdown").
+    from enginir.viewer._jobs import wait_for_running_jobs
+    wait_for_running_jobs(60)
 """)
 
 
@@ -105,6 +109,7 @@ def _open_after_warmup(tmp_path, mode):
            "USERPROFILE": str(home), "XDG_CONFIG_HOME": str(home / ".config"),
            "APPDATA": str(home / "AppData"), "ENGINIR_LOG_FILE": str(tmp_path / "viewer.log")}
     result = _run([sys.executable, "-c", _WARM_THEN_OPEN, str(path), mode], env=env, timeout=90)
+    assert "Traceback" not in result.stderr, result.stderr[-4000:]  # e.g. an import at exit
     return json.loads(result.stdout.strip().splitlines()[-1])
 
 
