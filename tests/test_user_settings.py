@@ -80,6 +80,8 @@ def test_the_window_applies_preferences(qapp, tmp_path, monkeypatch):
     project.add_dataset(tmp_path / "scan.h5")
     window = open_project(project.path)
     try:
+        # The Fit settings and the Predict page get the defaults when first shown (D8).
+        window.show_step("model")
         form = window._modeling_view.fit_form
         assert form is not None and form._components_spin.value() == 3
         assert form._group_by_combo.currentData() == "sample"
@@ -144,7 +146,7 @@ def test_the_drive_mapping_shown_is_the_one_applied(qapp, monkeypatch):
 
     from enginir.project._data_paths import drive_mapped
 
-    monkeypatch.setattr(prefs, "wsl_mount_root", lambda: "/wsl/")
+    monkeypatch.setattr("enginir.project._data_paths.wsl_mount_root", lambda: "/wsl/")
     dialog = prefs.PreferencesDialog(prefs.Preferences())
     assert dialog.drive_mapping.text() == prefs.drive_mapping_text(), "this platform's rule"
     shown = prefs.drive_mapping_text(windows=False)

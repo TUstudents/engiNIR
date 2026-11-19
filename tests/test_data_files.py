@@ -185,6 +185,7 @@ def test_the_viewer_tells_repeated_file_names_apart(qapp, tmp_path):
     from enginir import Project
     from enginir.io import save_hdf5
     from enginir.viewer import open_viewer
+    from tests._qt import wait_until
 
     paths = []
     for folder in ("run1", "run2"):
@@ -198,6 +199,8 @@ def test_the_viewer_tells_repeated_file_names_apart(qapp, tmp_path):
         project.add_dataset(path).add_roi(name, frames=(0, 1), rows=(0, 1), values={"API": 1.0})
     window = open_viewer(paths[1], project=project.path)
     try:
+        # The files are looked up in the background; the list says so until then (D5).
+        wait_until(qapp, lambda: not window.project_state.data_files_unknown())
         combo = window._data_file_combo
         items = {combo.itemText(i): combo.itemData(i, 3) for i in range(combo.count())
                  if isinstance(combo.itemData(i), str) and combo.itemData(i) != "__add_data_file__"}
@@ -555,3 +558,72 @@ def test_a_dataset_label_is_stored_shown_and_tolerated_when_missing(tmp_path):
     reopened = Project.open(project.path)
     assert reopened.workspace.datasets[a.ref.dataset_id].label == ""
     assert reopened.workspace.datasets[b.ref.dataset_id].label == ""
+
+
+def test_opening_a_project_never_looks_for_data_files_on_the_ui_thread(qapp, tmp_path,
+                                                                       monkeypatch):
+    """D5 (plan startup-speed-1.7.1): a slow drive delays only the background lookup.
+
+    The window opens with the files "checking…"; the selector, the checks and the last
+    shown file follow when the lookup has answered, and nothing looks again.
+    """
+    import threading
+
+    from enginir.viewer import open_project
+    from enginir.viewer._project_settings import save_last_data_file
+    from tests._qt import wait_until
+
+    drive = tmp_path / "drive"
+    drive.mkdir()
+    paths = [drive / "present.h5", drive / "gone.h5"]
+    project = Project.create(tmp_path / "p.h5")
+    project.add_target("API", unit="%")
+    ids = []
+    for path, name in zip(paths, ("A1", "B1")):
+        save_hdf5(str(path), np.full((8, 4, 6), 1000, np.uint16), np.linspace(1000.0, 1500.0, 6))
+        dataset = project.add_dataset(path)
+        dataset.add_roi(name, frames=(0, 1), rows=(0, 1), values={"API": 1.0})
+        ids.append(dataset.ref.dataset_id)
+    paths[1].unlink()
+    present_id = ids[0]
+    save_last_data_file(str(project.workspace.project_meta["project_id"]), present_id)
+
+    release = threading.Event()
+    lookups: list[tuple[str, str]] = []
+    real_isfile = os.path.isfile
+
+    def isfile(path):
+        if str(drive) in os.fspath(path):
+            lookups.append((threading.current_thread().name, os.fspath(path)))
+            release.wait(10)  # a network drive that answers slowly
+        return real_isfile(path)
+
+    monkeypatch.setattr(os.path, "isfile", isfile)
+    window = open_project(str(project.path))
+    try:
+        window._explore_tabs.setCurrentWidget(window._data_file_page)  # shows the last file
+        settle = time.monotonic() + 0.5  # the checks run from a 150 ms timer
+        while time.monotonic() < settle:
+            qapp.processEvents()
+            time.sleep(0.01)
+        main = threading.main_thread().name
+        assert [path for thread, path in lookups if thread == main] == [], "looked up on the UI"
+        combo = window._data_file_combo
+        assert any("checking" in combo.itemText(i) for i in range(combo.count()))
+        assert not any(c.check_id.startswith("data.files") for c in window._checks_panel.checks())
+        release.set()
+        wait_until(qapp, lambda: not window.project_state.data_files_unknown())
+        wait_until(qapp, lambda: any(c.check_id == "data.files_missing"
+                                     for c in window._checks_panel.checks()))
+        texts = [combo.itemText(i) for i in range(combo.count())]
+        assert any(text.endswith("(not found)") for text in texts), texts
+        assert not any("checking" in text for text in texts), texts
+        wait_until(qapp, lambda: window._eda_view.shown_dataset_id() == present_id)
+        assert [path for thread, path in lookups if thread == main] == [], "looked up on the UI"
+        count = len(lookups)
+        window.refresh_checks()
+        window._refresh_data_file_choices()
+        assert len(lookups) == count, "each file is looked up once per session"
+    finally:
+        release.set()
+        window.close()

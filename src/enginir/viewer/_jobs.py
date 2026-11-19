@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import atexit
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -12,8 +13,6 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import QLabel, QProgressBar, QVBoxLayout, QWidget
 
 from .._logging import get_logger
-from ..modeling import BandProposalCancelledError
-from ..prediction import PredictionCancelledError
 from ._theme import secondary_text_style
 
 if TYPE_CHECKING:
@@ -21,8 +20,24 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-#: Raised when the user cancels a job: reported to the caller, logged as info, not as a failure.
-_CANCELLED = (BandProposalCancelledError, PredictionCancelledError)
+
+#: The library's cancellation errors, by the module that defines them: reported to the
+#: caller and logged as info, not as a failure.
+_CANCELLATIONS = (("enginir.modeling._bands", "BandProposalCancelledError"),
+                  ("enginir.prediction._service", "PredictionCancelledError"))
+
+
+def _is_cancellation(exc: BaseException) -> bool:
+    """Whether ``exc`` is a cancellation, without importing anything.
+
+    A module that is not loaded cannot have raised its error, so the classes are
+    looked up in ``sys.modules`` (an import here could run during shutdown).
+    """
+    for module_name, class_name in _CANCELLATIONS:
+        cls = getattr(sys.modules.get(module_name), class_name, None)
+        if isinstance(cls, type) and isinstance(exc, cls):
+            return True
+    return False
 
 
 class BackgroundWorker(QObject):
@@ -42,11 +57,11 @@ class BackgroundWorker(QObject):
     def run(self) -> None:
         try:
             result = self._fn()
-        except _CANCELLED as exc:
-            logger.info("Background viewer job canceled: {}", exc)
-            self.failed.emit(str(exc))
         except Exception as exc:
-            logger.exception("Background viewer job failed: {}", exc)
+            if _is_cancellation(exc):
+                logger.info("Background viewer job canceled: {}", exc)
+            else:
+                logger.exception("Background viewer job failed: {}", exc)
             self.failed.emit(str(exc))
         else:
             self.succeeded.emit(result)

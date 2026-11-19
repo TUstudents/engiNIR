@@ -232,7 +232,7 @@ def test_open_viewer_sets_cube_path_and_can_attach_project(tmp_path, qapp, monke
     create_project(project_path)
 
     monkeypatch.setattr(
-        "enginir.viewer.load_spectra",
+        "enginir.viewer._open.load_spectra",
         lambda path, **kwargs: SpectralData(cube, wavelengths, {}),
     )
 
@@ -243,7 +243,7 @@ def test_open_viewer_sets_cube_path_and_can_attach_project(tmp_path, qapp, monke
 
 
 def test_open_viewer_logs_project_attach_failure_before_reraise(tmp_path, qapp, monkeypatch):
-    import enginir.viewer as viewer_mod
+    import enginir.viewer._open as viewer_mod
 
     class DummyViewer:
         def __init__(self) -> None:
@@ -274,7 +274,7 @@ def test_open_viewer_logs_project_attach_failure_before_reraise(tmp_path, qapp, 
 
 
 def test_open_project_logs_failure_before_reraise(tmp_path, qapp, monkeypatch):
-    import enginir.viewer as viewer_mod
+    import enginir.viewer._open as viewer_mod
     import enginir.viewer._viewer as viewer_impl
 
     class DummyViewer:

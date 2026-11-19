@@ -258,3 +258,8 @@ def run() -> None:
         pass
     app = ensure_app()
     app.exec()
+    # Jobs still running (an import warm-up, a load) finish before the interpreter begins
+    # to shut down: an import or file read after that point raises or crashes.
+    from ._jobs import wait_for_running_jobs
+
+    wait_for_running_jobs()

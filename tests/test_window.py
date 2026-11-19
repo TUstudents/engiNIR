@@ -62,6 +62,7 @@ def _open(qapp, project):
 
 
 def _fit(qapp, window, n_components=1, **form):
+    window.show_step("model")  # the Fit settings are built when the step is first shown
     model = window._modeling_view
     fit_form = model.fit_form
     assert fit_form is not None
@@ -89,11 +90,15 @@ def test_every_workspace_action_is_a_menu_item_and_follows_its_button(qapp, laye
                           "Tools", "Help"]
         assert window.findChildren(type(window._workflow_bar)) == [window._workflow_bar], \
             "the workflow strip is the only bar: no toolbar of actions"
-        buttons = {button for _action, button in window._button_actions}
+        from enginir.viewer._viewer import _button_of
+
+        # A page built on first use gives its buttons through a function (D8).
+        pairs = [(action, _button_of(button)) for action, button in window._button_actions]
+        buttons = {button for _action, button in pairs}
         assert window._modeling_view._btn_fit_model in buttons
         assert window._prediction_view._btn_predict_rois in buttons
         assert window._eda_view._btn_roi_grid in buttons
-        for action, button in window._button_actions:
+        for action, button in pairs:
             button.setEnabled(False)
             window._sync_button_actions()
             assert not action.isEnabled(), action.text()
@@ -165,8 +170,9 @@ def test_the_fit_settings_dock_fits_without_a_dialog_and_marks_changes(qapp, lay
     window = _open(qapp, layers)
     try:
         model_view = window._modeling_view
-        form = model_view.fit_form
+        assert model_view.fit_form is None, "built when the Model step is first shown (D8)"
         window.show_step("model")
+        form = model_view.fit_form
         assert form is not None and form.embedded and form.isVisibleTo(window)
         assert form.parentWidget() is not None and not form.isWindow()
 
@@ -362,8 +368,8 @@ def test_the_fit_form_shows_the_selected_model_until_it_is_edited(qapp, layers):
     window = _open(qapp, layers)
     try:
         view = window._modeling_view
-        form = view.fit_form
         one = _fit(qapp, window, n_components=1)
+        form = view.fit_form
         form._snv.setChecked(True)
         two = _fit(qapp, window, n_components=2)
         assert form._components_spin.value() == 2 and form._snv.isChecked()
@@ -388,6 +394,7 @@ def test_a_fit_uses_the_forms_preprocessing_when_its_bands_differ_from_explore(q
     preview's other preprocessing into the form or the fit."""
     window = _open(qapp, layers)
     try:
+        window.show_step("model")
         form = window._modeling_view.fit_form
         form._snv.setChecked(True)  # the Explore preview has no SNV
         form._keep_edit.setText("1100-1500")
@@ -401,6 +408,7 @@ def test_a_fit_uses_the_forms_preprocessing_when_its_bands_differ_from_explore(q
         window.close()
     reopened = _open(qapp, Project.open(layers.path))  # an opened project shows its model
     try:
+        reopened.show_step("model")
         form = reopened._modeling_view.fit_form
         assert form._snv.isChecked() and form._keep_edit.text() == "1100-1500"
         assert not reopened._modeling_view.fit_settings_changed()
@@ -416,8 +424,8 @@ def test_the_fit_form_folds_and_keeps_fit_model_in_view(qapp, layers):
     try:
         window.resize(1536, 864)
         view = window._modeling_view
-        form = view.fit_form
         window.show_step("model")
+        form = view.fit_form
         qapp.processEvents()
         assert [form.section(key).expanded for key in
                 ("data", "preprocessing", "bands", "model", "validation", "fitting")] \
@@ -1221,3 +1229,80 @@ def test_a_refresh_does_not_bring_a_known_check_to_the_front_again(qapp, window)
     qapp.processEvents()
     assert "predict.rois_outside" in {check.check_id for check in window._checks}
     assert window._roi_table_in_front(), "the known prediction check raised the Checks tab"
+
+
+# -- The Model and Predict pages on first use (plan startup-speed-1.7.1, D8) -----------
+
+
+def _example_window(qapp, tmp_path):
+    from enginir._example import create_example_project
+    from enginir.viewer import open_project
+
+    window = open_project(str(create_example_project(tmp_path)))
+    window.resize(1600, 900)
+    window.show()
+    qapp.processEvents()
+    return window
+
+
+def test_the_fit_settings_and_the_predict_page_are_built_when_first_shown(qapp, tmp_path):
+    window = _example_window(qapp, tmp_path)
+    try:
+        view = window._modeling_view
+        assert view.fit_form is None and window._prediction_page is None, \
+            "a window that stays in Explore builds neither"
+        assert window._modeling_view.current_target() is not None, \
+            "the current target is there without the Model page (Explore and the ROI table)"
+        window.show_step("model")
+        form = view.fit_form
+        assert form is not None and form.isVisibleTo(window)
+        assert window._fit_footer is not None and window._fit_footer.isVisibleTo(window)
+        window.show_step("predict")
+        page = window._prediction_page
+        assert page is not None and window._workspace_tabs.currentWidget() is page
+        assert window._controls_dock.windowTitle() == "Prediction settings"
+        window.show_step("data")
+        window.show_step("model")
+        window.show_step("predict")
+        assert view.fit_form is form and window._prediction_view is page, "built once"
+        assert not window._fit_footer.isVisibleTo(window), "Fit Model shows with Model only"
+    finally:
+        window.close()
+
+
+def test_menus_and_fixes_reach_pages_that_were_never_shown(qapp, tmp_path, monkeypatch):
+    """Each way into the Model or Predict page builds it first: no fit dialog opens in
+    place of the Fit settings, and Predict ROIs opens its own dialog."""
+    from PyQt6.QtWidgets import QDialog
+
+    from enginir._guidance import Fix
+
+    opened: list[str] = []
+    monkeypatch.setattr(QDialog, "exec", lambda self: opened.append(type(self).__name__) or 0)
+    window = _example_window(qapp, tmp_path)
+    try:
+        load = next(action for action in window._menu_model.actions()
+                    if action.text() == "Load Model Settings")
+        window._menu_model.aboutToShow.emit()
+        load.trigger()
+        form = window._modeling_view.fit_form
+        assert form is not None and opened == [], opened
+        assert not window._modeling_view.fit_settings_changed(), "the model's settings"
+        predict = next(action for action in window._menu_predict.actions()
+                       if action.text() == "Predict ROIs...")
+        window._menu_predict.aboutToShow.emit()
+        assert window._prediction_page is not None, "the Predict menu builds its page"
+        predict.trigger()
+        assert opened == ["PredictRoisDialog"], opened
+    finally:
+        window.close()
+    window = _example_window(qapp, tmp_path)
+    try:
+        target_id = next(iter(window.project_state.targets))
+        window.run_fix(Fix("fit", "Fit", {"target_id": target_id}))
+        form = window._modeling_view.fit_form
+        assert form is not None and form._target_combo.currentData() == target_id
+        window.run_fix(Fix("predict_rois", "Predict"))
+        assert window._prediction_page is not None
+    finally:
+        window.close()

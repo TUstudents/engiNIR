@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, TypeVar
 from collections import Counter
 import os
 import time
 
 import numpy as np
+from PyQt6 import sip
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -33,6 +35,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QToolButton,
     QTabWidget,
+    QAbstractButton,
     QAbstractItemView,
     QMenu,
     QMenuBar,
@@ -78,6 +81,7 @@ from ._state import (
     DEFAULT_WHITE_LEVEL,
     ProjectState,
     ViewerState,
+    look_up_data_files,
     signal_label,
 )
 from ._panels import (
@@ -155,6 +159,36 @@ __all__ = [
 # ------------------------------------------------------------------
 # LogPanel - dock widget for loguru output
 # ------------------------------------------------------------------
+
+
+def _button_of(button: QAbstractButton | Callable[[], QAbstractButton]) -> QAbstractButton:
+    """The button itself, or the one a function returns (a page built on first use)."""
+    return button if isinstance(button, QAbstractButton) else button()
+
+
+def _narrow_combos(widget: QWidget) -> None:
+    """Long choices ("Auto (7 round-robin folds, ...)") must not widen the settings column."""
+    for combo in widget.findChildren(QComboBox):
+        combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        combo.setMinimumContentsLength(8)
+
+
+def _apply_fit_defaults(form: Any, preferences: Any) -> None:
+    """The user's defaults (Tools > Preferences) in a new Fit settings form."""
+    form._model_type_combo.setCurrentText(preferences.model_type)
+    form._components_spin.setValue(preferences.n_components)
+    form._auto_check.setChecked(preferences.auto_components)
+    for combo, value in ((form._group_by_combo, preferences.hold_out),
+                         (form._x_scaling_combo, preferences.x_scaling),
+                         (form._y_scaling_combo, preferences.y_scaling)):
+        if combo.findData(value) >= 0:
+            combo.setCurrentIndex(combo.findData(value))
+
+
+def _apply_predict_defaults(page: Any, preferences: Any) -> None:
+    """The user's defaults (Tools > Preferences) in a new Predict page."""
+    page._exclusion_level.setValue(preferences.dmodx_level)
+    page._exclusion_check.setChecked(preferences.exclude_dmodx)
 
 
 class _ColumnScrollArea(QScrollArea):
@@ -474,12 +508,23 @@ class HSIViewer(QMainWindow):
         self._workspace_content_stack.insertWidget(index, new_page)
         old_page.deleteLater()
 
+    def _apply_plot_help(self) -> None:
+        """Show the plots' help buttons as the preferences say (also on pages built later)."""
+        preferences = getattr(self, "_preferences", None)
+        if preferences is None:
+            return
+        for frame in self.findChildren(PlotFrame):
+            button = getattr(frame, "_help_button", None)
+            if button is not None:
+                button.setVisible(preferences.plot_help)
+
     def _ensure_model_content_page(self) -> None:
         if self._model_diagnostics_widget is not None:
             return
         old_page = self._model_content_page
         self._model_content_page = self._build_model_content_page()
         self._replace_workspace_content_page(old_page, self._model_content_page)
+        self._apply_plot_help()
         if self._model_diagnostics_widget is not None:
             self._model_diagnostics_widget.roi_selected.connect(self._on_canvas_roi_selected)
             grid = self._model_diagnostics_widget.grid
@@ -495,6 +540,7 @@ class HSIViewer(QMainWindow):
         old_page = self._predict_content_page
         self._predict_content_page = self._build_predict_content_page()
         self._replace_workspace_content_page(old_page, self._predict_content_page)
+        self._apply_plot_help()
         saved = layout_settings.load_maximized().get("Predict")
         if saved in self._predict_graph_panel.panels:
             self._predict_graph_panel.maximize(saved)
@@ -979,8 +1025,13 @@ class HSIViewer(QMainWindow):
         self._controls_dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable)
 
     def _build_controls_panel(self) -> None:
+        # The Model page's view holds the current target (Explore and the ROI table use
+        # it), so it exists from the start; its Fit settings form and the Predict page
+        # are built when first shown (plan startup-speed-1.7.1, D8).
         self._modeling_view = ModelingView(self.state, self.project_state, parent=self)
-        self._prediction_view = PredictionView(self.project_state, parent=self)
+        self._prediction_page: PredictionView | None = None
+        #: The Predict tab's widget: a placeholder until the page is built, then the page.
+        self._predict_tab: QWidget = QWidget()
         self._eda_view = EDAView(
             self.state,
             self.project_state,
@@ -1000,10 +1051,9 @@ class HSIViewer(QMainWindow):
         self._workspace_tabs.setObjectName("WorkspaceTabs")
         self._workspace_tabs.addTab(self._eda_view, "Explore")
         self._workspace_tabs.addTab(self._modeling_view, "Model")
-        self._workspace_tabs.addTab(self._prediction_view, "Predict")
+        self._workspace_tabs.addTab(self._predict_tab, "Predict")
         _require_qt_object(self._workspace_tabs.tabBar(), "workspace tab bar").hide()
         self._workspace_tabs.setDocumentMode(True)
-        self._modeling_view.embed_fit_settings()
 
         container = QWidget()
         outer = QVBoxLayout(container)
@@ -1012,11 +1062,7 @@ class HSIViewer(QMainWindow):
         outer.addWidget(self._workspace_tabs)
 
         # One column of settings; it scrolls vertically when the window is low.
-        for combo in container.findChildren(QComboBox):
-            # Long choices ("Auto (7 round-robin folds, ...)") must not widen the column.
-            combo.setSizeAdjustPolicy(
-                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-            combo.setMinimumContentsLength(8)
+        _narrow_combos(container)
         scroll = _ColumnScrollArea()
         scroll.setWidget(container)
         scroll.setWidgetResizable(True)
@@ -1029,17 +1075,69 @@ class HSIViewer(QMainWindow):
         column_layout.setContentsMargins(0, 0, 0, 0)
         column_layout.setSpacing(0)
         column_layout.addWidget(scroll, 1)
-        # Fit Model stays in view under the scrolling settings (Model step only).
-        self._fit_footer = self._modeling_view.take_fit_footer()
-        if self._fit_footer is not None:
-            column_layout.addWidget(self._fit_footer)
-            self._fit_footer.setVisible(False)
-            self._workspace_tabs.currentChanged.connect(self._sync_fit_footer)
+        # Fit Model stays in view under the scrolling settings (Model step only); the
+        # row comes with the Fit settings form (_ensure_fit_settings).
+        self._settings_column = column_layout
+        self._fit_footer: QWidget | None = None
+        self._workspace_tabs.currentChanged.connect(self._sync_fit_footer)
         self._controls_dock.setWidget(column)
         self._configure_controls_dock_height()
         # The Settings column has the right side to itself; no plot covers it.
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._controls_dock)
         self._refresh_workspace_content_pages()
+
+    @property
+    def _prediction_view(self) -> PredictionView:
+        """The Predict page, built on first use (plan startup-speed-1.7.1, D8)."""
+        page = self._prediction_page
+        return self._build_prediction_page() if page is None else page
+
+    def _build_prediction_page(self) -> PredictionView:
+        started = time.perf_counter()
+        page = PredictionView(self.project_state, parent=self)
+        self._prediction_page = page
+        # The page takes the placeholder's tab, without a tab change (the shown step stays).
+        tabs, placeholder = self._workspace_tabs, self._predict_tab
+        index, current = tabs.indexOf(placeholder), tabs.currentIndex()
+        tabs.blockSignals(True)
+        try:
+            tabs.removeTab(index)
+            tabs.insertTab(index, page, "Predict")
+            tabs.setCurrentIndex(current)
+        finally:
+            tabs.blockSignals(False)
+        self._predict_tab = page
+        placeholder.deleteLater()
+        _narrow_combos(page)
+        page.results_changed.connect(self.schedule_workspace_content_refresh)
+        page.results_changed.connect(self._update_predict_histogram)
+        page.set_data_file_adder(self._add_prediction_data_file)
+        page._service_status.status_changed.connect(self.schedule_workspace_content_refresh)
+        preferences = getattr(self, "_preferences", None)
+        if preferences is not None:
+            _apply_predict_defaults(page, preferences)
+        logger.debug("Predict page built in {:.3f}s", time.perf_counter() - started)
+        return page
+
+    def _ensure_fit_settings(self) -> None:
+        """Build the Model page's Fit settings form, once (plan startup-speed-1.7.1, D8)."""
+        view = self._modeling_view
+        if view.fit_form is not None:
+            return
+        started = time.perf_counter()
+        preferences = getattr(self, "_preferences", None)
+        view.embed_fit_settings(
+            prepare=None if preferences is None
+            else lambda form: _apply_fit_defaults(form, preferences))
+        _narrow_combos(view)
+        form = view.fit_form
+        if form is not None:
+            form.setVisible(True)  # Qt shows no child added to a visible widget by itself
+        self._fit_footer = view.take_fit_footer()
+        if self._fit_footer is not None:
+            self._settings_column.addWidget(self._fit_footer)
+        self._sync_fit_footer()
+        logger.debug("Fit settings built in {:.3f}s", time.perf_counter() - started)
 
     def _sync_fit_footer(self, *_args: Any) -> None:
         """The Fit Model row shows with the Model step."""
@@ -1132,7 +1230,7 @@ class HSIViewer(QMainWindow):
             project_label = os.path.basename(self.project_state.project_path)
         tabs = getattr(self, "_workspace_tabs", None)
         current = None if tabs is None else tabs.currentWidget()
-        if tabs is not None and current is self._prediction_view:
+        if tabs is not None and current is self._predict_tab:
             # Predict: what the shown map is (the hover readout replaces it on the map).
             self._status_label.setText(
                 f"Project: {project_label} | {self._prediction_view.status_text()}")
@@ -1204,18 +1302,16 @@ class HSIViewer(QMainWindow):
         self._modeling_view._service_status.status_changed.connect(
             self.schedule_workspace_content_refresh
         )
-        self._prediction_view.results_changed.connect(self.schedule_workspace_content_refresh)
-        self._prediction_view.results_changed.connect(self._update_predict_histogram)
-        self._prediction_view.set_data_file_adder(self._add_prediction_data_file)
-        self._prediction_view._service_status.status_changed.connect(
-            self.schedule_workspace_content_refresh
-        )
         for name, dock in self._data_file_docks.items():
             dock.visibilityChanged.connect(
                 lambda _visible, name=name: self._on_data_file_dock_visibility_changed(name))
 
         self.project_state.project_loaded.connect(self._refresh_data_file_choices)
         self.project_state.datasets_changed.connect(self._refresh_data_file_choices)
+        self.project_state.data_files_checked.connect(self._refresh_data_file_choices)
+        # The data files are looked up in the background (plan startup-speed-1.7.1, D5).
+        self.project_state.project_loaded.connect(self._look_up_data_files)
+        self.project_state.datasets_changed.connect(self._look_up_data_files)
         self._project_browser.itemDoubleClicked.connect(self._on_browser_item_activated)
         self._eda_view.roi_table_requested.connect(self.show_roi_table)
         self._project_rois = ProjectRoisView(
@@ -1231,6 +1327,7 @@ class HSIViewer(QMainWindow):
         self.project_state.project_loaded.connect(self._update_project_rois_tab)
         self.project_state.project_loaded.connect(self._choose_explore_tab)
         self._explore_tabs.currentChanged.connect(self._show_last_data_file)
+        self.project_state.data_files_checked.connect(self._show_last_data_file)
         self._explore_tabs.currentChanged.connect(self._on_explore_tab_changed)
         self._project_rois.data_file_filter_changed.connect(self._follow_roi_table_filter)
         self.project_state.project_loaded.connect(self._sync_roi_table)
@@ -1275,6 +1372,27 @@ class HSIViewer(QMainWindow):
         else:
             self._show_last_data_file()
 
+    def _look_up_data_files(self) -> None:
+        """Look up the data files not looked up yet, in a background job (D5)."""
+        state = self.project_state
+        project, unknown = state.project, state.data_files_unknown()
+        if project is None or not unknown or getattr(self, "_data_file_lookup", False):
+            return
+        self._data_file_lookup = True
+        logger.debug("Looking up the files of {} dataset(s) in the background", len(unknown))
+
+        def done() -> None:
+            self._data_file_lookup = False
+            if state.project is project and state.data_files_unknown():
+                self._look_up_data_files()  # datasets added while it ran
+
+        start_background_job(
+            owner=self, fn=lambda: look_up_data_files(project, unknown),
+            on_success=lambda ids: state.data_files_looked_up(project, list(ids)),
+            on_error=lambda message: logger.warning("The files of the datasets could not be looked up: {}",
+                                                    message),
+            on_finished=done)
+
     def _show_last_data_file(self, *_args: Any) -> None:
         """Load the project's last shown data file when the Data file tab shows nothing.
 
@@ -1287,8 +1405,11 @@ class HSIViewer(QMainWindow):
         project_id = self.project_state.project_meta.get("project_id")
         dataset_id = None if not project_id else load_last_data_file(str(project_id))
         dataset = self.project_state.datasets.get(dataset_id or "")
-        if dataset_id is not None and dataset is not None \
-                and self.project_state.data_file(dataset_id) is not None:
+        if dataset_id is None or dataset is None:
+            return
+        if not self.project_state.data_file_known(dataset_id):
+            return  # shown when the background lookup has answered (data_files_checked)
+        if self.project_state.data_file(dataset_id) is not None:
             self.show_data_file(dataset_id)
 
     def show_roi_table(self) -> None:
@@ -1370,8 +1491,8 @@ class HSIViewer(QMainWindow):
             self._modeling_view.select_model_run(None)
         if payload is not None and payload.get("kind") == "prediction":
             self._prediction_view.select_prediction_run(payload.get("id"))
-        else:
-            self._prediction_view.select_prediction_run(None)
+        elif self._prediction_page is not None:  # an unbuilt page has nothing selected
+            self._prediction_page.select_prediction_run(None)
         self._eda_view.refresh_attachment_state()
         self._refresh_workspace_content_pages()
 
@@ -1387,7 +1508,7 @@ class HSIViewer(QMainWindow):
         current = self._workspace_tabs.currentWidget()
         if current is self._modeling_view:
             self._refresh_model_workspace_content()
-        elif current is self._prediction_view:
+        elif current is self._predict_tab:
             self._refresh_prediction_workspace_content()
         self._refresh_inspector_context()
         self._sync_workspace_content_host()
@@ -1420,6 +1541,7 @@ class HSIViewer(QMainWindow):
         is_explore = current is self._eda_view
         is_model = current is self._modeling_view
         if is_model:
+            self._ensure_fit_settings()
             self._ensure_model_content_page()
         elif not is_explore:
             self._ensure_predict_content_page()
@@ -1626,7 +1748,7 @@ class HSIViewer(QMainWindow):
                 ],
             )
             return
-        if current is self._prediction_view:
+        if current is self._predict_tab:
             self._inspector.show_workspace_summary(
                 self._predict_content_title.text(),
                 [
@@ -1720,10 +1842,16 @@ class HSIViewer(QMainWindow):
     # Menus of the workflow (plan gui-1.6, the window)
     # ------------------------------------------------------------------
 
-    def _menu_button_action(self, menu: QMenu, text: str, button: Any, *,
+    def _menu_button_action(self, menu: QMenu, text: str,
+                            button: QAbstractButton | Callable[[], QAbstractButton], *,
                             icon_name: str = "", shortcut: str = "",
-                            tip: str = "") -> QAction:
-        """A menu item that presses ``button`` and is enabled when the button is."""
+                            tip: str = "", before: Callable[[], None] | None = None
+                            ) -> QAction:
+        """A menu item that presses ``button`` and is enabled when the button is.
+
+        ``button`` may be a function that returns it (a page built on first use);
+        ``before`` runs before the press (e.g. builds the form the button needs).
+        """
         action = _add_required_action(menu, text)
         if icon_name:
             action.setIcon(icon(icon_name))
@@ -1731,13 +1859,22 @@ class HSIViewer(QMainWindow):
             action.setShortcut(shortcut)
         if tip:
             action.setToolTip(tip)
-        action.triggered.connect(lambda _checked=False: button.click())
+        def press(_checked: bool = False) -> None:
+            if before is not None:
+                before()
+            _button_of(button).click()
+
+        action.triggered.connect(press)
         self._button_actions.append((action, button))
         return action
 
     def _sync_button_actions(self) -> None:
+        """Enable each menu item like its button (the menu shown builds its page)."""
+        menu = self.sender()
         for action, button in self._button_actions:
-            action.setEnabled(button.isEnabled())
+            if callable(button) and isinstance(menu, QMenu) and action not in menu.actions():
+                continue  # a page not built for another menu's sake
+            action.setEnabled(_button_of(button).isEnabled())
 
     def _populate_edit_menu(self) -> None:
         m = self._menu_edit
@@ -1749,8 +1886,9 @@ class HSIViewer(QMainWindow):
         act.triggered.connect(self._find_roi)
 
     def _populate_workflow_menus(self) -> None:
-        self._button_actions: list[tuple[QAction, Any]] = []
-        eda, model, predict = self._eda_view, self._modeling_view, self._prediction_view
+        self._button_actions: list[
+            tuple[QAction, QAbstractButton | Callable[[], QAbstractButton]]] = []
+        eda, model = self._eda_view, self._modeling_view
         m = self._menu_project
         act = _add_required_action(m, "Add Dataset...")
         act.setIcon(icon("photo-plus"))
@@ -1782,24 +1920,34 @@ class HSIViewer(QMainWindow):
 
         m = self._menu_model
         self._menu_button_action(m, "Fit Model", model._btn_fit_model, icon_name="player-play",
-                                 shortcut="F5")
+                                 shortcut="F5", before=self._ensure_fit_settings)
         self._menu_button_action(m, "Load Model Settings", model._btn_fit_again,
                                  icon_name="refresh",
-                                 tip="The selected model's settings in the Fit settings")
-        if model.fit_form is not None:
-            act = _add_required_action(m, "Propose Bands...")
-            act.triggered.connect(model.fit_form._propose_bands_clicked)
-            act = _add_required_action(m, "Select Bands on Plot...")
-            act.triggered.connect(model.fit_form._select_bands_on_plot)
+                                 tip="The selected model's settings in the Fit settings",
+                                 before=self._ensure_fit_settings)
+        act = _add_required_action(m, "Propose Bands...")
+        act.triggered.connect(lambda: self._with_fit_form("_propose_bands_clicked"))
+        act = _add_required_action(m, "Select Bands on Plot...")
+        act.triggered.connect(lambda: self._with_fit_form("_select_bands_on_plot"))
 
         m = self._menu_predict
-        self._menu_button_action(m, "Predict ROIs...", predict._btn_predict_rois,
+        self._menu_button_action(m, "Predict ROIs...",
+                                 lambda: self._prediction_view._btn_predict_rois,
                                  icon_name="wand", shortcut="F6")
-        self._menu_button_action(m, "Predict Map...", predict._btn_predict, icon_name="map")
-        self._menu_button_action(m, "Cancel Prediction", predict._btn_cancel,
+        self._menu_button_action(m, "Predict Map...", lambda: self._prediction_view._btn_predict,
+                                 icon_name="map")
+        self._menu_button_action(m, "Cancel Prediction",
+                                 lambda: self._prediction_view._btn_cancel,
                                  icon_name="player-stop")
         for menu in (self._menu_project, self._menu_roi, self._menu_model, self._menu_predict):
             menu.aboutToShow.connect(self._sync_button_actions)
+
+    def _with_fit_form(self, method: str) -> None:
+        """Call a method of the Fit settings form, building it first."""
+        self._ensure_fit_settings()
+        form = self._modeling_view.fit_form
+        if form is not None:
+            getattr(form, method)()
 
     def _copy_focused(self) -> None:
         """Copy the selection of the focused table or text to the clipboard."""
@@ -1871,7 +2019,8 @@ class HSIViewer(QMainWindow):
         state = self.project_state
         for signal in (state.project_loaded, state.datasets_changed, state.rois_changed,
                        state.targets_changed, state.target_assignments_changed,
-                       state.model_runs_changed, state.sample_sets_changed):
+                       state.model_runs_changed, state.sample_sets_changed,
+                       state.data_files_checked):
             signal.connect(self._checks_timer.start)
         self._explore_tabs.currentChanged.connect(self._sync_workflow_step)
         self._explore_tabs.currentChanged.connect(self._update_status_strip)
@@ -1901,7 +2050,7 @@ class HSIViewer(QMainWindow):
         elif step == "model":
             self._workspace_tabs.setCurrentWidget(self._modeling_view)
         elif step == "predict":
-            self._workspace_tabs.setCurrentWidget(self._prediction_view)
+            self._workspace_tabs.setCurrentWidget(self._predict_tab)
         self._workflow.set_current(step)
         self._sync_workflow_step()
         self._refresh_context()
@@ -1915,7 +2064,7 @@ class HSIViewer(QMainWindow):
         self._controls_dock.setWindowTitle(_SETTINGS_TITLES[max(0, index)])
         if current is self._modeling_view:
             step = "model"
-        elif current is self._prediction_view:
+        elif current is self._predict_tab:
             step = "predict"
         elif self._on_data_file_page():
             step = "data"
@@ -1940,7 +2089,10 @@ class HSIViewer(QMainWindow):
             self._checks_dock.setWindowTitle("Checks")
             return
         try:
-            checks = project.checks(predict=False)
+            # The file check only once the background lookup has answered (D5): looking up
+            # here would wait for every data file's drive on the UI thread.
+            checks = project.checks(files=not self.project_state.data_files_unknown(),
+                                    predict=False)
         except Exception as exc:  # a check must never take the window down
             logger.exception("Checks failed: {}", exc)
             checks = []
@@ -2039,24 +2191,13 @@ class HSIViewer(QMainWindow):
                 dark = hints is not None and hints.colorScheme() == Qt.ColorScheme.Dark
             if dark != is_dark():
                 self._set_theme_mode(dark)
-        for frame in self.findChildren(PlotFrame):
-            button = getattr(frame, "_help_button", None)
-            if button is not None:
-                button.setVisible(preferences.plot_help)
-        if startup:
+        self._apply_plot_help()
+        if startup:  # pages built later get the defaults when they are built
             form = self._modeling_view.fit_form
             if form is not None:
-                form._model_type_combo.setCurrentText(preferences.model_type)
-                form._components_spin.setValue(preferences.n_components)
-                form._auto_check.setChecked(preferences.auto_components)
-                for combo, value in ((form._group_by_combo, preferences.hold_out),
-                                     (form._x_scaling_combo, preferences.x_scaling),
-                                     (form._y_scaling_combo, preferences.y_scaling)):
-                    if combo.findData(value) >= 0:
-                        combo.setCurrentIndex(combo.findData(value))
-            predict = self._prediction_view
-            predict._exclusion_level.setValue(preferences.dmodx_level)
-            predict._exclusion_check.setChecked(preferences.exclude_dmodx)
+                _apply_fit_defaults(form, preferences)
+            if self._prediction_page is not None:
+                _apply_predict_defaults(self._prediction_page, preferences)
 
     def show_checks(self) -> None:
         """Bring the Checks tab of the bottom panel to the front."""
@@ -2170,6 +2311,7 @@ class HSIViewer(QMainWindow):
             self._on_canvas_roi_selected(str(args["roi_id"]))
         elif action == "fit":
             self.show_step("model")
+            self._ensure_fit_settings()
             form = self._modeling_view.fit_form
             if form is not None and args.get("target_id"):
                 form.set_targets(self._modeling_view._target_choices(), str(args["target_id"]))
@@ -2179,6 +2321,7 @@ class HSIViewer(QMainWindow):
             if run is None:
                 return
             self.select_model(run_id)
+            self._ensure_fit_settings()
             self._modeling_view.load_model_settings(run)
             form = self._modeling_view.fit_form
             if form is not None and args.get("group_by"):
@@ -2496,7 +2639,7 @@ class HSIViewer(QMainWindow):
             self._centre_on_first_roi(dataset_id)
         from ._recent import add as _recent_add
 
-        _recent_add(path)
+        _recent_add(path, "dataset")
         project_id = self.project_state.project_meta.get("project_id")
         if project_id:
             save_last_data_file(str(project_id), dataset_id)
@@ -2551,6 +2694,11 @@ class HSIViewer(QMainWindow):
         for dataset_id, dataset in datasets:
             name = state.data_file_label(dataset_id)
             # The tooltip is the path the file is read from; how it was found is logged only.
+            if not state.data_file_known(dataset_id):
+                combo.addItem(f"{name} (checking…)", dataset_id)
+                combo.setItemData(combo.count() - 1, f"{dataset.source_path} (looking for it)",
+                                  Qt.ItemDataRole.ToolTipRole)
+                continue
             found = state.find_data_file(dataset_id)
             if found is None:
                 name += " (not found)"
@@ -2638,17 +2786,40 @@ class HSIViewer(QMainWindow):
         self._canvas.set_crosshair(s.frame, s.row)
 
     def _populate_open_recent(self) -> None:
-        from ._recent import load as _recent_load
+        """The recent files, drawn from the list alone (no file access on the UI thread).
 
-        self._menu_open_recent.clear()
-        paths = [p for p in _recent_load() if os.path.isfile(p)]
-        if not paths:
-            act = _add_required_action(self._menu_open_recent, "(No recent files)")
+        A file the last background check found missing is grayed out; each opening of
+        the menu checks again in the background and updates the entries still shown
+        (plan startup-speed-1.7.1, D4).
+        """
+        from . import _recent
+
+        menu = self._menu_open_recent
+        menu.clear()
+        recent = _recent.entries()
+        if not recent:
+            act = _add_required_action(menu, "(No recent files)")
             act.setEnabled(False)
             return
-        for path in paths:
-            act = _add_required_action(self._menu_open_recent, path)
-            act.triggered.connect(lambda checked, p=path: self._open_data_path(p))
+        known = _recent.last_check()
+        actions = {}
+        for entry in recent:
+            act = _add_required_action(menu, entry.path)
+            act.setEnabled(known.get(entry.path, (True, None))[0])
+            act.triggered.connect(lambda checked, p=entry.path: self._open_data_path(p))
+            actions[entry.path] = act
+
+        def checked(result: object) -> None:
+            if not isinstance(result, dict) or sip.isdeleted(menu):
+                return
+            for path, act in actions.items():
+                if not sip.isdeleted(act) and act in menu.actions():
+                    act.setEnabled(bool(result.get(path, (True, None))[0]))
+
+        start_background_job(owner=menu, fn=lambda: _recent.check(recent), on_success=checked,
+                             on_error=lambda message: logger.warning(
+                                 "Recent files could not be checked: {}", message),
+                             on_finished=lambda: None)
 
     def _populate_view_menu(self) -> None:
         m = self._menu_view
@@ -2751,7 +2922,7 @@ class HSIViewer(QMainWindow):
             self._ensure_model_content_page()
             widget = self._model_diagnostics_widget
             return [] if widget is None else list(widget.grid.all_panels().values())
-        if current is self._prediction_view:
+        if current is self._predict_tab:
             self._ensure_predict_content_page()
             return list(self._predict_graph_panel.panels.values())
         frames: list[PlotFrame] = [self._canvas_frame, self._sensor_frame, self._spatial_frame,

@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-
+from tests._qt import wait_until
 
 @pytest.fixture()
 def welcome(qapp):
@@ -128,6 +128,7 @@ def test_recent_list_filters_missing_and_emits_correct_signal(qapp, tmp_path, mo
     from importlib import reload
     from enginir.io.project_store import create_project
     from enginir.viewer._welcome import WelcomeWindow
+    from PyQt6.QtCore import Qt
     from PyQt6.QtWidgets import QListWidget
 
     monkeypatch.setattr(sys, "platform", "linux")
@@ -144,10 +145,12 @@ def test_recent_list_filters_missing_and_emits_correct_signal(qapp, tmp_path, mo
 
     window = WelcomeWindow()
     recent_list = window.findChildren(QListWidget)[0]
-    items = [recent_list.item(i).text() for i in range(recent_list.count())]
-    assert any("sample.eiff" in item for item in items)
-    assert any("sample_project.h5" in item for item in items)
-    assert not any("ghost.eiff" in item for item in items)
+    wait_until(qapp, lambda: window._recent_checked)
+    enabled = [recent_list.item(i).text() for i in range(recent_list.count())
+               if recent_list.item(i).flags() & Qt.ItemFlag.ItemIsEnabled]
+    assert any("sample.eiff" in item for item in enabled)
+    assert any("sample_project.h5" in item for item in enabled)
+    assert not any("ghost.eiff" in item for item in enabled), "a missing file is grayed out"
 
     dataset_received: list[tuple[str, str | None, str | None]] = []
     project_received: list[str] = []
@@ -158,3 +161,104 @@ def test_recent_list_filters_missing_and_emits_correct_signal(qapp, tmp_path, mo
     recent_list.itemActivated.emit(recent_list.item(1))
 
     assert dataset_received or project_received
+
+
+def _record_file_access(monkeypatch, release):
+    """Patch the recent-file checks to wait for ``release`` and note their threads."""
+    import threading
+
+    import enginir.viewer._files as files
+
+    threads: list[str] = []
+    real_exists, real_is_project = os.path.exists, files._is_project_file
+
+    def exists(path):
+        if "recent_" in str(path):
+            threads.append(threading.current_thread().name)
+            release.wait(10)  # an unreachable network drive
+        return real_exists(path)
+
+    def is_project(path):
+        threads.append(threading.current_thread().name)
+        return real_is_project(path)
+
+    monkeypatch.setattr(os.path, "exists", exists)
+    monkeypatch.setattr(files, "_is_project_file", is_project)
+    return threads
+
+
+def _recent_files(tmp_path, monkeypatch, *, kinds):
+    """A config with a project, a dataset and a missing file (kinds stored or not)."""
+    import json
+
+    import enginir.viewer._recent as recent
+    from enginir.io.project_store import create_project
+
+    monkeypatch.setattr(recent, "config_dir", lambda: tmp_path / "config")
+    project = tmp_path / "recent_project.h5"
+    create_project(project)
+    dataset = tmp_path / "recent_scan.eiff"
+    dataset.write_bytes(b"")
+    ghost = tmp_path / "gone" / "recent_ghost.eiff"
+    paths = [str(project), str(dataset), str(ghost)]
+    entries = ([{"path": str(project), "kind": "project"},
+                {"path": str(dataset), "kind": "dataset"},
+                {"path": str(ghost), "kind": "dataset"}] if kinds else paths)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "recent.json").write_text(json.dumps(entries), encoding="utf-8")
+    return paths
+
+
+@pytest.mark.parametrize("kinds", [True, False], ids=["kinds-stored", "written-by-1.7.0"])
+def test_the_recent_list_never_touches_a_recent_file_on_the_ui_thread(qapp, tmp_path,
+                                                                     monkeypatch, kinds):
+    """D4: a slow or unreachable drive delays only the background check, never the window."""
+    import threading
+    import time
+
+    from PyQt6.QtCore import Qt
+
+    import enginir.viewer._recent as recent
+    from enginir.viewer._welcome import WelcomeWindow
+
+    project, dataset, ghost = _recent_files(tmp_path, monkeypatch, kinds=kinds)
+    release = threading.Event()
+    threads = _record_file_access(monkeypatch, release)
+    started = time.perf_counter()
+    window = WelcomeWindow()
+    try:
+        assert time.perf_counter() - started < 5, "the window waited for the drive"
+        listed = window._recent_list
+        assert [listed.item(i).data(Qt.ItemDataRole.UserRole)
+                for i in range(listed.count())] == [project, dataset, ghost]
+        release.set()
+        wait_until(qapp, lambda: window._recent_checked)
+        assert threads and threading.main_thread().name not in threads, threads
+        assert not listed.item(2).flags() & Qt.ItemFlag.ItemIsEnabled
+        assert [listed.item(i).data(Qt.ItemDataRole.UserRole + 1) for i in range(2)] == \
+            ["project", "dataset"]
+        assert [entry.kind for entry in recent.entries()][:2] == ["project", "dataset"], \
+            "a kind learned once is stored"
+    finally:
+        release.set()
+        window.close()
+
+
+def test_open_recent_never_touches_a_recent_file_on_the_ui_thread(window, qapp, tmp_path,
+                                                                  monkeypatch):
+    import threading
+
+    project, dataset, ghost = _recent_files(tmp_path, monkeypatch, kinds=True)
+    release = threading.Event()
+    threads = _record_file_access(monkeypatch, release)
+    menu = window._menu_open_recent
+    try:
+        menu.aboutToShow.emit()
+        assert [act.text() for act in menu.actions()] == [project, dataset, ghost]
+        assert all(act.isEnabled() for act in menu.actions()), "not checked yet"
+        release.set()
+        wait_until(qapp, lambda: not menu.actions()[2].isEnabled())
+        assert menu.actions()[0].isEnabled() and menu.actions()[1].isEnabled()
+        assert threads and threading.main_thread().name not in threads, threads
+    finally:
+        release.set()

@@ -8,7 +8,11 @@ Developer reference for the `src/enginir/viewer/` module.
 
 | File | Responsibility |
 |------|----------------|
-| `__init__.py` | Public API: `open_viewer()`, `open_project()` |
+| `__init__.py` | Public API: `open_viewer()`, `open_project()`, resolved on first use (see Startup) |
+| `_open.py` | `open_viewer`, `open_project` and the startup loaders behind them |
+| `_files.py` | `_is_project_file` (h5py imported on use) |
+| `_warmup.py` | `start_warmup`: imports the library and the main window while the welcome window waits (see Startup) |
+| `_startup_clock.py` | The time since the operating system started the process, for the `Startup timing` log lines |
 | `__main__.py` | Launcher `main` of `enginir-viewer` (GUI script: no console on Windows) and `enginir-viewer-console`; without a console, its messages and a failed start go to a message box; `--install-shortcut` / `--remove-shortcut` |
 | `_windows_shell.py` | Windows Start menu and desktop shortcuts through the shell's COM interfaces with `ctypes` (no Qt, no extra package): target the windowless launcher, the engiNIR icon and the taskbar id `WINDOWS_APP_ID`, which the running viewer also sets |
 | `_app.py` | QApplication singleton, platform choice (Wayland on WSLg, X11 on other mixed sessions), application icon (on Windows with its own taskbar app id, `WINDOWS_APP_ID` from `_windows_shell`, so the taskbar shows the engiNIR icon instead of grouping the window under python.exe), the application-wide event filter (dialog centering; on WSLg Wayland, combo popups release their native window after hiding, because WSLg keeps an unmapped popup on screen, microsoft/wslg#1522) |
@@ -21,9 +25,9 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_canvas.py` | `FalseColourCanvas` (pyqtgraph image surface, crosshair, ROI draw/selection) |
 | `_panels.py` | Explore plots: Histogram and Spectrum (matplotlib); Band image and Sensor Frame (pyqtgraph `_ImagePanel`); Spatial Profile (pyqtgraph, upright) |
 | `_viewer.py` | `HSIViewer(QMainWindow)`: menus (every action; no toolbar), the workflow strip, Project and Properties on the left, the Settings dock on the right (the workspace controls; the Model workspace's fit settings are the embedded fit form), the bottom panel (Checks, ROI table, Models, Log as tabs), status strip, workspace host; `run_fix` runs the fix a check offers |
-| `_welcome.py` | Launcher window with recent files list and startup routing |
+| `_welcome.py` | Launcher window with recent files list (drawn without file access; checked in a job) and startup routing |
 | `_windows.py` | The registry of open top-level windows (`keep_open`, `open_windows`); see Window lifetime |
-| `_recent.py` | MRU file list (`~/.config/enginir/recent.json`) |
+| `_recent.py` | MRU file list (`~/.config/enginir/recent.json`): each entry's path and kind (project or dataset); `check` (in a job) tells which exist |
 | `_eda.py` | `EDAView` — signal, preprocessing and ROI controls (project actions are menu items) |
 | `_attachment.py` | Project/dataset binding validation |
 | `_modeling.py` | `ModelingView` — target, target values (ROI table) and the Fit settings: `FitModelRunDialog`, embedded in the Settings dock (`embed_fit_settings`), not opened as a dialog: foldable parts Data, Preprocessing, Bands, Model, Validation, Fitting (components or Auto with a rule; pixel subsample, scaling, DModX exclusion → `FitSpec` and hyperparameters), the selected model's settings until they are edited, and the actions (`take_fit_footer`: changed line, Load Model Settings, Fit Model) placed under the scrolling settings by the window. Load Model Settings presets the form from a stored run; the preset recipe's AsLS fields and `sg_edges` are kept, as the form has no controls for them, and so is the stored algorithm, which the form adds to its hyperparameters for the same model type. The Bands part (keep/exclude text, water-band menu, Select on Plot, Propose) feeds the recipe and the Explore preview (`ViewerState.bands_keep/bands_exclude`); `workspace_summary` gives the Fit summary (with the signal and preprocessing and the dataset count); `_component_payload` adds curve, loadings, CoeffCS, VIP, selectivity ratio, mean spectrum and calibration distances to the diagnostics payload; `_roi_score_payload` passes the ROI scores the fit stored (`diagnostics/roi_scores`) and never rebuilds them from pixel counts. `_app`'s dialog centring skips the embedded form (it centres windows only) |
@@ -298,6 +302,52 @@ frame, signal unit, or preprocessing parameters.
 - Figure layout is recomputed for a new payload or a new canvas size (`maybe_tight_layout(...)` for in-place panels), not on every redraw.
 - `benchmarks/test_plot_performance.py` (opt-in, `ENGINIR_PERF=1`) times the Model diagnostics against the single-figure baseline.
 - Welcome-screen startup loads dataset/project payloads in a worker thread and only constructs Qt widgets on the GUI thread after loading completes.
+
+### Startup
+
+The start does little before the first window and nothing against data
+paths on the UI thread (plan `plans/startup-speed-1.7.1.md`):
+
+- `import enginir` and `import enginir.viewer` resolve their public names on
+  first use (PEP 562 `__getattr__`, with `TYPE_CHECKING` imports for the
+  types). The launcher imports only its own modules, the standard library,
+  loguru and Qt before the welcome window: no scikit-learn, SciPy, pandas,
+  h5py, matplotlib or pyqtgraph (`tests/test_startup.py` checks the list in
+  a subprocess). A module of the launcher path imports the heavy parts
+  inside the function that needs them.
+- `_warmup.start_warmup` runs once the welcome window is painted: a job
+  imports the non-Qt stack (`BACKGROUND_MODULES`), then an idle `QTimer`
+  imports the Qt modules (`UI_MODULES`, among them `_viewer`) one per step on
+  the UI thread. A pick before the warm-up ends waits only for the module
+  it needs (Python's import lock). `run()` waits for running jobs before the
+  interpreter exits, so a launcher closed during the warm-up exits cleanly.
+- The recent-files list is drawn from `recent.json` alone (path and kind);
+  a job (`_recent.check`) tells which files exist, grays out the missing
+  ones and stores the kind of entries written before 1.7.1. The **Open
+  Recent** menu does the same.
+- Opening a project looks up its data files in one job
+  (`look_up_data_files`); until it answers, the data-file selector says
+  "(checking…)", `refresh_checks` asks `Project.checks(files=False)` and the
+  last shown file waits. `ProjectState.data_files_checked` then updates them.
+  `Project.find_data_file` keeps each answer for the session.
+- The Model step's Fit settings form and the whole Predict page are built
+  when first needed (`HSIViewer._ensure_fit_settings`, the
+  `_prediction_view` property; D8): showing the step, its menu, a fix that
+  leads there. `ModelingView` itself is built with the window, because it
+  holds the current target that Explore and the ROI table use. The built
+  `PredictionView` takes its placeholder's tab. A page built later gets the
+  user's defaults (`_apply_fit_defaults`, `_apply_predict_defaults`), and
+  the plots of a late content page get the plot-help setting. Menu items
+  that press a button of an unbuilt page take a function that returns the
+  button (`_menu_button_action`). An empty project's window builds in
+  0.30 s instead of 0.40 s (Linux, warm).
+- The log states the time since the operating system started the process
+  (`_startup_clock`: `GetProcessTimes` on Windows, `/proc` on Linux, `ps`
+  elsewhere) when the launcher runs, when the welcome window is shown, when
+  the warm-up ends and when the first main window is shown (`Startup
+  timing` lines at INFO).
+- The Windows installer compiles the bytecode at install
+  (`--compile-bytecode`); the `windows-install` CI job checks it.
 
 ### Window size on Wayland
 

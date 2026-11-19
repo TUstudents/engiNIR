@@ -49,6 +49,7 @@ logger = get_logger(__name__)
 
 
 __all__ = [
+    "look_up_data_files",
     "DEFAULT_BLACK_LEVEL",
     "DEFAULT_SOURCE_MODALITY",
     "DEFAULT_WHITE_LEVEL",
@@ -131,10 +132,15 @@ class ProjectState(QObject):
     roi_results_changed = pyqtSignal()
     #: A short message after a user-visible write, e.g. "ROI 'A01' saved to project".
     saved = pyqtSignal(str)
+    #: The background lookup of data files has answered for more datasets
+    #: (:meth:`data_file_known`).
+    data_files_checked = pyqtSignal()
 
     def __init__(self) -> None:
         super().__init__()
         self.project: Project | None = None
+        #: Datasets whose data file was looked up this session (found or not).
+        self._looked_up: set[str] = set()
         self.project_path: str | None = None
         self.project_meta: dict[str, Any] = {}
         self.datasets: dict[str, DatasetRef] = {}
@@ -219,6 +225,7 @@ class ProjectState(QObject):
             self._reset_session_model_state()
         self.project = project
         self.project_path = project.path
+        self._looked_up = set()
         self._sync()
         self.project_loaded.emit()
         self._emit_workspace_signals()
@@ -303,8 +310,33 @@ class ProjectState(QObject):
         return moved
 
     def find_data_file(self, dataset_id: str) -> DataFileCandidate | None:
-        """Where a dataset's data file is this session (:meth:`enginir.Project.find_data_file`)."""
-        return None if self.project is None else self.project.find_data_file(dataset_id)
+        """Where a dataset's data file is this session (:meth:`enginir.Project.find_data_file`).
+
+        The project keeps the answer for the session. The first lookup touches the
+        file system (perhaps a slow network drive): the window asks
+        :meth:`data_file_known` first and leaves unknown files to the background
+        lookup (:func:`look_up_data_files`), except where the user asked for that file.
+        """
+        if self.project is None:
+            return None
+        found = self.project.find_data_file(dataset_id)
+        self._looked_up.add(dataset_id)
+        return found
+
+    def data_file_known(self, dataset_id: str) -> bool:
+        """Whether the data file of ``dataset_id`` was looked up this session."""
+        return dataset_id in self._looked_up
+
+    def data_files_unknown(self) -> list[str]:
+        """The datasets whose data file was not looked up yet this session."""
+        return [dataset_id for dataset_id in self.datasets if dataset_id not in self._looked_up]
+
+    def data_files_looked_up(self, project: Project, dataset_ids: list[str]) -> None:
+        """Note what :func:`look_up_data_files` answered (on the UI thread)."""
+        if project is not self.project:
+            return  # another project was opened meanwhile
+        self._looked_up.update(dataset_ids)
+        self.data_files_checked.emit()
 
     def data_file(self, dataset_id: str) -> str | None:
         """The path of a dataset's data file this session, or ``None`` if it is not found."""
@@ -1441,3 +1473,16 @@ class ViewerState(QObject):
         if self.x_spectral_unit == "nm":
             return self.wavelengths.copy()
         return np.arange(self.n_bands, dtype=_WORKING_DTYPE)
+
+
+def look_up_data_files(project: Project, dataset_ids: list[str]) -> list[str]:
+    """Look up the data files of ``dataset_ids`` (in a background job; file access).
+
+    The answers stay in ``project`` for the session; the caller then passes the ids to
+    :meth:`ProjectState.data_files_looked_up` on the UI thread (plan
+    startup-speed-1.7.1, D5).
+    """
+    for dataset_id in dataset_ids:
+        if dataset_id in project.workspace.datasets:
+            project.find_data_file(dataset_id)
+    return dataset_ids

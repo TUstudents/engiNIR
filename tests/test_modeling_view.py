@@ -858,6 +858,7 @@ def test_a_dimensionless_unit_is_not_printed(qapp, window):
 
     assert (with_unit("API", "%"), with_unit("Layers", "1"), with_unit("Layers", "")) \
         == ("API (%)", "Layers", "Layers")
+    window.show_step("model")
     form = window._modeling_view.fit_form
     assert form._target_combo.currentText() == "Layers"  # the example's unit is "1"
     assert window._modeling_view.workspace_summary()["target"] == "Layers"

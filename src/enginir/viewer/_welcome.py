@@ -6,7 +6,7 @@ import os
 import time
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QIcon
 from PyQt6.QtWidgets import (
     QCheckBox,
     QFileDialog,
@@ -23,13 +23,13 @@ from PyQt6.QtWidgets import (
 )
 
 from .._logging import get_logger
-from . import _is_project_file
+from ._files import _is_project_file
 from ._app import app_icon
 from ._windows import keep_open
 from ._icons import icon
-from ._jobs import BusyStatusWidget
+from ._jobs import BusyStatusWidget, start_background_job
 from ._preferences import start_folder
-from ._recent import load as _load_recent
+from . import _recent
 from ._theme import secondary_text_style
 from ._ui_helpers import PROJECT_OPEN_FILTER, PROJECT_SAVE_FILTER, ask_save_path
 
@@ -183,17 +183,47 @@ class WelcomeWindow(QMainWindow):
         return self._loading_status.snapshot()
 
     def _populate_recent(self) -> None:
-        """Recent files by name, with the folder after it (the whole path in the tooltip)."""
+        """Recent files by name, with the folder after it (the whole path in the tooltip).
+
+        Drawn from the recent-files list alone: no recent path is touched on the UI
+        thread, since it may be on a slow or unreachable network drive (plan
+        startup-speed-1.7.1, D4). A background job then checks which files exist,
+        grays out the missing ones and learns the kind of entries that have none.
+        """
         self._recent_list.clear()
-        for path in _load_recent():
-            if os.path.exists(path):
-                folder = os.path.dirname(path)
-                kind = "project" if _is_project_file(path) else "dataset"
-                item = QListWidgetItem(icon("file-text" if kind == "project" else "photo"),
-                                       f"{os.path.basename(path)}    {_short_folder(folder)}")
-                item.setData(Qt.ItemDataRole.UserRole, path)
-                item.setToolTip(path)
-                self._recent_list.addItem(item)
+        recent = _recent.entries()
+        for entry in recent:
+            item = QListWidgetItem(f"{os.path.basename(entry.path)}    "
+                                   f"{_short_folder(os.path.dirname(entry.path))}")
+            item.setData(Qt.ItemDataRole.UserRole, entry.path)
+            item.setToolTip(entry.path)
+            self._recent_list.addItem(item)
+            _show_kind(item, entry.kind)
+        self._recent_checked = False
+        if recent:
+            start_background_job(owner=self, fn=lambda: _recent.check(recent),
+                                 on_success=self._apply_recent_check,
+                                 on_error=lambda message: logger.warning(
+                                     "Recent files could not be checked: {}", message),
+                                 on_finished=lambda: None)
+
+    def _apply_recent_check(self, result: object) -> None:
+        """Gray out the recent files that do not exist; show and store the kinds learned."""
+        if not isinstance(result, dict):
+            return
+        for row in range(self._recent_list.count()):
+            item = self._recent_list.item(row)
+            if item is None:
+                continue
+            path = str(item.data(Qt.ItemDataRole.UserRole))
+            exists, kind = result.get(path, (True, None))
+            if not exists:
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+                item.setToolTip(f"{path}\n(not found)")
+            elif kind is not None and item.data(_KIND_ROLE) != kind:
+                _show_kind(item, kind)
+                _recent.set_kind(path, kind)
+        self._recent_checked = True
 
     def _on_open_clicked(self) -> None:
         dialog_started = time.perf_counter()
@@ -260,14 +290,26 @@ class WelcomeWindow(QMainWindow):
             self._lbl_white.setText(os.path.basename(path))
 
     def _on_recent_double_clicked(self, item: QListWidgetItem) -> None:
+        if not item.flags() & Qt.ItemFlag.ItemIsEnabled:
+            return  # a missing file, grayed out by the background check
         path = os.path.abspath(str(item.data(Qt.ItemDataRole.UserRole) or item.text()))
         logger.debug("Startup timing: recent item activated: {}", path)
-        if _is_project_file(path):
+        kind = item.data(_KIND_ROLE)
+        if kind == "project" or (kind is None and _is_project_file(path)):
             self.project_selected.emit(path)
             return
         dark = self._dark_path if self._cb_dark.isChecked() else None
         white = self._white_path if self._cb_white.isChecked() else None
         self.file_selected.emit(path, dark, white)
+
+
+#: The item data holding a recent entry's kind ("project", "dataset" or None).
+_KIND_ROLE = Qt.ItemDataRole.UserRole + 1
+
+
+def _show_kind(item: QListWidgetItem, kind: str | None) -> None:
+    item.setData(_KIND_ROLE, kind)
+    item.setIcon(icon("file-text" if kind == "project" else "photo") if kind else QIcon())
 
 
 def _short_folder(folder: str, limit: int = 48) -> str:

@@ -101,6 +101,14 @@ jobs:
           $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
           Check ($userPath -like "*$bin*") "the user PATH contains $bin"
 
+          # bytecode compiled at install (before anything here starts Python and writes it)
+          $site = Join-Path (& $uv tool dir).Trim() "enginir\Lib\site-packages"
+          foreach ($module in @("enginir\viewer\_viewer", "enginir\_workflow", "sklearn\__init__")) {
+            $folder = Join-Path $site (Join-Path (Split-Path $module) "__pycache__")
+            $name = (Split-Path $module -Leaf) + ".*.pyc"
+            Check (@(Get-ChildItem -Path $folder -Filter $name -ErrorAction SilentlyContinue).Count -gt 0) "bytecode of $module compiled at install"
+          }
+
           # launchers
           $version = (Select-String -Path pyproject.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
           $console = Join-Path $bin "enginir-viewer-console.exe"

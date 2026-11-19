@@ -39,6 +39,9 @@ def _main(argv: list[str] | None = None) -> int:
     enable_viewer_logging()
     logger.info("enginir-viewer started")
     logger.info("Log file: {}", log_file_path())
+    from ._startup_clock import mark_start, since_start
+
+    mark_start()  # the times below count from the process start, as the OS saw it (D7)
 
     parser = _Parser(
         prog="enginir-viewer",
@@ -75,8 +78,6 @@ def _main(argv: list[str] | None = None) -> int:
         return _shortcuts(install=args.install_shortcut, desktop=args.desktop)
 
     from ._app import ensure_app, run
-    from . import open_project, open_viewer
-
     ensure_app()
     logger.debug(
         "Startup timing: QApplication ready in {:.3f}s",
@@ -86,6 +87,8 @@ def _main(argv: list[str] | None = None) -> int:
     # Open windows are kept alive by the window registry (viewer/_windows.py) until they close.
 
     if args.path is not None or args.project is not None:
+        from . import open_project, open_viewer  # lazy package names (D2)
+
         startup_label = args.project if args.path is None else args.path
         logger.info("Opening startup target: {}", startup_label)
         target_started = time.perf_counter()
@@ -100,9 +103,9 @@ def _main(argv: list[str] | None = None) -> int:
                     project=args.project,
                 )
             logger.info(
-                "Startup timing: direct startup target opened in {:.3f}s: {}",
-                time.perf_counter() - target_started,
-                startup_label,
+                "Startup timing: main window shown {:.2f}s after the process started "
+                "(opened in {:.3f}s): {}",
+                since_start(), time.perf_counter() - target_started, startup_label,
             )
         except Exception as exc:
             from PyQt6.QtWidgets import QMessageBox
@@ -114,16 +117,36 @@ def _main(argv: list[str] | None = None) -> int:
         logger.info("Showing welcome screen")
         from PyQt6.QtWidgets import QApplication, QMessageBox
 
-        from ..io.project_store import create_project
-        from . import (
-            _load_dataset_startup,
-            _load_project_startup,
-            _open_loaded_dataset_viewer,
-            _open_loaded_project_viewer,
-        )
         from ._jobs import start_background_job
         from ._loading import LoadingProgressEvent, LoadingProgressRelay, ViewerBusyContext
         from ._welcome import WelcomeWindow
+
+        # The opening code and the library load when the user picks something (the
+        # loaders run in background jobs), not before the welcome screen is shown (D2).
+        def _load_dataset_startup(*args: Any, **kwargs: Any) -> Any:
+            from ._open import _load_dataset_startup as load
+
+            return load(*args, **kwargs)
+
+        def _load_project_startup(path: str) -> Any:
+            from ._open import _load_project_startup as load
+
+            return load(path)
+
+        def _open_loaded_dataset_viewer(payload: Any) -> Any:
+            from ._open import _open_loaded_dataset_viewer as open_loaded
+
+            return open_loaded(payload)
+
+        def _open_loaded_project_viewer(payload: Any) -> Any:
+            from ._open import _open_loaded_project_viewer as open_loaded
+
+            return open_loaded(payload)
+
+        def create_project(path: str) -> Any:
+            from ..io.project_store import create_project as create
+
+            return create(path)
 
         welcome = WelcomeWindow()
         welcome_created_at = time.perf_counter()
@@ -211,10 +234,10 @@ def _main(argv: list[str] | None = None) -> int:
                     logger.error("{}: {}", log_context, exc)
                     QMessageBox.critical(welcome, error_title, str(exc))
                     return
-                logger.debug(
-                    "Startup timing: viewer handoff completed in {:.3f}s ({})",
-                    time.perf_counter() - handoff_started,
-                    text,
+                logger.info(
+                    "Startup timing: main window shown {:.2f}s after the process started "
+                    "(handed over in {:.3f}s; {})",
+                    since_start(), time.perf_counter() - handoff_started, text,
                 )
                 welcome.close()
                 _clear_startup_busy()
@@ -334,9 +357,18 @@ def _main(argv: list[str] | None = None) -> int:
         welcome.project_created.connect(_on_project_created)
         welcome.show()
         logger.info(
-            "Startup timing: welcome window shown in {:.3f}s",
-            time.perf_counter() - app_started,
+            "Startup timing: welcome window shown {:.2f}s after the process started "
+            "({:.3f}s in the launcher)",
+            since_start(), time.perf_counter() - app_started,
         )
+        # While the user reads the welcome screen, import what opening a file needs (D3);
+        # the timer fires after the window's first paint.
+        from PyQt6 import sip
+        from PyQt6.QtCore import QTimer
+
+        from ._warmup import start_warmup
+
+        QTimer.singleShot(0, lambda: None if sip.isdeleted(welcome) else start_warmup(welcome))
 
     run()
     logger.debug("Shutdown")
