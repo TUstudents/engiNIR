@@ -1,131 +1,77 @@
 # Workspace domain model
 
-Specification of the objects of a project, held by `enginir.Project` (as an
-`enginir.project.ProjectWorkspace`) and persisted to HDF5 v3 project files.
-The viewer's `ProjectState` mirrors them for its widgets.
+An overview of the objects a project holds: for each, its term (as the
+viewer and the guides say it; `contracts/terminology_v3.md`), its Python class
+and where the project file stores it. The detail is in the contracts (the
+column on the right) and in `hdf5_format.md`; this page links them. The file
+format is `enginir-1.7`.
 
----
+## Objects
 
-## Entity definitions
+| Term | Python class | Project file | Contract |
+|---|---|---|---|
+| Project | `enginir.Project` (the workflow facade) | `/project_meta/` (`project_id`, `FileSchemaVersion`) | project-schema |
+| Dataset | `DatasetRef`; `enginir.Dataset` wraps it | `/datasets/{dataset_id}/` | project-dataset-attachment |
+| Reference correction | `ReferenceCorrection` | `/datasets/{dataset_id}/reference_corrections/{id}/` | dataset-reference-correction |
+| ROI (calibration ROI, prediction ROI: its `job`) | `TrainingROI` | `/rois/{roi_id}/` with its raw pixels `spectra` | roi-target |
+| Target | `TargetDefinition` | `/targets/{target_id}/` | roi-target |
+| Target value | `TargetAssignment` | `/target_assignments/{target_id}/{roi_id}/` | roi-target |
+| Preprocessing recipe | `PreprocessingRecipe` | `/recipes/{recipe_id}/` (id from the content) | sample-set-model-run |
+| Input contract | `SignalDomainContract` | `/signal_domains/{signal_domain_id}/` | sample-set-model-run |
+| Calibration set | `SampleSet` | `/sample_sets/{sample_set_id}/` | sample-set-model-run |
+| Model | `ModelRun`; `enginir.Model` wraps it | `/model_runs/{model_run_id}/` with `artifact_refs/` | sample-set-model-run, model-workspace-diagnostics |
+| Prediction (stored) | `PredictionRun`; `enginir.StoredPrediction` | `/predictions/{prediction_run_id}/` (only when a script stores one) | prediction-runtime |
 
-| Entity | Key | Defined in | Description |
-|--------|-----|-----------|-------------|
-| `DatasetRef` | `dataset_id` | `project/_models.py` | Pointer to one HSI dataset: source path, format, modality, cube shape, wavelengths |
-| `ReferenceCorrection` | `reference_correction_id` | `project/_models.py` | How to convert Raw counts (DN) to a signal unit: mode (dark_white_reference / already_corrected / raw_dn), optional dark/white ref arrays or scalar levels, output signal unit |
-| `TrainingROI` | `roi_id` | `project/_models.py` | Spatial bounding box on one dataset: name, spatial_bounds (f0, f1, r0, r1), n_pixels, wavelengths, references one dataset + one reference correction, provenance dict |
-| `TargetDefinition` | `target_id` | `project/_models.py` | What we are predicting: name, unit (e.g. "wt%"), value_type ("float"), missing_value_policy |
-| `TargetAssignment` | `(roi_id, target_id)` | `project/_models.py` | One numeric value linking one ROI to one target |
-| `SampleSet` | `sample_set_id` | `project/_models.py` | A labeled collection of ROIs for one target: roi_ids, preprocessing_recipe_id, fitting/target/grouping/validation/weighting/reporting policies |
-| `SignalDomainContract` | `signal_domain_id` | `project/_models.py` | Compatibility contract: required signal unit, reference correction mode, band count, wavelengths, tolerance, band mapping policy |
-| `ModelRun` | `model_run_id` | `project/_models.py` | One fitted model: references one calibration set + one input contract, model type, hyperparameters, cv_spec, metrics, artifact_refs, optional display name |
-| `PredictionRun` | `prediction_run_id` | `project/_models.py` | One prediction: references one model + one dataset + one reference correction, artifact_refs (spatial_map, y_pred) |
-
----
+A prediction in the viewer, of prediction ROIs or of a whole dataset as a
+prediction map, lives in the session and is not stored.
 
 ## Relationships
 
-```
-DatasetRef  1───*  ReferenceCorrection     (exactly one is active per dataset in v3)
-DatasetRef  1───*  TrainingROI         (one dataset has many ROIs)
-ReferenceCorrection 1───*  TrainingROI     (one reference correction used by many ROIs)
+- A dataset owns its reference corrections; one of them is active. A
+  reference correction never moves to another dataset.
+- An ROI belongs to one dataset and keeps the reference correction that was
+  active when it was drawn, its raw pixels as recorded and the dataset's
+  wavelength axis. Its `job` makes it a calibration ROI or a prediction ROI;
+  its `sample` label groups ROIs of one physical sample.
+- A target value pairs an ROI with a target.
+- A model is fitted on a calibration set (its ROIs and target, built with a
+  preprocessing recipe) and records its input contract: the signal, bands
+  and wavelength axis a scan must provide. Its fit specification
+  (`fit_spec`), the software it was fitted with and its limits (`dcrit_095`,
+  `t2_crit_095`) are stored with it.
+- Every object has a stable id; names are mutable labels. A stored object is
+  never overwritten with other content; the exceptions (a dataset's path, its
+  label, its wavelength table, a target value) are listed in the
+  project-schema contract (§5).
 
-TargetDefinition  1───*  TargetAssignment  (one target assigned to many ROIs)
-TrainingROI       1───*  TargetAssignment  (one ROI can have many target values)
+## Lifecycle
 
-SampleSet  *───1  TargetDefinition     (one sample set targets one property)
-SampleSet  *───*  TrainingROI          (via roi_ids list)
-
-ModelRun  *───1  SampleSet             (one model trained on one sample set)
-ModelRun  *───1  SignalDomainContract   (one model has one signal contract)
-
-PredictionRun  *───1  ModelRun          (one prediction uses one model)
-PredictionRun  *───1  DatasetRef        (one prediction on one dataset)
-PredictionRun  *───1  ReferenceCorrection   (one prediction with one reference correction)
-```
-
----
-
-## HDF5 storage mapping (v3 project files)
-
-```
-/project_meta/                @FileSchemaVersion, @FileCreator, @FileWriter, @created_at, @updated_at
-/datasets/{dataset_id}/       source_path, source_format, source_modality,
-                              cube_shape, n_bands, wavelengths, loader_metadata,
-                              @active_reference_correction_id
-  /reference_corrections/{cal_id}/     mode, output_signal_unit, dark_ref_data,
-                              white_ref_data, black_level, white_level
-/targets/{target_id}/         name, unit, value_type, missing_value_policy
-/target_assignments/{target_id}/{roi_id}/  value, assigned_at
-/rois/{roi_id}/               dataset_id, reference_correction_id, name, wavelengths,
-                              n_pixels, spatial_bounds, source_file,
-                              spectra (uint16 dataset), /provenance/
-/recipes/{recipe_id}/         eight required executable fields: filter,
-                              sg_window, sg_polyorder, snv, msc, emsc,
-                              detrend, detrend_order
-/signal_domains/{sd_id}/      input_format, source_modality, required_signal_unit,
-                              required_correction_mode, n_bands, wavelengths, ...
-/sample_sets/{ss_id}/         target_id, roi_ids, preprocessing_recipe_id,
-                              observation_unit, validation_unit, ...
-/model_runs/{mr_id}/          sample_set_id, signal_domain_id, model_type,
-                              hyperparameters, cv_spec, metrics, artifact_refs
-                              /artifact_refs/prediction_model/ (coef_, intercept_, ...)
-                              /artifact_refs/diagnostics/ (loadings, scores, ...)
-/predictions/{pr_id}/         dataset_id, reference_correction_id, model_run_id,
-                              signal_domain_id, preprocessing_recipe_id,
-                              artifact_refs (spatial_map, y_pred)
-```
-
----
-
-## Workspace lifecycle
-
-From an empty project to a prediction; the viewer calls the same rules from
-its workspaces.
+From an empty project to a prediction; the viewer calls the same rules.
 
 | Step | `enginir.Project` | Objects stored |
 |---|---|---|
 | 1. Create | `Project.create(path)` | project metadata |
-| 2. Register data | `project.add_dataset(path, dark=, white=, unit=)`; references also from frames of the file (`dark_frames=`, `white_frames=`) or another scan (`references_from=`) | `DatasetRef`, `ReferenceCorrection` (reused when identical; becomes active) |
-| 3. Define a target | `project.add_target(name, unit=)` | `TargetDefinition` |
-| 4. Draw ROIs | `dataset.add_roi(name, frames=, rows=, values=)` | `TrainingROI` with spectra and reference pixels, `TargetAssignment` per value |
-| 5. Fit | `project.fit(target, recipe=, model=, n_components=)` | recipe (by content), `SampleSet` (reused), `SignalDomainContract` (reused), `ModelRun` |
-| 6. Predict | `model.predict(path)` | `DatasetRef`/`ReferenceCorrection` if new, `PredictionRun` with its arrays |
+| 2. Add a dataset | `project.add_dataset(path, dark=, white=, unit=)`; references also from frames of the file (`dark_frames=`, `white_frames=`) or another dataset (`references_from=`); wavelengths from a table (`wavelength_table=`) | dataset, reference correction (reused when identical; becomes active) |
+| 3. Define a target | `project.add_target(name, unit=)` | target |
+| 4. Draw ROIs | `dataset.add_roi(name, frames=, rows=, values=)` or `dataset.add_rois(roi_grid(...))` | ROI with its pixels, a target value per value |
+| 5. Fit | `project.fit(target, recipe=, model=, n_components=)` | recipe (by content), calibration set (reused), input contract (reused), model |
+| 6. Predict | `model.predict_rois()` (prediction ROIs, from the project file), `model.predict(path)` (a dataset) | nothing (a prediction lives in memory); the low-level writers of `enginir.io.project_store` store one, read back as `project.predictions` |
 
-Each step validates first and then writes, in dependency order, so a failed
-step stores nothing, and a stored object never references a missing one. In
-the viewer, `ProjectState` calls `Project.save_*` and emits a signal
-(`rois_changed`, `model_runs_changed`, …) after each change.
+Each step validates first and then writes, in dependency order: a failed step
+stores nothing, and no stored object refers to a missing one. In the viewer,
+`ProjectState` calls `Project.save_*` and emits a signal (`rois_changed`,
+`model_runs_changed`, ...) after each change.
 
----
+## Loading
 
-## Memory-aware hydration rules
-
-A project is split into light metadata and heavy array
-artifacts.
-
-- `load_project_store()` is the canonical reader and is metadata-first by default:
-  - ROI spectra stay on disk unless `include_roi_spectra=True`
-  - nested `artifact_refs` arrays stay on disk unless `include_artifact_arrays=True`
-- `hydrate_project_store()` converts that dictionary into typed objects and
-  validates relationships without importing Qt.
-- `Project.open()` uses both; the viewer's `ProjectState.open_project()` opens
-  a `Project` and emits its signals.
-- Heavy persisted arrays are loaded lazily only when needed:
-  - `ModelRun.artifact_refs` through `ensure_model_run_artifact_refs(...)`
-  - `PredictionRun.artifact_refs` through `ensure_prediction_artifact_refs(...)`
-- This means project-first shell startup, browser navigation, inspector updates,
-  and metadata edits do not materialize model CV arrays, prediction maps, or ROI
-  spectra unnecessarily.
-
-### Working dtype rules
-
-The project file may contain mixed numeric dtypes; the viewer
-and modeling/prediction pipelines follow these defaults:
-
-- raw ROI spectra remain the scientific truth and stay in their stored raw dtype
-- viewer/modeling/prediction working arrays default to `float32`
-- persisted prediction/model artifact arrays such as `y_pred`, `spatial_map`,
-  `y_true_roi`, and `y_pred_roi` are also written as `float32`
-
-These rules are intended to reduce peak memory without changing the frozen v3
-project semantics.
+- `load_project_store()` reads the metadata; ROI pixels and model artifacts
+  stay on disk unless asked for (`include_roi_spectra=`,
+  `include_artifact_arrays=`). `hydrate_project_store()` builds the typed
+  objects and checks their relationships, without Qt. `Project.open()` does
+  both.
+- Heavy arrays load when needed: a model's artifacts on first use
+  (`ProjectState.ensure_model_run_artifact_refs`), ROI pixels for a fit or the
+  Project ROIs tiles.
+- Raw ROI pixels stay in their stored dtype (uint16 counts, or float32 for
+  corrected data); working arrays are float32. Arrays are stored with Blosc
+  (engiNIR 1.7.3; gzip before), see `hdf5_format.md`.

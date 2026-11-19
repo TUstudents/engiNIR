@@ -1,7 +1,9 @@
 # Plan: the ROI workflow and the domain model doc (backlog items 2, 4, 5, 8)
 
-Status: decided (user, 2026-11-19): R1 to R4 below. Not started; release
-not decided (1.7.3 is implemented on `release-1.7.3` and not released yet).
+Status: decided (user, 2026-11-19): R1 to R4 below. Built for 1.7.3 (user:
+"Into 1.7.3"), 2026-11-19. R3's buttons on the Project ROIs tab sit next to
+its Dataset filter, not on each group: the group headers are text drawn in
+the mosaic's scene.
 
 ## Decisions (user, 2026-11-19)
 

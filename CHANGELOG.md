@@ -31,6 +31,8 @@
   ROIs opens, and the fix only switched the step.
 - **The About box cites engiNIR** (with the concept DOI) and links its
   GitHub repository.
+- **The domain model page** is a short overview again: each object of a
+  project with its term, its Python class and its place in the file.
 - **The glossary** gives Frame and Row their own entries and adds the terms
   the viewer and the guides use: the Explore plots (spatial image, sensor
   frame, band image, spatial profile, false-color image), dark and white

@@ -4,9 +4,8 @@ Status: decided (user, 2026-11-19): D1 to D8 below. Phases 1 to 3 done; Phase 4
 (the release) waits for the go-ahead.
 
 1.7.3 takes the small fixes and the model and storage items of the 1.7.2
-backlog (`plans/backlog-1.7.2.md`). The ROI workflow (items 2, 4, 8) and the
-domain model doc (item 5) stay in the backlog for a later release; item 4
-needs its "which grid" answered first.
+backlog (`plans/backlog-1.7.2.md`), and (user, 2026-11-19) the ROI workflow
+and the domain model doc of `plans/roi-workflow.md` (items 2, 4, 5, 8).
 
 ## Decisions (user, 2026-11-19)
 
