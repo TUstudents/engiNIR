@@ -97,3 +97,31 @@ decisions before work starts. 1.7.1 is the startup speedup
    maximize or a restore of the plot), so a new image looks like Reset View
    without the button. Check the Sensor frame and the Spatial profile, which
    share the image's row axis (`link_rows`).
+10. **Glossary update** (`docs/glossary.rst`, with
+    `contracts/terminology_v3.md`, which fixes the terms). The user
+    (2026-11-19): some items are not defined, e.g. Frame. *To clarify:*
+    Frame is in the glossary, but only together with Row ("the two spatial
+    axes of a push-broom cube"), so where was it missed: in the viewer (the
+    *Sensor frame* plot is a different thing: one frame, bands by rows), a
+    frame range of a dataset, or a term the glossary should define on its
+    own? Terms used in the viewer and the guides that the glossary lacks
+    (looked at 2026-11-19), to check against the contract:
+    - data: project, data file, cube, push-broom, wavelength axis, frame
+      range, dark and white reference, detector levels (black/white level);
+    - the Explore plots: spatial image, false-color image, sensor frame,
+      band image, spatial profile, ROI grid;
+    - preprocessing by name: SNV, MSC, EMSC, Savitzky-Golay, detrend;
+    - modeling: cross-validation, hold-out, Kennard-Stone, component curve;
+    - results: R², Q², RMSEC, RMSECV, RMSEP, bias, VIP, scores, loadings,
+      coefficients, checks and the verdict.
+11. **The welcome window's tagline.** It says "Reference correction models
+    for NIR spectra and hyperspectral images." (`viewer/_welcome.py`, the
+    subtitle under "engiNIR"), which is wrong. The format 1.7 rename (commit
+    `7ce1f0c`) turned "Calibration models ..." into it, although
+    "calibration" meant model calibration there. A search of the rename's
+    removed lines (2026-11-19) found no other text of that kind; this is the
+    only one. Use the engiNIR tagline: the citation's title is "A universal
+    engineering tool for near-infrared spectra and hyperspectral imaging"
+    (`CITATION.cff`). *To decide:* that wording, or another (the PyPI
+    description in `pyproject.toml` and the Windows shortcut's description
+    in `viewer/_windows_shell.py` say it differently).
