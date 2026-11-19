@@ -11,7 +11,7 @@ from enginir._logging import get_logger
 from ._fit_spec import FitSpec, fold_groups_problem
 from ._models import (
     ReferenceCorrection,
-    DatasetRef,
+    DatasetRecord,
     ModelRun,
     PredictionRun,
     SampleSet,
@@ -30,7 +30,7 @@ class ProjectRelationshipError(ValueError):
 
 def validate_project_relationships(
     *,
-    datasets: Mapping[str, DatasetRef],
+    datasets: Mapping[str, DatasetRecord],
     reference_corrections: Mapping[str, ReferenceCorrection],
     rois: Mapping[str, TrainingROI],
     targets: Mapping[str, TargetDefinition],
@@ -153,7 +153,7 @@ def validate_project_relationships(
 def _check_sample_set(
     sample_set: SampleSet,
     *,
-    datasets: Mapping[str, DatasetRef],
+    datasets: Mapping[str, DatasetRecord],
     rois: Mapping[str, TrainingROI],
     targets: Mapping[str, TargetDefinition],
     recipes: Collection[str],

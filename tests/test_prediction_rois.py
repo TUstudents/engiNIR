@@ -57,7 +57,7 @@ def test_the_api_accepts_only_calibration_and_prediction(tray):
 def test_prediction_rois_never_enter_a_fit(tray):
     project, _scan, _path = tray
     model = project.fit("API", n_components=2, cv=3)
-    sample_set = project.workspace.sample_sets[model.ref.sample_set_id]
+    sample_set = project.workspace.sample_sets[model.record.sample_set_id]
     names = {project.workspace.rois[roi_id].name for roi_id in sample_set.roi_ids}
     assert names == {f"t{i:02d}" for i in range(1, 8)}, "t08-t10 are prediction ROIs"
 
@@ -65,7 +65,7 @@ def test_prediction_rois_never_enter_a_fit(tray):
     project.set_job("t03", "prediction")
     refitted, messages = warnings_during(model.refit)
     assert any("now prediction ROIs" in message for message in messages)
-    assert refitted.ref.sample_set_id == model.ref.sample_set_id
+    assert refitted.record.sample_set_id == model.record.sample_set_id
 
     for name in [f"t{i:02d}" for i in range(1, 8)]:
         project.set_job(name, "prediction")
@@ -184,8 +184,8 @@ def test_a_model_without_calibration_shares_has_no_rule(tmp_path):
     project, _dataset, _path = tray_project(tmp_path, odd="t09")
     model = project.fit("API", n_components=2, cv=3)
     with h5py.File(project.path, "r+") as f:
-        diagnostics = f[f"model_runs/{model.ref.model_run_id}/artifact_refs/diagnostics"]
+        diagnostics = f[f"model_runs/{model.record.model_run_id}/artifact_refs/diagnostics"]
         diagnostics.attrs["roi_share_above_dcrit_099"] = diagnostics.attrs["roi_share_above_dcrit"]
         del diagnostics.attrs["roi_share_above_dcrit"]
-    model = Project.open(project.path).model(model_run_id=model.ref.model_run_id)
+    model = Project.open(project.path).model(model_run_id=model.record.model_run_id)
     assert unusual_rois(model.roi_prediction([project.roi("t09")])) == ()

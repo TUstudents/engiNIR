@@ -78,9 +78,7 @@ from ._predict_dialogs import ROI_RESULTS
 from ._prediction import PREDICTION_HISTOGRAM, PredictionMapWidget, PredictionView
 from ._windows import keep_open
 from ._state import (
-    DEFAULT_BLACK_LEVEL,
     DEFAULT_SOURCE_MODALITY,
-    DEFAULT_WHITE_LEVEL,
     ProjectState,
     ViewerState,
     look_up_data_files,
@@ -117,12 +115,19 @@ _SAVED_MESSAGE_MS = 8000
 _ADD_DATA_FILE = "__add_data_file__"
 
 
+def _default_levels() -> tuple[float, float]:
+    """The detector levels of Tools > Preferences (default 128 / 3100)."""
+    preferences = preferences_store.load()
+    return float(preferences.black_level), float(preferences.white_level)
+
+
 def _reference_correction_view(reference_correction: ReferenceCorrection | None,
                       meta: dict[str, Any]) -> tuple[dict[str, Any], str]:
     """``ViewerState.load_dataset`` keywords and the signal unit for a data file's reference correction."""
+    black, white = _default_levels()
     levels: dict[str, Any] = {
-        "black_level": float(meta.get("black_level", DEFAULT_BLACK_LEVEL)),
-        "white_level": float(meta.get("white_level", DEFAULT_WHITE_LEVEL)),
+        "black_level": float(meta.get("black_level", black)),
+        "white_level": float(meta.get("white_level", white)),
     }
     if reference_correction is None:
         return levels, "DN"
@@ -161,6 +166,25 @@ __all__ = [
 # ------------------------------------------------------------------
 # LogPanel - dock widget for loguru output
 # ------------------------------------------------------------------
+
+
+#: Where engiNIR lives, and its concept DOI (every version; README, Citation).
+GITHUB_URL = "https://github.com/TUstudents/engiNIR"
+CONCEPT_DOI = "10.5281/zenodo.23235907"
+
+
+def about_text(version: str) -> str:
+    """The About box: version, tagline, the citation of the README and the links."""
+    doi = f"https://doi.org/{CONCEPT_DOI}"
+    return (f"<b>engiNIR</b> {version}<br>"
+            "A universal engineering tool for near-infrared spectra and hyperspectral "
+            "imaging.<br><br>"
+            "If you use engiNIR in your work, please cite:<br>"
+            "Johannes Poms. (2026). TUstudents/engiNIR: A universal engineering tool for "
+            f"near-infrared spectra and hyperspectral imaging. Zenodo. "
+            f'<a href="{doi}">{doi}</a><br><br>'
+            f'Source, issues and releases: <a href="{GITHUB_URL}">{GITHUB_URL}</a><br>'
+            "Licensed under CC BY 4.0.")
 
 
 def _shown_axis(dataset: Any, data: Any) -> tuple[np.ndarray, dict[str, Any]]:
@@ -344,8 +368,9 @@ class HSIViewer(QMainWindow):
 
         _meta = meta or {}
 
-        black_level: float = float(_meta.get("black_level", DEFAULT_BLACK_LEVEL))
-        white_level: float = float(_meta.get("white_level", DEFAULT_WHITE_LEVEL))
+        default_black, default_white = _default_levels()
+        black_level: float = float(_meta.get("black_level", default_black))
+        white_level: float = float(_meta.get("white_level", default_white))
 
         self.state = ViewerState(
             cube,
@@ -1212,9 +1237,19 @@ class HSIViewer(QMainWindow):
         self._checks_panel.check_activated.connect(self._show_check)
         self._models_panel.model_selected.connect(self.select_model)
         self._restore_bottom_dock_sizes()
+        self._attach_log_sink(preferences_store.load().log_level)
+
+    def _attach_log_sink(self, level: str) -> None:
+        """Send engiNIR's messages of ``level`` and above to the Log panel.
+
+        The level of Tools > Preferences (default INFO), so the panel never shows
+        DEBUG lines at INFO; a change applies at once (plan release-1.7.3, D5).
+        """
+        self._teardown_log_sink()
+        self._log_sink_level = level
         self._log_sink_id = add_log_sink(
             self._log_panel.sink,
-            level="DEBUG",
+            level=level,
             format="{time:HH:mm:ss} | {level:<7} | {message}",
             filter="enginir",
         )
@@ -1346,6 +1381,7 @@ class HSIViewer(QMainWindow):
         self.project_state.datasets_changed.connect(self._look_up_data_files)
         self._project_browser.itemDoubleClicked.connect(self._on_browser_item_activated)
         self._eda_view.roi_table_requested.connect(self.show_roi_table)
+        self._eda_view.dataset_needed.connect(self.add_rois_on)
         self._project_rois = ProjectRoisView(
             self.state, self.project_state,
             current_target_id=lambda: (None if (target := self._modeling_view.current_target())
@@ -1354,6 +1390,7 @@ class HSIViewer(QMainWindow):
         self._explore_tabs.addTab(self._project_rois, "Project ROIs")
         self._project_rois.roi_selected.connect(self._on_canvas_roi_selected)
         self._project_rois.roi_opened.connect(self.open_roi)
+        self._project_rois.add_rois_requested.connect(self.add_rois_on)
         self._modeling_view.view_state_changed.connect(self._project_rois.current_target_changed)
         self.project_state.rois_changed.connect(self._update_project_rois_tab)
         self.project_state.project_loaded.connect(self._update_project_rois_tab)
@@ -2220,6 +2257,8 @@ class HSIViewer(QMainWindow):
         """Make ``preferences`` take effect; defaults pre-fill the docks only at startup."""
         self._preferences = preferences
         preferences_store.apply_environment(preferences)
+        if getattr(self, "_log_sink_level", None) != preferences.log_level:
+            self._attach_log_sink(preferences.log_level)
         if not startup:
             dark = preferences.theme == "dark"
             if preferences.theme == "system":
@@ -2336,7 +2375,7 @@ class HSIViewer(QMainWindow):
         elif action == "set_wavelengths":
             self.set_wavelengths(tuple(args.get("dataset_ids") or ()), args.get("table"))
         elif action == "add_roi":
-            self.show_step("data")
+            self.add_rois_on("add_roi")  # shows a dataset, then starts drawing
         elif action == "add_target":
             self.show_step("model")
             self._modeling_view.select_target_btn_clicked()
@@ -2521,8 +2560,7 @@ class HSIViewer(QMainWindow):
             path, header, state.datasets,
             {dataset_id: reference_correction for dataset_id in state.datasets
              if (reference_correction := state.active_reference_correction(dataset_id)) is not None},
-            trained_with=trained_with, parent=self,
-            registered=self._registered_dataset_id(path) is not None)
+            trained_with=trained_with, parent=self)
         if dialog.exec() != QDialog.DialogCode.Accepted or dialog.request is None:
             return None
         request = dialog.request
@@ -2534,6 +2572,62 @@ class HSIViewer(QMainWindow):
             return None
         self.show_data_file(dataset_id)
         return dataset_id
+
+    def add_rois_on(self, action: str, dataset_id: str | None = None) -> None:
+        """Add ROI (``"add_roi"``) or Add ROI Grid (``"add_roi_grid"``) from anywhere.
+
+        Shows the Data file tab and a dataset first when none is shown, or when
+        ``dataset_id`` is another one: ``dataset_id``, else the last shown, else
+        the only one, else the one the user picks; with none, Add Dataset. Then
+        starts drawing or opens the grid dialog (plan roi-workflow, R3).
+        """
+        if action not in ("add_roi", "add_roi_grid"):
+            log_and_raise("Unknown ROI action {!r}", action, error=ValueError)
+        if self.project_state.project is None:
+            return
+        self.show_step("data")
+        shown = self._eda_view.shown_dataset_id()
+        if shown is not None and dataset_id in (None, shown):
+            self._start_roi_action(action)
+            return
+        target = dataset_id or self._dataset_for_rois()
+        if target is None and not self.project_state.datasets:
+            self._after_shown = ("", action)  # the dataset Add Dataset adds and shows
+            added = self.add_data_file()
+            if added is None:
+                self._after_shown = None
+            elif self._after_shown is not None:
+                self._after_shown = (added, action)
+            return
+        if target is None:
+            return  # the user chose no dataset
+        self._after_shown = (target, action)
+        self.show_data_file(target)
+
+    def _start_roi_action(self, action: str) -> None:
+        if not self.has_attached_dataset():
+            return
+        if action == "add_roi":
+            self._eda_view._btn_roi_training.setChecked(True)
+        else:
+            self._eda_view.open_roi_grid_dialog()
+
+    def _dataset_for_rois(self) -> str | None:
+        """The dataset to draw ROIs on: the last shown, the only one, or the user's choice."""
+        state = self.project_state
+        project_id = state.project_meta.get("project_id")
+        last = None if not project_id else load_last_data_file(str(project_id))
+        if last in state.datasets:
+            return last
+        if len(state.datasets) == 1:
+            return next(iter(state.datasets))
+        if not state.datasets:
+            return None
+        ids = sorted(state.datasets, key=lambda d: state.data_file_label(d).casefold())
+        labels = [state.data_file_label(d) for d in ids]
+        choice, ok = QInputDialog.getItem(self, "Add ROIs", "Dataset to draw ROIs on:",
+                                          labels, 0, False)
+        return ids[labels.index(choice)] if ok and choice in labels else None
 
     def show_data_file(self, dataset_id: str) -> None:
         """Load a registered data file in the background and show it with its reference correction."""
@@ -2553,6 +2647,8 @@ class HSIViewer(QMainWindow):
             box.exec()
             if box.clickedButton() is locate:
                 self.locate_data_file(dataset_id)
+            else:
+                self._after_shown = None  # Add ROI waited for this dataset
             return
         if self._data_file_job is not None:
             return
@@ -2633,6 +2729,7 @@ class HSIViewer(QMainWindow):
                 + "\n".join(failed))
 
     def _data_file_failed(self, message: str) -> None:
+        self._after_shown = None
         logger.error("Cannot load dataset: {}", message)
         QMessageBox.critical(self, "Cannot open file", message)
 
@@ -2689,6 +2786,9 @@ class HSIViewer(QMainWindow):
         if project_id:
             save_last_data_file(str(project_id), dataset_id)
         logger.info("Showing dataset {} ({})", path, self.state.y_unit)
+        pending, self._after_shown = getattr(self, "_after_shown", None), None
+        if pending is not None and pending[0] == dataset_id:
+            QTimer.singleShot(0, lambda: self._start_roi_action(pending[1]))
 
     def apply_shown_reference_correction(self) -> None:
         """Convert the shown data file with its stored reference correction (references or levels).
@@ -3007,8 +3107,10 @@ class HSIViewer(QMainWindow):
 
         box = QMessageBox(self)
         box.setWindowTitle("About engiNIR")
-        box.setText(f"<b>engiNIR</b> v{__version__}<br><br>"
-                    "Hyperspectral NIR spectroscopy library and viewer.")
+        box.setTextFormat(Qt.TextFormat.RichText)
+        box.setText(about_text(__version__))
+        # Selectable (the citation is copied from here) and with links that open.
+        box.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
         box.exec()
 
     def workspace_plot_frames(self) -> list[PlotFrame]:

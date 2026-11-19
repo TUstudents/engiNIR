@@ -50,10 +50,11 @@ from PyQt6.QtWidgets import (
 )
 
 from .._logging import get_logger
-from .._workflow import DEFAULT_BLACK_LEVEL, DEFAULT_WHITE_LEVEL, data_file_labels, read_frames
+from .._workflow import data_file_labels, read_frames
 from ..io import load_spectra
 from ..io import is_band_numbers, user_table_folder, wavelength_tables
-from ..project import ReferenceCorrection, DatasetRef
+from ..project import ReferenceCorrection, DatasetRecord
+from ._preferences import load as load_preferences
 from ._preferences import start_folder
 from ._theme import GUIDE_COLOR, panel_colors, secondary_text_style
 from ._ui_helpers import spectral_axis_label, style_axes
@@ -82,13 +83,16 @@ class DataFileRequest:
     white_level: float | None = None
     #: Name of the wavelength table for a file that stores no wavelengths, or ``None``.
     wavelength_table: str | None = None
+    #: The dataset's name ("Layer 7"; ``""``: none, its file name is shown).
+    name: str | None = None
 
     def add_dataset_kwargs(self) -> dict[str, Any]:
         """Keyword arguments for :meth:`enginir.Project.add_dataset` (besides the path)."""
         return {"unit": self.unit, "dark": self.dark, "white": self.white,
                 "dark_frames": self.dark_frames, "white_frames": self.white_frames,
                 "references_from": self.references_from, "black_level": self.black_level,
-                "white_level": self.white_level, "wavelength_table": self.wavelength_table}
+                "white_level": self.white_level, "wavelength_table": self.wavelength_table,
+                "name": self.name}
 
 
 def saturation_level(meta: Mapping[str, Any], dtype: np.dtype) -> float | None:
@@ -174,12 +178,11 @@ class AddDataFileDialog(QDialog):
         self,
         path: str,
         header: Any,
-        datasets: Mapping[str, DatasetRef],
+        datasets: Mapping[str, DatasetRecord],
         active_reference_corrections: Mapping[str, ReferenceCorrection],
         parent: QWidget | None = None,
         *,
         trained_with: str | None = None,
-        registered: bool = False,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Add dataset")
@@ -202,8 +205,14 @@ class AddDataFileDialog(QDialog):
                       f"{n_bands} bands, {np.dtype(header.X.dtype).name}")
         layout = QVBoxLayout(self)
         layout.addWidget(info)
-        # A registered file keeps its axis; Project > Set Wavelengths changes it.
-        self._wavelengths = None if registered else self._wavelength_choice(header, n_bands)
+        names = QFormLayout()
+        self._name = QLineEdit()  # a new dataset: the dialog opens for unregistered files only
+        self._name.setPlaceholderText(os.path.basename(path))
+        self._name.setToolTip("A short name shown instead of the file name, and {name} in "
+                              "ROI grid names (e.g. 'Layer 7'). Empty: the file name.")
+        names.addRow("Name:", self._name)
+        layout.addLayout(names)
+        self._wavelengths = self._wavelength_choice(header, n_bands)
         if self._wavelengths is not None:
             row = QFormLayout()
             row.addRow("Wavelengths:", self._wavelengths)
@@ -230,7 +239,7 @@ class AddDataFileDialog(QDialog):
             group = QButtonGroup(self)
             for key, text in ((REFERENCES, "Dark and white references"),
                               (SHARED, "Same references as another dataset"),
-                              (LEVELS, "Detector levels, no references"),
+                              (LEVELS, "Detector calibrated with dark and white reference levels"),
                               (RAW, "Raw counts (DN), no reference correction")):
                 button = QRadioButton(text)
                 group.addButton(button)
@@ -262,14 +271,17 @@ class AddDataFileDialog(QDialog):
                 header.X.dtype, np.integer) else 1e9
             self._black = QDoubleSpinBox()
             self._white_level = QDoubleSpinBox()
-            for spin, value in ((self._black, header.meta.get("black_level", DEFAULT_BLACK_LEVEL)),
+            # The file's own levels, else those of Tools > Preferences (default 128 / 3100).
+            preferences = load_preferences()
+            for spin, value in ((self._black, header.meta.get("black_level",
+                                                              preferences.black_level)),
                                 (self._white_level,
-                                 header.meta.get("white_level", DEFAULT_WHITE_LEVEL))):
+                                 header.meta.get("white_level", preferences.white_level))):
                 spin.setRange(0.0, limit)
                 spin.setDecimals(1)
                 spin.setValue(float(value))
                 spin.valueChanged.connect(self._schedule_check)
-            self._choice[LEVELS].setText("Detector levels, no references")
+            self._choice[LEVELS].setText("Detector calibrated with dark and white reference levels")
             reference_correction_layout.addWidget(self._choice[REFERENCES])
             reference_correction_layout.addWidget(references)
             reference_correction_layout.addWidget(self._choice[SHARED])
@@ -504,7 +516,7 @@ class AddDataFileDialog(QDialog):
 
     def build_request(self) -> DataFileRequest:
         """The request for the current choices, with the chosen wavelength table."""
-        request = self._reference_request()
+        request = replace(self._reference_request(), name=self._name.text().strip())
         table = None if self._wavelengths is None else self._wavelengths.currentData()
         return replace(request, wavelength_table=table) if table else request
 
@@ -525,7 +537,7 @@ class SetWavelengthsDialog(QDialog):
     the wavelengths too (plan wavelength-tables, D1).
     """
 
-    def __init__(self, datasets: Mapping[str, DatasetRef], labels: Mapping[str, str], *,
+    def __init__(self, datasets: Mapping[str, DatasetRecord], labels: Mapping[str, str], *,
                  preselected: tuple[str, ...] = (), table: str | None = None,
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)

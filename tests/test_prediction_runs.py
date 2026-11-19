@@ -287,10 +287,10 @@ def test_reopened_prediction_run_lazily_loads_spatial_map_and_preserves_model_li
 
     reopened = Project.open(project_path)
     prediction = reopened.predictions["prediction_run_1"]
-    assert prediction.ref.model_run_id == "model_run_1"
-    assert reopened.workspace.model_runs[prediction.ref.model_run_id].model_type == "PLS"
-    assert "y_pred" not in prediction.ref.artifact_refs
-    assert "spatial_map" not in prediction.ref.artifact_refs
+    assert prediction.record.model_run_id == "model_run_1"
+    assert reopened.workspace.model_runs[prediction.record.model_run_id].model_type == "PLS"
+    assert "y_pred" not in prediction.record.artifact_refs
+    assert "spatial_map" not in prediction.record.artifact_refs
     np.testing.assert_allclose(prediction.y_pred,
                                np.array([0.2, 0.4, 0.6, 0.8], dtype=np.float32))
     np.testing.assert_allclose(prediction.map,

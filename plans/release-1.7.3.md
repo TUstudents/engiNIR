@@ -1,11 +1,12 @@
 # Plan: engiNIR 1.7.3
 
-Status: decided (user, 2026-11-19): D1 to D8 below. Not started.
+Status: decided (user, 2026-11-19): D1 to D8 below. Phases 1 to 3 done, with
+the ROI workflow (`plans/roi-workflow.md`) and later requests; Phase 4 (the
+release) prepared 2026-11-19.
 
 1.7.3 takes the small fixes and the model and storage items of the 1.7.2
-backlog (`plans/backlog-1.7.2.md`). The ROI workflow (items 2, 4, 8) and the
-domain model doc (item 5) stay in the backlog for a later release; item 4
-needs its "which grid" answered first.
+backlog (`plans/backlog-1.7.2.md`), and (user, 2026-11-19) the ROI workflow
+and the domain model doc of `plans/roi-workflow.md` (items 2, 4, 5, 8).
 
 ## Decisions (user, 2026-11-19)
 
@@ -62,6 +63,12 @@ arrays mix in one file (a project written before keeps its gzip arrays).
 
 ### Phase 1: Blosc project files (D2, D3, D8)
 
+*Done (2026-11-19).* Measured (Linux, warm): the example project 1.51 MB
+gzip, 1.34 MB Blosc, the same speed; the four ROIs of a real tray
+(`Tablets_10%`, uint16, 8.8 MB raw): gzip 6.28 MB, write 0.17 s, read
+0.039 s; Blosc 4.99 MB, write 0.10 s, read 0.008 s. Importing `hdf5plugin`
+takes about 0.35 s, in `import enginir.io` (the warm-up's background job).
+
 - One place decides a project array's compression (`_hdf5_groups`):
   Blosc-Zstandard 5 with shuffle; the 11 gzip places use it. Chunking stays
   as now. `save_hdf5` keeps `compression="gzip"` and accepts `"blosc"`.
@@ -84,6 +91,9 @@ arrays mix in one file (a project written before keeps its gzip arrays).
 
 ### Phase 2: the component curve up to 10 (D4)
 
+*Done (2026-11-19).* `CURVE_COMPONENTS = 10` in `modeling/_components.py`;
+the band proposal follows it too (it uses `default_max`).
+
 - `default_max`: 15 becomes 10, as `max(n, min(10, max(1, G − 2), M))`.
 - Contract `components/max` and coverage; the tests that pin the curve's
   length; the viewer's curve plot needs nothing (it draws what is stored).
@@ -92,6 +102,13 @@ arrays mix in one file (a project written before keeps its gzip arrays).
   gives 12; Auto stays within the curve. Fault-injected: 15 back.
 
 ### Phase 3: small fixes (D5, D6, items 3, 9, wavelength warning)
+
+*Done (2026-11-19).* Reset View: the cause was pyqtgraph's default padding,
+which depends on the view's size (up to 0.1 for a small or not yet laid-out
+view); the image view's aspect is not locked, so its range does not depend
+on the size, and refitting on a resize is not needed (built, tested as
+useless, removed). The glossary terms went into the terminology contract
+too ("Further terms").
 
 - **About box (item 3):** the citation as in the README (with the concept
   DOI 10.5281/zenodo.23235907) and the GitHub link

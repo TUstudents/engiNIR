@@ -20,7 +20,7 @@ scaling is a model setting and is passed like ``n_components``:
            "pixels": {"per_roi": 40, "seed": 1},
            "exclusion": {"method": "dmodx", "level": 0.95},
        })
-   model.ref.fit_specification      # the complete FitSpec, as stored
+   model.record.fit_specification      # the complete FitSpec, as stored
 
 The viewer's Fit settings sets the same options (**Hold out together** and
 the **Fitting** group), and the Project browser's inspector shows them for a
@@ -64,7 +64,8 @@ Choosing the number of components
 ---------------------------------
 
 Every PLS and PCR model stores its **component curve**: for 1, 2, … up to
-15 components (fewer with few samples), the cross-validated RMSECV (per ROI) with its
+10 components (fewer with few samples, more when the fit asks for more; 15
+before engiNIR 1.7.3), the cross-validated RMSECV (per ROI) with its
 standard error, Q²(cum), R²Y(cum) and R²X(cum), computed with the model's own
 folds. R²Y always rises with more components; RMSECV (per ROI) and Q² improve, level off
 and then get worse once components fit noise. The gap between R² and Q² shows
@@ -77,7 +78,7 @@ repeats it:
 
    model = project.fit("API content", recipe=PreprocessingRecipe(snv=True),
                        n_components="auto")              # rule: one SE
-   model.ref.hyperparameters["n_components"]               # the chosen number
+   model.record.hyperparameters["n_components"]               # the chosen number
    curve = model.component_curve                           # the arrays, and every
    curve["suggested_one_se"], curve["suggested_min_rmsecv"], curve["suggested_q2_limit"]
 
@@ -110,11 +111,12 @@ chooses as engiNIR 1.3 did.
 
    model = project.fit("API content", n_components="auto",
                        fit_spec={"components": {"rule": "f_test"}})
-   spec = model.ref.fit_specification
+   spec = model.record.fit_specification
    spec.components_rule_choice, spec.components_selected  # before and after the guard
    curve["noise"], curve["structure_ceiling"], curve["dw_weights"]
 
-A worked example, a real model of 20 ROIs from 4 scans (levels 1, 4, 7, 10):
+A worked example, a real model of 20 ROIs from 4 scans (levels 1, 4, 7, 10),
+fitted before engiNIR 1.7.3 with a curve to 15 components:
 RMSECV (per ROI) fell steeply to 4 components and then crept down to 15. ``one_se``
 chose 7, ``min_rmsecv`` 15, ``q2_limit`` 1 (component 2, a scatter component,
 had Q² = −0.02), ``f_test`` and ``q2_lookahead`` 6. Components 6 and later each
@@ -128,7 +130,7 @@ Durbin–Watson value of each component's weights, a measure of how noise-like i
 is (a diagnostic, not a rule).
 
 **Fold warnings.** A fit records, and the viewer shows, conditions that make
-the cross-validation optimistic (``model.ref.cv_spec["warnings"]``):
+the cross-validation optimistic (``model.record.cv_spec["warnings"]``):
 
 - ``few_groups``: fewer than 7 independent samples;
 - ``one_level_per_file``: the ROIs of a dataset share one target value but

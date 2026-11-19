@@ -11,7 +11,7 @@ from enginir.project import (
     check_signal_domain_compatibility,
     transform_spectra_to_signal_domain,
 )
-from enginir.project import ReferenceCorrection, DatasetRef, SignalDomainContract
+from enginir.project import ReferenceCorrection, DatasetRecord, SignalDomainContract
 from tests import _project_payloads as build
 
 
@@ -20,7 +20,7 @@ def _dataset(
     wavelengths: np.ndarray,
     source_modality: str = "nir_hsi",
     source_format: str = "hdf5",
-) -> DatasetRef:
+) -> DatasetRecord:
     return build.dataset(
         wavelengths,
         dataset_id="dataset_1",

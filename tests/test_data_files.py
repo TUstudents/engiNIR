@@ -83,7 +83,7 @@ def test_a_session_shares_one_reference_set(tmp_path, files):
     first = project.add_dataset(paths["tray"], dark=paths["dark"], white=paths["white"])
     second = project.add_dataset(paths["tray2"], references_from=paths["tray"])
     shared, own = first.reference_correction, second.reference_correction
-    assert own.dataset_id == second.ref.dataset_id != shared.dataset_id  # dataset-local copy
+    assert own.dataset_id == second.record.dataset_id != shared.dataset_id  # dataset-local copy
     assert own.reference_correction_id != shared.reference_correction_id
     np.testing.assert_array_equal(own.dark_ref_data, shared.dark_ref_data)
     np.testing.assert_array_equal(own.white_ref_data, shared.white_ref_data)
@@ -415,7 +415,7 @@ def test_a_copied_project_folder_finds_its_data_next_to_it_and_writes_nothing(tm
     found = project.find_data_file(ref.dataset_id)
     assert found is not None and found.how == RELATIVE, "relative first: the copy, not the share"
     assert found.path == str(copy / "lay-1" / "stream_hsi.h5")
-    assert project.dataset(found.path).ref.dataset_id == ref.dataset_id, "never registered twice"
+    assert project.dataset(found.path).record.dataset_id == ref.dataset_id, "never registered twice"
     assert project.workspace.datasets[ref.dataset_id].source_path == ref.source_path
     time.sleep(0.01)
     assert _meta(copy / "demo.h5") == before, "finding a file writes nothing"
@@ -449,7 +449,7 @@ def test_a_windows_path_is_found_through_its_wsl_mount(tmp_path, monkeypatch):
     found = reopened.find_data_file(dataset_id)
     assert found is not None and found.how == "via drive Z:"
     assert found.path == str(mount / "z" / "data" / "lay-1" / "stream_hsi.h5")
-    assert reopened.dataset(found.path).ref.dataset_id == dataset_id
+    assert reopened.dataset(found.path).record.dataset_id == dataset_id
 
 
 def test_a_look_alike_file_at_a_candidate_path_is_refused(tmp_path):
@@ -545,20 +545,20 @@ def test_a_dataset_label_is_stored_shown_and_tolerated_when_missing(tmp_path):
     a = project.add_dataset(framed_scan(tmp_path / "a" / "stream.h5"))
     b = project.add_dataset(framed_scan(tmp_path / "b" / "stream.h5"))
     labels = data_file_labels(project.workspace.datasets)
-    assert labels[a.ref.dataset_id].startswith("stream.h5 (")
+    assert labels[a.record.dataset_id].startswith("stream.h5 (")
     a.set_label("Layer 7")
     reopened = Project.open(project.path)
-    assert reopened.workspace.datasets[a.ref.dataset_id].label == "Layer 7"
+    assert reopened.workspace.datasets[a.record.dataset_id].label == "Layer 7"
     labels = data_file_labels(reopened.workspace.datasets)
-    assert labels[a.ref.dataset_id] == "Layer 7"
-    assert labels[b.ref.dataset_id] == "stream.h5 (b)", "the other keeps its file label"
+    assert labels[a.record.dataset_id] == "Layer 7"
+    assert labels[b.record.dataset_id] == "stream.h5 (b)", "the other keeps its file label"
 
     with h5py.File(project.path, "a") as handle:  # a 1.5.x project: no label attribute
-        del handle["datasets"][a.ref.dataset_id].attrs["label"]
-        handle["datasets"][b.ref.dataset_id].attrs["label"] = 7  # malformed display data
+        del handle["datasets"][a.record.dataset_id].attrs["label"]
+        handle["datasets"][b.record.dataset_id].attrs["label"] = 7  # malformed display data
     reopened = Project.open(project.path)
-    assert reopened.workspace.datasets[a.ref.dataset_id].label == ""
-    assert reopened.workspace.datasets[b.ref.dataset_id].label == ""
+    assert reopened.workspace.datasets[a.record.dataset_id].label == ""
+    assert reopened.workspace.datasets[b.record.dataset_id].label == ""
 
 
 def test_opening_a_project_never_looks_for_data_files_on_the_ui_thread(qapp, tmp_path,
@@ -584,7 +584,7 @@ def test_opening_a_project_never_looks_for_data_files_on_the_ui_thread(qapp, tmp
         save_hdf5(str(path), np.full((8, 4, 6), 1000, np.uint16), np.linspace(1000.0, 1500.0, 6))
         dataset = project.add_dataset(path)
         dataset.add_roi(name, frames=(0, 1), rows=(0, 1), values={"API": 1.0})
-        ids.append(dataset.ref.dataset_id)
+        ids.append(dataset.record.dataset_id)
     paths[1].unlink()
     present_id = ids[0]
     save_last_data_file(str(project.workspace.project_meta["project_id"]), present_id)
@@ -627,4 +627,52 @@ def test_opening_a_project_never_looks_for_data_files_on_the_ui_thread(qapp, tmp
         assert len(lookups) == count, "each file is looked up once per session"
     finally:
         release.set()
+        window.close()
+
+
+def test_a_dataset_is_named_when_it_is_added(tmp_path):
+    """add_dataset(name=...): stored with the new dataset; for a registered one it renames,
+    None keeps the name (the Add Dataset dialog's Name field)."""
+    path = tmp_path / "stream_hsi.h5"
+    save_hdf5(str(path), np.full((4, 3, 6), 2000, np.uint16), np.linspace(1000, 1500, 6))
+    project = Project.create(tmp_path / "p.h5")
+    dataset = project.add_dataset(path, name=" Layer 7 ")
+    assert dataset.record.label == "Layer 7"
+    assert Project.open(project.path).workspace.datasets[dataset.record.dataset_id].label \
+        == "Layer 7", "stored"
+    project.add_dataset(path)  # None: the name stays
+    assert project.workspace.datasets[dataset.record.dataset_id].label == "Layer 7"
+    project.add_dataset(path, name="Layer 8")
+    reopened = Project.open(project.path).workspace.datasets[dataset.record.dataset_id]
+    assert reopened.label == "Layer 8", "a registered dataset is renamed"
+
+
+def test_the_add_dataset_dialog_names_the_dataset(qapp, tmp_path, monkeypatch):
+    from PyQt6.QtWidgets import QDialog
+
+    from enginir.viewer import open_project
+    from enginir.viewer._data_files import AddDataFileDialog
+
+    path = tmp_path / "stream_hsi.h5"
+    save_hdf5(str(path), np.full((4, 3, 6), 2000, np.uint16), np.linspace(1000, 1500, 6))
+    project = Project.create(tmp_path / "p.h5")
+    shown: list[str] = []
+
+    def accept(dialog):
+        shown.append(dialog._name.text())
+        dialog._name.setText("Layer 7")
+        dialog._accept()
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(AddDataFileDialog, "exec", accept)
+    window = open_project(str(project.path))
+    try:
+        dataset_id = window.add_data_file(str(path))
+        window.wait_for_data_file()
+        assert window.project_state.datasets[dataset_id].label == "Layer 7"
+        assert window.project_state.data_file_label(dataset_id) == "Layer 7"
+        assert shown == [""], "a new dataset starts without a name (its file name shows)"
+        assert window.add_data_file(str(path)) == dataset_id and shown == [""], \
+            "a registered file is shown directly; Project > Name Dataset renames it"
+    finally:
         window.close()

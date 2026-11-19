@@ -30,7 +30,7 @@ from enginir._checks import check_integer, log_and_raise
 from enginir._logging import get_logger
 
 from ._common import base_meta, require_file
-from ._hdf5_groups import read_mapping, write_mapping
+from ._hdf5_groups import compression_options, read_mapping, write_mapping
 from ._types import SpectralData
 from .project_store import format_refusal, has_project_meta, is_project_file
 
@@ -150,7 +150,9 @@ def save_hdf5(
     spectra_key, wavelengths_key, meta_group:
         Names of the datasets and the metadata group.
     compression:
-        HDF5 compression filter (``"gzip"`` or ``"lzf"``).
+        HDF5 compression: ``"gzip"`` (the default, readable by every HDF5 tool),
+        ``"lzf"``, or ``"blosc"`` (Blosc-Zstandard: smaller and faster, but other
+        tools need ``hdf5plugin`` to read it).
     """
     X = np.asarray(X)
     wavelengths = np.asarray(wavelengths)
@@ -163,8 +165,9 @@ def save_hdf5(
     temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
     try:
         with h5py.File(temporary, "w") as f:
-            f.create_dataset(spectra_key, data=X, compression=compression)
-            f.create_dataset(wavelengths_key, data=wavelengths, compression=compression)
+            f.create_dataset(spectra_key, data=X, **compression_options(compression))
+            f.create_dataset(wavelengths_key, data=wavelengths,
+                             **compression_options(compression))
             if meta:
                 write_mapping(f.create_group(meta_group), dict(meta), compression)
         os.replace(temporary, target)
@@ -257,8 +260,31 @@ def _register_compression_plugins() -> None:
     import hdf5plugin  # noqa: F401  (a dependency; importing registers the filters)
 
 
-@cache
+#: Files whose wavelengths a project gives them from a wavelength table (normalized paths).
+_GIVEN_WAVELENGTHS: set[str] = set()
+
+
+def _path_key(path: str | os.PathLike[str]) -> str:
+    return os.path.normcase(os.path.abspath(os.fspath(path)))
+
+
+def note_wavelength_table(path: str | os.PathLike[str]) -> None:
+    """Say that a project gives the file at ``path`` its wavelengths from a table.
+
+    Reading it then logs no warning that it has none: it has them in the project
+    (``enginir.io.wavelength_tables``). For this process only.
+    """
+    _GIVEN_WAVELENGTHS.add(_path_key(path))
+
+
 def _warn_missing_wavelengths(path: str, wavelengths_key: str, n_bands: int) -> None:
+    if _path_key(path) in _GIVEN_WAVELENGTHS:
+        return
+    _warn_missing_wavelengths_once(path, wavelengths_key, n_bands)
+
+
+@cache
+def _warn_missing_wavelengths_once(path: str, wavelengths_key: str, n_bands: int) -> None:
     logger.warning("{} has no '{}' dataset; using band indices 0..{} as wavelengths", path,
                    wavelengths_key, n_bands - 1)
 

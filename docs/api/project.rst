@@ -32,13 +32,13 @@ hydrate_project_store
 ``load_project_store()`` into current typed objects and validates all id-based
 relationships without importing Qt.
 
-DatasetRef
-----------
+DatasetRecord
+-------------
 
-.. autoclass:: enginir.project.DatasetRef
+.. autoclass:: enginir.project.DatasetRecord
    :members:
 
-``DatasetRef`` validates that the cube band dimension, ``n_bands``, and
+``DatasetRecord`` validates that the cube band dimension, ``n_bands``, and
 ``wavelengths`` length agree.
 
 ReferenceCorrection

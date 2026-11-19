@@ -163,7 +163,7 @@ def test_project_rois_tab_and_locate_timings(project_path, tmp_path):
     from enginir._workflow import check_data_file_location
 
     rois = list(dataset.rois.values())
-    locate_ms, _ = _timed(lambda: check_data_file_location(project.path, dataset.ref, rois,
+    locate_ms, _ = _timed(lambda: check_data_file_location(project.path, dataset.record, rois,
                                                            moved))
     gaps_sorted = sorted(gaps)
     print(f"\nProject ROIs tab ({len(project.workspace.rois)} ROIs):"

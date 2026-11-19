@@ -143,7 +143,7 @@ class FalseColourCanvas(QWidget):
         img = (self._rgb * 255).astype(np.uint8)
         self._image_item.setImage(img)
         self._image_shape = (int(img.shape[0]), int(img.shape[1]))
-        self._view.autoRange()
+        self.reset_view()
 
     def clear_image(self) -> None:
         """Clear the current image and disable image-space interaction."""
@@ -168,7 +168,12 @@ class FalseColourCanvas(QWidget):
         return self._view
 
     def reset_view(self) -> None:
-        """Reset zoom and pan so the full image is visible again."""
+        """Fit the whole image to the view, with a 2 % margin.
+
+        Also how a new image is shown: pyqtgraph's own padding depends on the
+        view's size at that moment (up to 10 % while the page is small or not
+        laid out yet), so an image used to open smaller than Reset View shows it.
+        """
         self._view.autoRange(padding=0.02)
 
     def enter_roi_draw_mode(self) -> None:

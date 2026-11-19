@@ -180,7 +180,7 @@ def test_a_model_on_selected_bands_predicts_like_it_was_trained(tmp_path, msc):
     n_model = N_BANDS - 2 - 2
     from enginir.io import load_model_run_prediction_artifact
 
-    blob = load_model_run_prediction_artifact(project.path, model.ref.model_run_id)
+    blob = load_model_run_prediction_artifact(project.path, model.record.model_run_id)
     assert np.shape(blob["coef_"])[0] == np.size(blob["wavelengths"]) == n_model
     np.testing.assert_allclose(blob["wavelengths"], np.delete(wavelengths[1:-1], [1, 2]),
                                rtol=1e-6)
@@ -188,7 +188,7 @@ def test_a_model_on_selected_bands_predicts_like_it_was_trained(tmp_path, msc):
         assert np.size(blob["preprocessing_state"]["msc"]["reference"]) == N_BANDS - 2
     prediction = predicts_its_training_scan(model, scan)
     assert np.isfinite(prediction.map).all()
-    reopened = type(project).open(project.path).model(model_run_id=model.ref.model_run_id)
+    reopened = type(project).open(project.path).model(model_run_id=model.record.model_run_id)
     assert reopened.recipe == recipe if hasattr(reopened, "recipe") else True
 
 

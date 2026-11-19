@@ -375,10 +375,9 @@ Selects the physical quantity displayed in all panels.
 | **Reflectance** | `clip((raw − dark) / (white − dark), 1e-6, 1)` | Uses default levels when no refs loaded |
 | **Absorbance** | `−log10(Reflectance)` | Uses default levels when no refs loaded |
 
-When no dark / white reference files are loaded, the viewer uses the EVK
-factory default levels (black = 128, white = 3500) instead of falling back
-to DN.  A small label below the radio buttons shows `"default: black=128
-white=3500"` as a reminder.
+When no dark / white reference files are loaded, the viewer uses the
+detector levels of Tools > Preferences (black = 128, white = 3100 by default;
+3500 before engiNIR 1.7.3) instead of falling back to DN.
 
 **Programmatic control:**
 
@@ -527,7 +526,7 @@ A project may hold ROIs from several datasets. The canvas draws only the
 ROIs whose `dataset_id` is the project dataset of the shown file
 (`EDAView.refresh_roi_overlays`, `EDAView.shown_dataset_id`). Attach
 validation is per dataset: an unregistered file is a new dataset, and only
-a registered file that no longer matches its `DatasetRef` raises the warning
+a registered file that no longer matches its `DatasetRecord` raises the warning
 gate (`_attachment.confirm_project_dataset_binding`).
 
 A dataset whose `source_path` no longer exists is listed as "(not found)".

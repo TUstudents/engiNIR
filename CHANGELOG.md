@@ -1,5 +1,94 @@
 # Changelog
 
+## 1.7.3 (2026-11-19)
+
+Smaller and faster project files (Blosc), ROIs added from anywhere and named
+after their dataset, the white level of the Helios setting, and the rest of
+the 1.7.2 backlog. The format stays `enginir-1.7`.
+
+Upgrading from 1.7.2:
+
+- **Projects** open as before. A project saved by 1.7.3 stores its new
+  arrays with Blosc and needs engiNIR 1.7.3 or newer (or `hdf5plugin`) to be
+  read: update every computer that opens it.
+- **Scripts** use `DatasetRecord` and `.record` (was `DatasetRef` and
+  `.ref`); there are no aliases.
+- **New datasets** without levels get the white level 3100 (was 3500). Do
+  not mix them into one calibration set with datasets of the same camera
+  added at 3500; set the level in Tools > Preferences or pass
+  `white_level=` to keep 3500.
+
+### Changed
+
+- **`DatasetRef` is now `DatasetRecord`, and `.ref` is `.record`**
+  (`dataset.record`, `model.record`, `stored_prediction.record`). "Ref"
+  read like the dark and white references; it meant the stored record of a
+  dataset or model. The old names are gone, with no aliases: scripts must
+  use the new ones (e.g. `model.record.model_run_id`). The project file is
+  unchanged.
+- **Project files store their arrays with Blosc** (Zstandard, level 5,
+  shuffle) instead of gzip. On a real tray's ROI pixels: 21 % smaller,
+  writing 1.7 times and reading about 5 times as fast. Projects written
+  before keep their gzip arrays and open as before; the format stays
+  `enginir-1.7`. **A project written by 1.7.3 needs engiNIR 1.7.3 or newer**
+  (or `import hdf5plugin` in Python, the Blosc plugin in HDFView or MATLAB):
+  earlier engiNIR versions open it but cannot read its arrays.
+  `save_hdf5` keeps gzip and offers `compression="blosc"`.
+- **The default white level is 3100** (the EVK Helios white balance), not
+  3500, and the viewer's Add Dataset starts from the levels set in **Tools >
+  Preferences** (128 and 3100 by default). A file that states its levels
+  keeps them, and stored datasets keep theirs; but a dataset added from now
+  on without levels gets 3100, so do not mix it into one calibration set with
+  datasets of the same camera added at 3500. Scripts can still pass
+  `white_level=3500`.
+- **Add Dataset's detector-level choice reads "Detector calibrated with dark
+  and white reference levels"** (it was "Detector levels, no references").
+- **The component curve of PLS and PCR ends at 10 components** (15
+  before): A_max = max(n, min(10, G − 2, rank)). A fit asking for more
+  still gets its count; Auto chooses within the curve. Stored curves keep
+  their length.
+
+### Added
+
+- **Add Dataset has a Name field**, and `Project.add_dataset` a `name=`
+  parameter: the dataset's short name, shown instead of its file name and
+  used by `{name}` in ROI grid names.
+- **ROI grids are named after the dataset's name.** The new placeholder
+  `{name}` gives the dataset's name (Project > Name Dataset), else its file
+  name, and the default patterns use it: Kestreleye scans, all called
+  `stream_hsi.h5`, no longer give every grid `stream_hsi-A01`. `{folder}`
+  gives the file's folder. The grid dialog lists the placeholders.
+- **Add ROI and Add ROI Grid work from anywhere.** Pressed without an
+  image shown (from the Settings, the ROI menu, the Checks tab's fix or the
+  new buttons of the Project ROIs tab), they show a dataset first, then start
+  drawing or open the grid dialog. They were disabled where a project with
+  ROIs opens, and the fix only switched the step.
+- **The About box cites engiNIR** (with the concept DOI) and links its
+  GitHub repository.
+- **The domain model page** is a short overview again: each object of a
+  project with its term, its Python class and its place in the file.
+- **The glossary** gives Frame and Row their own entries and adds the terms
+  the viewer and the guides use: the Explore plots (spatial image, sensor
+  frame, band image, spatial profile, false-color image), dark and white
+  references, detector levels, the wavelength table, the preprocessing
+  steps, the figures of merit, scores, loadings, coefficients, VIP, the
+  component curve, check and verdict.
+
+### Fixed
+
+- **The Log tab shows the log level of Tools > Preferences** (INFO by
+  default) instead of every DEBUG line, and follows a change at once.
+- **An image opens as Reset View shows it.** It was fitted with a margin that
+  depended on the view's size at that moment (up to 10 % while the page was
+  not laid out yet).
+- **A Kestreleye scan with a wavelength table is read without the warning
+  that it has no wavelengths.**
+- **The Checks table's Where and Fix columns have room** (they were fitted
+  exactly to their contents) and can be widened by hand.
+- **Typing an ROI grid's name pattern no longer logs an error per
+  keystroke** (`{fol}` while typing `{folder}`); the grid that is made is
+  still checked.
+
 ## 1.7.2 (2026-11-19)
 
 Wavelengths for Kestreleye scans, which store none: a wavelength table gives

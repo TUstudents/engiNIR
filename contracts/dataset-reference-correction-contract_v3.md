@@ -57,7 +57,7 @@ Without a reference correction contract, the system cannot answer reliably:
 
 There are three separate but linked objects:
 
-1. `DatasetRef`
+1. `DatasetRecord`
    Owns dataset identity.
 2. `ReferenceCorrection`
    Owned by the dataset.
@@ -83,12 +83,12 @@ Workflow note:
 
 - viewer/project attachment rules are defined in
   `project-dataset-attachment-contract_v3.md`
-- `DatasetRef` and `ReferenceCorrection` may only be created from real attached
+- `DatasetRecord` and `ReferenceCorrection` may only be created from real attached
   dataset context, never from placeholder viewer bootstrap state
 
 ## Domain objects
 
-## 1. DatasetRef
+## 1. DatasetRecord
 
 Represents one imported raw dataset.
 
@@ -126,7 +126,7 @@ Required invariants:
   fallback, are kept as they are. The viewer shows a file's axis converted
   the same way. Function mode (`load_spectra`) keeps the file's unit
 - `source_path` must be non-empty for newly imported viewer datasets
-- placeholder viewer cubes must not be promoted into `DatasetRef`
+- placeholder viewer cubes must not be promoted into `DatasetRecord`
 
 `source_format` vocabulary in v3:
 
@@ -197,7 +197,7 @@ String comparison rule:
 
 Required invariants:
 
-- every `ReferenceCorrection` belongs to exactly one `DatasetRef`
+- every `ReferenceCorrection` belongs to exactly one `DatasetRecord`
 - in v3, a dataset has exactly one active `ReferenceCorrection`
 - each ROI extraction and prediction run must reference exactly one applied reference correction spec
 - `output_signal_unit` must be explicit
@@ -356,7 +356,7 @@ Executable field semantics in v3:
 
 ## 1. Import raw `.eiff`
 
-On raw `.eiff` import, the system must create a `DatasetRef`.
+On raw `.eiff` import, the system must create a `DatasetRecord`.
 
 Minimum outputs:
 
@@ -475,7 +475,7 @@ The fit pipeline is:
 When a new dataset is predicted (nothing is written to the project by
 default; `prediction-runtime-contract_v3.md` §Result handling):
 
-1. describe the file as a `DatasetRef` in memory (a registered file uses its
+1. describe the file as a `DatasetRecord` in memory (a registered file uses its
    stored one)
 2. create/select the `ReferenceCorrection` in memory (a registered file reuses its
    stored active reference correction read-only)
@@ -488,7 +488,7 @@ default; `prediction-runtime-contract_v3.md` §Result handling):
 9. for each chunk, run prediction and the applicability diagnostics and
    write the outputs into the result maps
 10. return the result and write one log entry; only low-level persistence
-    writes the `DatasetRef`, the `ReferenceCorrection` and a `PredictionRun`
+    writes the `DatasetRecord`, the `ReferenceCorrection` and a `PredictionRun`
     with both model and applied reference correction references
 
 v3 default behavior:
@@ -509,7 +509,7 @@ v3 default behavior:
   `spatial_map` at the same time
 - full-sensor dark/white references must be applied in the active chunk context
   rather than tiled over the complete prediction cube
-- flattened prediction spectra may use `DatasetRef.cube_shape` to align
+- flattened prediction spectra may use `DatasetRecord.cube_shape` to align
   reference correction references when an explicit spatial shape is not supplied
 - reflectance clipping counts must be preserved in prediction runtime metadata
   or an equivalent persisted run summary
@@ -547,7 +547,7 @@ Rejected in v3:
 
 ## Persistence requirements
 
-`DatasetRef` and `ReferenceCorrection` must be persisted inside the project file.
+`DatasetRecord` and `ReferenceCorrection` must be persisted inside the project file.
 
 v3 persistence decision:
 
@@ -690,12 +690,12 @@ Still to specify:
 
 Decision:
 
-- `DatasetRef` and `ReferenceCorrection` are persisted inside the project file
+- `DatasetRecord` and `ReferenceCorrection` are persisted inside the project file
 
 Resolved:
 
 - a moved or renamed file is mapped back with `Locate File...`. It is
-  verified against the `DatasetRef` and the stored raw ROI pixels, then
+  verified against the `DatasetRecord` and the stored raw ROI pixels, then
   `source_path` is updated (`project-dataset-attachment-contract_v3.md`).
 
 Still to specify:

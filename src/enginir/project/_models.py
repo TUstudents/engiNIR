@@ -185,7 +185,7 @@ class SerializableModel:
 
 
 @dataclass(slots=True, eq=False)
-class DatasetRef(SerializableModel):
+class DatasetRecord(SerializableModel):
     """Reference to a hyperspectral data file used in the project.
 
     The data stay in their source file; the project stores where to find them
@@ -679,7 +679,7 @@ class SignalDomainContract(SerializableModel):
     def for_training_data(
         cls,
         *,
-        dataset: DatasetRef,
+        dataset: DatasetRecord,
         reference_correction: ReferenceCorrection,
         required_signal_unit: str,
         signal_domain_id: str | None = None,
@@ -939,7 +939,7 @@ __all__ = [
     "SAMPLE_SET_SEMANTICS",
     "SIGNAL_UNITS",
     "ReferenceCorrection",
-    "DatasetRef",
+    "DatasetRecord",
     "ModelRun",
     "PredictionRun",
     "SampleSet",

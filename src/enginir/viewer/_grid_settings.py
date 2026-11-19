@@ -19,11 +19,15 @@ _FILE = "roi_grid.json"
 
 #: Name patterns offered in the grid dialogs (any other format string can be typed).
 NAME_PATTERNS = (
-    "{file}-{row}{column:02d}",
+    "{name}-{row}{column:02d}",
     "{row}{column:02d}",
-    "{file}-{n:03d}",
+    "{name}-{n:03d}",
     "{n:03d}",
 )
+#: The placeholders of a name pattern, as the grid dialogs list them.
+PLACEHOLDERS = ("{name}: the dataset's name (else its file name), {file}: the file name, "
+                "{folder}: the file's folder, {row}: A, B, ..., {column}: 1, 2, ..., "
+                "{n}: running number")
 
 
 @dataclass(frozen=True)

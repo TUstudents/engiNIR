@@ -117,7 +117,7 @@ def build(directory: Path) -> Reference:
     rois, assignments, raw = [], [], {}
     for k, name in enumerate(names):
         frames = (k * FRAMES_PER_ROI, (k + 1) * FRAMES_PER_ROI - 1)
-        roi, spectra, refs = make_roi(dataset.ref, dataset.reference_correction, name=name, frames=frames,
+        roi, spectra, refs = make_roi(dataset.record, dataset.reference_correction, name=name, frames=frames,
                                       rows=(0, ROWS - 1),
                                       pixels=read_frames(str(cube_path), *frames))
         roi = replace(roi, roi_id=roi_id(name))

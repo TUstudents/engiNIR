@@ -107,7 +107,7 @@ Allowed:
 Forbidden:
 
 - create ROIs
-- synthesize `DatasetRef` from placeholder viewer state
+- synthesize `DatasetRecord` from placeholder viewer state
 - synthesize `ReferenceCorrection` from placeholder viewer state
 - perform any dataset-derived mutation
 
@@ -144,7 +144,7 @@ Therefore:
 
 must never be used to create:
 
-- `DatasetRef`
+- `DatasetRecord`
 - `ReferenceCorrection`
 - `TrainingROI`
 - `SampleSet` built from current viewer data
@@ -195,7 +195,7 @@ Attaching a dataset to a project is a separate operation from creating the proje
 
 Required behavior:
 
-- resolve or create `DatasetRef` from the real attached dataset
+- resolve or create `DatasetRecord` from the real attached dataset
 - resolve or create dataset-local active reference correction
 - mark the current window as dataset-attached
 
@@ -235,7 +235,7 @@ v3 result categories:
 
 ### Safe
 
-- the file is registered and matches its `DatasetRef`, or
+- the file is registered and matches its `DatasetRecord`, or
 - the file is not registered yet; it is added to the project as a new dataset (see Datasets Of A Project)
 
 Behavior:
@@ -245,7 +245,7 @@ Behavior:
 
 ### Warning
 
-- the file at a registered `source_path` no longer matches its `DatasetRef`
+- the file at a registered `source_path` no longer matches its `DatasetRecord`
   (format, modality, shape or wavelength axis differ)
 
 Behavior:
@@ -268,7 +268,7 @@ Behavior:
 
 ## Datasets of a project
 
-A project registers every dataset its ROIs come from (`DatasetRef`), each
+A project registers every dataset its ROIs come from (`DatasetRecord`), each
 with its own active reference correction (`dataset-reference-correction-contract_v3.md`).
 
 ### Adding a dataset
@@ -287,7 +287,7 @@ Required behavior:
   - detector levels (black and white) without references: the file's own
     levels, else the instrument defaults; for counts this is the preselected
     choice, so references are always chosen deliberately
-- the `DatasetRef` and its `ReferenceCorrection` are written together, before any
+- the `DatasetRecord` and its `ReferenceCorrection` are written together, before any
   ROI is drawn; if either fails, neither is written
 - the added file becomes the shown dataset
 - a dataset is never opened in a separate window without the project
@@ -376,11 +376,11 @@ Required behavior:
 - its ROIs, their target assignments, calibration sets and models remain fully
   usable, because they need only the project file
 - `Locate File...` accepts a new path only if:
-  - the file matches the `DatasetRef` (format, modality, shape, wavelength
+  - the file matches the `DatasetRecord` (format, modality, shape, wavelength
     axis), and
   - for every ROI of that dataset, the stored raw pixels equal the file's
     pixels at the ROI's `spatial_bounds`
-- an accepted path updates `DatasetRef.source_path` and its
+- an accepted path updates `DatasetRecord.source_path` and its
   `relative_path` (an identity exception of `project-schema-contract_v3.md`
   §5) and is logged
 - after a successful `Locate File...`, the viewer offers the same folder
@@ -436,7 +436,7 @@ Creating a `TrainingROI` requires:
 
 Required invariants:
 
-- every new ROI must reference an existing `DatasetRef`
+- every new ROI must reference an existing `DatasetRecord`
 - every new ROI must reference an existing `ReferenceCorrection`
 - `source_file` must not be empty
 - ROI provenance must come from real dataset context, not placeholder viewer state
@@ -492,7 +492,7 @@ Required behavior:
 
 - show a clear warning/error dialog
 - do not persist partial objects before validation completes
-- do not leave orphan `DatasetRef`, `ReferenceCorrection`, `SignalDomainContract`, or `PreprocessingRecipe` objects behind on failure
+- do not leave orphan `DatasetRecord`, `ReferenceCorrection`, `SignalDomainContract`, or `PreprocessingRecipe` objects behind on failure
 
 Orphan definition for this rule:
 
@@ -512,14 +512,14 @@ Orphan definition for this rule:
 v3 requires regression coverage for:
 
 - project-only startup rejects ROI creation
-- placeholder viewer state cannot create `DatasetRef`
+- placeholder viewer state cannot create `DatasetRecord`
 - `open_viewer(data_path, project=...)` enforces the same mismatch policy as in-window attach
 - in-window dataset attach from project-only mode reuses the same window
 - failed dataset-derived actions are side-effect free
 - `Save Project` semantics match the documented behavior
 - a project window shows only the ROIs of the shown dataset
 - attaching a dataset never warns about ROIs of other datasets, and warns
-  when a registered file no longer matches its `DatasetRef`
+  when a registered file no longer matches its `DatasetRecord`
 - `Add Dataset...` writes the dataset and its reference correction together or not
   at all
 - `Open Data...` in a project window keeps the project

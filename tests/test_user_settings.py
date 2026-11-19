@@ -229,3 +229,34 @@ def test_add_keeps_most_recent_order_without_duplicates_and_caps_length(tmp_path
     assert loaded[0].endswith("/file_14.eiff")
     assert len(set(loaded)) == len(loaded)
     assert not any(path.endswith("/b.eiff") for path in loaded)
+
+
+def test_add_dataset_starts_from_the_preferences_levels(qapp, tmp_path):
+    """3100 by default (the Helios white balance; 3500 before 1.7.3), changed in Tools >
+    Preferences; a file that states its levels keeps them; nonsense falls back."""
+    import json
+
+    import numpy as np
+
+    from enginir._workflow import read_header
+    from enginir.io import save_hdf5
+    from enginir.viewer import _preferences as prefs
+    from enginir.viewer._data_files import AddDataFileDialog
+
+    path = str(tmp_path / "scan.h5")
+    save_hdf5(path, np.full((4, 3, 5), 2000, np.uint16), np.linspace(1000, 1100, 5))
+
+    def levels(header_meta=None):
+        header = read_header(path)
+        if header_meta:
+            header = header._replace(meta={**header.meta, **header_meta})
+        dialog = AddDataFileDialog(path, header, {}, {})
+        return dialog._black.value(), dialog._white_level.value()
+
+    assert levels() == (128.0, 3100.0)
+    prefs.save(prefs.Preferences(black_level=100.0, white_level=3000.0))
+    assert levels() == (100.0, 3000.0)
+    assert levels({"black_level": 64, "white_level": 4000}) == (64.0, 4000.0), "the file's own"
+    (prefs.config_dir() / "preferences.json").write_text(
+        json.dumps({"black_level": 3000.0, "white_level": 100.0}), encoding="utf-8")
+    assert (prefs.load().black_level, prefs.load().white_level) == (128.0, 3100.0)

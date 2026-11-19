@@ -405,7 +405,7 @@ def test_a_model_on_the_trimmed_axis_predicts_like_it_was_trained(tmp_path, unit
     blob_bands = N_BANDS - 4
     from enginir.io import load_model_run_prediction_artifact
 
-    blob = load_model_run_prediction_artifact(project.path, model.ref.model_run_id)
+    blob = load_model_run_prediction_artifact(project.path, model.record.model_run_id)
     assert np.shape(blob["coef_"])[0] == np.size(blob["wavelengths"]) == blob_bands
     assert np.size(blob["x_mean"]) == blob_bands
     assert np.size(model.diagnostics["wavelengths"]) == blob_bands

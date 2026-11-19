@@ -85,7 +85,7 @@ v3 workflow note:
 The following are first-class persisted objects:
 
 - `ProjectMeta`
-- `DatasetRef`
+- `DatasetRecord`
 - `ReferenceCorrection`
 - `TrainingROI`
 - `TargetDefinition`
@@ -142,6 +142,10 @@ Required invariants:
   when a field becomes required, is removed or changes meaning. A new
   optional field does not change it (Schema validation and extra-field
   policy)
+- the compression of an array (gzip, Blosc) is the writer's choice and not
+  part of the format; a reader decodes every compression engiNIR has
+  written and registers the filters it needs itself (`hdf5plugin`). engiNIR
+  1.7.3 writes Blosc-Zstandard
 - `<version>` is the installed package version (`enginir.__version__`),
   never typed in; a development build is written as it is (e.g.
   `1.5.1.dev3+g1234abc`). `FileCreator` and `FileWriter` are informational:
@@ -333,11 +337,11 @@ Explicit exceptions, each already governed by its own contract rule:
 - prediction staging: `initialize`/`write`/`finalize`/`discard` mutate the
   staged group under `/staging/` (§7); a finalized run in `/predictions` and
   the one-shot prediction writer are immutable like other objects
-- `DatasetRef.source_path` and `relative_path`: the path is a location, not
+- `DatasetRecord.source_path` and `relative_path`: the path is a location, not
   identity. Both may be updated after `Locate File...` has verified the
   file against the dataset and against the stored raw pixels of its ROIs
   (`project-dataset-attachment-contract_v3.md`, Missing and moved files)
-- `DatasetRef.label`: a short display name the user gives a dataset
+- `DatasetRecord.label`: a short display name the user gives a dataset
   ("Layer 7"); a mutable name like every name, set by `Dataset.set_label`,
   shown instead of the file name where datasets are listed (engiNIR 1.6)
 - the wavelength axis of a dataset whose file stores no wavelengths, and of
@@ -357,7 +361,7 @@ These references are mandatory in v3.
 
 ### Dataset and reference correction
 
-- `ReferenceCorrection.dataset_id -> DatasetRef.dataset_id`
+- `ReferenceCorrection.dataset_id -> DatasetRecord.dataset_id`
 
 v3 rule:
 
@@ -382,7 +386,7 @@ v3 identity rule:
 
 ### ROI relationships
 
-- `TrainingROI.dataset_id -> DatasetRef.dataset_id`
+- `TrainingROI.dataset_id -> DatasetRecord.dataset_id`
 - `TrainingROI.reference_correction_id -> ReferenceCorrection.reference_correction_id`
 
 ### Target relationships
@@ -395,7 +399,7 @@ v3 identity rule:
 - `SampleSet.roi_ids -> TrainingROI.roi_id[]`
 - `SampleSet.target_id -> TargetDefinition.target_id`
 - `SampleSet.preprocessing_recipe_id -> PreprocessingRecipe.recipe_id`
-- `SampleSet.dataset_ids -> DatasetRef.dataset_id[]`
+- `SampleSet.dataset_ids -> DatasetRecord.dataset_id[]`
 
 v3 coverage invariant:
 
@@ -418,7 +422,7 @@ v3 note:
 
 ### Prediction-run relationships
 
-- `PredictionRun.dataset_id -> DatasetRef.dataset_id`
+- `PredictionRun.dataset_id -> DatasetRecord.dataset_id`
 - `PredictionRun.reference_correction_id -> ReferenceCorrection.reference_correction_id`
 - `PredictionRun.model_run_id -> ModelRun.model_run_id`
 - `PredictionRun.signal_domain_id -> SignalDomainContract.signal_domain_id`

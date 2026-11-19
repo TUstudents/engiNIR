@@ -141,7 +141,13 @@ Consequences for readers:
   child fields
 - no Python pickle state is part of the v3 project schema
 
-Default compression for dataset writes is `gzip`.
+Arrays are written with Blosc (Zstandard, level 5, byte shuffle; engiNIR
+1.7.3); projects written before hold gzip arrays, and one file may hold both.
+The compression is the writer's choice, not part of the format: a reader
+decodes either. Blosc needs the filters of `hdf5plugin`, which engiNIR
+registers itself. Other tools need them too: in Python,
+`import hdf5plugin` before `h5py.File(...)`; HDFView and MATLAB need the
+HDF5 Blosc plugin installed. `save_hdf5` writes gzip by default.
 
 ### 2.3. Strict rejection rules
 

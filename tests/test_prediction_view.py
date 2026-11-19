@@ -336,15 +336,15 @@ def test_predict_map_names_the_chain_and_refuses_an_incompatible_file(
     project, model, state, _path = fitted_tray
     raw = tmp_path / "raw.h5"
     save_hdf5(raw, np.full((4, 5, 24), 2000, dtype=np.uint16), np.linspace(1000, 1600, 24))
-    raw_id = project.add_dataset(raw, unit="DN").ref.dataset_id
+    raw_id = project.add_dataset(raw, unit="DN").record.dataset_id
     state.open_project(str(project.path))
     view = PredictionView(state)
     choices = view._model_choices()
     assert [choice.name for choice in choices] == [model.name], "names, not ids"
     assert "Absorbance → SNV" in choices[0].chain and "dark/white references" in choices[0].chain
     tray_id = next(d for d in state.datasets if d != raw_id)
-    assert view._map_check(model.ref.model_run_id, tray_id) is None
-    reason = view._map_check(model.ref.model_run_id, raw_id)
+    assert view._map_check(model.record.model_run_id, tray_id) is None
+    reason = view._map_check(model.record.model_run_id, raw_id)
     assert reason is not None and "raw_dn" in reason
     dialog = PredictMapDialog(choices, [(tray_id, "tray"), (raw_id, "raw")],
                               check=view._map_check, default_file=raw_id)
@@ -484,7 +484,7 @@ def test_a_map_of_a_file_without_prediction_rois_drops_the_old_roi_results(
     shutil.copy(path, copy)
     n = 2 + 10 * 4 + 2
     other_id = project.add_dataset(copy, dark_frames=(0, 1),
-                                   white_frames=(n - 2, n - 1)).ref.dataset_id
+                                   white_frames=(n - 2, n - 1)).record.dataset_id
     state.open_project(str(project.path))
     view = PredictionView(state)
     view._set_roi_predictions([model.roi_prediction()], scope="tray")

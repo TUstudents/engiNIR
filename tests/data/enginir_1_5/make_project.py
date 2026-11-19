@@ -77,9 +77,9 @@ def main() -> None:
 
     # One stored prediction run, as a script stores it with the low-level service.
     ws = project.workspace
-    ref = model.ref
+    ref = model.record
     recipe_id = ws.sample_sets[ref.sample_set_id].preprocessing_recipe_id
-    dataset = scan.ref
+    dataset = scan.record
     predict_with_model_run(
         project_path=project.path, model_run=ref,
         signal_domain=ws.signal_domains[ref.signal_domain_id],

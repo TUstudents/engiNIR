@@ -1062,7 +1062,7 @@ def complete_project(tmp_path_factory):
         "recipe": next(iter(ws.recipes)),
         "signal_domain": next(iter(ws.signal_domains)),
         "sample_set": next(iter(ws.sample_sets)),
-        "model": model.ref.model_run_id,
+        "model": model.record.model_run_id,
     }
     return project.path, ids
 
@@ -1221,7 +1221,7 @@ def test_a_metric_that_is_not_defined_is_stored_as_nan(tmp_path):
     project, _scan = labelled_project(tmp_path)
     model = project.fit("API", recipe=PreprocessingRecipe(), n_components=5)
     with h5py.File(project.path, "r") as f:
-        metrics = f[f"model_runs/{model.ref.model_run_id}/metrics"].attrs
+        metrics = f[f"model_runs/{model.record.model_run_id}/metrics"].attrs
         assert "rmsee" in metrics and np.isnan(metrics["rmsee"])
         assert "r2_adj" in metrics and np.isnan(metrics["r2_adj"])
 

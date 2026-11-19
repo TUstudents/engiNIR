@@ -17,14 +17,18 @@ Data
       frame range of a file; "file" means the file on disk.
       Elsewhere: SIMCA *dataset*, The Unscrambler *data set*, PLS_Toolbox
       *DataSet object*, ENVI *image* or *file*.
-      API: ``DatasetRef``, ``add_dataset``, ``dataset_id``.
+      API: ``DatasetRecord``, ``add_dataset``, ``dataset_id``.
 
    Frame
+      One line the push-broom camera reads as the sample moves: the first axis
+      of a cube ``(frames, rows, bands)``, the scan direction. A frame holds a
+      spectrum for every :term:`row`. A *frame range* is a run of frames, e.g.
+      the white tile at the end of a scan. Elsewhere: ENVI *line*.
+
    Row
-      The two spatial axes of a push-broom cube ``(frames, rows, bands)``. A
-      frame is one line read by the camera as the sample moves; a row is a
-      position along the slit. Elsewhere: ENVI *lines* and *samples* (ENVI's
-      *samples* are rows here, not :term:`samples <sample>`).
+      A position along the camera's slit: the second axis of a cube
+      ``(frames, rows, bands)``. Elsewhere: ENVI *sample* (ENVI's *samples* are
+      rows here, not :term:`samples <sample>`).
 
    Band
       One spectral channel, with its wavelength in nm when known.
@@ -68,6 +72,22 @@ Signal
    Reflectance
       The reference-corrected signal R, nominally between 0 and 1.
 
+   Dark reference
+   White reference
+      The detector's response with the shutter closed (dark) and on a white
+      tile (white), per row and band; averaged over frames when taken from a
+      frame range. Reflectance is R = (x − dark) / (white − dark).
+
+   Detector levels
+      A black level and a white level (128 and 3100 counts by default) that
+      convert raw counts to reflectance without references: R = (x − black) /
+      (white − black). For cameras that apply their own white balance.
+
+   Wavelength table
+      The wavelengths of a camera setting, for files that store none (band
+      numbers only, e.g. a Kestreleye ``stream_hsi.h5``); copied into the
+      dataset when it is chosen. API: ``enginir.io.wavelength_tables``.
+
    Absorbance
       log10(1/R) computed from reflectance; for diffuse reflectance the
       apparent (pseudo-)absorbance.
@@ -89,6 +109,25 @@ Preprocessing
 
    Smoothing and derivatives
       Savitzky-Golay smoothing and 1st and 2nd derivatives.
+
+   SNV
+      Standard normal variate: each spectrum minus its mean, divided by its
+      standard deviation.
+
+   MSC
+   EMSC
+      Multiplicative scatter correction: each spectrum regressed on a
+      reference spectrum (the mean of the calibration set) and corrected for
+      offset and slope. EMSC adds polynomial baseline terms. Both are fitted
+      inside every cross-validation fold.
+
+   Savitzky-Golay
+      A local polynomial fit over a moving window that smooths a spectrum or
+      gives its 1st or 2nd derivative.
+
+   Detrend
+      Removes a polynomial baseline (order 1: a straight line) from each
+      spectrum.
 
 Modeling
 --------
@@ -204,3 +243,80 @@ Diagnostics and results
       The image of the predicted values of a dataset. Elsewhere: NIR
       chemical imaging *prediction image*, *chemical image*. API:
       ``prediction.map``.
+
+   R²
+      Coefficient of determination, 1 − Σe² / Σ(y − ȳ)², of the fitted values
+      (per ROI or per pixel). Elsewhere: SIMCA *R2Y*, The Unscrambler
+      *R-square (calibration)*.
+
+   Q²
+      R² of the cross-validated predictions: how well the model predicts
+      ROIs it was not fitted on. Elsewhere: SIMCA *Q2*; The Unscrambler
+      *R-square (validation)*.
+
+   RMSEC
+   RMSECV
+   RMSEP
+      Root mean squared error, √(mean e²), of the fitted values (C), the
+      cross-validated predictions (CV) and the predictions of ROIs with a
+      value that the model was not fitted on (P). No degrees-of-freedom
+      correction. Elsewhere: ASTM E1655 *SEC*, *SECV*, *SEP* (related, with
+      degrees of freedom); SIMCA *RMSEE*, *RMSECV*, *RMSEP*.
+
+   Bias
+      The mean of the errors e = predicted − reference: positive when the model
+      over-predicts.
+
+   Component curve
+      For 1, 2, … up to 10 components (or the count a fit asks for), the
+      cross-validated RMSECV, Q², R²Y and R²X of a PLS or PCR model; it
+      suggests the number of components. API: ``model.component_curve``.
+
+   Scores
+      The coordinates of a spectrum in the model's components (t). Elsewhere:
+      SIMCA *t*, The Unscrambler *scores*.
+
+   Loadings
+      How much each band contributes to a component (p for PLS and PCR, w for
+      PLS weights). Elsewhere: SIMCA *p*, *w*, *w\**.
+
+   Coefficients
+      The regression coefficients b per band: the prediction is
+      ŷ = b₀ + Σ bⱼ xⱼ after preprocessing. Elsewhere: SIMCA *CoeffCS*
+      (scaled and centred; engiNIR shows both).
+
+   VIP
+      Variable importance in projection of a PLS model, per band: bands with
+      VIP above 1 matter more than the average band. Elsewhere: SIMCA *VIP*.
+
+Viewer
+------
+
+.. glossary::
+
+   Spatial image
+      The image of a scan, frames by rows, in false color: the Explore plot
+      where ROIs are drawn.
+
+   False-color image
+      Three bands shown as red, green and blue (1650, 1300 and 1050 nm when
+      the wavelengths are known).
+
+   Band image
+      The image of one band, frames by rows.
+
+   Sensor frame
+      One :term:`frame` as the camera's sensor sees it: bands by rows, the
+      spectra of every row at one moment. Not a frame range.
+
+   Spatial profile
+      The value of the shown band along the rows of the shown frame.
+
+   Check
+      One item the library evaluates about a project (a step, a severity, a
+      message), often with a fix that the viewer offers as a button. API:
+      ``Project.checks()``, ``Model.checks()``.
+
+   Verdict
+      The library's judgement of a model: good, usable with care or not
+      usable, with its reasons. API: ``Model.verdict()``.

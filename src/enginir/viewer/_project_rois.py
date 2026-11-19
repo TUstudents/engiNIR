@@ -852,6 +852,10 @@ class ProjectRoisView(QWidget):
     roi_opened = pyqtSignal(str)
     #: The data file filter of this tab changed.
     data_file_filter_changed = pyqtSignal()
+    #: Add ROI or Add ROI Grid pressed here: ``(action, dataset_id or None)``, the
+    #: dataset of the filter (``None``: all datasets, the window asks; plan
+    #: roi-workflow, R3).
+    add_rois_requested = pyqtSignal(str, object)
 
     def __init__(self, state: ViewerState, project_state: ProjectState,
                  current_target_id: Callable[[], str | None],
@@ -884,6 +888,16 @@ class ProjectRoisView(QWidget):
         top = QHBoxLayout()
         top.addWidget(QLabel("Dataset:"))
         top.addWidget(self._file_filter, 1)
+        self._add_buttons: list[QToolButton] = []
+        for text, action in (("Add ROI", "add_roi"), ("Add ROI Grid", "add_roi_grid")):
+            button = QToolButton()
+            button.setText(text)
+            button.setToolTip(f"{text} on the dataset chosen here (or the one you pick): "
+                              "shows its image first")
+            button.clicked.connect(lambda _checked=False, a=action: self.add_rois_requested.emit(
+                a, self.shown_dataset_id()))
+            top.addWidget(button)
+            self._add_buttons.append(button)
         top.addWidget(self._status, 2)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)

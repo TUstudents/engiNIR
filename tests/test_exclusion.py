@@ -95,12 +95,12 @@ def test_an_exclusion_without_a_level_uses_simcas_095(tmp_path):
     """The default level is 0.95: DCrit of the fit before the exclusion, at 0.95, is stored."""
     project = project_with_an_odd_pixel(tmp_path)
     model = project.fit("API", n_components=2, cv=4, fit_spec={"exclusion": {"method": "dmodx"}})
-    assert model.ref.fit_specification.exclusion_level == 0.95
+    assert model.record.fit_specification.exclusion_level == 0.95
     assert model.metrics["n_excluded_pixels"] > 0
     n_drawn = int(model.metrics["n_pixels"])  # every drawn pixel, the excluded ones included
     k = int(np.asarray(model.diagnostics["mean_spectrum"]).size)
     with h5py.File(project.path, "r") as f:
-        dcrit = float(f[f"model_runs/{model.ref.model_run_id}/artifact_refs/exclusion"]
+        dcrit = float(f[f"model_runs/{model.record.model_run_id}/artifact_refs/exclusion"]
                       .attrs["dcrit"])
     assert dcrit == pytest.approx(dmodx_limit(n_drawn, k, 2, 0.95), rel=1e-6)
 
@@ -111,7 +111,7 @@ def test_no_roi_loses_more_than_its_share(tmp_path):
     model = project.fit("API", n_components=2, fit_spec={"exclusion": {
         "method": "dmodx", "level": 0.51, "rounds": 2, "max_fraction": 0.1}})
     assert all(len(indices) <= 1 for indices in model.excluded_pixels.values())
-    refs = project.workspace.model_runs[model.ref.model_run_id]
+    refs = project.workspace.model_runs[model.record.model_run_id]
     assert refs.fit_specification.exclusion_rounds == 2
 
 
@@ -176,14 +176,14 @@ def test_a_refit_repeats_the_exclusion_and_reports_a_different_one(tmp_path):
     assert refitted.metrics["rmsecv"] == pytest.approx(model.metrics["rmsecv"], rel=1e-9)
     assert not any("excluded other pixels" in message for message in messages)
     with h5py.File(project.path, "r+") as f:  # pretend the stored model excluded another pixel
-        group = f[f"model_runs/{model.ref.model_run_id}/artifact_refs/exclusion"]
+        group = f[f"model_runs/{model.record.model_run_id}/artifact_refs/exclusion"]
         indices = np.array(group["pixel_indices"]) if "pixel_indices" in group \
             else np.array(group.attrs["pixel_indices"])
         indices[0] = (indices[0] + 1) % 12
         if "pixel_indices" in group:
             del group["pixel_indices"]
         group.attrs["pixel_indices"] = indices.astype(np.uint32)
-    reopened = Project.open(project.path).model(model_run_id=model.ref.model_run_id)
+    reopened = Project.open(project.path).model(model_run_id=model.record.model_run_id)
     _refitted, messages = warnings_during(reopened.refit)
     assert any("excluded other pixels" in message for message in messages)
 
@@ -200,6 +200,6 @@ def test_the_formula_of_the_specification_is_used_and_stored(tmp_path, monkeypat
                         lambda *args, **kwargs: calls.append(1) or real_gram(*args, **kwargs))
     model = project.fit("API", n_components=2,
                         fit_spec={"exclusion": {"method": "dmodx", "formula": formula}})
-    assert model.ref.fit_specification.exclusion_formula == formula
+    assert model.record.fit_specification.exclusion_formula == formula
     assert bool(calls) == (formula == "dmodx-2")
     assert 5 in model.excluded_pixels[project.roi("s3").roi_id]

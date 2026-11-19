@@ -1,8 +1,8 @@
 # Backlog: engiNIR 1.7.2 feature list
 
 Status: collected (user, 2026-11-19). 1.7.2 shipped the wavelength tables and item 11;
-items 1, 3, 6, 7, 9 and 10 are planned for 1.7.3 (`plans/release-1.7.3.md`),
-items 2, 4, 5 and 8 later. Not planned yet; each item gets its
+items 1, 3, 6, 7, 9 and 10 (`plans/release-1.7.3.md`) and 2, 4, 5 and 8
+(`plans/roi-workflow.md`) are built for 1.7.3. The backlog is done. Not planned yet; each item gets its
 decisions before work starts. 1.7.1 is the startup speedup
 (`plans/startup-speed-1.7.1.md`).
 

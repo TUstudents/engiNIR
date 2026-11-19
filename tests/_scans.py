@@ -212,11 +212,11 @@ def every_stored_object_project(tmp_path):
     corrected.add_roi("p0", frames=(0, FRAMES_PER_SAMPLE - 1), rows=(0, HEIGHT - 1),
                       values={"API": float(CONTENT[0])}, job="prediction")
     ws = project.workspace
-    recipe_id = ws.sample_sets[model.ref.sample_set_id].preprocessing_recipe_id
+    recipe_id = ws.sample_sets[model.record.sample_set_id].preprocessing_recipe_id
     predict_with_model_run(
-        project_path=project.path, model_run=model.ref,
-        signal_domain=ws.signal_domains[model.ref.signal_domain_id],
-        recipe=PreprocessingRecipe.from_dict(ws.recipes[recipe_id]), dataset=dataset.ref,
+        project_path=project.path, model_run=model.record,
+        signal_domain=ws.signal_domains[model.record.signal_domain_id],
+        recipe=PreprocessingRecipe.from_dict(ws.recipes[recipe_id]), dataset=dataset.record,
         reference_correction=dataset.reference_correction, model_registry={},
         data_path=scan, preprocessing_recipe_id=recipe_id,
         prediction_run_id="stored-prediction", persist_artifacts=True)

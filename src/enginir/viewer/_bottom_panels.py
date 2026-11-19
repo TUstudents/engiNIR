@@ -43,6 +43,12 @@ _VERDICT_ICONS = {"good": ("circle-check", "ok"), "usable_with_care": ("alert-tr
                   "not_usable": ("circle-x", "error")}
 
 
+#: Room added to the Where and Fix columns of the Checks table beyond their contents, and
+#: their least widths (they were fitted exactly and looked cramped).
+_COLUMN_MARGIN = 28
+_MIN_WIDTHS = {2: 150, 3: 140}
+
+
 def _table(columns: list[str]) -> QTableWidget:
     table = QTableWidget(0, len(columns))
     table.setHorizontalHeaderLabels(columns)
@@ -92,8 +98,9 @@ class ChecksPanel(QWidget):
         if header is not None:
             header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-            header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-            header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+            # Where and Fix: their contents plus a margin (_fit_columns), and wider by hand.
+            header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+            header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
             self.table.setColumnWidth(0, 28)
         self.table.cellDoubleClicked.connect(self._activated)
         layout.addWidget(self.table)
@@ -157,6 +164,16 @@ class ChecksPanel(QWidget):
                 where += f" › {self._names[check.model_run_id]}"
             self.table.setItem(row, 2, QTableWidgetItem(where))
             self.table.setCellWidget(row, 3, self._fix_button(check.fix))
+        self._fit_columns()
+
+    def _fit_columns(self) -> None:
+        """Where and Fix: their contents plus a margin, at least a fixed width; never
+        narrower than the user has dragged them (the table refills on every change)."""
+        for column, least in _MIN_WIDTHS.items():
+            current = self.table.columnWidth(column)
+            self.table.resizeColumnToContents(column)
+            needed = max(least, self.table.columnWidth(column) + _COLUMN_MARGIN)
+            self.table.setColumnWidth(column, max(needed, current))
 
     def _fill_fold_row(self, row: int, count: int) -> None:
         name, color = _SEVERITY_ICONS["ok"]

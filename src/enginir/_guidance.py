@@ -121,7 +121,7 @@ def project_checks(project: Project, *, files: bool = True, predict: bool = True
 
 def model_checks(model: Model) -> list[Check]:
     """The checks of one model: validation, calibration set, distance to the model, components."""
-    run_id = model.ref.model_run_id
+    run_id = model.record.model_run_id
     checks = [*_validation_checks(model), *_calibration_set_checks(model)]
     distance = _distance_check(model)
     if distance is not None:
@@ -334,7 +334,7 @@ def prediction_roi_checks(project: Project) -> list[Check]:
     models = list(project.models.values())
     if not models or not prediction:
         return _predict_checks(project, predict=False)
-    newest = max(models, key=lambda model: model.ref.created_at)
+    newest = max(models, key=lambda model: model.record.created_at)
     outside = _outside_rois(newest, prediction)
     ready = _rois_ready(project, prediction)
     if outside is None:
@@ -348,17 +348,17 @@ def prediction_roi_checks(project: Project) -> list[Check]:
         f"{len(outside)} prediction ROI(s) are outside '{newest.name}': more of their pixels "
         f"lie above DCrit ({LIMIT_LEVEL:g}) than in 90 % of its calibration ROIs, so the model "
         "does not describe their spectra.",
-        roi_ids=outside, model_run_id=newest.ref.model_run_id,
+        roi_ids=outside, model_run_id=newest.record.model_run_id,
         fix=Fix("select_roi", "Go to ROI", {"roi_id": outside[0]}))]
 
 
 def _rois_ready(project: Project, prediction: tuple[str, ...]) -> Check:
-    newest = max(project.models.values(), key=lambda model: model.ref.created_at)
+    newest = max(project.models.values(), key=lambda model: model.record.created_at)
     return Check("predict.rois_ready", "predict", "info",
                  f"{len(prediction)} prediction ROIs can be predicted.", roi_ids=prediction,
-                 model_run_id=newest.ref.model_run_id,
+                 model_run_id=newest.record.model_run_id,
                  fix=Fix("predict_rois", "Predict ROIs",
-                         {"model_run_id": newest.ref.model_run_id}))
+                         {"model_run_id": newest.record.model_run_id}))
 
 
 #: Per (project file, model run id): whether the model has the calibration shares the rule
@@ -373,7 +373,7 @@ def _outside_rois(model: Model, roi_ids: tuple[str, ...]) -> tuple[str, ...] | N
 
     from .prediction import unusual_rois
 
-    key = (os.path.normcase(os.path.abspath(model.project.path)), model.ref.model_run_id)
+    key = (os.path.normcase(os.path.abspath(model.project.path)), model.record.model_run_id)
     has_rule, known = _OUTSIDE.get(key, (True, {}))
     missing = [roi_id for roi_id in roi_ids if roi_id not in known]
     if missing and has_rule:
@@ -395,7 +395,7 @@ def _validation_checks(model: Model) -> list[Check]:
     """The stored fold warnings (sample-set-model-run contract §7.4) as checks."""
     from .modeling._service import fold_warning_text
 
-    run = model.ref
+    run = model.record
     codes = run.cv_spec.get("warnings") or ""
     if isinstance(codes, bytes):
         codes = codes.decode()
@@ -425,7 +425,7 @@ def _validation_checks(model: Model) -> list[Check]:
 
 def _calibration_set_checks(model: Model) -> list[Check]:
     """Whether the calibration set of ``model`` still equals the project's ROIs and values."""
-    project, run = model.project, model.ref
+    project, run = model.project, model.record
     ws = project.workspace
     sample_set = ws.sample_sets[run.sample_set_id]
     refit = Fix("refit", "Fit Again", {"model_run_id": run.model_run_id})
@@ -469,7 +469,7 @@ def _distance_check(model: Model) -> Check | None:
     if len(shares) != len(roi_ids) or len(pixels) != len(shares) or pixels.sum() <= 0:
         return None
     overall = float(np.sum(shares * pixels) / pixels.sum())
-    run_id = model.ref.model_run_id
+    run_id = model.record.model_run_id
     if overall <= DMODX_SHARE_ATTENTION:
         return Check("model.distance", "model", "ok",
                      f"{overall:.1%} of the calibration pixels of '{model.name}' are above "
@@ -502,7 +502,7 @@ def _distance_check(model: Model) -> Check | None:
 def _components_check(model: Model) -> Check | None:
     """The number of components against the selection rules and the structure ceiling."""
     curve = _stored(model, "component_curve", None) or None
-    chosen = model.ref.hyperparameters.get("n_components")
+    chosen = model.record.hyperparameters.get("n_components")
     if not curve or chosen is None:
         return None
     chosen = int(chosen)
@@ -512,7 +512,7 @@ def _components_check(model: Model) -> Check | None:
         return None
     agree = sum(1 for value in suggestions if value == chosen)
     ceiling = curve.get("structure_ceiling")
-    run_id = model.ref.model_run_id
+    run_id = model.record.model_run_id
     if ceiling is not None and np.ndim(ceiling) == 0 and 0 < int(ceiling) < chosen:
         return Check(
             "model.components", "model", "attention",
@@ -540,7 +540,7 @@ _STORED: dict[tuple[str, str, str], dict[str, Any]] = {}
 
 def _stored(model: Model, artifact: str, keys: tuple[str, ...] | None) -> dict[str, Any]:
     """The arrays ``keys`` (all with ``None``) of a stored model artifact, read once."""
-    key = (str(model.project.path), model.ref.model_run_id, artifact)
+    key = (str(model.project.path), model.record.model_run_id, artifact)
     if key not in _STORED:
         if artifact == "component_curve":
             _STORED[key] = dict(model.component_curve or {})
@@ -558,7 +558,7 @@ def _diagnostics(model: Model, keys: tuple[str, ...]) -> dict[str, Any]:
     """
     from .io import project_store as store
 
-    refs = store.load_model_run_artifact_refs(model.project.path, model.ref.model_run_id,
+    refs = store.load_model_run_artifact_refs(model.project.path, model.record.model_run_id,
                                               keys=("cv_outputs",))
     found = {key: value for key, value in refs.get("cv_outputs", {}).items() if key in keys}
     import h5py
@@ -566,7 +566,7 @@ def _diagnostics(model: Model, keys: tuple[str, ...]) -> dict[str, Any]:
     from .io._hdf5_groups import read_mapping
 
     with h5py.File(model.project.path, "r") as handle:
-        group = handle.get(f"model_runs/{model.ref.model_run_id}/artifact_refs/diagnostics")
+        group = handle.get(f"model_runs/{model.record.model_run_id}/artifact_refs/diagnostics")
         if isinstance(group, h5py.Group):
             # Short vectors (a model of 16 ROIs or fewer) are stored as attributes.
             found.update(read_mapping(group, keys=set(keys)))

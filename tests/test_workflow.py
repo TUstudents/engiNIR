@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from enginir import PreprocessingRecipe, Project
+from enginir._workflow import DEFAULT_BLACK_LEVEL, DEFAULT_WHITE_LEVEL
 from enginir.io import save_hdf5
 from tests._scans import (
     CONTENT, FRAMES_PER_SAMPLE, HEIGHT, N_BANDS, N_SAMPLES, labelled_project, scan_file,
@@ -67,7 +68,7 @@ def _with_repeated_names(tmp_path):
     project, scan = labelled_project(tmp_path)
     other = project.add_dataset(scan_file(tmp_path / "other.h5", offset=40.0))
     pixels = read_frames(other.path, 0, N_SAMPLES * FRAMES_PER_SAMPLE - 1)
-    built = [make_roi(other.ref, other.reference_correction, name=f"s{i}",
+    built = [make_roi(other.record, other.reference_correction, name=f"s{i}",
                       frames=(FRAMES_PER_SAMPLE * i, FRAMES_PER_SAMPLE * (i + 1) - 1),
                       rows=(0, HEIGHT - 1),
                       pixels=pixels[FRAMES_PER_SAMPLE * i:FRAMES_PER_SAMPLE * (i + 1)])
@@ -90,15 +91,15 @@ def test_names_are_labels_and_may_repeat(tmp_path):
 
     # Ids and objects are the reproducible references.
     s0_other = reopened.roi(roi_id=repeated[0].roi_id)
-    assert s0_other.dataset_id == other.ref.dataset_id
+    assert s0_other.dataset_id == other.record.dataset_id
     api = reopened.target(target_id=project.target("API").target_id)
     for i, roi in enumerate(repeated):
         reopened.set_value(reopened.roi(roi_id=roi.roi_id), api, float(CONTENT[i]))
     model = reopened.fit(api, n_components=1)
-    sample_set = reopened.workspace.sample_sets[model.ref.sample_set_id]
+    sample_set = reopened.workspace.sample_sets[model.record.sample_set_id]
     assert len(sample_set.roi_ids) == 2 * N_SAMPLES
-    assert reopened.model(model_run_id=model.ref.model_run_id).name == model.name
-    assert reopened.dataset(dataset_id=other.ref.dataset_id).path == other.path
+    assert reopened.model(model_run_id=model.record.model_run_id).name == model.name
+    assert reopened.dataset(dataset_id=other.record.dataset_id).path == other.path
 
 
 def test_id_lookups_are_strict(tmp_path):
@@ -120,7 +121,7 @@ def test_typed_writes_check_ids_not_names(tmp_path):
 
     project, scan = labelled_project(tmp_path)
     pixels = read_frames(scan.path, 0, 0)
-    roi, spectra, refs = make_roi(scan.ref, scan.reference_correction, name="s0", frames=(0, 0),
+    roi, spectra, refs = make_roi(scan.record, scan.reference_correction, name="s0", frames=(0, 0),
                                   rows=(0, 0), pixels=pixels)
     with pytest.raises(ValueError, match="ROI ids already exist or repeat"):
         project.save_rois([(roi, spectra, refs), (roi, spectra, refs)])
@@ -143,7 +144,8 @@ def test_a_registered_file_is_reused_and_a_changed_one_refused(tmp_path):
 
 @pytest.mark.parametrize(
     ("dtype", "kwargs", "mode", "levels"),
-    [(np.uint16, {}, "dark_white_reference", (128.0, 3500.0)),
+    [(np.uint16, {}, "dark_white_reference",
+      (float(DEFAULT_BLACK_LEVEL), float(DEFAULT_WHITE_LEVEL))),  # 128 / 3100 since 1.7.3
      (np.uint16, {"unit": "DN"}, "raw_dn", (None, None)),
      (np.float32, {}, "already_corrected", (None, None))],
 )
@@ -216,7 +218,7 @@ def test_cross_validation_does_not_depend_on_the_random_roi_ids(tmp_path, monkey
     first, first_cv = fit("a", range(8))
     second, second_cv = fit("b", [1, 2, 3, 4, 5, 6, 7, 0])
 
-    assert first.ref.cv_spec["type"] == "RoundRobinGroups"
+    assert first.record.cv_spec["type"] == "RoundRobinGroups"
     assert second_cv == pytest.approx(first_cv)
     assert second.metrics["rmsecv"] == pytest.approx(first.metrics["rmsecv"])
 
@@ -268,20 +270,20 @@ def test_refit_reproduces_a_model_from_its_stored_sample_set(tmp_path):
     # The test project has fewer than 7 fold groups: the fold warning is expected, a refit
     # difference is not.
     assert [w for w in warnings if "likely optimistic" not in w] == []
-    assert refitted.ref.model_run_id != model.ref.model_run_id
+    assert refitted.record.model_run_id != model.record.model_run_id
     assert refitted.name == "PLS 2 LV, SNV (2)"
     for key in ("sample_set_id", "signal_domain_id", "model_type", "hyperparameters"):
-        assert getattr(refitted.ref, key) == getattr(model.ref, key)
-    assert refitted.ref.fit_specification == model.ref.fit_specification
-    assert refitted.ref.cv_spec["type"] == model.ref.cv_spec["type"] == "RoundRobinGroups"
-    assert refitted.ref.cv_spec["requested"] == "fit_spec"
+        assert getattr(refitted.record, key) == getattr(model.record, key)
+    assert refitted.record.fit_specification == model.record.fit_specification
+    assert refitted.record.cv_spec["type"] == model.record.cv_spec["type"] == "RoundRobinGroups"
+    assert refitted.record.cv_spec["requested"] == "fit_spec"
     for key in ("rmsecv", "r2", "bias", "pixel_rmsecv", "n_rois"):
         assert refitted.metrics[key] == pytest.approx(model.metrics[key], rel=1e-9)
     assert project.fit("API", recipe=PreprocessingRecipe(snv=True), n_components=2,
                        cv=3).metrics["n_rois"] == N_SAMPLES + 1
 
     reopened = Project.open(project.path)
-    again = reopened.model(model_run_id=model.ref.model_run_id).refit(name="check")
+    again = reopened.model(model_run_id=model.record.model_run_id).refit(name="check")
     assert again.metrics["rmsecv"] == pytest.approx(model.metrics["rmsecv"], rel=1e-9)
 
 

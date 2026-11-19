@@ -194,7 +194,7 @@ def test_explore_signals_follow_the_shown_file_and_keep_the_choice(qapp, tmp_pat
         assert not buttons["Reflectance"].isEnabled() and "no references" in \
             buttons["Reflectance"].toolTip()
 
-        window.show_data_file(calibrated.ref.dataset_id)  # back: the choice returns
+        window.show_data_file(calibrated.record.dataset_id)  # back: the choice returns
         window.wait_for_data_file()
         assert window.state.y_unit == "Reflectance" and buttons["Reflectance"].isChecked()
         assert buttons["Reflectance"].isEnabled()
@@ -396,7 +396,7 @@ def test_the_dialog_plot_shows_the_data_and_what_each_choice_uses(qapp, tmp_path
                                shared.reference_correction.white_ref_data.mean(axis=0), rtol=1e-6)
     dialog.set_choice("levels")
     levels = drawn()
-    assert levels["Black level 128"][0] == 128 and levels["White level 3500"][0] == 3500
+    assert levels["Black level 128"][0] == 128 and levels["White level 3100"][0] == 3100
     dialog.set_choice("raw")
     assert set(drawn()) == {"Data (mean)"}
 
@@ -577,7 +577,7 @@ def test_two_trays_with_the_same_file_name_work_by_id(qapp, tmp_path, monkeypatc
 
         # A fit uses all four ROIs; the export carries four distinct ids.
         fitted = Project.open(project.path).fit(project.target("API"), n_components=1)
-        sample_set = Project.open(project.path).workspace.sample_sets[fitted.ref.sample_set_id]
+        sample_set = Project.open(project.path).workspace.sample_sets[fitted.record.sample_set_id]
         assert sorted(sample_set.roi_ids) == sorted(r.roi_id for r in rois)
         window._eda_view.export_csv(str(tmp_path / "rois.csv"))
         exported = load_csv(tmp_path / "rois.csv")
@@ -705,3 +705,119 @@ def test_make_defaults_in_the_grid_dialog_sets_the_next_grid(qapp):
     assert load_grid_defaults().width == 170
     following = RoiGridDialog((2000, 300), file="tray", defaults=load_grid_defaults())
     assert following.form.values() == dialog.form.values()
+
+
+def test_the_grid_names_rois_after_the_datasets_name(qapp, two_file_project, monkeypatch):
+    """The default pattern uses {name}: the dataset's name, not its (shared) file name."""
+    from enginir.viewer import open_viewer
+    from enginir.viewer._grid_settings import GridDefaults, save_grid_defaults
+
+    project_path, paths = two_file_project
+    save_grid_defaults(GridDefaults(n_rows=1, n_columns=2, width=2, height=2, origin_x=8,
+                                    origin_y=0, spacing_x=0, spacing_y=0))
+    window = open_viewer(paths["tray_b"], project=project_path)
+    try:
+        state = window.project_state
+        dataset_id = window._registered_dataset_id(str(paths["tray_b"]))
+        state.set_dataset_label(dataset_id, "Layer 7")
+        _grid_answers(monkeypatch, lambda dialog: None)
+        window._eda_view._btn_roi_grid.click()
+        assert sorted(r.name for r in state.rois.values() if r.name.startswith("Layer 7")) \
+            == ["Layer 7-A01", "Layer 7-A02"]
+        folder = paths["tray_b"].parent.name
+        _grid_answers(monkeypatch, lambda d: d.set_grid(name_pattern="{folder}+{n}"))
+        window._eda_view._btn_roi_grid.click()
+        assert {f"{folder}+1", f"{folder}+2"} <= {r.name for r in state.rois.values()}
+    finally:
+        window.close()
+
+
+# -- Add ROI and Add ROI Grid from anywhere (plan roi-workflow, R3) -----------------------
+
+
+def _project_rois_window(qapp, project_path):
+    from enginir.viewer import open_project
+
+    window = open_project(str(project_path))  # a project with ROIs opens on them
+    window.resize(1400, 850)
+    window.show()
+    qapp.processEvents()
+    window.wait_for_data_file()
+    assert window._explore_tabs.currentWidget() is window._project_rois
+    assert not window.has_attached_dataset(), "no image shown"
+    return window
+
+
+def test_add_roi_grid_without_an_image_asks_shows_and_opens_the_dialog(
+        qapp, two_file_project, monkeypatch):
+    from PyQt6.QtWidgets import QInputDialog
+
+    project_path, paths = two_file_project
+    opened: list[str] = []
+    asked: list[list[str]] = []
+
+    def pick(_parent, _title, _label, items, *_args):
+        asked.append(list(items))
+        return next(item for item in items if "tray_b" in item), True
+
+    monkeypatch.setattr(QInputDialog, "getItem", pick)
+    _grid_answers(monkeypatch, lambda dialog: opened.append(dialog._file))
+    window = _project_rois_window(qapp, project_path)
+    try:
+        assert window._eda_view._btn_roi_grid.isEnabled(), "also without an image"
+        window._eda_view._btn_roi_grid.click()
+        window.wait_for_data_file()
+        qapp.processEvents()
+        assert asked, "two datasets and none shown before: the user picks"
+        assert window._explore_tabs.currentWidget() is window._data_file_page
+        assert window._cube_path == str(paths["tray_b"].resolve())
+        assert opened == ["tray_b"], "then the grid dialog opens on it"
+    finally:
+        window.close()
+
+
+def test_the_project_rois_tab_adds_rois_on_its_dataset(qapp, two_file_project):
+    project_path, paths = two_file_project
+    window = _project_rois_window(qapp, project_path)
+    try:
+        view = window._project_rois
+        combo = view._file_filter
+        tray_a = window._registered_dataset_id(str(paths["tray_a"]))
+        combo.setCurrentIndex(combo.findData(tray_a))
+        view._add_buttons[0].click()  # Add ROI
+        window.wait_for_data_file()
+        qapp.processEvents()
+        assert window._cube_path == str(paths["tray_a"].resolve())
+        assert window._eda_view._btn_roi_training.isChecked(), "drawing starts"
+        assert window._canvas._interaction_mode == "draw_roi"
+    finally:
+        window.close()
+
+
+def test_the_add_roi_fix_starts_drawing_and_without_datasets_adds_one(qapp, tmp_path,
+                                                                      monkeypatch):
+    from enginir import Project
+    from enginir._guidance import Fix
+    from enginir.viewer import open_project
+    from tests._scans import scan_file
+
+    project = Project.create(tmp_path / "p.h5")
+    window = open_project(str(project.path))
+    try:
+        asked: list[bool] = []
+        monkeypatch.setattr(window, "add_data_file", lambda *a, **k: asked.append(True))
+        window.run_fix(Fix("add_roi", "Add ROI"))
+        assert asked == [True], "no dataset yet: Add Dataset"
+        assert window._after_shown is None, "cancelled: nothing waits"
+    finally:
+        window.close()
+    project.add_dataset(scan_file(tmp_path / "scan.h5"))
+    window = open_project(str(project.path))
+    try:
+        window.wait_for_data_file()
+        window.run_fix(Fix("add_roi", "Add ROI"))
+        window.wait_for_data_file()
+        qapp.processEvents()
+        assert window.has_attached_dataset() and window._eda_view._btn_roi_training.isChecked()
+    finally:
+        window.close()

@@ -29,7 +29,7 @@ import numpy as np
 from enginir._checks import log_and_raise
 from enginir._logging import get_logger
 
-from ._models import ReferenceCorrection, DatasetRef, SignalDomainContract
+from ._models import ReferenceCorrection, DatasetRecord, SignalDomainContract
 
 logger = get_logger(__name__)
 
@@ -70,7 +70,7 @@ def _fail(message: str, *args: Any) -> NoReturn:
 
 def check_signal_domain_compatibility(
     *,
-    dataset: DatasetRef,
+    dataset: DatasetRecord,
     reference_correction: ReferenceCorrection,
     signal_domain: SignalDomainContract,
 ) -> None:
@@ -146,7 +146,7 @@ def check_reference_correction_compatibility(
 def transform_spectra_to_signal_domain(
     raw_spectra: np.ndarray,
     *,
-    dataset: DatasetRef,
+    dataset: DatasetRecord,
     reference_correction: ReferenceCorrection,
     signal_domain: SignalDomainContract,
     spatial_shape: tuple[int, int] | None = None,
@@ -252,7 +252,7 @@ def _raw_matrix(value: Any) -> np.ndarray:
     return raw
 
 
-def _whole_frames_spatial_shape(raw: np.ndarray, dataset: DatasetRef) -> tuple[int, int] | None:
+def _whole_frames_spatial_shape(raw: np.ndarray, dataset: DatasetRecord) -> tuple[int, int] | None:
     height = dataset.cube_shape[1]
     if height > 0 and raw.shape[0] % height == 0:
         return raw.shape[0] // height, height

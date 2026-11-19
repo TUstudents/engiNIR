@@ -52,6 +52,39 @@ def is_scalar_like(value: Any) -> bool:
     return isinstance(value, (str, bytes, bool, int, float, np.generic))
 
 
+#: Compression of the arrays a project file stores: Blosc with Zstandard, level 5, byte
+#: shuffle (plan release-1.7.3, D2, D3). Arrays written before keep theirs (gzip); a
+#: reader decodes both. Not part of the format.
+PROJECT_COMPRESSION = "blosc"
+
+
+def register_hdf5_filters() -> None:
+    """Register Blosc and the other filters of ``hdf5plugin`` in this process (once).
+
+    Every reader of a project file goes through this module, which calls it on
+    import: a project's arrays decode wherever engiNIR runs, in any thread.
+    """
+    import hdf5plugin  # noqa: F401  (a dependency; importing registers the filters)
+
+
+register_hdf5_filters()
+
+
+def compression_options(compression: str | None) -> dict[str, Any]:
+    """Keyword arguments of ``create_dataset`` for ``compression``.
+
+    ``"blosc"`` (Blosc-Zstandard 5 with shuffle), ``"gzip"``, ``"lzf"``, or
+    ``None``/``"none"`` for no compression.
+    """
+    if compression in (None, "", "none"):
+        return {}
+    if compression == "blosc":
+        import hdf5plugin
+
+        return dict(hdf5plugin.Blosc(cname="zstd", clevel=5, shuffle=hdf5plugin.Blosc.SHUFFLE))
+    return {"compression": compression}
+
+
 def write_mapping(group: h5py.Group, payload: dict[str, Any], compression: str) -> None:
     """Write ``payload`` into ``group`` (see the module docstring for the layout)."""
     for key, value in payload.items():
@@ -71,7 +104,7 @@ def write_mapping(group: h5py.Group, payload: dict[str, Any], compression: str) 
             elif array.ndim == 1 and array.size <= MAX_ATTRIBUTE_VECTOR:
                 group.attrs[key] = array
             else:
-                group.create_dataset(key, data=array, compression=compression)
+                group.create_dataset(key, data=array, **compression_options(compression))
 
 
 def _string_items(array: np.ndarray, key: str) -> list[str]:

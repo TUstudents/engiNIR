@@ -31,7 +31,7 @@ from .._logging import get_logger
 from .._workflow import make_reference_correction, make_roi, resolve_reference_correction, resolve_dataset
 from ..io import SpectralData, save_csv
 from ..io.project_store import load_project_store, load_roi_spectra_batch
-from ..project import ReferenceCorrection, DatasetRef, TargetDefinition
+from ..project import ReferenceCorrection, DatasetRecord, TargetDefinition
 from ._attachment import confirm_project_dataset_binding
 from ._data_helpers import wavelength_axes_match
 from ..io import file_format
@@ -69,6 +69,9 @@ class EDAView(QWidget):
 
     #: Show the ROI table (target values of all ROIs).
     roi_table_requested = pyqtSignal()
+    #: Add ROI or Add ROI Grid was pressed with no dataset shown ("add_roi" or
+    #: "add_roi_grid"): the window shows one, then starts it (plan roi-workflow, R3).
+    dataset_needed = pyqtSignal(str)
 
     def __init__(
         self,
@@ -493,14 +496,15 @@ class EDAView(QWidget):
         project_open = self.project_state.project_path is not None
         dataset_attached = self._dataset_attached_provider()
         selected_roi_id = self._selected_roi_id_provider()
-        self._btn_roi_training.setEnabled(project_open and dataset_attached)
-        self._btn_roi_grid.setEnabled(project_open and dataset_attached)
+        # Also without a shown image: pressing them shows a dataset first (R3).
+        self._btn_roi_training.setEnabled(project_open)
+        self._btn_roi_grid.setEnabled(project_open)
         self._btn_roi_delete.setEnabled(project_open and selected_roi_id is not None)
         tooltip = ""
         hint = "Open or create a project to draw ROIs."
         if project_open and not dataset_attached:
-            tooltip = "Attach a dataset to this project before drawing ROIs."
-            hint = "Attach a dataset to draw ROIs or run dataset-backed actions."
+            tooltip = "Shows a dataset of the project, then draws an ROI on it."
+            hint = "Add ROI and Add ROI Grid show a dataset of the project first."
         elif project_open and dataset_attached:
             if selected_roi_id is not None:
                 roi = self.project_state.rois.get(selected_roi_id)
@@ -533,6 +537,10 @@ class EDAView(QWidget):
         return self.project_state.dataset_id_of(cube_path)
 
     def _on_add_roi_toggled(self, enabled: bool) -> None:
+        if enabled and not self._dataset_attached_provider():
+            self._set_add_roi_checked(False)
+            self.dataset_needed.emit("add_roi")
+            return
         if enabled:
             self._canvas.enter_roi_draw_mode()
             self._roi_hint_label.setText("Drag on Spatial Image to define an ROI. Esc cancels.")
@@ -560,13 +568,18 @@ class EDAView(QWidget):
         The dialog starts from Tools > ROI Grid Defaults every time; its
         changes apply to this grid only (ROI/target contract).
         """
-        if self.project_state.project_path is None or not self._dataset_attached_provider():
-            QMessageBox.warning(self, "No project or dataset",
-                                "Open a project and show one of its datasets to add ROIs.")
+        if self.project_state.project_path is None:
+            QMessageBox.warning(self, "No project", "Open a project to add ROIs.")
+            return
+        if not self._dataset_attached_provider():
+            self.dataset_needed.emit("add_roi_grid")  # the window shows one first (R3)
             return
         cube_path = self._cube_path_provider() or ""
         n_frames, height = (int(n) for n in self.state.cube.shape[:2])
+        dataset = self.project_state.datasets.get(self.shown_dataset_id() or "")
         dialog = RoiGridDialog((n_frames, height), file=pathlib.Path(cube_path).stem,
+                               name="" if dataset is None else dataset.label,
+                               folder=pathlib.Path(cube_path).parent.name,
                                defaults=load_grid_defaults(),
                                taken_names={roi.name
                                             for roi in self.project_state.rois.values()},
@@ -700,7 +713,7 @@ class EDAView(QWidget):
                 )
             )
 
-    def _ensure_current_dataset_context(self) -> tuple[DatasetRef, ReferenceCorrection] | None:
+    def _ensure_current_dataset_context(self) -> tuple[DatasetRecord, ReferenceCorrection] | None:
         """Register the attached dataset and its current reference correction (or reuse them).
 
         ``None`` when the user declines replacing the reference correction of a data file

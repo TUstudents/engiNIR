@@ -215,7 +215,7 @@ Minimum required behavior:
 - the browser does not itself create scientific objects implicitly
 - items show names, not ids (an id is in the item's tooltip and in
   Properties); a reference correction shows its dataset and what it is
-  ("tablets_1.h5: dark/white references", "…: detector levels 128 / 3500");
+  ("tablets_1.h5: dark/white references", "…: detector levels 128 / 3100");
   items are sorted by name, ROIs by dataset and then name in natural order
   ("T2" before "T10") (decided 2026-11-16)
 

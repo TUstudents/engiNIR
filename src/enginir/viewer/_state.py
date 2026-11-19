@@ -27,7 +27,7 @@ from .._workflow import (
 )
 from ..project import (
     ReferenceCorrection,
-    DatasetRef,
+    DatasetRecord,
     ModelRun,
     SampleSet,
     SignalDomainContract,
@@ -61,7 +61,7 @@ __all__ = [
 
 # Default acquisition modality for viewer-imported datasets when the loader
 # does not populate ``meta["source_modality"]``. The library is NIR-focused;
-# DatasetRef requires a non-empty modality string.
+# DatasetRecord requires a non-empty modality string.
 DEFAULT_SOURCE_MODALITY: str = "NIR"
 _EPS = 1e-10
 _WORKING_DTYPE = np.float32
@@ -87,7 +87,7 @@ class PredictionJobContext:
     signal_domain: SignalDomainContract
     preprocessing_recipe_id: str
     recipe: PreprocessingRecipe
-    datasets: dict[str, DatasetRef]
+    datasets: dict[str, DatasetRecord]
     reference_corrections: dict[str, ReferenceCorrection]
     active_reference_correction_ids: dict[str, str]
     model_registry: dict[str, Any]
@@ -143,7 +143,7 @@ class ProjectState(QObject):
         self._looked_up: set[str] = set()
         self.project_path: str | None = None
         self.project_meta: dict[str, Any] = {}
-        self.datasets: dict[str, DatasetRef] = {}
+        self.datasets: dict[str, DatasetRecord] = {}
         self.active_reference_correction_ids: dict[str, str] = {}
         self.reference_corrections: dict[str, ReferenceCorrection] = {}
         self.rois: dict[str, TrainingROI] = {}
@@ -245,7 +245,7 @@ class ProjectState(QObject):
 
     # -- writing -------------------------------------------------------------------
 
-    def register_dataset(self, dataset: DatasetRef) -> None:
+    def register_dataset(self, dataset: DatasetRecord) -> None:
         """Persist a dataset reference."""
         self._require_project("register_dataset").save_dataset(dataset)
         self._written()
@@ -259,7 +259,7 @@ class ProjectState(QObject):
         """
         project = self._require_project("add_data_file")
         known = set(self.datasets)
-        dataset_id = project.add_dataset(path, **reference_correction).ref.dataset_id
+        dataset_id = project.add_dataset(path, **reference_correction).record.dataset_id
         self._written()
         self.datasets_changed.emit()
         self.reference_corrections_changed.emit()
@@ -1245,7 +1245,7 @@ class ViewerState(QObject):
         """Actual unit in use.
 
         Always returns the requested unit — conversion is always possible
-        because the default black/white levels (128 / 3500) are used when
+        because the default black/white levels (128 / 3100) are used when
         no explicit reference files are loaded.  DN is only returned when
         explicitly requested.
         """

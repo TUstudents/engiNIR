@@ -133,9 +133,13 @@ everything works.
 the system), the interface scale, the plot help, the folders the project and
 dataset file dialogs start in, the defaults of the Fit and Prediction
 settings, the PNG resolution of exports, the threads of a fit and the log
-file level. **Data and paths** also shows the drive mapping applied to
+level (INFO by default): the **Log** tab shows that level and above at
+once, the log file from the next start. **Data and paths** also shows the drive mapping applied to
 stored paths (``Z:\…`` ↔ ``/mnt/z/…``); it is automatic. They belong to you,
 not to a project: a model stores what it was fitted with.
+
+**Help > About engiNIR** shows the version, how to cite engiNIR (with its
+DOI) and the link to its GitHub repository.
 
 A project opened without a scan shows its stored objects in every
 step; drawing ROIs needs a scan. **Project > Name Dataset...** gives a
@@ -218,8 +222,13 @@ lays out equal ROIs in pixels, with x along frames and y along rows:
 - **Origin**: the frame and row of the first ROI's top-left corner (A1).
 - **Spacing**: the gap between neighboring ROIs; the dialog shows the
   resulting pitch and the frames and rows the grid covers.
-- **Names**: a pattern from the list (``{file}-{row}{column:02d}`` gives
-  ``tray03-B04``; ``{n:03d}`` numbers them) or your own, and the order.
+- **Names**: a pattern from the list (``{name}-{row}{column:02d}`` gives
+  ``Layer 7-B04``; ``{n:03d}`` numbers them) or your own, and the order. The
+  dialog lists the placeholders: ``{name}`` is the dataset's name (**Project >
+  Name Dataset...**), or its file name when it has none; ``{file}`` the file
+  name; ``{folder}`` the name of the file's folder; ``{row}``, ``{column}``
+  and ``{n}`` the position. Name the datasets first when their files share a
+  name (every Kestreleye scan is ``stream_hsi.h5``).
 
 The grid is drawn on the image while you type. Click a cell button to mark
 an empty position (**Select all** / **Select none** help with sparse trays);
@@ -530,14 +539,20 @@ Projects
 --------
 
 A project collects ROIs from any number of datasets. **File > Add Dataset...** (or **Open Data...** while a project is open) adds a file to the
-project in the same window and asks how it is corrected:
+project in the same window. Its **Name** field gives the dataset a short name
+("Layer 7"), shown instead of the file name and used by ``{name}`` in ROI grid
+names; empty, the file name is shown (**Project > Name Dataset...** changes it
+later). The dialog asks how the file is corrected:
 
 - **Dark and white references**, each from a file or from frames of the dataset itself, such as a white tile or shutter-closed frames at the start of
   the tray;
 - **Same references as another dataset**, for one reference set per session;
-- **Detector levels**, black and white, editable: the levels stored in the
-  file, else the instrument defaults 128 and 3500. This is the preselected
-  choice;
+- **Detector calibrated with dark and white reference levels**, black and
+  white, editable: for a camera that has already corrected its counts with
+  its own dark and white reference (EVK cameras do). The levels stored in
+  the file, else those of **Tools > Preferences** (128 and 3100 by default,
+  the EVK Helios white balance; 3500 before engiNIR 1.7.3). This is the
+  preselected choice;
 - **Raw counts**, without references or levels (only raw counts (DN) can be
   shown and modeled).
 
@@ -583,7 +598,14 @@ them as well; each is checked the same way.
 
 A project with ROIs opens on the **Project ROIs** tab without loading any
 dataset. The **Dataset** tab then loads the file you showed last for this
-project (remembered in your user settings, not in the project). Several
+project (remembered in your user settings, not in the project).
+**Add ROI** and **Add ROI Grid** work from anywhere: from the Settings, the
+**ROI** menu, the Checks tab or the Project ROIs tab (which has both next to
+its **Dataset** filter). Without an image shown, they switch to the Dataset
+tab and show a dataset first (the one chosen in the filter, the one you
+showed last, the only one, or the one you pick; in a project without
+datasets, **Add Dataset...** opens), then start drawing or open the grid
+dialog. Several
 windows on one project stay in step: a value typed in one appears in the
 others.
 
@@ -617,8 +639,8 @@ white references recorded once. From an empty project to a model:
 1. **Create the project.** On the welcome screen choose **Create Project...** and
    pick where the project file goes. The window opens on Explore with no dataset.
 2. **Add the first tray.** **File > Add Dataset...** opens the file and
-   asks for its reference correction. **Detector levels** (the instrument defaults) is
-   preselected. If the tray has a white tile and shutter-closed frames,
+   asks for its reference correction. **Detector calibrated with dark and white
+   reference levels** (the levels of Tools > Preferences) is preselected. If the tray has a white tile and shutter-closed frames,
    choose **Dark and white references** and pick them as frame ranges of the
    file itself, or choose the reference files. Check the mean spectra and the share
    of saturated values, then **OK**: the dataset and its reference correction are

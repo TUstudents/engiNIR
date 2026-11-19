@@ -34,7 +34,7 @@ def labelled(project, path, **kwargs):
         project.add_target("API", unit="%")
     dataset = project.add_dataset(path, **kwargs)
     for i, value in enumerate(CONTENT):
-        dataset.add_roi(f"{dataset.ref.dataset_id[:4]}{i}", frames=(3 * i, 3 * i + 2),
+        dataset.add_roi(f"{dataset.record.dataset_id[:4]}{i}", frames=(3 * i, 3 * i + 2),
                         rows=(0, 3), values={"API": value})
     return dataset
 
@@ -105,7 +105,7 @@ def test_a_dataset_added_with_a_table_stores_its_wavelengths(tmp_path):
     dataset = labelled(project, path, wavelength_table=KESTRELEYE)
     table = wavelength_table(KESTRELEYE)
     reopened = Project.open(project.path)
-    ref = reopened.workspace.datasets[dataset.ref.dataset_id]
+    ref = reopened.workspace.datasets[dataset.record.dataset_id]
     assert (ref.wavelength_table, ref.wavelength_table_id) == (KESTRELEYE, table.table_id)
     np.testing.assert_array_equal(ref.wavelengths, table.wavelengths)
     for roi in reopened.workspace.rois.values():
@@ -153,7 +153,7 @@ def test_set_wavelengths_changes_the_dataset_and_its_rois_and_keeps_the_pixels(t
     dataset.set_wavelengths(KESTRELEYE)
     table = wavelength_table(KESTRELEYE)
     reopened = Project.open(project.path)
-    ref = reopened.workspace.datasets[dataset.ref.dataset_id]
+    ref = reopened.workspace.datasets[dataset.record.dataset_id]
     assert ref.wavelength_table == KESTRELEYE
     np.testing.assert_array_equal(ref.wavelengths, table.wavelengths)
     for roi_id, roi in reopened.workspace.rois.items():
@@ -188,7 +188,7 @@ def test_a_model_fitted_on_band_numbers_predicts_the_same_after_set_wavelengths(
     after = next(iter(reopened.models.values())).predict(path).map
     np.testing.assert_allclose(after, before, rtol=0, atol=1e-6)
     refit = reopened.fit("API", n_components=2, cv=3)  # a new model: in nm
-    contract = reopened.workspace.signal_domains[refit.ref.signal_domain_id]
+    contract = reopened.workspace.signal_domains[refit.record.signal_domain_id]
     assert contract.wavelengths[0] == pytest.approx(1041.75)
 
 
@@ -203,9 +203,9 @@ def test_the_check_offers_the_one_table_of_the_band_count(tmp_path):
     check = next(c for c in project.checks(predict=False) if c.check_id == "data.no_wavelengths")
     assert check.fix is not None and check.fix.action == "set_wavelengths"
     assert check.fix.arguments["table"] == KESTRELEYE
-    assert set(check.fix.arguments["dataset_ids"]) == {first.ref.dataset_id,
-                                                        second.ref.dataset_id}
-    by_id = {dataset.ref.dataset_id: dataset for dataset in project.datasets.values()}
+    assert set(check.fix.arguments["dataset_ids"]) == {first.record.dataset_id,
+                                                        second.record.dataset_id}
+    by_id = {dataset.record.dataset_id: dataset for dataset in project.datasets.values()}
     for dataset_id in check.fix.arguments["dataset_ids"]:
         by_id[dataset_id].set_wavelengths(check.fix.arguments["table"])
     left = next(c for c in project.checks(predict=False) if c.check_id == "data.no_wavelengths")
@@ -240,8 +240,6 @@ def test_the_add_dataset_dialog_preselects_the_one_table(qapp, tmp_path):
     assert dialog.build_request().add_dataset_kwargs()["wavelength_table"] == KESTRELEYE
     combo.setCurrentIndex(0)
     assert dialog.build_request().wavelength_table is None, "band numbers stay possible"
-    assert AddDataFileDialog(path, read_header(path), {}, {}, registered=True)._wavelengths \
-        is None, "a registered file changes its axis only through Set Wavelengths"
     own = tmp_path / "own.h5"
     save_hdf5(str(own), np.full((3, 4, N_BANDS), 2000, np.uint16), np.linspace(1000, 1600, 176))
     assert AddDataFileDialog(str(own), read_header(str(own)), {}, {})._wavelengths is None
@@ -255,7 +253,7 @@ def test_a_table_dataset_is_shown_in_nm(qapp, tmp_path):
     dataset = labelled(project, path, wavelength_table=KESTRELEYE)
     window = open_project(str(project.path))
     try:
-        window.show_data_file(dataset.ref.dataset_id)
+        window.show_data_file(dataset.record.dataset_id)
         window.wait_for_data_file()
         assert window.state.wavelengths[0] == pytest.approx(1041.75)
     finally:
@@ -286,7 +284,7 @@ def test_the_checks_fix_sets_the_wavelengths_of_the_shown_dataset(qapp, tmp_path
     monkeypatch.setattr(SetWavelengthsDialog, "exec", accept)
     window = open_project(str(project.path))
     try:
-        window.show_data_file(dataset.ref.dataset_id)
+        window.show_data_file(dataset.record.dataset_id)
         window.wait_for_data_file()
         assert window.state.wavelengths[0] == 0.0, "band numbers"
         window.refresh_checks()
@@ -295,10 +293,25 @@ def test_the_checks_fix_sets_the_wavelengths_of_the_shown_dataset(qapp, tmp_path
         assert check.fix is not None
         window.run_fix(check.fix)
         assert seen, "the fix asks first: it changes stored ROIs"
-        ref = window.project_state.datasets[dataset.ref.dataset_id]
+        ref = window.project_state.datasets[dataset.record.dataset_id]
         assert ref.wavelength_table == KESTRELEYE
         assert all(roi.wavelengths[0] == pytest.approx(1041.75)
                    for roi in window.project_state.rois.values())
         assert window.state.wavelengths[0] == pytest.approx(1041.75), "the shown file too"
     finally:
         window.close()
+
+
+def test_a_scan_with_a_table_is_read_without_the_no_wavelengths_warning(tmp_path):
+    from enginir.io import load_spectra
+    from tests._scans import warnings_during
+
+    with_table, without = stream_file(tmp_path / "a.h5"), stream_file(tmp_path / "b.h5")
+    project = Project.create(tmp_path / "p.h5")
+
+    def warned(action) -> bool:
+        return any("no 'wavelengths'" in line for line in warnings_during(action)[1])
+
+    assert not warned(lambda: project.add_dataset(with_table, wavelength_table=KESTRELEYE))
+    assert not warned(lambda: load_spectra(with_table))
+    assert warned(lambda: project.add_dataset(without)), "still said for band numbers"
