@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from enginir import PreprocessingRecipe, Project
+from enginir._workflow import DEFAULT_BLACK_LEVEL, DEFAULT_WHITE_LEVEL
 from enginir.io import save_hdf5
 from tests._scans import (
     CONTENT, FRAMES_PER_SAMPLE, HEIGHT, N_BANDS, N_SAMPLES, labelled_project, scan_file,
@@ -143,7 +144,8 @@ def test_a_registered_file_is_reused_and_a_changed_one_refused(tmp_path):
 
 @pytest.mark.parametrize(
     ("dtype", "kwargs", "mode", "levels"),
-    [(np.uint16, {}, "dark_white_reference", (128.0, 3500.0)),
+    [(np.uint16, {}, "dark_white_reference",
+      (float(DEFAULT_BLACK_LEVEL), float(DEFAULT_WHITE_LEVEL))),  # 128 / 3100 since 1.7.3
      (np.uint16, {"unit": "DN"}, "raw_dn", (None, None)),
      (np.float32, {}, "already_corrected", (None, None))],
 )

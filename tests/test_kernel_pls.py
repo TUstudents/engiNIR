@@ -110,7 +110,9 @@ def _assert_equal_runs(ours, reference, *, model_tol, cv_tol):
         if isinstance(value, str) or isinstance(value, bool):
             assert a.metrics[key] == value, key
         elif key in ("bias", "pixel_bias"):
-            assert abs(a.metrics[key] - value) < 1e-6 * spread, key
+            # Near zero, so no relative tolerance: absolute, at the precision of the other
+            # cross-validation metrics (1e-6 alone failed by 1 % for PCR's float32 paths).
+            assert abs(a.metrics[key] - value) < cv_tol * spread, key
         elif key.endswith("_n") or key.startswith("n_"):
             assert a.metrics[key] == value, key
         else:

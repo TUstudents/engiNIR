@@ -83,10 +83,8 @@ __all__ = ["DEFAULT_BLACK_LEVEL", "DEFAULT_WHITE_LEVEL", "Dataset", "GridCell", 
            "resolve_prediction_reference_correction", "resolve_sample_set", "resolve_signal_domain",
            "roi_grid"]
 
-#: Dark and white detector levels of EVK cameras, used when a dataset is
-#: calibrated to reflectance or absorbance without reference spectra.
-DEFAULT_BLACK_LEVEL = 128
-DEFAULT_WHITE_LEVEL = 3500
+# Re-exported: the default levels live in a light module (Preferences reads them).
+from ._levels import DEFAULT_BLACK_LEVEL, DEFAULT_WHITE_LEVEL  # noqa: E402
 
 # Loaders that can read a frame range or only the header instead of the whole cube.
 _FRAME_FORMATS = ("eiff", "hdf5")
@@ -1784,22 +1782,42 @@ def roi_grid(
     -------
     list of GridCell
     """
+    cells, problem = _plan_roi_grid(
+        n_rows=n_rows, n_columns=n_columns, size=size, origin=origin, spacing=spacing,
+        skip=skip, order=order, name_pattern=name_pattern, file=file, name=name,
+        folder=folder, image_size=image_size)
+    if problem is not None:
+        log_and_raise("{}", problem)
+    return cells
+
+
+def _plan_roi_grid(
+    *, n_rows: int, n_columns: int, size: tuple[int, int], origin: tuple[int, int],
+    spacing: tuple[int, int], skip: Iterable[tuple[int, int]], order: str,
+    name_pattern: str, file: str, name: str, folder: str,
+    image_size: tuple[int, int] | None,
+) -> tuple[list[GridCell], str | None]:
+    """The cells of :func:`roi_grid`, or why there are none; logs nothing.
+
+    For a dialog that shows the grid while its pattern is typed: a half-typed
+    pattern is not an error worth a log line (:func:`roi_grid` logs it when
+    the grid is made).
+    """
     n_rows, n_columns = int(n_rows), int(n_columns)
     width, height = (int(v) for v in size)
     x0, y0 = (int(v) for v in origin)
     gap_x, gap_y = (int(v) for v in spacing)
     if n_rows < 1 or n_columns < 1:
-        log_and_raise("An ROI grid needs at least one row and column, got {} x {}", n_rows,
-                      n_columns)
+        return [], f"An ROI grid needs at least one row and column, got {n_rows} x {n_columns}"
     if width < 1 or height < 1:
-        log_and_raise("ROIs need a size of at least 1 x 1 pixel, got {} x {}", width, height)
+        return [], f"ROIs need a size of at least 1 x 1 pixel, got {width} x {height}"
     if x0 < 0 or y0 < 0:
-        log_and_raise("The grid origin must not be negative, got ({}, {})", x0, y0)
+        return [], f"The grid origin must not be negative, got ({x0}, {y0})"
     if gap_x < 0 or gap_y < 0:
-        log_and_raise("The spacing must not be negative (ROIs would overlap), got ({}, {})",
-                      gap_x, gap_y)
+        return [], ("The spacing must not be negative (ROIs would overlap), got "
+                    f"({gap_x}, {gap_y})")
     if order not in ("rows", "columns"):
-        log_and_raise("order must be 'rows' or 'columns', got {!r}", order)
+        return [], f"order must be 'rows' or 'columns', got {order!r}"
     grid = (f"{n_rows} x {n_columns}, size {width} x {height}, origin ({x0}, {y0}), "
             f"spacing ({gap_x}, {gap_y})")
     skipped = {(int(r), int(c)) for r, c in skip}
@@ -1816,19 +1834,19 @@ def roi_grid(
                                             n=len(cells) + 1, file=file,
                                             name=name or file, folder=folder)
         except (KeyError, IndexError, ValueError) as exc:
-            log_and_raise("Name pattern {!r} is not valid: {}", name_pattern, exc, cause=exc)
+            return [], f"Name pattern {name_pattern!r} is not valid: {exc}"
         cell = GridCell(row=r, column=c, frames=(f0, f0 + width - 1),
                         rows=(r0, r0 + height - 1), name=cell_name, grid=grid)
         if image_size is not None and (cell.frames[1] >= image_size[0]
                                        or cell.rows[1] >= image_size[1]):
-            log_and_raise("ROI {} ({}) lies outside the image of {} frames x {} rows",
-                          cell.position, cell_name, image_size[0], image_size[1])
+            return [], (f"ROI {cell.position} ({cell_name}) lies outside the image of "
+                        f"{image_size[0]} frames x {image_size[1]} rows")
         cells.append(cell)
     names = [cell.name for cell in cells]
     if len(set(names)) != len(names):
-        log_and_raise("Name pattern {!r} gives repeated names; use {{row}} and {{column}} or "
-                      "{{n}}", name_pattern)
-    return cells
+        return [], (f"Name pattern {name_pattern!r} gives repeated names; use {{row}} and "
+                    "{column} or {n}")
+    return cells, None
 
 
 def _row_letters(index: int) -> str:

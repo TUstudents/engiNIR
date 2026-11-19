@@ -544,9 +544,12 @@ project in the same window and asks how it is corrected:
 - **Dark and white references**, each from a file or from frames of the dataset itself, such as a white tile or shutter-closed frames at the start of
   the tray;
 - **Same references as another dataset**, for one reference set per session;
-- **Detector levels**, black and white, editable: the levels stored in the
-  file, else the instrument defaults 128 and 3500. This is the preselected
-  choice;
+- **Detector calibrated with dark and white reference levels**, black and
+  white, editable: for a camera that has already corrected its counts with
+  its own dark and white reference (EVK cameras do). The levels stored in
+  the file, else those of **Tools > Preferences** (128 and 3100 by default,
+  the EVK Helios white balance; 3500 before engiNIR 1.7.3). This is the
+  preselected choice;
 - **Raw counts**, without references or levels (only raw counts (DN) can be
   shown and modeled).
 
@@ -633,8 +636,8 @@ white references recorded once. From an empty project to a model:
 1. **Create the project.** On the welcome screen choose **Create Project...** and
    pick where the project file goes. The window opens on Explore with no dataset.
 2. **Add the first tray.** **File > Add Dataset...** opens the file and
-   asks for its reference correction. **Detector levels** (the instrument defaults) is
-   preselected. If the tray has a white tile and shutter-closed frames,
+   asks for its reference correction. **Detector calibrated with dark and white
+   reference levels** (the levels of Tools > Preferences) is preselected. If the tray has a white tile and shutter-closed frames,
    choose **Dark and white references** and pick them as frame ranges of the
    file itself, or choose the reference files. Check the mean spectra and the share
    of saturated values, then **OK**: the dataset and its reference correction are

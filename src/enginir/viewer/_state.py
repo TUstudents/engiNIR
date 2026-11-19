@@ -1245,7 +1245,7 @@ class ViewerState(QObject):
         """Actual unit in use.
 
         Always returns the requested unit — conversion is always possible
-        because the default black/white levels (128 / 3500) are used when
+        because the default black/white levels (128 / 3100) are used when
         no explicit reference files are loaded.  DN is only returned when
         explicitly requested.
         """

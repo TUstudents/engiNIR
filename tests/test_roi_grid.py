@@ -140,3 +140,24 @@ def test_name_and_folder_tell_scans_with_one_file_name_apart():
     assert names(name_pattern="{folder}_{n}", folder="lay-10_API-5") == ["lay-10_API-5_1",
                                                                          "lay-10_API-5_2"]
     assert names(name_pattern="{file}-{n}", name="Layer 7") == ["stream_hsi-1", "stream_hsi-2"]
+
+
+def test_a_name_pattern_being_typed_logs_no_error(qapp):
+    """Each keystroke of '{folder}' made the dialog log an ERROR ('{fol}' is not valid);
+    the grid that is made is still checked, with a log line."""
+    from enginir.viewer._grid_settings import GridDefaults
+    from enginir.viewer._roi_grid import RoiGridDialog
+    from tests._scans import warnings_during
+
+    dialog = RoiGridDialog((100, 50), file="stream_hsi", folder="lay-10",
+                           defaults=GridDefaults(n_rows=1, n_columns=2, width=5, height=5,
+                                                 origin_x=0, origin_y=0, spacing_x=0,
+                                                 spacing_y=0))
+    _, said = warnings_during(lambda: [dialog.set_grid(name_pattern=typed) for typed in
+                                       ("{fo}-{n}", "{fol}-{n}", "{folder}", "{folder}-{n}")])
+    assert said == [], said
+    assert [cell.name for cell in dialog.cells] == ["lay-10-1", "lay-10-2"]
+    _, said = warnings_during(lambda: pytest.raises(ValueError, roi_grid, n_rows=1, n_columns=1,
+                                                    size=(2, 2), name_pattern="{fol}"))
+    assert any("is not valid" in line for line in said), "roi_grid itself still logs"
+    dialog.close()

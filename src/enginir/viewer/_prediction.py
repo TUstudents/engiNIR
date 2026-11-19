@@ -106,7 +106,7 @@ def _ordinal(number: int) -> str:
 
 
 def describe_reference_correction(reference_correction: ReferenceCorrection) -> str:
-    """A reference correction in words, e.g. "detector levels 128 / 3500" or "dark/white references"."""
+    """A reference correction in words, e.g. "detector levels 128 / 3100" or "dark/white references"."""
     if reference_correction.mode == "raw_dn":
         return "raw counts"
     if reference_correction.mode == "already_corrected":

@@ -396,7 +396,7 @@ def test_the_dialog_plot_shows_the_data_and_what_each_choice_uses(qapp, tmp_path
                                shared.reference_correction.white_ref_data.mean(axis=0), rtol=1e-6)
     dialog.set_choice("levels")
     levels = drawn()
-    assert levels["Black level 128"][0] == 128 and levels["White level 3500"][0] == 3500
+    assert levels["Black level 128"][0] == 128 and levels["White level 3100"][0] == 3100
     dialog.set_choice("raw")
     assert set(drawn()) == {"Data (mean)"}
 

@@ -78,9 +78,7 @@ from ._predict_dialogs import ROI_RESULTS
 from ._prediction import PREDICTION_HISTOGRAM, PredictionMapWidget, PredictionView
 from ._windows import keep_open
 from ._state import (
-    DEFAULT_BLACK_LEVEL,
     DEFAULT_SOURCE_MODALITY,
-    DEFAULT_WHITE_LEVEL,
     ProjectState,
     ViewerState,
     look_up_data_files,
@@ -117,12 +115,19 @@ _SAVED_MESSAGE_MS = 8000
 _ADD_DATA_FILE = "__add_data_file__"
 
 
+def _default_levels() -> tuple[float, float]:
+    """The detector levels of Tools > Preferences (default 128 / 3100)."""
+    preferences = preferences_store.load()
+    return float(preferences.black_level), float(preferences.white_level)
+
+
 def _reference_correction_view(reference_correction: ReferenceCorrection | None,
                       meta: dict[str, Any]) -> tuple[dict[str, Any], str]:
     """``ViewerState.load_dataset`` keywords and the signal unit for a data file's reference correction."""
+    black, white = _default_levels()
     levels: dict[str, Any] = {
-        "black_level": float(meta.get("black_level", DEFAULT_BLACK_LEVEL)),
-        "white_level": float(meta.get("white_level", DEFAULT_WHITE_LEVEL)),
+        "black_level": float(meta.get("black_level", black)),
+        "white_level": float(meta.get("white_level", white)),
     }
     if reference_correction is None:
         return levels, "DN"
@@ -363,8 +368,9 @@ class HSIViewer(QMainWindow):
 
         _meta = meta or {}
 
-        black_level: float = float(_meta.get("black_level", DEFAULT_BLACK_LEVEL))
-        white_level: float = float(_meta.get("white_level", DEFAULT_WHITE_LEVEL))
+        default_black, default_white = _default_levels()
+        black_level: float = float(_meta.get("black_level", default_black))
+        white_level: float = float(_meta.get("white_level", default_white))
 
         self.state = ViewerState(
             cube,

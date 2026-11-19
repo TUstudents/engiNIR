@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .._logging import get_logger
-from .._workflow import GridCell, roi_grid
+from .._workflow import GridCell, _plan_roi_grid, roi_grid
 from ._grid_settings import NAME_PATTERNS, PLACEHOLDERS, GridDefaults, save_grid_defaults
 from ._theme import secondary_text_style
 
@@ -308,12 +308,12 @@ class RoiGridDialog(QDialog):
         geometry: dict[str, Any] = dict(
             n_rows=v.n_rows, n_columns=v.n_columns, size=(v.width, v.height),
             origin=(v.origin_x, v.origin_y), spacing=(v.spacing_x, v.spacing_y))
-        try:
-            planned = roi_grid(**geometry, skip=self._skip, order=v.order,
-                               name_pattern=v.name_pattern, file=self._file,
-                               name=self._name, folder=self._folder)
-        except ValueError as exc:
-            self._show([], [], [], str(exc), ok)
+        # Quietly: a pattern being typed is not an error for the log (roi_grid logs one).
+        planned, problem = _plan_roi_grid(
+            **geometry, skip=self._skip, order=v.order, name_pattern=v.name_pattern,
+            file=self._file, name=self._name, folder=self._folder, image_size=None)
+        if problem is not None:
+            self._show([], [], [], problem, ok)
             return
         n_frames, height = self._image_size
         inside = [c for c in planned if c.frames[1] < n_frames and c.rows[1] < height]

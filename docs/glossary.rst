@@ -79,7 +79,7 @@ Signal
       frame range. Reflectance is R = (x − dark) / (white − dark).
 
    Detector levels
-      A black level and a white level (128 and 3500 counts by default) that
+      A black level and a white level (128 and 3100 counts by default) that
       convert raw counts to reflectance without references: R = (x − black) /
       (white − black). For cameras that apply their own white balance.
 

@@ -40,6 +40,7 @@ from PyQt6.QtWidgets import (
 
 from .._logging import get_logger
 from .._env import BLAS_THREADS_ENV
+from .._levels import DEFAULT_BLACK_LEVEL, DEFAULT_WHITE_LEVEL
 from ._icons import icon
 from ._recent import config_dir
 from ._theme import HEAT_STOPS, SERIES, secondary_text_style, value_colormap
@@ -63,6 +64,9 @@ class Preferences:
     # Data and paths
     project_folder: str = ""            # first folder of New/Open Project ("": last used)
     dataset_folder: str = ""
+    # Detector levels a new dataset starts with (Add Dataset; a file's own levels win)
+    black_level: float = float(DEFAULT_BLACK_LEVEL)
+    white_level: float = float(DEFAULT_WHITE_LEVEL)
     # Fitting defaults (pre-fill the Fit settings)
     model_type: str = "PLS"
     n_components: int = 6
@@ -105,7 +109,13 @@ def load() -> Preferences:
                 values[item.name] = type(default)(data[item.name])
             except (TypeError, ValueError):
                 logger.warning("Ignoring preference {}={!r}", item.name, data[item.name])
-    return replace(defaults, **values)
+    loaded = replace(defaults, **values)
+    if not loaded.white_level > loaded.black_level:
+        logger.warning("Ignoring detector levels {} / {}: the white level must be above the "
+                       "black level", loaded.black_level, loaded.white_level)
+        loaded = replace(loaded, black_level=defaults.black_level,
+                         white_level=defaults.white_level)
+    return loaded
 
 
 def save(preferences: Preferences) -> None:
@@ -256,6 +266,19 @@ class PreferencesDialog(QDialog):
         form.addRow("Projects:", self.project_folder)
         form.addRow("Datasets:", self.dataset_folder)
         self._note(form, "The folders Open, New Project and Add Dataset start in.")
+        levels = QHBoxLayout()
+        self.black_level = QDoubleSpinBox()
+        self.white_level = QDoubleSpinBox()
+        for label, spin in (("Black:", self.black_level), ("White:", self.white_level)):
+            spin.setRange(0.0, 65535.0)
+            spin.setDecimals(1)
+            levels.addWidget(QLabel(label))
+            levels.addWidget(spin)
+        levels.addStretch(1)
+        form.addRow("Detector levels:", levels)
+        self._note(form, "The levels Add Dataset starts with for a camera that corrects its "
+                         "counts with its own dark and white reference (128 and 3100: the EVK "
+                         "Helios white balance). A file that states its levels keeps them.")
         self.drive_mapping = QLabel(drive_mapping_text())
         self.drive_mapping.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         form.addRow("Drive mapping:", self.drive_mapping)
@@ -375,6 +398,8 @@ class PreferencesDialog(QDialog):
         self.export_dpi.setValue(p.export_dpi)
         self.blas_threads.setValue(p.blas_threads)
         select(self.log_level, p.log_level)
+        self.black_level.setValue(p.black_level)
+        self.white_level.setValue(p.white_level)
 
     def values(self) -> Preferences:
         """The preferences the dialog shows."""
@@ -396,6 +421,8 @@ class PreferencesDialog(QDialog):
             export_dpi=self.export_dpi.value(),
             blas_threads=self.blas_threads.value(),
             log_level=self.log_level.currentText(),
+            black_level=self.black_level.value(),
+            white_level=self.white_level.value(),
         )
 
 

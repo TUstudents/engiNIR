@@ -122,12 +122,16 @@ same quantity), and the words it replaces.
 **Reference correction**
 : Converting raw counts to reflectance with dark and white references or
   with detector levels ("Reference correction: dark/white references",
-  "Reference correction: detector levels 128 / 3500").
+  "Reference correction: detector levels 128 / 3100").
 : Elsewhere: HSI vendors *reflectance calibration*; *related*: ENVI *Flat
   Field Correction*, *Empirical Line* (ENVI's *Radiometric Calibration*
   converts DN to radiance, a different step).
 : Replaces: "calibration" in this meaning (checked in review: text alone
   cannot tell the meanings apart).
+: Exception (user, 2026-11-19): the Add Dataset choice for detector levels
+  reads "Detector calibrated with dark and white reference levels": it
+  names what the camera did (its own dark and white correction), not a step
+  of engiNIR. Everywhere else the step stays "reference correction".
 
 **Reflectance**
 : Reference-corrected signal R, nominally between 0 and 1 (noise can give
@@ -306,7 +310,7 @@ gives each with its words elsewhere.
   row and band; R = (x − dark) / (white − dark).
 
 **Detector levels**
-: A black and a white level (default 128 and 3500 counts) that convert raw
+: A black and a white level (default 128 and 3100 counts; 3500 before engiNIR 1.7.3) that convert raw
   counts to reflectance without references.
 
 **Wavelength table**
