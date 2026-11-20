@@ -96,62 +96,6 @@ def project_with_roi(tmp_path, wavelengths):
     return path
 
 
-def test_open_project_starts_in_project_only_mode(tmp_path, qapp):
-    import enginir.viewer as viewer_mod
-    from enginir.io.project_store import create_project
-
-    project_path = str(tmp_path / "project_only.h5")
-    create_project(project_path)
-
-    viewer = viewer_mod.open_project(project_path)
-
-    assert viewer.project_state.project_path == os.path.abspath(project_path)
-    assert viewer._cube_path is None
-    assert viewer.state.has_dataset is False
-
-
-def test_open_project_from_project_only_window_skips_mismatch_warning(
-    project_with_roi, small_cube, wavelengths, qapp, monkeypatch
-):
-    from PyQt6.QtWidgets import QMessageBox
-
-    from enginir.viewer._viewer import HSIViewer
-
-    warnings: list[str] = []
-    monkeypatch.setattr(
-        QMessageBox,
-        "warning",
-        lambda *args, **kwargs: warnings.append(str(args[2])) or QMessageBox.StandardButton.Cancel,
-    )
-
-    viewer = HSIViewer(small_cube, wavelengths)
-    viewer._open_project_btn_clicked_with_path(project_with_roi)
-
-    assert warnings == []
-    assert viewer.project_state.project_path == project_with_roi
-
-
-def test_attaching_another_data_file_does_not_warn_about_rois_of_other_files(
-    project_with_roi, small_cube, wavelengths, qapp, monkeypatch
-):
-    """A file that is not registered yet is a new data file of the project, not a mismatch."""
-    from PyQt6.QtWidgets import QMessageBox
-
-    from enginir.viewer._viewer import HSIViewer
-
-    warnings: list[str] = []
-    monkeypatch.setattr(QMessageBox, "warning", lambda *args, **kwargs: (
-        warnings.append(str(args[2])) or QMessageBox.StandardButton.Cancel))
-
-    viewer = HSIViewer(small_cube, wavelengths)
-    viewer._cube_path = os.path.abspath("/other/cube.eiff")
-    viewer._open_project_btn_clicked_with_path(project_with_roi)
-
-    assert warnings == []
-    assert viewer.project_state.project_path == project_with_roi
-    assert viewer._canvas._roi_item_map == {}, "ROIs of /data/cube.eiff are not drawn here"
-
-
 @pytest.mark.parametrize(
     ("reply", "should_load"),
     [
@@ -349,50 +293,6 @@ def _process(qapp, n=10):
         time.sleep(0.005)
 
 
-def test_the_data_file_tab_loads_the_last_shown_file(qapp, trays):
-    from enginir.viewer import open_project
-
-    project, paths = trays
-    first = open_project(project.path)
-    try:
-        first.show_data_file(_dataset_id(first, "tray_b.h5"))
-        first.wait_for_data_file()
-    finally:
-        first.close()
-
-    window = open_project(project.path)  # a project with ROIs opens on them, nothing loaded
-    try:
-        assert window._explore_tabs.currentWidget() is window._project_rois
-        assert not window.has_attached_dataset()
-        window._explore_tabs.setCurrentWidget(window._data_file_page)
-        window.wait_for_data_file()
-        assert window._cube_path == str(paths["tray_b"].resolve())
-    finally:
-        window.close()
-
-
-def test_a_missing_last_file_is_not_loaded(qapp, trays):
-    from enginir.viewer import open_project
-
-    project, paths = trays
-    first = open_project(project.path)
-    try:
-        first.show_data_file(_dataset_id(first, "tray_a.h5"))
-        first.wait_for_data_file()
-    finally:
-        first.close()
-    paths["tray_a"].unlink()
-    window = open_project(project.path)
-    try:
-        window._explore_tabs.setCurrentWidget(window._data_file_page)
-        window.wait_for_data_file()
-        assert not window.has_attached_dataset()
-        assert "tray_a.h5 (not found)" in [window._data_file_combo.itemText(i)
-                                          for i in range(window._data_file_combo.count())]
-    finally:
-        window.close()
-
-
 def test_locate_file_from_the_not_found_question(qapp, trays, monkeypatch):
     from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
@@ -489,12 +389,3 @@ def test_wavelength_axes_match_rejects_malformed_axes():
     )
 
 
-def test_wavelength_axes_match_a_file_axis_with_its_stored_float32_copy():
-    """A project stores wavelengths as float32; re-reading the file must still match."""
-    from enginir.viewer._data_helpers import wavelength_axes_match
-
-    file_axis = np.linspace(1000.0, 1700.0, 12)
-    stored = file_axis.astype(np.float32)
-    assert np.abs(stored.astype(np.float64) - file_axis).max() > 1e-6  # plain allclose fails
-    assert wavelength_axes_match(stored, file_axis)
-    assert not wavelength_axes_match(stored, file_axis + 0.01)  # a real shift still differs

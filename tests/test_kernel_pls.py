@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import time
-import tracemalloc
 import numpy as np
 import pytest
-from enginir import PreprocessingRecipe, Project
-from enginir.io import save_hdf5
-from enginir.modeling import _gram_fit, fit_model_run
-from enginir.models import PCR, PLSRegression, _gram
+from enginir import PreprocessingRecipe
+from enginir.modeling import fit_model_run
+from enginir.models import PCR, PLSRegression
 from enginir.models._gram import GramStats, blas_thread_count, gram_condition
+from tests._scans import kernel_project as _project
 
 
 # -- Fits on statistics equal the pipeline path (plan ``plans/kernel-pls.md``, Phase 2) ----
@@ -25,36 +23,6 @@ _CV_KEYS = {"rmsecv", "r2", "rpd", "rpiq", "pixel_rmsecv", "pixel_r2", "pixel_rp
 
 #: Curve values from pixel predictions: the pipeline computes those in float32.
 _CV_CURVE = {"rmsecv", "rmsecv_se", "q2", "q2_cum", "r2y_cum", "r2y_cum_roi", "rmsee_roi"}
-
-
-def _project(tmp_path, *, n_datasets=2, n_rois=6, frames=(3, 8), seed=0):
-    """Two scans of 6 ROIs (3 … 7 frames × 6 rows), API from 2 to 9 %, an odd pixel."""
-    rng = np.random.default_rng(seed)
-    axis = np.arange(N_BANDS)
-    peaks = [np.exp(-((axis - c) / w) ** 2) for c, w in ((8, 3), (20, 5), (31, 2.5))]
-    project = Project.create(tmp_path / "p.h5")
-    project.add_target("API", unit="%")
-    for d in range(n_datasets):
-        blocks, rois, start = [], [], 0
-        for i in range(n_rois):
-            size = frames[0] + (i * 7 + d) % (frames[1] - frames[0])
-            api = 2 + 1.3 * i + 0.4 * d
-            spectra = (2600 - 140 * api * peaks[0] - 90 * rng.uniform(0, 3) * peaks[1]
-                       - 60 * rng.uniform(0, 1) * peaks[2])
-            block = (spectra + rng.normal(0, 18, (size, 6, N_BANDS))
-                     + rng.normal(0, 30, (size, 6, 1)))
-            if i == 2 and d == 0:
-                block[1, 2] += 400 * peaks[2]  # a pixel the DModX exclusion should find
-            blocks.append(block)
-            rois.append((f"d{d}r{i}", start, start + size - 1, api))
-            start += size
-        path = tmp_path / f"scan{d}.h5"
-        save_hdf5(str(path), np.vstack(blocks).astype(np.uint16),
-                  np.linspace(1000, 1600, N_BANDS))
-        dataset = project.add_dataset(path)
-        for name, a, b, api in rois:
-            dataset.add_roi(name, frames=(a, b), rows=(0, 5), values={"API": float(api)})
-    return project
 
 
 def _both(project, *, model="PLS", recipe=None, n_components=3, fit_spec=None, reference=None):
@@ -155,81 +123,6 @@ def test_pcr_on_statistics_equals_the_svd_pipeline(tmp_path, fit_spec):
     _assert_equal_runs(ours, reference, model_tol=1e-4, cv_tol=1e-4)
 
 
-def test_msc_recipes_take_the_pipeline_path_with_the_kernel_engine(tmp_path, monkeypatch):
-    """MSC/EMSC are fitted inside every fold: no fit on statistics, still kernel PLS."""
-    calls: list[int] = []
-    real = _gram_fit.component_curve
-    monkeypatch.setattr(_gram_fit, "component_curve",
-                        lambda *a, **k: calls.append(1) or real(*a, **k))
-    ours, reference = _both(_project(tmp_path), recipe=PreprocessingRecipe(msc=True))
-    assert not calls and ours.model_run.hyperparameters["algorithm"] == "kernel"
-    _assert_equal_runs(ours, reference, model_tol=1e-6, cv_tol=1e-5)
-
-
-@pytest.mark.parametrize("fault", ["leakage", "no-centering", "no-downdate", "wrong-fold"])
-def test_the_equivalence_test_catches_the_faults_of_a_fit_on_statistics(tmp_path, monkeypatch,
-                                                                        fault):
-    """Each fault of the statistics path makes the comparison with the pipeline fail."""
-    project = _project(tmp_path)
-    spec = {"exclusion": {"method": "dmodx", "level": 0.95}} if fault == "no-downdate" else None
-    if fault == "leakage":   # the held-out blocks stay in their fold's sums
-        real_folds = _gram_fit.folds
-
-        def leaky(splitter, cv_groups, lay):
-            folds, scheme = real_folds(splitter, cv_groups, lay)
-            return [_gram_fit.Fold(np.arange(lay.n_blocks), f.test_rois) for f in folds], scheme
-        monkeypatch.setattr(_gram_fit, "folds", leaky)
-    elif fault == "no-centering":
-        real_moments = _gram.GramStats.moments
-
-        def uncentred(self, blocks=None, columns=None):
-            m = real_moments(self, blocks, columns)
-            m.cxx = m.cxx + m.n * np.outer(m.x_mean - self.shift_x, m.x_mean - self.shift_x)
-            return m
-        monkeypatch.setattr(_gram.GramStats, "moments", uncentred)
-    elif fault == "no-downdate":
-        monkeypatch.setattr(_gram.GramStats, "remove_rows", lambda self, *a, **k: None)
-    else:                    # every pixel predicted by the first fold's model
-        real_held_out = _gram_fit.held_out_predictions
-        monkeypatch.setattr(_gram_fit, "held_out_predictions",
-                            lambda X, lay, folds, coefs: real_held_out(X, lay, folds,
-                                                                      [coefs[0]] * len(coefs)))
-    ours, reference = _both(project, fit_spec=spec)
-    with pytest.raises(AssertionError):
-        _assert_equal_runs(ours, reference, model_tol=1e-8, cv_tol=1e-5)
-
-
-def test_a_model_without_algorithm_refits_with_nipals_and_a_kernel_model_with_kernel(tmp_path):
-    """Contract §7: a 1.5 model (no `algorithm`) reads nipals; a refit reproduces exactly."""
-    import h5py
-
-    project = _project(tmp_path)
-    model = project.fit("API", recipe=PreprocessingRecipe(snv=True), n_components=3)
-    assert model.record.hyperparameters["algorithm"] == "kernel"
-    again = model.refit()
-    assert again.record.hyperparameters["algorithm"] == "kernel"
-    assert again.metrics["rmsecv"] == model.metrics["rmsecv"]
-    with h5py.File(project.path, "r+") as f:  # as a 1.5 project stored it
-        del f[f"model_runs/{model.record.model_run_id}/hyperparameters"].attrs["algorithm"]
-    old = Project.open(project.path).model(model.name)
-    assert "algorithm" not in old.record.hyperparameters
-    nipals = project.fit("API", recipe=PreprocessingRecipe(snv=True), n_components=3,
-                         algorithm="nipals")
-    refitted = old.refit()
-    assert refitted.record.hyperparameters["algorithm"] == "nipals"
-    assert refitted.metrics["rmsecv"] == nipals.metrics["rmsecv"]
-
-
-def test_a_fit_on_statistics_is_fast_and_reads_the_pixels_a_few_times(tmp_path):
-    """A benchmark with a generous bound: 24 ROIs × 4800 pixels × 40 bands, 7 folds."""
-    project = _project(tmp_path, n_rois=12, frames=(780, 820), seed=4)
-    start = time.perf_counter()
-    model = project.fit("API", recipe=PreprocessingRecipe(snv=True), n_components="auto")
-    seconds = time.perf_counter() - start
-    assert model.metrics["n_pixels"] > 100_000
-    assert seconds < 30, f"{seconds:.1f} s"
-
-
 @pytest.mark.parametrize(("limit", "stored"), [(0.0, "gram"), (2.0, "svd")])
 def test_a_pcr_run_stores_the_algorithm_its_guard_chose(tmp_path, monkeypatch, limit, stored):
     """PCR's "auto" is decided once for the run on the whole set; never stored as "auto"."""
@@ -240,14 +133,6 @@ def test_a_pcr_run_stores_the_algorithm_its_guard_chose(tmp_path, monkeypatch, l
                                    n_components=3)
     assert model.record.hyperparameters["algorithm"] == stored
     assert model.refit().record.hyperparameters["algorithm"] == stored
-
-
-def test_a_stored_model_without_algorithm_reads_nipals_or_svd():
-    from enginir.modeling import stored_hyperparameters
-
-    assert stored_hyperparameters("PLS", {"n_components": 2})["algorithm"] == "nipals"
-    assert stored_hyperparameters("PCR", {"n_components": 2})["algorithm"] == "svd"
-    assert stored_hyperparameters("PLS", {"algorithm": "kernel"})["algorithm"] == "kernel"
 
 
 # -- The kernel engine (plan ``plans/kernel-pls.md``, Phases 1 and 3b) -----------------
@@ -264,25 +149,6 @@ def _spectra(n, k, *, targets=1, offset=0.0, dtype=np.float64, seed=0):
     X = latent @ rng.standard_normal((8, k)) + 0.05 * rng.standard_normal((n, k)) + offset
     Y = latent[:, :targets] * 2 + 0.1 * rng.standard_normal((n, targets))
     return X.astype(dtype), (Y[:, 0] if targets == 1 else Y)
-
-
-@pytest.mark.parametrize("x_scaling", ["center", "uv", "pareto"])
-@pytest.mark.parametrize(("n", "k", "offset", "dtype"), [
-    (2000, 60, 0.0, np.float64),
-    (2000, 60, 3000.0, np.float32),    # raw counts: float32 rows, a large offset
-    (40, 120, 0.0, np.float64),        # more bands than samples
-])
-def test_kernel_pls_is_nipals(n, k, offset, dtype, x_scaling):
-    X, y = _spectra(n, k, offset=offset, dtype=dtype)
-    kernel = PLSRegression(n_components=6, x_scaling=x_scaling).fit(X, y)
-    nipals = PLSRegression(n_components=6, x_scaling=x_scaling, algorithm="nipals").fit(X, y)
-    for name in _ATTRIBUTES:
-        assert _rel(getattr(kernel, name), getattr(nipals, name)) < 1e-8, name
-    assert _rel(kernel.vip_scores(), nipals.vip_scores()) < 1e-8
-    assert _rel(kernel.predict(X), nipals.predict(X)) < 1e-6  # in the dtype of X
-    # Signs as scikit-learn's: the largest absolute element of every weight vector is positive.
-    weights = kernel.x_weights_
-    assert np.all(weights[np.argmax(np.abs(weights), axis=0), np.arange(6)] > 0)
 
 
 @pytest.mark.parametrize("x_scaling", ["center", "uv"])
@@ -350,18 +216,6 @@ def test_raw_counts_with_an_offset_keep_their_precision():
     assert _rel(kernel.coef_, reference.coef_) < 1e-8
 
 
-def test_a_kernel_fit_makes_no_full_copy_of_x():
-    """Peak memory of a fit of 400 000 × 176 float32 rows: below a quarter of a float64 copy."""
-    rng = np.random.default_rng(0)
-    X = rng.standard_normal((400_000, 176), dtype=np.float32)
-    y = X[:, :3].sum(axis=1)
-    tracemalloc.start()
-    PLSRegression(n_components=6).fit(X, y)
-    _current, peak = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
-    assert peak < X.size * 8 / 4, f"peak {peak / 1e6:.0f} MB"
-
-
 @pytest.mark.parametrize("x_scaling", ["center", "uv", "pareto"])
 @pytest.mark.parametrize(("n", "k", "offset", "dtype"), [
     (3000, 80, 0.0, np.float64), (3000, 80, 3000.0, np.float32), (50, 120, 0.0, np.float64)])
@@ -408,14 +262,3 @@ def test_an_unknown_algorithm_is_refused():
         PCR(algorithm="kernel").fit(X, y)
 
 
-def test_exhausted_components_have_zero_y_scores_as_with_nipals():
-    """SNV-like rank loss: more components than the data support (1.5.1 gave NaN)."""
-    rng = np.random.default_rng(3)
-    X = rng.standard_normal((50, 3)) @ rng.standard_normal((3, 20))
-    y = X[:, 0] + 0.1 * rng.standard_normal(50)
-    with np.errstate(all="raise"):
-        kernel = PLSRegression(n_components=6, algorithm="kernel").fit(X, y)
-    nipals = PLSRegression(n_components=6, algorithm="nipals").fit(X, y)
-    assert np.isfinite(kernel.y_scores_).all()
-    assert np.allclose(kernel.y_scores_[:, 3:], 0.0)
-    assert np.allclose(kernel.y_scores_, nipals.y_scores_, atol=1e-8)

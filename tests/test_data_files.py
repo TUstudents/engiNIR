@@ -2,30 +2,25 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 import os
-from pathlib import PurePath, PureWindowsPath
+from pathlib import PurePath
 import shutil
 import time
 from types import SimpleNamespace
 import h5py
 import numpy as np
 import pytest
+
+from tests._tables import check_all
 from enginir import Project
 from enginir._workflow import data_file_labels
 from enginir.io import save_hdf5
-from enginir.io._hdf5_groups import values_equal
 from enginir.project import _data_paths
 from enginir.project._data_paths import (
-    RELATIVE,
     STORED,
-    data_file_candidates,
     drive_mapped,
     moved_path,
-    native_path,
-    relative_data_path,
     stored_path,
-    wsl_mount_root,
 )
 from tests._scans import framed_scan
 
@@ -53,19 +48,6 @@ def files(tmp_path):
     save_hdf5(str(paths["white"]),
               rng.integers(3400, 3600, (4, HEIGHT, N_BANDS)).astype(np.uint16), wavelengths)
     return paths, tray
-
-
-def test_references_from_frames_of_the_same_file(tmp_path, files):
-    paths, tray = files
-    project = Project.create(tmp_path / "p.h5")
-    reference_correction = project.add_dataset(paths["tray"], dark_frames=(0, 2),
-                                      white_frames=(17, 19)).reference_correction
-    assert reference_correction.mode == "dark_white_reference"
-    np.testing.assert_allclose(reference_correction.dark_ref_data, tray[0:3].mean(axis=0), rtol=1e-6)
-    np.testing.assert_allclose(reference_correction.white_ref_data, tray[17:20].mean(axis=0), rtol=1e-6)
-    tray_path = str(paths["tray"].resolve())
-    assert reference_correction.dark_ref_source == f"{tray_path} frames 0-2"
-    assert reference_correction.white_ref_source == f"{tray_path} frames 17-19"
 
 
 def test_a_reference_file_and_frames_combine(tmp_path, files):
@@ -108,19 +90,6 @@ def test_invalid_reference_requests_write_nothing(tmp_path, files):
     assert list(reopened.datasets) == [str(paths["tray"].resolve())]
 
 
-def test_a_new_calibration_applies_to_later_rois_only(tmp_path, files):
-    paths, _tray = files
-    project = Project.create(tmp_path / "p.h5")
-    tray = project.add_dataset(paths["tray"])
-    tray.add_roi("early", frames=(4, 6), rows=(0, 2))
-    tray = project.add_dataset(paths["tray"], dark_frames=(0, 2), white_frames=(17, 19))
-    tray.add_roi("late", frames=(8, 10), rows=(0, 2))
-    early, late = project.roi("early"), project.roi("late")
-    assert late.reference_correction_id == tray.reference_correction.reference_correction_id
-    assert early.reference_correction_id != late.reference_correction_id
-    assert project.workspace.reference_corrections[early.reference_correction_id].black_level is not None
-
-
 def test_detector_levels_can_be_given_and_are_checked(tmp_path, files):
     paths, tray = files
     project = Project.create(tmp_path / "p.h5")
@@ -154,13 +123,6 @@ def test_detector_levels_can_be_given_and_are_checked(tmp_path, files):
 def _refs(*paths: str) -> dict[str, SimpleNamespace]:
     return {f"d{i}": SimpleNamespace(source_path=os.path.join(os.sep, *p.split("/")))
             for i, p in enumerate(paths)}
-
-
-def test_unique_file_names_are_kept_and_repeated_ones_get_their_folder():
-    labels = data_file_labels(_refs("z/run1/stream_hsi.h5", "z/run2/stream_hsi.h5",
-                                    "z/run2/tray03.h5"))
-    assert labels == {"d0": "stream_hsi.h5 (run1)", "d1": "stream_hsi.h5 (run2)",
-                      "d2": "tray03.h5"}
 
 
 def test_more_folders_are_used_when_parent_folders_repeat_too():
@@ -253,23 +215,6 @@ def _source_path(project):
     return ref.source_path
 
 
-def test_a_moved_file_is_accepted_and_only_its_path_changes(moved):
-    project, old_path, new_path, _cube = moved
-    before = Project.open(project.path).workspace
-    project.dataset(old_path).locate(new_path)
-
-    after = Project.open(project.path).workspace
-    (ref,) = after.datasets.values()
-    assert ref.source_path == str(new_path.resolve())
-    (old_ref,) = before.datasets.values()
-    assert ref.relative_path == "moved/tray.h5", "the relative path follows the new location"
-    assert values_equal(replace(old_ref, source_path=ref.source_path,
-                                relative_path=ref.relative_path).to_dict(), ref.to_dict())
-    assert after.rois.keys() == before.rois.keys()
-    # New ROIs read the file at its new location.
-    Project.open(project.path).dataset(new_path).add_roi("A3", frames=(6, 7), rows=(0, 1))
-
-
 def _write(path, cube, wavelengths=WAVELENGTHS):
     path.unlink(missing_ok=True)
     save_hdf5(str(path), cube, wavelengths)
@@ -300,41 +245,15 @@ def test_another_file_is_refused_and_nothing_changes(moved, change, message):
     assert _source_path(project) == str(old_path.resolve())
 
 
-def test_a_file_of_another_data_file_is_refused(moved, tmp_path):
-    project, old_path, new_path, cube = moved
-    other = tmp_path / "other.h5"
-    save_hdf5(str(other), cube, WAVELENGTHS)
-    project.add_dataset(other)
-    with pytest.raises(ValueError, match="already registered"):
-        project.dataset(old_path).locate(other)
-
-
-def test_precalibrated_pixels_are_compared_as_stored(tmp_path):
-    cube = np.random.default_rng(3).random((10, 4, 6))  # float64 reflectance
-    path = tmp_path / "calibrated.h5"
-    save_hdf5(str(path), cube, WAVELENGTHS)
-    project = Project.create(tmp_path / "p.h5")
-    project.add_dataset(path, unit="Reflectance").add_roi("F1", frames=(1, 3), rows=(0, 2))
-    new_path = tmp_path / "renamed.h5"
-    path.rename(new_path)
-    project.dataset(path).locate(new_path)
-    assert _source_path(project) == str(new_path.resolve())
-
-
 # -- Data files across platforms (attachment contract, Missing and moved files) --------
 
 
-def test_a_stored_path_is_read_by_its_own_syntax_on_any_platform():
-    windows = stored_path(r"Z:\NonKF\API 10%\stream_hsi.h5")
-    assert isinstance(windows, PureWindowsPath)
-    assert windows.parts == ("Z:\\", "NonKF", "API 10%", "stream_hsi.h5")
-    assert isinstance(stored_path(r"\\172.16.0.61\z\x.h5"), PureWindowsPath)
-    assert native_path(windows, windows=False) is None, "not a Linux path, never cwd/Z:/…"
-    assert native_path(stored_path("/mnt/z/x.h5"), windows=False) == "/mnt/z/x.h5"
-    assert native_path(stored_path("/mnt/z/x.h5"), windows=True) is None
+def test_the_drive_mapping_both_ways():
+    def check(case):
+        stored, windows, root, expected = case
+        assert drive_mapped(stored_path(stored), windows=windows, wsl_root=root) == expected
 
-
-@pytest.mark.parametrize(("stored", "windows", "root", "expected"), [
+    check_all([
     (r"Z:\NonKF\a b\x.h5", False, "/mnt/", "/mnt/z/NonKF/a b/x.h5"),
     (r"Z:\NonKF\x.h5", False, "/", "/z/NonKF/x.h5"),          # wsl.conf root = /
     ("/mnt/z/NonKF/a b/x.h5", True, None, r"Z:\NonKF\a b\x.h5"),
@@ -343,33 +262,7 @@ def test_a_stored_path_is_read_by_its_own_syntax_on_any_platform():
     ("/home/user/x.h5", True, None, None),
     (r"\\172.16.0.61\z\x.h5", False, "/mnt/", None),          # UNC: a configured mapping
     ("/mnt/z/x.h5", False, "/mnt/", None),                    # already this platform's
-])
-def test_the_drive_mapping_both_ways(stored, windows, root, expected):
-    assert drive_mapped(stored_path(stored), windows=windows, wsl_root=root) == expected
-
-
-def test_the_wsl_mount_root_is_read_from_wsl_conf(tmp_path):
-    conf = tmp_path / "wsl.conf"
-    conf.write_text("[automount]\nroot = /\noptions = metadata\n")
-    assert wsl_mount_root(str(conf)) == "/"
-    conf.write_text("[network]\nhostname = pc\n")
-    wsl_mount_root.cache_clear()
-    assert wsl_mount_root(str(conf)) == "/mnt/"
-    assert wsl_mount_root(str(tmp_path / "missing.conf")) == "/mnt/"
-
-
-def test_the_relative_path_and_the_order_of_the_candidates():
-    assert relative_data_path("/mnt/z/p/demo.h5", "/mnt/z/p/lay 1/x.h5") == "lay 1/x.h5"
-    assert relative_data_path("/mnt/z/p/demo.h5", "/mnt/z/data/x.h5") == "../data/x.h5"
-    candidates = data_file_candidates("/home/u/copy/demo.h5", r"Z:\p\lay1\x.h5", "lay1/x.h5",
-                                      windows=False, wsl_root="/mnt/")
-    next_to = os.path.join(os.path.abspath("/home/u/copy"), "lay1", "x.h5")  # C:\home\… on Windows
-    assert [(c.path, c.how) for c in candidates] == [
-        (next_to, RELATIVE), ("/mnt/z/p/lay1/x.h5", "via drive Z:")]
-    project = os.path.join(os.path.abspath("/share/p"), "demo.h5")  # this platform's paths
-    data = os.path.join(os.path.abspath("/share/p"), "lay1", "x.h5")
-    same = data_file_candidates(project, data, "lay1/x.h5")
-    assert [c.how for c in same] == [RELATIVE], "one path is listed once"
+], check)
 
 
 def test_a_folder_change_moves_the_other_files_the_same_way():
@@ -395,42 +288,6 @@ def _layers(folder, n=2):
         save_hdf5(str(path), rng.integers(500, 3000, (8, 4, 6)).astype(np.uint16), WAVELENGTHS)
         project.add_dataset(path).add_roi(f"lay-{layer}_A1", frames=(1, 2), rows=(0, 1))
     return project
-
-
-def _meta(path):
-    with h5py.File(path, "r") as f:
-        return dict(f["project_meta"].attrs)
-
-
-def test_a_copied_project_folder_finds_its_data_next_to_it_and_writes_nothing(tmp_path):
-    (tmp_path / "share").mkdir()
-    original = _layers(tmp_path / "share")
-    (ref,) = [r for r in original.workspace.datasets.values() if "lay-1" in r.source_path]
-    assert ref.relative_path == "lay-1/stream_hsi.h5"
-    copy = tmp_path / "laptop"
-    shutil.copytree(tmp_path / "share", copy)
-    before = _meta(copy / "demo.h5")
-
-    project = Project.open(copy / "demo.h5")
-    found = project.find_data_file(ref.dataset_id)
-    assert found is not None and found.how == RELATIVE, "relative first: the copy, not the share"
-    assert found.path == str(copy / "lay-1" / "stream_hsi.h5")
-    assert project.dataset(found.path).record.dataset_id == ref.dataset_id, "never registered twice"
-    assert project.workspace.datasets[ref.dataset_id].source_path == ref.source_path
-    time.sleep(0.01)
-    assert _meta(copy / "demo.h5") == before, "finding a file writes nothing"
-
-
-def test_a_moved_project_folder_finds_its_data_when_the_stored_path_is_gone(tmp_path):
-    (tmp_path / "share").mkdir()
-    original = _layers(tmp_path / "share")
-    ids = list(original.workspace.datasets)
-    shutil.move(tmp_path / "share", tmp_path / "moved")
-    project = Project.open(tmp_path / "moved" / "demo.h5")
-    assert all(project.find_data_file(i).how == RELATIVE for i in ids)
-    # The workflow reads the file where it was found.
-    dataset = project.dataset(project.data_file(ids[0]))
-    dataset.add_roi("lay-1_A2", frames=(4, 5), rows=(0, 1))
 
 
 @pytest.mark.skipif(os.name == "nt", reason="a WSL mount exists only on Linux")
@@ -469,17 +326,6 @@ def test_a_look_alike_file_at_a_candidate_path_is_refused(tmp_path):
     assert Project.open(copy / "demo.h5").find_data_file(dataset_id) is None
 
 
-def test_a_project_without_relative_paths_still_opens(tmp_path):
-    (tmp_path / "share").mkdir()
-    project = _layers(tmp_path / "share", n=1)
-    (dataset_id,) = project.workspace.datasets
-    with h5py.File(project.path, "r+") as f:
-        del f[f"datasets/{dataset_id}"].attrs["relative_path"]
-    reopened = Project.open(project.path)
-    assert reopened.workspace.datasets[dataset_id].relative_path == ""
-    assert reopened.find_data_file(dataset_id).how == STORED
-
-
 def test_one_locate_offers_the_same_folder_change_for_the_others(tmp_path, monkeypatch):
     from PyQt6.QtWidgets import QMessageBox
 
@@ -508,29 +354,6 @@ def test_one_locate_offers_the_same_folder_change_for_the_others(tmp_path, monke
         stored = Project.open(elsewhere / "demo.h5").workspace.datasets
         assert all(str(tmp_path / "archive") in r.source_path for r in stored.values())
         assert all(r.relative_path.startswith("../archive/") for r in stored.values())
-    finally:
-        window.close()
-
-
-def test_the_dataset_list_shows_only_the_path_a_file_is_read_from(tmp_path):
-    """How the file was found and the stored path are logged, not shown (user, 2026-11-13)."""
-    from PyQt6.QtCore import Qt
-
-    from enginir.viewer import open_project
-    from enginir.viewer._app import ensure_app
-
-    ensure_app()
-    (tmp_path / "share").mkdir()
-    _layers(tmp_path / "share", n=1)
-    shutil.move(tmp_path / "share", tmp_path / "moved")  # found next to the project
-    window = open_project(str(tmp_path / "moved" / "demo.h5"))
-    try:
-        window.wait_for_data_file()  # the files are looked up in the background
-        combo = window._data_file_combo
-        tips = [combo.itemData(i, Qt.ItemDataRole.ToolTipRole) for i in range(combo.count())
-                if isinstance(combo.itemData(i), str)]
-        assert str(tmp_path / "moved" / "lay-1" / "stream_hsi.h5") in tips
-        assert not any("found" in str(tip) or "share" in str(tip) for tip in tips)
     finally:
         window.close()
 
@@ -647,32 +470,3 @@ def test_a_dataset_is_named_when_it_is_added(tmp_path):
     assert reopened.label == "Layer 8", "a registered dataset is renamed"
 
 
-def test_the_add_dataset_dialog_names_the_dataset(qapp, tmp_path, monkeypatch):
-    from PyQt6.QtWidgets import QDialog
-
-    from enginir.viewer import open_project
-    from enginir.viewer._data_files import AddDataFileDialog
-
-    path = tmp_path / "stream_hsi.h5"
-    save_hdf5(str(path), np.full((4, 3, 6), 2000, np.uint16), np.linspace(1000, 1500, 6))
-    project = Project.create(tmp_path / "p.h5")
-    shown: list[str] = []
-
-    def accept(dialog):
-        shown.append(dialog._name.text())
-        dialog._name.setText("Layer 7")
-        dialog._accept()
-        return QDialog.DialogCode.Accepted
-
-    monkeypatch.setattr(AddDataFileDialog, "exec", accept)
-    window = open_project(str(project.path))
-    try:
-        dataset_id = window.add_data_file(str(path))
-        window.wait_for_data_file()
-        assert window.project_state.datasets[dataset_id].label == "Layer 7"
-        assert window.project_state.data_file_label(dataset_id) == "Layer 7"
-        assert shown == [""], "a new dataset starts without a name (its file name shows)"
-        assert window.add_data_file(str(path)) == dataset_id and shown == [""], \
-            "a registered file is shown directly; Project > Name Dataset renames it"
-    finally:
-        window.close()

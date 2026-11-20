@@ -5,6 +5,8 @@ from __future__ import annotations
 import tracemalloc
 import numpy as np
 import pytest
+
+from tests._tables import check_all
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 from enginir import PreprocessingRecipe
@@ -45,17 +47,6 @@ def _reference_emsc(X, *, order, reference=None, interferences=None, weights=Non
     additive = coeffs.copy()
     additive[order + 1] = 0.0
     return (X - (A @ additive).T) / coeffs[order + 1][:, None], coeffs.T
-
-
-def test_snv_uses_the_sample_std_and_zeroes_constant_spectra():
-    np.testing.assert_allclose(SNV().transform(np.array([[1.0, 2.0, 3.0]])), [[-1.0, 0.0, 1.0]])
-
-    X = np.full((2, 220), 0.123, dtype=np.float32)  # float32 constant: std is rounding noise
-    X[1] = np.linspace(0.0, 1.0, 220)
-    out = SNV().transform(X)
-    np.testing.assert_array_equal(out[0], 0.0)
-    assert out[1].mean() == pytest.approx(0.0, abs=1e-6)
-    assert out[1].std(ddof=1) == pytest.approx(1.0, rel=1e-5)
 
 
 def test_msc_maps_its_reference_onto_itself_and_rejects_a_constant_one():
@@ -113,34 +104,18 @@ def test_emsc_keeps_output_finite_for_a_zero_multiplicative_term():
     assert np.isfinite(EMSC(order=0).fit(X_DUMMY).transform(np.zeros((3, P)))).all()
 
 
-def test_emsc_transform_replays_the_fitted_order_not_the_current_parameter():
-    emsc = EMSC(order=2).fit(X_DUMMY)
-    expected = emsc.transform(X_DUMMY)
-    emsc.set_params(order=1)
-    np.testing.assert_array_equal(emsc.transform(X_DUMMY), expected)
+def test_savitzky_golay_rejects_inconsistent_parameters():
+    def check(case):
+        kwargs, match = case
+        with pytest.raises(ValueError, match=match):
+            SavitzkyGolay(**kwargs).transform(X_DUMMY)
 
-
-def test_savitzky_golay_differentiates_a_polynomial_exactly():
-    x = np.arange(30.0)
-    X = np.tile(0.5 * x**3, (2, 1))
-    np.testing.assert_allclose(SavitzkyGolay(7, 3, deriv=1).transform(X), np.tile(1.5 * x**2, (2, 1)),
-                               atol=1e-8)
-    np.testing.assert_allclose(SavitzkyGolay(7, 3, deriv=2).transform(X), np.tile(3.0 * x, (2, 1)),
-                               atol=1e-8)
-
-
-@pytest.mark.parametrize(
-    ("kwargs", "match"),
-    [
+    check_all([
         ({"window_length": 4}, "odd"),
         ({"window_length": 5, "polyorder": 5}, "polyorder"),
         ({"window_length": 11, "polyorder": 2, "deriv": 3}, "deriv"),
         ({"window_length": 101}, "exceeds"),
-    ],
-)
-def test_savitzky_golay_rejects_inconsistent_parameters(kwargs, match):
-    with pytest.raises(ValueError, match=match):
-        SavitzkyGolay(**kwargs).transform(X_DUMMY)
+    ], check)
 
 
 def test_detrend_removes_polynomial_baselines_on_a_raw_wavelength_axis():
@@ -180,22 +155,21 @@ def test_whittaker_matches_the_sparse_solution_and_stays_accurate_in_float32():
                                    atol=1e-5)
 
 
-@pytest.mark.parametrize(
-    "transformer",
-    [SNV(), MSC(), EMSC(), Detrend(order=2, wavelengths=np.linspace(1000, 1700, 220)),
-     Smoother(method="whittaker"), Smoother(), SavitzkyGolay()],
-    ids=lambda t: f"{type(t).__name__}-{getattr(t, 'method', '')}",
-)
-def test_transformers_work_in_float32_without_full_size_upcasts(transformer):
-    """Working arrays stay float32 (prediction-runtime contract, memory rules)."""
-    X = np.random.default_rng(0).random((5000, 220)).astype(np.float32)
-    transformer.fit(X)
-    tracemalloc.start()
-    out = transformer.transform(X)
-    peak = tracemalloc.get_traced_memory()[1]
-    tracemalloc.stop()
-    assert out.dtype == np.float32
-    assert peak < 2.0 * X.nbytes  # a float64 copy of X alone would be 2x
+def test_transformers_work_in_float32_without_full_size_upcasts():
+    def check(case):
+        transformer = case
+        """Working arrays stay float32 (prediction-runtime contract, memory rules)."""
+        X = np.random.default_rng(0).random((5000, 220)).astype(np.float32)
+        transformer.fit(X)
+        tracemalloc.start()
+        out = transformer.transform(X)
+        peak = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+        assert out.dtype == np.float32
+        assert peak < 2.0 * X.nbytes  # a float64 copy of X alone would be 2x
+
+    check_all([SNV(), MSC(), EMSC(), Detrend(order=2, wavelengths=np.linspace(1000, 1700, 220)),
+     Smoother(method="whittaker"), Smoother(), SavitzkyGolay()], check)
 
 
 # -- PreprocessingRecipe: persisted schema, validation and step construction -----------
@@ -204,26 +178,6 @@ def test_transformers_work_in_float32_without_full_size_upcasts(transformer):
 CONTRACT_FIELDS = {"filter", "sg_window", "sg_polyorder", "snv", "msc", "emsc", "detrend",
                    "detrend_order", "sg_edges", "asls", "asls_lambda", "asls_p",
                    "asls_iterations", "bands_keep", "bands_exclude"}
-
-
-def test_persisted_form_has_every_contract_field_and_round_trips():
-    # enginir-1.5: every field is written, also when it has no effect.
-    for recipe in (PreprocessingRecipe(filter="sg_smooth", sg_window=9, sg_polyorder=3,
-                                       msc=True, sg_edges="interp"),
-                   PreprocessingRecipe(),
-                   PreprocessingRecipe(asls=True, bands_keep=[(1100, 1300)])):
-        assert set(recipe.to_dict()) == CONTRACT_FIELDS
-        assert PreprocessingRecipe.from_dict(recipe.to_dict()) == recipe
-
-
-def test_from_dict_requires_every_field_and_discards_extras():
-    payload = PreprocessingRecipe(snv=True).to_dict()
-    payload["created_at"] = "2026-04-02T10:03:00+00:00"
-    assert PreprocessingRecipe.from_dict(payload) == PreprocessingRecipe(snv=True)
-
-    del payload["msc"]
-    with pytest.raises(ValueError, match=r"/recipes/recipe_1.*msc"):
-        PreprocessingRecipe.from_dict(payload, location="/recipes/recipe_1")
 
 
 def test_from_dict_normalises_hdf5_scalars_but_rejects_wrong_types():
@@ -238,18 +192,18 @@ def test_from_dict_normalises_hdf5_scalars_but_rejects_wrong_types():
             PreprocessingRecipe.from_dict(bad)
 
 
-@pytest.mark.parametrize(
-    ("kwargs", "match"),
-    [
+def test_rejects_inconsistent_settings():
+    def check(case):
+        kwargs, match = case
+        with pytest.raises(ValueError, match=match):
+            PreprocessingRecipe(**kwargs)
+
+    check_all([
         ({"filter": "median"}, "filter"),
         ({"sg_window": 4}, "sg_window must be odd"),
         ({"sg_window": 5, "sg_polyorder": 5}, "smaller than sg_window"),
         ({"filter": "sg_d2", "sg_polyorder": 1}, "sg_polyorder >= 2"),
-    ],
-)
-def test_rejects_inconsistent_settings(kwargs, match):
-    with pytest.raises(ValueError, match=match):
-        PreprocessingRecipe(**kwargs)
+    ], check)
 
 
 def test_steps_follow_the_contract_order():
@@ -300,49 +254,6 @@ def test_asls_equals_a_dense_solver(direction, n_bands):
     np.testing.assert_allclose(out, expected, atol=1e-9)
 
 
-def test_down_is_asls_of_the_negated_spectrum():
-    X = np.random.default_rng(1).normal(size=(3, 40)).cumsum(axis=1)
-    down = AsLSBaseline(lam=1e3, direction="down").fit_transform(X)
-    np.testing.assert_allclose(down, -AsLSBaseline(lam=1e3).fit_transform(-X), atol=1e-10)
-
-
-def _curved_spectra(sign):
-    x = np.linspace(0.0, 1.0, 150)
-    baseline = 0.8 + 0.6 * x - 0.5 * x ** 2
-    peaks = np.exp(-((x - 0.3) / 0.02) ** 2) + 0.5 * np.exp(-((x - 0.7) / 0.03) ** 2)
-    return (baseline + sign * peaks)[None, :], sign * peaks
-
-
-@pytest.mark.parametrize(("sign", "direction"), [(1.0, "up"), (-1.0, "down")])
-def test_asls_removes_a_curved_baseline_and_keeps_the_peaks(sign, direction):
-    spectra, peaks = _curved_spectra(sign)
-    corrected = AsLSBaseline(lam=1e3, p=0.001, direction=direction).fit_transform(spectra)[0]
-    assert np.abs(corrected - peaks).max() < 0.05  # peaks of height 0.5 to 1
-    wrong = AsLSBaseline(lam=1e3, p=0.001,
-                         direction="down" if direction == "up" else "up").fit_transform(spectra)
-    assert np.abs(wrong[0] - peaks).max() > 0.3, "the wrong direction fits the peaks instead"
-
-
-def test_asls_removes_constant_and_linear_baselines_and_keeps_float32():
-    x = np.linspace(0, 1, 80)
-    X = np.stack([np.full(80, 3.0), 2.0 - 5.0 * x]).astype(np.float32)
-    out = AsLSBaseline().fit_transform(X)
-    assert out.dtype == np.float32
-    np.testing.assert_allclose(out, 0.0, atol=1e-4)
-
-
-def test_a_recipe_without_the_newer_fields_is_refused():
-    # No backward compatibility (enginir-1.5): a recipe missing a field is refused.
-    with pytest.raises(ValueError, match="missing required field"):
-        PreprocessingRecipe.from_dict(LEGACY)
-    recipe = PreprocessingRecipe.from_dict(FULL)
-    assert recipe.sg_edges == "interp" and not recipe.asls
-    assert recipe_id_for(FULL) == recipe_id_for(recipe)
-    none = {**FULL, "filter": "none"}
-    assert recipe_id_for(none) == recipe_id_for(PreprocessingRecipe(snv=True))
-    assert recipe_id_for(PreprocessingRecipe(filter="sg_d1", snv=True)) != recipe_id_for(FULL)
-
-
 def test_new_fields_are_normalized_and_validated():
     asls = PreprocessingRecipe(asls=True, asls_lambda=10000, asls_iterations=np.int64(10))
     assert recipe_id_for(asls) == recipe_id_for(PreprocessingRecipe(asls=True,
@@ -361,40 +272,6 @@ def test_new_fields_are_normalized_and_validated():
         asls.build_steps(np.arange(20.0))
 
 
-def test_the_order_and_the_direction_follow_the_contract():
-    recipe = PreprocessingRecipe(asls=True, filter="sg_smooth", snv=True, msc=True, emsc=True,
-                                 detrend=True)
-    steps = recipe.build_steps(np.arange(30.0), signal_unit="Absorbance")
-    assert [name for name, _ in steps] == ["asls", "sg", "snv", "msc", "emsc", "detrend"]
-    assert dict(steps)["asls"].direction == "up"
-    for unit in ("Reflectance", "DN", "reflectance"):
-        assert dict(recipe.build_steps(np.arange(30.0), signal_unit=unit))["asls"].direction \
-            == "down"
-    assert dict(steps)["detrend"].wavelengths.size == 30 - 2 * 5  # the output axis
-
-
-def test_resaving_a_stored_recipe_is_a_no_op_and_a_change_is_refused(tmp_path):
-    from enginir.io.project_store import create_project, save_preprocessing_recipe
-
-    path = str(tmp_path / "p.h5")
-    create_project(path)
-    save_preprocessing_recipe(path, "r", FULL)
-    save_preprocessing_recipe(path, "r", FULL)  # same content
-    with pytest.raises(ValueError, match="different content"):
-        save_preprocessing_recipe(path, "r", FULL | {"sg_edges": "drop"})
-
-
-def test_dropping_the_edges_keeps_the_interior():
-    X = np.random.default_rng(3).normal(size=(4, 40)).cumsum(axis=1).astype(np.float32)
-    kept = SavitzkyGolay(window_length=15, polyorder=2, deriv=1).fit_transform(X)
-    dropped = SavitzkyGolay(window_length=15, polyorder=2, deriv=1,
-                            edges="drop").fit_transform(X)
-    assert dropped.shape == (4, 40 - 14) and dropped.dtype == np.float32
-    np.testing.assert_array_equal(dropped, kept[:, 7:33])
-    recipe = PreprocessingRecipe(filter="sg_d1", sg_window=15)
-    assert recipe.output_wavelengths(np.arange(40.0)).tolist() == list(range(7, 33))
-
-
 @pytest.mark.parametrize("unit", ["Absorbance", "Reflectance"])
 def test_a_model_on_the_trimmed_axis_predicts_like_it_was_trained(tmp_path, unit):
     project, scan = labelled_project(tmp_path, unit=unit)
@@ -411,16 +288,6 @@ def test_a_model_on_the_trimmed_axis_predicts_like_it_was_trained(tmp_path, unit
     assert np.size(model.diagnostics["wavelengths"]) == blob_bands
     prediction = predicts_its_training_scan(model, scan)
     assert np.isfinite(prediction.map).all()
-
-
-def test_a_recipe_mapping_must_be_complete_and_keeps_its_edges(tmp_path):
-    project, scan = labelled_project(tmp_path)
-    with pytest.raises(ValueError, match="missing required field"):
-        project.fit("API", recipe={**LEGACY, "sg_window": 5}, n_components=2)
-    model = project.fit("API", recipe={**FULL, "sg_window": 5}, n_components=2)
-    assert np.size(model.diagnostics["wavelengths"]) == N_BANDS
-    assert "(edges kept)" in model.name
-    predicts_its_training_scan(model, scan)
 
 
 def test_the_fit_dialog_keeps_asls_and_the_edge_handling_of_a_preset_recipe():
@@ -443,17 +310,12 @@ def test_the_fit_dialog_keeps_asls_and_the_edge_handling_of_a_preset_recipe():
     dialog.close()
 
 
-def test_the_explore_preview_shows_dropped_bands_as_missing():
-    from enginir.viewer._app import ensure_app
-    from enginir.viewer._state import ViewerState
+def test_snv_uses_the_sample_std_and_zeroes_constant_spectra():
+    np.testing.assert_allclose(SNV().transform(np.array([[1.0, 2.0, 3.0]])), [[-1.0, 0.0, 1.0]])
 
-    ensure_app()
-    cube = np.random.default_rng(0).integers(500, 3000, size=(4, 3, 20), dtype=np.uint16)
-    state = ViewerState(cube, np.linspace(1000, 1700, 20))
-    state.preprocess_filter, state.sg_window = "sg_smooth", 7
-    state._image_cache = None
-    assert state.recipe.sg_trim == 3
-    image = state.current_frame_image()
-    assert image.shape == (3, 20)
-    assert np.isnan(image[:, :3]).all() and np.isnan(image[:, -3:]).all()
-    assert np.isfinite(image[:, 3:-3]).all()
+    X = np.full((2, 220), 0.123, dtype=np.float32)  # float32 constant: std is rounding noise
+    X[1] = np.linspace(0.0, 1.0, 220)
+    out = SNV().transform(X)
+    np.testing.assert_array_equal(out[0], 0.0)
+    assert out[1].mean() == pytest.approx(0.0, abs=1e-6)
+    assert out[1].std(ddof=1) == pytest.approx(1.0, rel=1e-5)

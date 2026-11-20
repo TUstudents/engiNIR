@@ -350,9 +350,6 @@ class AddDataFileDialog(QDialog):
     def white_source(self) -> _ReferenceSource:
         return self._white
 
-    def set_shared(self, path: str) -> None:
-        self._shared.setCurrentIndex(self._shared.findData(path))
-
     def set_levels(self, black: float, white: float) -> None:
         """Set the detector levels used without references."""
         self._black.setValue(black)

@@ -2426,10 +2426,6 @@ class ModelingView(QWidget):
         logger.error("{}: {}", title, message)
         QMessageBox.warning(self, title, message)
 
-    def service_status_snapshot(self) -> tuple[str, bool]:
-        """Return the current service label text and busy/progress visibility."""
-        return self._service_status.label.text(), self._service_status.progress.isVisible()
-
     def _set_busy(self, busy: bool, text: str | None = None) -> None:
         self._btn_target.setEnabled(not busy)
         self._btn_assign_target.setEnabled(not busy)

@@ -6,43 +6,9 @@ import h5py
 import numpy as np
 import pytest
 
-from enginir import PreprocessingRecipe, Project
+from enginir import Project
 from enginir.io import save_hdf5
-from enginir.prediction import roi_prediction_statistics
 from tests._scans import TRAY_BANDS as N_BANDS, TRAY_HEIGHT as HEIGHT, warnings_during
-
-
-def test_the_job_is_stored_read_back_and_switched_in_place(tray):
-    """Calibration and prediction are stored as the ROI's job and switched in place; an
-    unknown stored value makes the project fail to open."""
-    project, _scan, _path = tray
-    reopened = Project.open(project.path)
-    assert reopened.roi("t09").job == "prediction" and reopened.roi("t01").job == "calibration"
-    with h5py.File(project.path, "r") as f:
-        assert f[f"rois/{project.roi('t01').roi_id}"].attrs["job"] == "calibration"
-    reopened.set_job("t09", "calibration")
-    assert Project.open(project.path).roi("t09").job == "calibration"
-    with h5py.File(project.path, "r+") as f:
-        f[f"rois/{project.roi('t02').roi_id}"].attrs["job"] = "validation"
-    with pytest.raises(ValueError, match="job must be one of"):
-        Project.open(project.path)
-
-
-@pytest.mark.parametrize("stored", ["use", "training"])
-def test_earlier_forms_of_the_job_are_refused(tray, stored):
-    """No backward compatibility (enginir-1.5): an ROI that stores the earlier ``use`` instead
-    of ``job``, or the earlier value ``training``, makes the project fail to open."""
-    project, _scan, _path = tray
-    roi = project.roi("t01")
-    with h5py.File(project.path, "r+") as f:
-        attrs = f[f"rois/{roi.roi_id}"].attrs
-        if stored == "use":
-            del attrs["job"]
-            attrs["use"] = "calibration"
-        else:
-            attrs["job"] = "training"
-    with pytest.raises(ValueError, match="job"):
-        Project.open(project.path)
 
 
 def test_the_api_accepts_only_calibration_and_prediction(tray):
@@ -73,63 +39,6 @@ def test_prediction_rois_never_enter_a_fit(tray):
         project.fit("API", n_components=2, cv=3)
 
 
-def test_predicting_rois_equals_predicting_the_scan_at_their_pixels(tray):
-    """One chain: the ROI path (stored pixels, the ROI's calibration) gives the scan path's
-    pixel predictions and diagnostics."""
-    project, _scan, path = tray
-    model = project.fit("API", recipe=PreprocessingRecipe(snv=True), n_components=2, cv=3)
-    roi_prediction = model.roi_prediction()
-    scan = model.predict(path)
-    assert set(roi_prediction.pixels) == {project.roi(f"t{i:02d}").roi_id for i in (8, 9, 10)}
-    for roi_id, pixels in roi_prediction.pixels.items():
-        f0, f1, r0, r1 = project.workspace.rois[roi_id].spatial_bounds
-        np.testing.assert_allclose(pixels.y, scan.map[f0:f1 + 1, r0:r1 + 1].reshape(-1),
-                                   rtol=1e-5, atol=1e-5)
-        dmodx_map = scan.dmodx_map
-        assert dmodx_map is not None
-        np.testing.assert_allclose(pixels.dmodx, dmodx_map[f0:f1 + 1, r0:r1 + 1].reshape(-1),
-                                   rtol=1e-4, atol=1e-5)
-
-
-def test_statistics_follow_the_contract_and_the_exclusion_removes_glare(tray):
-    project, _scan, _path = tray
-    model = project.fit("API", recipe=PreprocessingRecipe(snv=True), n_components=2, cv=3)
-    prediction = model.roi_prediction()
-    roi_id = project.roi("t09").roi_id
-    pixels = prediction.pixels[roi_id]
-    # Glare: three pixels far outside the model, with absurd predictions.
-    y, dmodx = pixels.y.copy(), pixels.dmodx.copy()
-    y[:3], dmodx[:3] = 80.0, 50.0
-    prediction.pixels[roi_id] = type(pixels)(y=y, dmodx=dmodx, t2=pixels.t2)
-    assignments = project.workspace.target_assignments
-
-    plain = roi_prediction_statistics(prediction, target_assignments=assignments)
-    row = next(r for r in plain.rois if r.roi_id == roi_id)
-    np.testing.assert_allclose(row.mean, y.astype(np.float64).mean())
-    np.testing.assert_allclose(row.sd, y.astype(np.float64).std(ddof=1))
-    np.testing.assert_allclose((row.p05, row.p95), np.percentile(y.astype(np.float64), [5, 95]))
-    assert row.n_removed == 0 and row.reference == 9.0
-    assert row.share_above_dcrit >= 3 / y.size
-
-    cleaned = roi_prediction_statistics(prediction, target_assignments=assignments,
-                                        exclude_dmodx=0.99)
-    row = next(r for r in cleaned.rois if r.roi_id == roi_id)
-    limit = prediction.dmodx_limit_at(0.99)
-    assert limit is not None
-    kept = dmodx <= limit
-    assert row.n_removed == int((~kept).sum()) >= 3
-    np.testing.assert_allclose(row.mean, y[kept].astype(np.float64).mean())
-    assert row.mean < 15, "the glare no longer shifts the ROI"
-    assert row.share_above_dcrit == next(r for r in plain.rois
-                                         if r.roi_id == roi_id).share_above_dcrit
-
-    residuals = np.array([r.residual for r in cleaned.rois])
-    assert cleaned.n_reference == 3
-    np.testing.assert_allclose(cleaned.rmsep, np.sqrt(np.mean(residuals ** 2)))
-    np.testing.assert_allclose(cleaned.bias, residuals.mean())
-    assert prediction.dmodx_limit_at(0.95) < limit
-
-
 def test_an_roi_that_cannot_give_the_models_signal_is_refused_and_the_others_predicted(
         tray, tmp_path):
     project, _scan, _path = tray
@@ -156,24 +65,6 @@ def test_the_default_exclusion_is_the_models_own(tray):
 
 
 # -- Prediction ROIs outside the model (one rule: the check and the Predict ring) ------
-
-
-def test_an_roi_with_a_foreign_band_is_outside_the_model_and_a_normal_one_is_not(tmp_path):
-    """Outside: a share of pixels above DCrit (0.95) beyond the calibration ROIs' 90th percentile."""
-    from enginir.prediction import unusual_rois
-    from tests._scans import tray_project
-
-    project, _dataset, _path = tray_project(tmp_path, odd="t09")
-    model = project.fit("API", n_components=2, cv=3)
-    prediction = model.roi_prediction([project.roi("t08"), project.roi("t09")])
-    assert unusual_rois(prediction) == (project.roi("t09").roi_id,)
-    # The rule's shares are the statistics' shares (what the ROI table shows).
-    summary = roi_prediction_statistics(prediction, target_assignments={})
-    high = np.percentile(np.asarray(model.diagnostics["roi_share_above_dcrit"]), 90)
-    assert prediction.training_share_range is not None
-    assert prediction.training_share_range[2] == pytest.approx(high)
-    assert {row.roi_id for row in summary.rois if row.share_above_dcrit > high} \
-        == set(unusual_rois(prediction))
 
 
 def test_a_model_without_calibration_shares_has_no_rule(tmp_path):

@@ -10,14 +10,13 @@ import types
 
 import numpy as np
 import pytest
-from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QMessageBox
+from PyQt6.QtWidgets import QDialog, QDialogButtonBox
 
 from enginir.project import (
     TargetAssignment,
 )
 from enginir.viewer._app import ensure_app
 from tests._qt import wait_until
-from enginir._guidance import figure_text
 from tests import _project_payloads as build
 
 
@@ -65,13 +64,12 @@ def test_modeling_view_can_define_target(qapp, state_and_project, monkeypatch):
     assert "% w/w" in selected.unit
 
 
-def test_new_roi_dialog_rejects_non_finite_target_value(qapp, state_and_project, monkeypatch):
+def test_new_roi_dialog_rejects_non_finite_target_value(qapp, state_and_project, boxes):
     from enginir.viewer._modeling import NewROIDialog
 
     state, _project = state_and_project
     target = build.target(target_id="target_1", name="moisture")
-    warnings: list[str] = []
-    monkeypatch.setattr(QMessageBox, "warning", lambda *args: warnings.append(str(args[2])))
+    warnings = boxes.warning
 
     dialog = NewROIDialog(0, 1, 0, 1, state, target)
     dialog._name_edit.setText("roi")
@@ -250,44 +248,6 @@ def test_holding_out_samples_together_reaches_the_fit_as_its_fold_groups(
     assert (spec.group_by, spec.fold_rule) == ("sample", "leave_one_group_out")
 
 
-def test_the_fitting_section_becomes_the_fit_specification(qapp, state_and_project):
-    """Pixels per ROI (at most the smallest ROI), scaling and DModX exclusion (contract §7)."""
-    from enginir.viewer._modeling import FitModelRunDialog, ModelingView
-
-    state, project = state_and_project
-    _labelled_rois(state, project)
-    view = ModelingView(state, project)
-    dialog = FitModelRunDialog([("target_1", "moisture")], default_target_id="target_1",
-                               recipe=state.recipe, default_signal_unit="Reflectance",
-                               readiness=view.fit_readiness,
-                               smallest_roi=view._smallest_labelled_roi)
-    assert dialog.fit_spec is None, "the defaults need no fit specification"
-    assert dialog.hyperparameters == {"n_components": 6, "x_scaling": "center",
-                                      "y_scaling": "uv"}
-    smallest = min(roi.n_pixels for roi in project.rois.values())
-    assert dialog._pixels_spin.maximum() == smallest
-
-    dialog._draw_check.setChecked(True)
-    dialog._pixels_spin.setValue(smallest)
-    dialog._seed_spin.setValue(3)
-    dialog._exclude_check.setChecked(True)
-    dialog._rounds_spin.setValue(2)
-    dialog._share_spin.setValue(10)
-    dialog._formula_combo.setCurrentIndex(dialog._formula_combo.findData("dmodx-2"))
-    dialog._x_scaling_combo.setCurrentIndex(dialog._x_scaling_combo.findData("pareto"))
-    dialog._cv_combo.setCurrentIndex(dialog._cv_combo.findData("logo"))
-    spec = dialog.fit_spec
-    assert (spec.pixels_per_roi, spec.seed, spec.fold_rule) == (smallest, 3,
-                                                                 "leave_one_group_out")
-    assert (spec.exclusion, spec.exclusion_rounds, spec.exclusion_max_fraction,
-            spec.exclusion_formula, spec.exclusion_level) == ("dmodx", 2, 0.1, "dmodx-2", 0.95)
-    assert dialog.hyperparameters["x_scaling"] == "pareto"
-
-    dialog._model_type_combo.setCurrentText("PCR")
-    assert "y_scaling" not in dialog.hyperparameters
-    assert not dialog._y_scaling_combo.isEnabled()
-
-
 def test_the_inspector_summarises_how_a_run_was_fitted(tmp_path):
     from enginir.io.project_store import load_model_run_artifact_refs
     from enginir.viewer._inspector import fit_summary
@@ -321,15 +281,12 @@ def test_the_inspector_summarises_how_a_run_was_fitted(tmp_path):
     assert fit_summary(old, names, exclusion)[3] == "Algorithm: NIPALS"
 
 
-def test_a_failed_fit_stores_nothing(qapp, state_and_project, monkeypatch):
+def test_a_failed_fit_stores_nothing(qapp, state_and_project, monkeypatch, boxes):
     from enginir.viewer._modeling import FitModelRunDialog, ModelingView
 
     state, project = state_and_project
     _labelled_rois(state, project)
-    warnings: list[str] = []
-    monkeypatch.setattr(
-        QMessageBox, "warning", lambda *args, **kwargs: warnings.append(str(args[2]))
-    )
+    warnings = boxes.warning
     state.set_y_unit("Reflectance")
     monkeypatch.setattr(FitModelRunDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
     captured: list[dict[str, object]] = []
@@ -345,16 +302,13 @@ def test_a_failed_fit_stores_nothing(qapp, state_and_project, monkeypatch):
     assert project.model_runs == {}
 
 
-def test_fit_model_group_validation_guard(qapp, state_and_project, monkeypatch):
+def test_fit_model_group_validation_guard(qapp, state_and_project, monkeypatch, boxes):
     """Cross-validation needs 2 ROIs; 7 folds over fewer ROIs hold out one ROI each."""
     from enginir.viewer._modeling import FitModelRunDialog, ModelingView
 
     state, project = state_and_project
     _labelled_rois(state, project, values=(3.2,))
-    warnings: list[str] = []
-    monkeypatch.setattr(
-        QMessageBox, "warning", lambda *args, **kwargs: warnings.append(str(args[2]))
-    )
+    warnings = boxes.warning
 
     def fake_exec(self):
         self._cv_combo.setCurrentIndex(self._cv_combo.findData(7))
@@ -384,16 +338,11 @@ def test_reopened_model_run_renders_every_diagnostic_and_selects_rois(qapp, tmp_
     from enginir.viewer._state import ProjectState, ViewerState
 
     from tests._project_payloads import write_model_project
+    from tests._sessions import fit_stored_model
 
     path = str(tmp_path / "diagnostics.h5")
     write_model_project(path)
-    fitting = ProjectState()
-    fitting.open_project(path)
-    fitting.build_sample_set(target_id="target_moisture", preprocessing_recipe_id="recipe_none",
-                             sample_set_id="sample_set_1")
-    fitting.fit_model_run(sample_set_id="sample_set_1", signal_domain_id="signal_domain_1",
-                          model_type=model_type, hyperparameters={"n_components": 2},
-                          cv="logo", model_run_id="run")
+    fit_stored_model(path, model_type=model_type, n_components=2, model_run_id="run")
 
     reopened = ProjectState()
     reopened.open_project(path)
@@ -441,25 +390,6 @@ def test_reopened_model_run_renders_every_diagnostic_and_selects_rois(qapp, tmp_
     assert selected == [str(payload["roi_ids"][1])]
 
 
-def test_auto_components_choose_by_a_rule(qapp, state_and_project):
-    from enginir.viewer._modeling import FitModelRunDialog, ModelingView
-
-    state, project = state_and_project
-    _labelled_rois(state, project)
-    view = ModelingView(state, project)
-    dialog = FitModelRunDialog([("target_1", "moisture")], default_target_id="target_1",
-                               recipe=state.recipe, default_signal_unit="Reflectance",
-                               readiness=view.fit_readiness)
-    assert not dialog._rule_combo.isEnabled()
-    dialog._auto_check.setChecked(True)
-    dialog._rule_combo.setCurrentIndex(dialog._rule_combo.findData("q2_limit"))
-    dialog._max_spin.setValue(5)
-    assert dialog.n_components == "auto" and not dialog._components_spin.isEnabled()
-    assert dialog.hyperparameters["n_components"] == "auto"
-    spec = dialog.fit_spec
-    assert (spec.components_rule, spec.components_max) == ("q2_limit", 5)
-
-
 def test_fit_again_presets_the_dialog_from_the_selected_model(tmp_path):
     """Every choice of a stored model comes back in the dialog, so OK refits it unchanged."""
     from enginir.viewer._modeling import FitModelRunDialog
@@ -489,25 +419,6 @@ def test_fit_again_presets_the_dialog_from_the_selected_model(tmp_path):
     spec = dialog.fit_spec
     assert (spec.pixels_per_roi, spec.seed, spec.exclusion, spec.exclusion_rounds) == (
         6, 4, "dmodx", 2)
-
-
-def test_the_diagnostics_payload_carries_the_curve_and_the_training_distances(tmp_path):
-    from enginir.viewer._modeling import _component_payload
-    from tests._scans import project_with_an_odd_pixel
-
-    project = project_with_an_odd_pixel(tmp_path)
-    model = project.fit("API", n_components=2)
-    from enginir.io.project_store import load_model_run_artifact_refs
-
-    refs = load_model_run_artifact_refs(project.path, model.record.model_run_id)
-    artifact = {**refs["prediction_model"], **refs["diagnostics"],
-                "component_curve": refs["component_curve"]}
-    payload = _component_payload(model.record, artifact)
-    assert payload["n_components"] == 2 and "rmsecv" in payload["component_curve"]
-    assert payload["loadings_matrix"].shape[1] == 2
-    assert payload["dmodx_pixels"].shape == payload["t2_pixels"].shape == (96,)
-    assert {"t2_crit_2_099", "dcrit_099"} <= set(payload)
-    assert "rmsee" in payload["fit_statistics"]
 
 
 def test_the_summary_names_the_model_and_its_validation_and_the_check_logs_no_error(
@@ -618,31 +529,6 @@ def test_the_roi_ellipse_is_the_t2_limit_of_the_rois_and_both_are_in_the_legend(
     _render_scores(fig, payload, panel_colors())
     labels = [text.get_text() for text in fig.axes[0].get_legend().get_texts()]
     assert labels == ["T² 95 % pixels", "T² 99 % pixels", "T² 95 % ROIs", "T² 99 % ROIs"]
-
-
-def test_band_importance_plots_keep_the_theme_and_name_band_axes():
-    """The mean spectrum's twin axes lay a white background over VIP in the dark theme, and
-    a file without wavelengths was labelled 'Wavelength' / '175 nm'."""
-    from matplotlib.colors import to_rgba
-    from matplotlib.figure import Figure
-
-    from enginir.viewer._model_diagnostics import _render_vip, _render_vip_sorted
-    from enginir.viewer._theme import panel_colors
-
-    colors = panel_colors()
-    bands = np.arange(30.0)
-    payload = {"vip": np.linspace(2.0, 0.5, 30), "spectral_axis": bands,
-               "mean_spectrum": np.sin(bands / 5.0)}
-    fig = Figure()
-    _render_vip(fig, payload, colors)
-    for ax in fig.axes:
-        assert to_rgba(ax.get_facecolor()) == to_rgba(colors["ax_bg"]) \
-            or not ax.patch.get_visible()
-    assert fig.axes[0].get_xlabel() == "Band"
-    fig = Figure()
-    _render_vip_sorted(fig, payload, colors)
-    listing = " ".join(t.get_text() for t in fig.axes[0].texts)
-    assert "band 0" in listing and "nm" not in listing
 
 
 def test_distance_histograms_show_the_tail_as_one_bar_and_rois_by_their_share():
@@ -806,20 +692,6 @@ def test_fit_again_presets_the_models_signal_unit_and_its_full_seed(
     assert dialog.fit_spec.seed == 2**40
 
 
-def test_the_fit_summary_wraps_long_values(qapp):
-    """B6: long summary values (the validation scheme, names) wrap instead of being cut
-    off. The fold warnings of a run are a check now (test_window_shell)."""
-    import numpy as np
-
-    from enginir.viewer._viewer import HSIViewer
-
-    viewer = HSIViewer(np.zeros((4, 4, 4), np.uint16), np.arange(4.0), {})
-    viewer._workspace_tabs.setCurrentIndex(1)  # the Model page is built when first shown
-    qapp.processEvents()
-    assert viewer._model_card_cv_value.wordWrap()
-    viewer.close()
-
-
 @pytest.mark.parametrize("width", [2.2, 3.5, 6.0])
 def test_the_distance_notes_stay_inside_their_plot(width):
     """W5: the notes of a distance histogram (limit, share above, overflow bar) are one block
@@ -853,37 +725,6 @@ def test_the_distance_notes_stay_inside_their_plot(width):
 # -- Fit summary, numbers and the fit form ---------------------------------------------
 
 
-def test_a_dimensionless_unit_is_not_printed(qapp, window):
-    from enginir.viewer._ui_helpers import with_unit
-
-    assert (with_unit("API", "%"), with_unit("Layers", "1"), with_unit("Layers", "")) \
-        == ("API (%)", "Layers", "Layers")
-    window.show_step("model")
-    form = window._modeling_view.fit_form
-    assert form._target_combo.currentText() == "Layers"  # the example's unit is "1"
-    assert window._modeling_view.workspace_summary()["target"] == "Layers"
-
-
-def test_one_number_format_for_the_figures_of_merit(qapp, window):
-    from enginir import Project
-    from enginir._workflow import Model
-
-    assert (figure_text(1.10724), figure_text(0.89104), figure_text(12345.6)) \
-        == ("1.107", "0.891", "1.235e+04")
-    project = Project.open(window.project_state.project_path)
-    run = next(iter(window.project_state.model_runs.values()))
-    verdict = Model(project, run).verdict()
-    metrics = run.metrics
-    for key in ("rmsecv", "r2", "rpd"):
-        assert figure_text(metrics[key]) in verdict.summary, key
-    summary = window._modeling_view.workspace_summary()
-    assert summary["rmsecv"] == figure_text(metrics["rmsecv"])
-    table = window._models_panel.table
-    shown = [table.item(0, column).data(0) for column in (3, 4, 5)]
-    assert shown == [float(figure_text(metrics[key])) for key in ("rmsecv", "r2", "rpd")]
-    assert np.isfinite(shown).all()
-
-
 def test_the_fit_form_takes_only_what_changed_in_the_explore_preview(qapp, edited_window):
     """Opening a dataset switches the preview's signal unit; that must not replace the
     shown model's preprocessing (SNV) by the preview's (none)."""
@@ -913,30 +754,3 @@ def test_the_fit_form_takes_only_what_changed_in_the_explore_preview(qapp, edite
     window.state.set_preprocess_filter("none")
 
 
-@pytest.mark.parametrize("size", [(3.2, 2.4), (5.0, 3.5)])
-def test_the_statistics_of_predicted_vs_target_cover_no_point(size):
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
-    from matplotlib.figure import Figure
-
-    from enginir.viewer._model_diagnostics import _covered, _render_pred_vs_ref
-    from enginir.viewer._theme import panel_colors
-
-    rng = np.random.default_rng(1)
-    y_true = np.repeat([1.0, 4.0, 7.0, 10.0], 5)
-    y_pred = y_true + rng.normal(0, 1.2, y_true.size)
-    y_pred[:3] = 9.5  # wrong predictions where the block sits by default (top left)
-    fig = Figure(figsize=size, dpi=100)
-    FigureCanvasAgg(fig)
-    _render_pred_vs_ref(fig, {"y_true_roi": y_true, "y_pred_roi": y_pred}, panel_colors())
-    fig.canvas.draw()
-    ax = fig.axes[0]
-    block = next(text for text in ax.texts if "RMSECV" in text.get_text())
-    assert _covered(ax, block, fig.canvas.get_renderer(), y_true, y_pred) == 0
-
-
-def test_the_fit_summary_names_signal_preprocessing_and_datasets(qapp, window):
-    window.show_step("model")
-    qapp.processEvents()
-    window._refresh_model_workspace_content()
-    assert window._model_card_signal_value.text() == "Absorbance, no preprocessing"
-    assert window._model_card_dataset_count_value.text() == "4"

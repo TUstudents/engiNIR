@@ -60,10 +60,6 @@ class IntervalInputs:
             return None
         return float(t.ppf(1.0 - (1.0 - level) / 2.0, dof))
 
-    @property
-    def has_pixel_interval(self) -> bool:
-        return self.pixel_rmsee is not None and self.n_rois - self.n_components - 1 >= 1
-
 
 def check_level(level: float) -> None:
     if not 0.0 < float(level) < 1.0:

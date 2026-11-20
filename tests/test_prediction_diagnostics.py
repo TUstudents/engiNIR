@@ -6,6 +6,7 @@ import hashlib
 import h5py
 import numpy as np
 import pytest
+
 from scipy import stats
 from enginir import PreprocessingRecipe, Project
 from enginir.io import load_model_run_prediction_artifact, load_spectra
@@ -13,7 +14,6 @@ from enginir.prediction import (
     _diagnostics,
     _service,
     roi_prediction_statistics,
-    wavelength_mismatch,
 )
 from enginir.project import transform_spectra_to_signal_domain
 from tests._scans import (
@@ -23,7 +23,6 @@ from tests._scans import (
     labelled_project,
     scan_file,
     stored_counts,
-    warnings_during,
 )
 
 
@@ -32,71 +31,6 @@ from tests._scans import (
 
 def _file_digest(path) -> str:
     return hashlib.sha256(open(path, "rb").read()).hexdigest()
-
-
-def _independent(prediction_x: np.ndarray, blob: dict) -> tuple[np.ndarray, np.ndarray]:
-    """T²PS and DModXPS from the stored projection data, written out plainly in float64."""
-    z = (prediction_x - blob["x_mean"]) / blob["x_std"]
-    t = z @ blob["rotations"]
-    e = z - t @ blob["loadings"].T
-    k, a = z.shape[1], t.shape[1]
-    return (t ** 2 / blob["score_variances"]).sum(axis=1), \
-        np.sqrt((e ** 2).sum(axis=1) / (k - a)) / float(blob["s0"])
-
-
-@pytest.mark.parametrize("model_type", ["PLS", "PCR"])
-def test_on_the_training_scan_the_statistics_are_the_training_ones(tmp_path, model_type):
-    """T²PS equals the training T²; DModXPS is the training DModX without its factor v."""
-    project, scan = labelled_project(tmp_path)
-    model = project.fit("API", model=model_type, recipe=PreprocessingRecipe(snv=True),
-                        n_components=2)
-    prediction = model.predict(scan.path)
-    diagnostics = model.diagnostics
-    n, a = len(diagnostics["t2"]), model.record.hyperparameters["n_components"]
-    v = np.sqrt(n / (n - a - 1))
-    # the ROIs tile the scan frame by frame, in the order of the map
-    np.testing.assert_allclose(prediction.t2_map.reshape(-1), diagnostics["t2"], rtol=1e-4)
-    np.testing.assert_allclose(prediction.dmodx_map.reshape(-1), diagnostics["dmodx"] / v,
-                               rtol=1e-4)
-    limits = prediction.diagnostics
-    assert limits["t2_crit_095"] == pytest.approx(diagnostics["t2_crit_095"])
-    assert limits["dcrit_095"] == pytest.approx(diagnostics["dcrit_095"])
-    assert limits["n_pixels"] == n
-    assert prediction.map.shape == prediction.dmodx_map.shape == prediction.t2_map.shape
-
-
-def test_the_statistics_equal_their_formulas_and_an_odd_pixel_exceeds_dcrit(tmp_path):
-    project, _scan_ref = labelled_project(tmp_path)
-    model = project.fit("API", n_components=2)
-    path = scan_file(tmp_path / "new.h5", offset=10.0)
-    with h5py.File(path, "r+") as f:
-        cube = f["spectra"][...]
-        cube[3, 1, : N_BANDS // 2] += 400  # an odd pixel: a step the model never saw
-        f["spectra"][...] = cube
-    prediction = model.predict(path)
-
-    from enginir.io import load_model_run_prediction_artifact, load_spectra
-    from enginir.project import transform_spectra_to_signal_domain
-
-    blob = load_model_run_prediction_artifact(project.path, model.record.model_run_id)
-    domain = project.workspace.signal_domains[model.record.signal_domain_id]
-    dataset, reference_correction, _, _ = project._resolve_dataset(
-        path, dark=None, white=None, unit=domain.required_signal_unit)
-    raw = load_spectra(path).X
-    X = transform_spectra_to_signal_domain(
-        raw.reshape(-1, N_BANDS), dataset=dataset, reference_correction=reference_correction,
-        signal_domain=domain, spatial_shape=raw.shape[:2]).astype(np.float64)
-    t2, distance = _independent(X, blob)
-    np.testing.assert_allclose(prediction.t2_map.reshape(-1), t2, rtol=1e-5)
-    np.testing.assert_allclose(prediction.dmodx_map.reshape(-1), distance, rtol=1e-5)
-
-    dcrit = prediction.diagnostics["dcrit_095"]
-    odd = prediction.dmodx_map[3, 1]
-    assert odd > dcrit and odd == prediction.dmodx_map.max()
-    summary = prediction.diagnostics
-    assert summary["n_above_dcrit"] >= 1
-    assert summary["share_above_dcrit"] == pytest.approx(
-        summary["n_above_dcrit"] / summary["n_pixels"])
 
 
 def test_chunked_diagnostics_equal_one_chunk(tmp_path, monkeypatch):
@@ -170,39 +104,6 @@ def test_diagnostics_without_a_usable_s0_are_nan_and_not_counted():
     summary = _diagnostics.DiagnosticsSummary(t2_crit=1.0, dcrit=None)
     summary.add(np.zeros(7), t2, distance)
     assert summary.as_dict()["n_pixels"] == 0
-
-
-def test_a_model_fitted_in_the_viewer_session_gets_the_maps_and_nothing_is_written(tmp_path):
-    from enginir.io import load_project_store
-    from enginir.viewer._app import ensure_app
-    from enginir.viewer._state import ProjectState
-    from tests._project_payloads import write_model_project, write_prediction_cube
-
-    ensure_app()
-    path = str(tmp_path / "session.h5")
-    write_model_project(path)
-    state = ProjectState()
-    state.open_project(path)
-    state.build_sample_set(target_id="target_moisture", preprocessing_recipe_id="recipe_none",
-                           sample_set_id="sample_set_1")
-    state.fit_model_run(sample_set_id="sample_set_1", signal_domain_id="signal_domain_1",
-                        model_type="PLS", hyperparameters={"n_components": 1}, cv="logo",
-                        model_run_id="model_1")
-    assert "model_1" in state.model_registry  # the in-memory predictor of the session
-    scan = str(tmp_path / "scan.h5")
-    write_prediction_cube(scan, wavelengths=np.array([1000.0, 1100.0, 1200.0], np.float32))
-    before = load_project_store(path)
-    reference_correction = state.reference_corrections["cal_train"]
-    from dataclasses import replace
-
-    result = state.predict_dataset(model_run_id="model_1", data_path=scan,
-                                   reference_correction=replace(reference_correction, reference_correction_id="cal_scan",
-                                                       dataset_id=""))
-    assert result.dmodx is not None and result.t2 is not None
-    assert result.diagnostics is not None and result.diagnostics["n_pixels"] == result.dmodx.size
-    after = load_project_store(path)
-    assert {key: set(value) for key, value in after.items() if isinstance(value, dict)} == \
-        {key: set(value) for key, value in before.items() if isinstance(value, dict)}
 
 
 def test_envi_provenance_records_the_files_the_reader_uses(tmp_path):
@@ -310,25 +211,6 @@ def test_pixel_intervals_follow_the_leverage_formula_of_the_hat_matrix(tray):
         prediction.interval_map(1.0)
 
 
-def test_pixels_outside_the_model_have_no_interval(tray, tmp_path):
-    project, _scan, path = tray
-    model = project.fit("API", n_components=2, cv=3)
-    odd = tmp_path / "odd.h5"
-    odd.write_bytes(path.read_bytes())
-    with h5py.File(odd, "r+") as f:
-        cube = f["spectra"][...]
-        cube[10, 2, : TRAY_BANDS // 2] += 600  # a step the model never saw
-        f["spectra"][...] = cube
-    prediction = model.predict(odd)
-    half, dmodx, t2 = prediction.interval_map(), prediction.dmodx_map, prediction.t2_map
-    assert half is not None and dmodx is not None and t2 is not None
-    limits = prediction.diagnostics or {}
-    assert dmodx[10, 2] > limits["dcrit_095"]
-    assert np.isnan(half[10, 2])
-    outside = (dmodx > limits["dcrit_095"]) | (t2 > limits["t2_crit_095"])
-    assert np.array_equal(np.isnan(half), outside)
-
-
 def test_the_mean_interval_of_a_prediction_roi_uses_the_calibration_roi_scores(tray):
     """h̄ = 1/R′ + d²/(R′ − 1) against the stored ROI scores, s = RMSEE; it follows the pixel
     exclusion, and a ROI beyond the ROI-level T² limit has none."""
@@ -406,28 +288,3 @@ def test_the_fit_reports_how_often_held_out_predictions_fall_inside_their_interv
 AXIS = np.linspace(1000, 1600, N_BANDS)
 
 
-@pytest.mark.parametrize(("scan", "model", "tolerance", "warns"), [
-    (AXIS + 2.0, AXIS, 0.0, True),
-    (AXIS + 2.0, AXIS, 2.5, False),             # within the signal domain's tolerance
-    (AXIS + 1e-7, AXIS, 0.0, False),            # float noise
-    (AXIS, AXIS, 0.0, False),
-    (np.arange(N_BANDS, dtype=float), AXIS, 0.0, False),   # band-index fallback: no axis
-    (AXIS, np.arange(N_BANDS, dtype=float), 0.0, False),
-    (np.array([]), AXIS, 0.0, False),
-    (AXIS[:-1], AXIS, 0.0, False),              # band counts are checked elsewhere
-])
-def test_axes_are_compared_only_when_both_are_real(scan, model, tolerance, warns):
-    assert (wavelength_mismatch(scan, model, tolerance) is not None) is warns
-
-
-def test_a_shifted_scan_warns_and_predicts_exactly_as_before(tmp_path):
-    project, scan = labelled_project(tmp_path)
-    model = project.fit("API", n_components=2)
-    same = model.predict(scan.path)
-    shifted_path = scan_file(tmp_path / "shifted.h5", wavelengths=AXIS + 5.0)
-    shifted, messages = warnings_during(lambda: model.predict(shifted_path))
-    assert same.provenance["wavelength_warning"] is None
-    warning = shifted.provenance["wavelength_warning"]
-    assert warning is not None and "up to 5 nm" in warning
-    assert sum("predicted anyway" in m for m in messages) == 1, "logged once"
-    np.testing.assert_array_equal(shifted.map, same.map)

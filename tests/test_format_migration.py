@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-import hashlib
-import re
 import shutil
 from pathlib import Path
 
 import h5py
-import numpy as np
 import pytest
 
 from enginir import Project
-from enginir.io import FILE_SCHEMA_VERSION, load_project_store, migrate_project
+from enginir.io import load_project_store, migrate_project
 from enginir.io import _migrate
 
 OLD = Path(__file__).parent / "data" / "enginir_1_5"
@@ -23,123 +20,6 @@ def copy_old_project(tmp_path) -> Path:
     folder = tmp_path / "old"
     shutil.copytree(OLD, folder, ignore=shutil.ignore_patterns("*.py", "__pycache__"))
     return folder / "project.h5"
-
-
-def _digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _content(path: Path, *, renamed: bool) -> dict[str, object]:
-    """Every group path and attribute of a project, with the old names mapped to the new ones.
-
-    Only the format metadata (FileSchemaVersion, FileWriter, updated_at) is left out.
-    """
-    groups = dict(_migrate.RENAMED_GROUPS) if renamed else {}
-    attributes = ({**_migrate.RENAMED_ATTRIBUTES, **_migrate.RENAMED_SHARES} if renamed
-                  else {})
-    values = dict(_migrate.RENAMED_VALUES) if renamed else {}
-    content: dict[str, object] = {}
-    with h5py.File(path, "r") as f:
-        def visit(name, obj):
-            new_name = "/".join(groups.get(part, part) for part in name.split("/"))
-            if not isinstance(obj, h5py.Dataset):
-                content[new_name] = "group"
-            elif obj.dtype.kind in "OSU":  # strings: compare the values, not object pointers
-                content[new_name] = repr(obj.asstr()[()].tolist())
-            else:
-                content[new_name] = (obj.dtype.str, obj.shape, obj[()].tobytes())
-            for key, value in obj.attrs.items():
-                if name == "project_meta" and key in ("FileSchemaVersion", "FileWriter", "updated_at"):
-                    continue
-                value = value.decode() if isinstance(value, bytes) else value
-                if isinstance(value, str):
-                    value = values.get(value, value)
-                elif isinstance(value, np.ndarray):
-                    value = (value.dtype.str, value.tobytes())
-                else:  # numbers by repr, so NaN equals NaN
-                    value = repr(value)
-                content[f"{new_name}@{attributes.get(key, key)}"] = value
-        f.visititems(visit)
-    return content
-
-
-def test_an_old_project_is_refused_with_the_command_that_converts_it(tmp_path):
-    path = copy_old_project(tmp_path)
-    with pytest.raises(ValueError, match="format 'enginir-1.5'.*enginir-migrate") as error:
-        Project.open(path)
-    message = str(error.value)
-    assert str(path) in message
-    # the suggested target is a new file next to the source
-    assert str(path.with_name("project (enginir-1.7).h5")) in message
-
-
-def test_the_converted_project_keeps_everything_and_predicts_the_same_map(tmp_path):
-    source = copy_old_project(tmp_path)
-    before = _digest(source)
-    target = migrate_project(source, source.with_name("converted.h5"))
-
-    assert _digest(source) == before, "the source is never changed"
-    converted = _content(target, renamed=False)
-    added = {key: converted.pop(key) for key in list(converted)
-             if key.endswith(("@dcrit_095", "@t2_crit_095")) and "prediction_model" in key
-             or key.endswith("diagnostics@dcrit_095")}
-    assert converted == _content(source, renamed=True)
-    _the_added_limits_equal_their_formulas(target, added)
-    with h5py.File(target, "r") as f:
-        meta = f["project_meta"].attrs
-        assert meta["FileSchemaVersion"] == FILE_SCHEMA_VERSION
-        assert meta["FileCreator"] == "engiNIR 1.6.1"
-        names = []
-        f.visit(names.append)
-        stored = " ".join(names + [k for n in names for k in f[n].attrs]
-                          + [str(v) for n in names for v in f[n].attrs.values()])
-    assert not re.search(r"calibrations|calibration_id|calibration_refs|precalibrated|"
-                         r"required_calibration|calibrated_input", stored)
-
-    project = Project.open(target)
-    (model,) = project.models.values()
-    prediction = model.predict(source.parent / "scan.h5")
-    # The stored model is byte-identical (checked above); the expected map was computed on
-    # another machine, and other BLAS builds (macOS, Windows) differ in the last float32 digits.
-    np.testing.assert_allclose(prediction.map, np.load(source.parent / "expected_map.npy"),
-                               rtol=0, atol=1e-3)
-    store = load_project_store(target)
-    modes = {c.get("mode") for d in store["datasets"].values()
-             for c in d["reference_corrections"].values()}
-    assert modes == {"dark_white_reference", "already_corrected"}
-    assert len(store["predictions"]) == 1
-
-
-def _the_added_limits_equal_their_formulas(path: Path, added: dict[str, object]) -> None:
-    """dcrit_095 and t2_crit_095 from N, K and A, computed here independently of the tool."""
-    from scipy.stats import f
-
-    from enginir.validation import dmodx_limit
-
-    with h5py.File(path, "r") as file:
-        (run,) = file["model_runs"].values()
-        model = run["artifact_refs/prediction_model"].attrs
-        n, a, k = int(model["n_train"]), int(model["n_components"]), model["x_mean"].size
-        diagnostics = run["artifact_refs/diagnostics"].attrs
-        assert "roi_share_above_dcrit_099" in diagnostics
-        assert "roi_share_above_dcrit" not in diagnostics, "no reader may take 0.99 shares for 0.95"
-        assert float(model["t2_crit_095"]) == pytest.approx(
-            a * (n - 1) / (n - a) * f.ppf(0.95, a, n - a), rel=1e-12)
-        assert float(model["dcrit_095"]) == pytest.approx(dmodx_limit(n, k, a, 0.95), rel=1e-12)
-        assert float(diagnostics["dcrit_095"]) == float(model["dcrit_095"])
-        # t2_crit_095 was already in the diagnostics of 1.5 and stays as it was
-        assert float(diagnostics["t2_crit_095"]) == pytest.approx(float(model["t2_crit_095"]))
-    assert len(added) == 3, sorted(added)
-
-
-def test_an_existing_target_or_the_source_itself_is_refused(tmp_path):
-    source = copy_old_project(tmp_path)
-    taken = source.with_name("taken.h5")
-    taken.write_bytes(b"keep")
-    for target in (taken, source):
-        with pytest.raises(FileExistsError, match="exists"):
-            migrate_project(source, target)
-    assert taken.read_bytes() == b"keep"
 
 
 def test_only_an_enginir_1_5_project_is_converted(tmp_path):

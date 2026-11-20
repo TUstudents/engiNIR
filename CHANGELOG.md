@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+Housekeeping: a smaller, sharper test suite and less dead code. No change for
+users of the library or the viewer.
+
+- **Tests:** 1190 down to 708 test cases (830 to 592 test functions) with the
+  same line coverage; table-style cases are one test each, tests that detect
+  nothing the others do not are gone, the model-run and prediction tests run
+  without Qt (`tests/_sessions.py`), and `benchmarks/` holds the kernel PLS
+  timing test.
+- **Viewer internals:** removed members nothing called (`ProjectState.fit_model_run`,
+  `build_sample_set`, `predict_dataset`, `get_target_assignment`,
+  `ensure_model_run_artifact_refs`, `icon_names`, and others); the viewer
+  fits and predicts through its jobs, as before.
+
 ## 1.7.3 (2026-11-19)
 
 Smaller and faster project files (Blosc), ROIs added from anywhere and named

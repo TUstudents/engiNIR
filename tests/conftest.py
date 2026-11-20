@@ -74,6 +74,41 @@ def _unexpected_message_boxes_fail(monkeypatch):
     monkeypatch.setattr(QDialog, "exec", unexpected_exec)
 
 
+class MessageBoxes:
+    """The texts of the message boxes a test provoked, by kind (nothing opens)."""
+
+    def __init__(self) -> None:
+        self.warning: list[str] = []
+        self.critical: list[str] = []
+        self.information: list[str] = []
+        self.question: list[str] = []
+        self.answer = None  # what ``QMessageBox.question`` returns; Yes when None
+
+
+@pytest.fixture()
+def boxes(monkeypatch):
+    """Record warnings, errors, information and questions instead of failing on them.
+
+    ``boxes.warning`` and the like list the texts shown; ``boxes.answer`` is the button a
+    question gets (default Yes). A test that needs a dialog's own logic patches it itself.
+    """
+    from PyQt6.QtWidgets import QMessageBox
+
+    shown = MessageBoxes()
+
+    def recorder(kind):
+        def show(_parent, _title, text, *_args, **_kwargs):
+            getattr(shown, kind).append(str(text))
+            if kind == "question":
+                return shown.answer or QMessageBox.StandardButton.Yes
+            return QMessageBox.StandardButton.Ok
+        return staticmethod(show)
+
+    for kind in ("warning", "critical", "information", "question"):
+        monkeypatch.setattr(QMessageBox, kind, recorder(kind))
+    return shown
+
+
 @pytest.fixture(autouse=True)
 def _exceptions_in_qt_slots_fail():
     """An exception raised in a Qt slot fails the test (PyQt only prints it).

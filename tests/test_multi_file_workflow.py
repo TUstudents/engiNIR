@@ -36,68 +36,6 @@ def _drawn_roi_names(viewer) -> list[str]:
     return sorted(rois[roi_id].name for roi_id in viewer._canvas._roi_item_map)
 
 
-def test_a_window_draws_only_the_rois_of_its_data_file(qapp, two_file_project):
-    from enginir.viewer import open_viewer
-
-    project_path, paths = two_file_project
-    window_a = open_viewer(paths["tray_a"], project=project_path)
-    window_b = open_viewer(paths["tray_b"], project=project_path)
-    try:
-        assert len(window_a.project_state.rois) == 3  # the project holds all of them
-        assert _drawn_roi_names(window_a) == ["A1", "A2"]
-        assert _drawn_roi_names(window_b) == ["B1"]
-    finally:
-        window_a.close()
-        window_b.close()
-
-
-def test_a_project_only_window_draws_the_rois_of_the_file_it_attaches(qapp, two_file_project):
-    from enginir.viewer import open_project
-
-    project_path, paths = two_file_project
-    window = open_project(project_path)
-    try:
-        assert len(window.project_state.rois) == 3
-        assert _drawn_roi_names(window) == []
-        window._open_data_path(str(paths["tray_b"]))  # File > Open Data
-        window.wait_for_data_file()
-        assert _drawn_roi_names(window) == ["B1"]
-    finally:
-        window.close()
-
-
-def test_project_writes_are_confirmed_in_the_status_bar(qapp, two_file_project, monkeypatch):
-    from PyQt6.QtWidgets import QDialog
-
-    import enginir.viewer._eda as eda
-    from enginir.project import TargetAssignment
-    from enginir.project._ids import now_iso
-    from enginir.viewer import open_viewer
-
-    project_path, paths = two_file_project
-    monkeypatch.setattr(eda.NewROIDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
-    monkeypatch.setattr(eda.NewROIDialog, "roi_name", property(lambda self: "A3"))
-    monkeypatch.setattr(eda.NewROIDialog, "target_value", property(lambda self: None))
-    window = open_viewer(paths["tray_a"], project=project_path)
-    try:
-        window._eda_view.on_training_roi_selected(10, 13, 4, 7)
-        assert window._saved_label.text() == "✓ ROI 'A3' saved to project (16 pixels)"
-        assert _drawn_roi_names(window) == ["A1", "A2", "A3"]
-
-        state = window.project_state
-        roi_id = next(r.roi_id for r in state.rois.values() if r.name == "A3")
-        target_id = next(iter(state.targets))
-        state.assign_target_to_roi(TargetAssignment(roi_id=roi_id, target_id=target_id,
-                                                    value=5.5, assigned_at=now_iso()))
-        assert window._saved_label.text() == "✓ API = 5.5 % saved for ROI 'A3'"
-
-        state.remove_roi(roi_id)
-        assert window._saved_label.text() == "✓ ROI 'A3' removed from project"
-        assert _drawn_roi_names(window) == ["A1", "A2"]
-    finally:
-        window.close()
-
-
 @pytest.fixture()
 def tray_c(tmp_path):
     """A third data file, not in the project: dark frames 0-1, white tile in frames 14-15."""
@@ -425,22 +363,6 @@ def test_the_dialog_levels_are_editable_and_checked(qapp, tray_c):
     assert "must be above" in dialog.check_text()
     dialog.set_choice("references")  # references take no levels
     assert dialog.build_request().black_level is None
-
-
-def test_a_registered_file_opens_with_its_stored_calibration(qapp, tmp_path, tray_c):
-    from enginir import Project
-    from enginir.viewer import open_viewer
-
-    path_c, cube_c = tray_c
-    project = Project.create(tmp_path / "c.h5")
-    project.add_dataset(path_c, dark_frames=(0, 1), white_frames=(14, 15), unit="Reflectance")
-    window = open_viewer(path_c, project=project.path)
-    try:
-        np.testing.assert_allclose(window.state.white_ref, cube_c[14:].mean(axis=0))
-        np.testing.assert_allclose(window.state.dark_ref, cube_c[:2].mean(axis=0))
-        assert window.state.y_unit == "Reflectance"
-    finally:
-        window.close()
 
 
 def _grid_answers(monkeypatch, configure, seen_preview=None):

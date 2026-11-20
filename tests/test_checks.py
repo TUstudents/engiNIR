@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+
+from tests._tables import check_all
 from enginir._checks import (
     as_float_array,
     as_float_matrix,
@@ -42,14 +44,14 @@ def test_float_arrays_keep_float32_and_float64_and_promote_the_rest():
         assert as_float_array(np.ones(3, dtype), "X").dtype == np.float32
 
 
-@pytest.mark.parametrize(
-    "value",
-    [np.ones(3, np.complex64), np.array(["1.5", "2"]), [1.0, None],
-     np.array(["2026-01-01"], dtype="datetime64[D]")],
-)
-def test_float_arrays_reject_non_real_input(value):
-    with pytest.raises(ValueError, match="real numeric array"):
-        as_float_array(value, "X")
+def test_float_arrays_reject_non_real_input():
+    def check(case):
+        value = case
+        with pytest.raises(ValueError, match="real numeric array"):
+            as_float_array(value, "X")
+
+    check_all([np.ones(3, np.complex64), np.array(["1.5", "2"]), [1.0, None],
+     np.array(["2026-01-01"], dtype="datetime64[D]")], check)
 
 
 def test_float_matrices_must_be_2d_non_empty_and_finite():
@@ -68,32 +70,16 @@ def test_float_matrices_must_be_2d_non_empty_and_finite():
 # -- Reshaping between image cubes and per-pixel matrices ------------------------------
 
 
-def test_flatten_keeps_pixel_order_and_round_trips_as_views():
-    cube = np.arange(5 * 4 * 3, dtype=np.float32).reshape(5, 4, 3)
-    X_2d, spatial_shape = flatten_cube(cube)
-    assert spatial_shape == (5, 4)
-    np.testing.assert_array_equal(X_2d[1 * 4 + 2], cube[1, 2])  # row-major pixel order
-    assert np.shares_memory(X_2d, cube)  # documented: a view, no copy
-    restored = unflatten_cube(X_2d, spatial_shape)
-    np.testing.assert_array_equal(restored, cube)
-    assert np.shares_memory(restored, cube)
+def test_reshapes_reject_inconsistent_shapes():
+    def check(case):
+        call, match = case
+        with pytest.raises(ValueError, match=match):
+            call()
 
-
-def test_one_value_per_pixel_becomes_a_2d_map():
-    predictions = np.arange(20.0)
-    assert unflatten_cube(predictions, (4, 5)).shape == (4, 5)
-
-
-@pytest.mark.parametrize(
-    ("call", "match"),
-    [
+    check_all([
         (lambda: flatten_cube(np.ones((4, 5))), "X_3d must have shape"),
         (lambda: unflatten_cube(np.ones((20, 3)), (4, 0)), "must be an integer >= 1"),
         (lambda: unflatten_cube(np.ones((20, 3)), (4.0, 5)), "must be an integer"),
         (lambda: unflatten_cube(np.ones((50, 3)), (4, 5)), "X_2d has 50 rows"),
         (lambda: unflatten_cube(np.ones((20, 3)), 20), "spatial_shape must be a"),
-    ],
-)
-def test_reshapes_reject_inconsistent_shapes(call, match):
-    with pytest.raises(ValueError, match=match):
-        call()
+    ], check)

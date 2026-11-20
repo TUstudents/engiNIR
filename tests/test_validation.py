@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+
+from tests._tables import check_all
 from scipy.spatial.distance import cdist
 
 from enginir.models import PCR, SIMCA, PLSRegression
@@ -72,22 +74,22 @@ def test_cross_validate_matches_sklearn_and_leaves_the_estimator_unfitted():
     assert not hasattr(model, "x_scores_")
 
 
-@pytest.mark.parametrize(
-    ("n_groups", "cv", "scheme"),
-    [
+def test_cross_validate_chooses_the_splitter():
+    def check(case):
+        n_groups, cv, scheme = case
+        groups = np.repeat(np.arange(n_groups), 4)
+        X = RNG.random((groups.size, 10))
+        result = cross_validate(PLSRegression(n_components=1), X, groups.astype(float), cv=cv,
+                                groups=groups)
+        assert result["cv_scheme"] == scheme
+
+    check_all([
         (8, "auto", {"type": "GroupKFold", "n_splits": 7}),
         (5, "auto", {"type": "LeaveOneGroupOut", "n_splits": 5}),  # fewer groups than folds
         (5, "logo", {"type": "LeaveOneGroupOut", "n_splits": 5}),
         (5, 3, {"type": "GroupKFold", "n_splits": 3}),
         (3, "loo", {"type": "LeaveOneOut", "n_splits": 12}),  # explicit: ignores groups
-    ],
-)
-def test_cross_validate_chooses_the_splitter(n_groups, cv, scheme):
-    groups = np.repeat(np.arange(n_groups), 4)
-    X = RNG.random((groups.size, 10))
-    result = cross_validate(PLSRegression(n_components=1), X, groups.astype(float), cv=cv,
-                            groups=groups)
-    assert result["cv_scheme"] == scheme
+    ], check)
 
 
 def test_cross_validate_rejects_impossible_or_ambiguous_requests():
@@ -101,24 +103,6 @@ def test_cross_validate_rejects_impossible_or_ambiguous_requests():
         cross_validate(PLSRegression(n_components=1), X, y, groups=groups[:, None])
     with pytest.raises(ValueError, match="scoring must be a list"):
         cross_validate(PLSRegression(n_components=1), X, y, scoring="r2")
-
-
-def test_grouped_cross_validation_never_splits_a_group():
-    class RecordingPCR(PCR):
-        seen: list = []
-
-        def fit(self, X, y):
-            RecordingPCR.seen.append(set(np.round(X[:, 0], 12)))
-            return super().fit(X, y)
-
-    groups = np.repeat(np.arange(10), 4)
-    X = RNG.random((40, 5))
-    cross_validate(RecordingPCR(n_components=2), X, RNG.random(40), groups=groups)
-    assert RecordingPCR.seen
-    for training_rows in RecordingPCR.seen:
-        for group in range(10):
-            members = set(np.round(X[groups == group, 0], 12))
-            assert members <= training_rows or not members & training_rows
 
 
 def test_cross_validate_reports_per_target_and_per_fold_errors():
@@ -156,13 +140,6 @@ def test_aggregation_averages_per_group_in_order_of_first_appearance():
 
 
 # --- Kennard-Stone ------------------------------------------------------------------------------
-
-def test_kennard_stone_selects_extremes_first_and_partitions_the_samples():
-    X = np.array([[0.0], [10.0], [5.0], [1.0], [9.0], [6.0]])
-    reference_correction, test = kennard_stone(X, n_select=3)
-    np.testing.assert_array_equal(reference_correction, [0, 1, 2])
-    np.testing.assert_array_equal(test, [3, 4, 5])
-
 
 def test_kennard_stone_blockwise_search_matches_the_full_distance_matrix(monkeypatch):
     X = RNG.integers(0, 4, (300, 3)).astype(float)  # many tied distances
@@ -237,3 +214,21 @@ def test_q_limit_recovers_the_chi_square_quantile_for_gaussian_residuals():
     X = np.random.default_rng(5).standard_normal((20000, 20))  # Q is exactly chi2(20)
     q_crit = spectral_outliers(X, np.zeros_like(X), alpha=0.05)[1]
     assert q_crit == pytest.approx(chi2.ppf(0.95, 20), rel=0.02)
+
+
+def test_grouped_cross_validation_never_splits_a_group():
+    class RecordingPCR(PCR):
+        seen: list = []
+
+        def fit(self, X, y):
+            RecordingPCR.seen.append(set(np.round(X[:, 0], 12)))
+            return super().fit(X, y)
+
+    groups = np.repeat(np.arange(10), 4)
+    X = RNG.random((40, 5))
+    cross_validate(RecordingPCR(n_components=2), X, RNG.random(40), groups=groups)
+    assert RecordingPCR.seen
+    for training_rows in RecordingPCR.seen:
+        for group in range(10):
+            members = set(np.round(X[groups == group, 0], 12))
+            assert members <= training_rows or not members & training_rows

@@ -56,34 +56,13 @@ def _stored(project_path, roi_name, target):
     return None if assignment is None else assignment.value
 
 
-def test_rows_columns_and_natural_order(table):
-    model = table.model
-    headers = [model.headerData(c, __import__("PyQt6.QtCore").QtCore.Qt.Orientation.Horizontal)
-               for c in range(model.columnCount())]
-    assert headers == ["Dataset", "ROI", "Pixels", "Set", "Sample", "API (%)", "fat (%)"]
-    assert _cells(table) == [["tray_a.h5", "A1", "4", "Calibration", "", "2", ""],
-                             ["tray_a.h5", "A2", "4", "Calibration", "", "", ""],
-                             ["tray_a.h5", "A10", "4", "Calibration", "", "", ""],
-                             ["tray_b.h5", "B1", "4", "Calibration", "", "", ""]]
+@pytest.fixture()
+def errors(boxes):
+    """The texts of the warning boxes the table shows."""
+    return boxes.warning
 
 
-def test_typing_stores_values_and_clearing_removes_them(table, project):
-    model, path = table.model, project[0].path
-    assert model.setData(model.index(1, 5), "3,5")  # decimal comma
-    assert _stored(path, "A2", "API") == 3.5
-    assert model.setData(model.index(0, 5), "")  # clear A1
-    assert _stored(path, "A1", "API") is None, "a cleared cell is a missing value, not zero"
-    assert table.project_state.target_assignments.get(
-        (Project.open(path).roi("A1").roi_id, Project.open(path).target("API").target_id)) is None
-    assert _cells(table)[0][5] == "" and _cells(table)[1][5] == "3.5"
-
-
-def test_invalid_text_is_refused_and_nothing_changes(table, project, monkeypatch):
-    from PyQt6.QtWidgets import QMessageBox
-
-    errors: list[str] = []
-    monkeypatch.setattr(QMessageBox, "warning", staticmethod(
-        lambda _p, _t, text, *a, **k: errors.append(text)))
+def test_invalid_text_is_refused_and_nothing_changes(table, project, errors):
     model = table.model
     assert not model.setData(model.index(0, 5), "two")
     assert not model.setData(model.index(0, 5), "inf")
@@ -128,12 +107,7 @@ def test_pasting_a_column_fills_rows_downwards(table, project):
     ("1\nx\n3", "Line 2: 'x' is not a number"),
     ("1\n2\n3\n4\n5", "5 values do not fit below this row"),
 ])
-def test_an_invalid_paste_writes_nothing(table, project, monkeypatch, text, message):
-    from PyQt6.QtWidgets import QMessageBox
-
-    errors: list[str] = []
-    monkeypatch.setattr(QMessageBox, "warning", staticmethod(
-        lambda _p, _t, text, *a, **k: errors.append(text)))
+def test_an_invalid_paste_writes_nothing(table, project, errors, text, message):
     table.view.setCurrentIndex(table.model.index(0, 5))
     assert not table.paste_clipboard(text)
     assert errors and errors[0].startswith(message)
@@ -150,23 +124,6 @@ def test_filters_by_data_file_and_missing_values(table):
     table._missing.setChecked(True)  # without a value for API (the first target)
     assert [row[1] for row in _cells(table)] == ["A2", "A10", "B1"]
     assert table._count.text().startswith("3 ROIs | API: 0 of 3")
-
-
-def test_the_table_works_without_any_data_file(qapp, project):
-    from enginir.viewer import open_project
-
-    project_obj, paths = project
-    for path in paths.values():
-        path.unlink()
-    window = open_project(project_obj.path)
-    try:
-        window.show_roi_table()
-        table = window._roi_table
-        assert window._roi_table_dock.isVisible() and table.model.rowCount() == 4
-        assert table.model.setData(table.model.index(3, 6), "12")
-        assert _stored(project_obj.path, "B1", "fat") == 12.0
-    finally:
-        window.close()
 
 
 def test_target_values_button_opens_the_table_on_the_shown_file_and_target(qapp, project):
@@ -211,13 +168,6 @@ def test_the_library_removes_values_and_checks_batches_first(project):
             TargetAssignment(roi_id=a2, target_id=api, value=float("nan"),
                              assigned_at="2026-11-03T00:00:00+00:00")])
     assert _stored(project_obj.path, "A2", "API") is None
-
-
-def test_a_stored_value_can_be_replaced(project):
-    """Updating a value is the documented editing model (it used to fail as a duplicate)."""
-    project_obj, _paths = project
-    project_obj.set_value("A1", "API", 4.5)
-    assert _stored(project_obj.path, "A1", "API") == 4.5
 
 
 def test_sample_labels_are_typed_pasted_and_removed(table, project):

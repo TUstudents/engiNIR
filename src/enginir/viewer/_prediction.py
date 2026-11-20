@@ -68,27 +68,6 @@ def _phase_label(phase: str) -> str:
     return _PHASE_LABELS.get(phase, phase.replace("_", " ").capitalize())
 
 
-def _array_payload_fingerprint(value: Any) -> tuple[Any, ...]:
-    """Return a stable-enough cache token for array-like prediction payloads."""
-    if value is None:
-        return ("none",)
-    if not isinstance(value, np.ndarray):
-        shape = getattr(value, "shape", None)
-        dtype = getattr(value, "dtype", None)
-        if shape is not None or dtype is not None:
-            shape_token = tuple(int(dim) for dim in shape) if shape is not None else ()
-            return ("array_like", type(value).__name__, shape_token, str(dtype))
-        return ("object", type(value).__name__, repr(value))
-    arr = value
-    return (
-        "array",
-        int(arr.ctypes.data),
-        tuple(int(dim) for dim in arr.shape),
-        tuple(int(stride) for stride in arr.strides),
-        str(arr.dtype),
-    )
-
-
 #: Colours of predictions below and above the map's colour range.
 
 
@@ -528,13 +507,6 @@ class PredictionMapWidget(QWidget):
                          row_index=np.arange(arr.shape[0]) * self._step,
                          column_index=np.arange(arr.shape[1]) * self._step,
                          metadata=self.plot_table_metadata())
-
-    def set_user_limits(self, limits: tuple[float, float] | None) -> None:
-        """Colour limits of the prediction layer; ``None`` returns to the training range."""
-        self.user_limits = limits
-        payload, self._last_payload = self._last_payload, None  # force a redraw
-        if payload is not None:
-            self.update_data(payload, empty_reason=self._last_empty_reason or "")
 
     def plot_table_metadata(self) -> dict[str, Any]:
         payload = self._last_payload or {}
@@ -1776,10 +1748,6 @@ class PredictionView(QWidget):
             self._service_status.set_idle("Service: idle")
         self._update_status()
         QMessageBox.warning(self, title, message)
-
-    def service_status_snapshot(self) -> tuple[str, bool]:
-        """Return the current service label text and busy/progress visibility."""
-        return self._service_status.label.text(), self._service_status.progress.isVisible()
 
     def _set_busy(self, busy: bool, text: str | None = None) -> None:
         self._btn_predict.setEnabled(not busy)

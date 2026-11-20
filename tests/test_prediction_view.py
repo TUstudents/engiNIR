@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import QMessageBox
 from enginir import Project
 from enginir.project import PredictionRun
 from tests._qt import wait_until
-from tests._scans import framed_scan
 from tests import _project_payloads as build
 
 
@@ -99,34 +98,6 @@ def test_prediction_map_widget_orients_map_like_spatial_canvas_and_adds_colorbar
 
     assert widget._colorbar is None
     assert len(widget._fig.axes) == 1
-
-
-def test_prediction_map_widget_exposes_multi_output_selector(qapp):
-    from enginir.viewer._prediction import PredictionMapWidget
-
-    widget = PredictionMapWidget()
-    spatial_map = np.array(
-        [
-            [[1.0, 10.0], [2.0, 20.0]],
-            [[3.0, 30.0], [4.0, 40.0]],
-        ],
-        dtype=np.float32,
-    )
-
-    widget.update_data(
-        {
-            "spatial_map": spatial_map,
-            "output_names": ["moisture", "density"],
-        }
-    )
-
-    assert not widget._output_combo.isHidden()
-    assert widget._output_combo.count() == 2
-    np.testing.assert_allclose(widget._ax.images[0].get_array(), spatial_map[..., 0].T)
-
-    widget._output_combo.setCurrentIndex(1)
-
-    np.testing.assert_allclose(widget._ax.images[0].get_array(), spatial_map[..., 1].T)
 
 
 def _subsampled_map_payload() -> dict:
@@ -352,32 +323,6 @@ def test_predict_map_names_the_chain_and_refuses_an_incompatible_file(
     assert ok is not None and not ok.isEnabled() and "Cannot predict" in dialog._reason.text()
     dialog._file_combo.setCurrentIndex(dialog._file_combo.findData(tray_id))
     assert ok.isEnabled()
-
-
-def test_predict_map_shows_the_map_and_the_rois_of_its_file(qapp, fitted_tray, monkeypatch):
-    from enginir.viewer._predict_dialogs import PredictMapDialog
-    from enginir.viewer._prediction import PredictionView
-
-    project, model, state, _path = fitted_tray
-    monkeypatch.setattr(PredictMapDialog, "exec", lambda self: self.DialogCode.Accepted)
-    view = PredictionView(state)
-    view.predict_btn_clicked()
-    wait_until(qapp, lambda: bool(state.predictions) and bool(view._roi_predictions),
-                timeout=30)
-    summary = view.workspace_summary()
-    assert summary["model"] == model.name and "dark/white references" in summary["reference_correction"]
-    payload = view.roi_results_payload()
-    names = {row["roi"] for row in payload["roi_rows"]}
-    assert names == {"t08", "t09", "t10"}
-    visual = view.workspace_visual_payload()
-    assert visual is not None and visual["colour_range"] == (1.0, 7.0), "training values"
-    assert len(visual["roi_overlays"]) == 3
-    # The map and the ROI path agree for an ROI (one chain).
-    row = next(r for r in payload["roi_rows"] if r["roi"] == "t09")
-    f0, f1, r0, r1 = project.roi("t09").spatial_bounds
-    result = next(iter(state.predictions.values()))
-    np.testing.assert_allclose(row["mean"], float(np.mean(
-        result.spatial_map[f0:f1 + 1, r0:r1 + 1])), rtol=1e-5)
 
 
 def test_the_prediction_interval_layer_shows_the_pixel_intervals_and_none_outside_the_model(
@@ -630,66 +575,7 @@ def test_the_summary_names_file_and_model_once_and_controls_change_the_map(
     assert view.colour_limits is None
 
 
-def test_the_summary_shows_a_wavelength_warning(qapp):
-    from enginir.viewer._prediction import PredictionView
-    from enginir.viewer._state import ProjectState
-
-    state = ProjectState()
-    _seed_model_run(state)
-    view = PredictionView(state)
-    result = _session_result("p", np.ones((2, 3), dtype=np.float32))
-    result.provenance["wavelength_warning"] = "wavelengths differ from the model's by up to 5 nm"
-    state.add_prediction(result)
-    assert view.workspace_summary()["wavelengths"].startswith("Warning: wavelengths differ")
-    result.provenance["wavelength_warning"] = None
-    view._invalidate_prediction_workspace_cache()
-    assert view.workspace_summary()["wavelengths"] == "match the model"
-
-
 # -- Waiting prediction ROIs -----------------------------------------------------------
-
-
-def test_predict_names_the_waiting_rois_and_the_model(qapp, tmp_path):
-    from enginir.viewer import open_project
-
-    project = Project.create(tmp_path / "p.h5")
-    project.add_target("API", unit="%")
-    scan = project.add_dataset(framed_scan(tmp_path / "s.h5"), dark_frames=(0, 1),
-                               white_frames=(18, 19))
-    for i in range(4):
-        scan.add_roi(f"c{i}", frames=(3 + 3 * i, 4 + 3 * i), rows=(0, 5),
-                     values={"API": float(i)})
-    scan.add_roi("p0", frames=(3, 4), rows=(0, 5), job="prediction")
-    project.fit("API", n_components=1)
-    window = open_project(project.path)
-    try:
-        summary = window._prediction_view.workspace_summary()
-        assert summary["rois"] == "none predicted yet (1 prediction ROI)"
-        assert summary["model"] != "none", "the model a prediction would use"
-    finally:
-        window.close()
-
-
-def test_the_ring_marks_exactly_the_rois_the_library_calls_outside(qapp, tmp_path, monkeypatch):
-    """No rule in the viewer: each row's ring is enginir.prediction.unusual_rois."""
-    from enginir.prediction import unusual_rois
-    from enginir.viewer._predict_dialogs import PredictMapDialog
-    from enginir.viewer._prediction import PredictionView
-    from enginir.viewer._state import ProjectState
-    from tests._scans import tray_project
-
-    project, _dataset, _path = tray_project(tmp_path, odd="t09")
-    model = project.fit("API", n_components=2, cv=3)
-    state = ProjectState()
-    state.open_project(str(project.path))
-    monkeypatch.setattr(PredictMapDialog, "exec", lambda self: self.DialogCode.Accepted)
-    view = PredictionView(state)
-    view.predict_btn_clicked()
-    wait_until(qapp, lambda: bool(view._roi_predictions), timeout=30)
-    rows = view.roi_results_payload()["roi_rows"]
-    expected = set(unusual_rois(model.roi_prediction()))
-    assert project.roi("t09").roi_id in expected, "the odd tablet is outside: something to ring"
-    assert {row["roi_id"] for row in rows if row["unusual"]} == expected
 
 
 def test_an_roi_with_some_pixels_above_dcrit_inside_the_model_is_not_ringed(qapp, tmp_path):

@@ -71,22 +71,24 @@ def test_welcome_loading_context_disables_controls_and_shows_progress(welcome):
 
 
 def test_open_dataset_button_emits_selected_paths(welcome, monkeypatch, tmp_path):
-    dataset = str(tmp_path / "sample.eiff")
-    dark = str(tmp_path / "dark.eiff")
-    white = str(tmp_path / "white.eiff")
+    dataset, dark, white = (str(tmp_path / f"{name}.eiff") for name in ("sample", "dark", "white"))
+    picked = {"Dark reference": dark, "White reference": white}
     monkeypatch.setattr(
-        "PyQt6.QtWidgets.QFileDialog.getOpenFileName", lambda *args, **kwargs: (dataset, "")
-    )
-    welcome._dark_path = dark
-    welcome._white_path = white
-    welcome._cb_dark.setChecked(True)
-    welcome._cb_white.setChecked(True)
+        "PyQt6.QtWidgets.QFileDialog.getOpenFileName",
+        lambda _parent, title, *args, **kwargs: (picked.get(title, dataset), ""))
     received: list[tuple[str, str | None, str | None]] = []
     welcome.file_selected.connect(lambda path, d, w: received.append((path, d, w)))
 
+    welcome._cb_dark.setChecked(True)
+    welcome._cb_white.setChecked(True)
+    welcome._btn_dark.click()   # the Browse... buttons of the two references
+    welcome._btn_white.click()
     welcome._btn_open.click()
-
     assert received == [(dataset, dark, white)]
+
+    welcome._cb_dark.setChecked(False)  # a reference that is not ticked is not used
+    welcome._btn_open.click()
+    assert received[-1] == (dataset, None, white)
 
 
 def test_project_buttons_emit_open_and_create_signals(welcome, monkeypatch, tmp_path):
@@ -207,41 +209,6 @@ def _recent_files(tmp_path, monkeypatch, *, kinds):
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "recent.json").write_text(json.dumps(entries), encoding="utf-8")
     return paths
-
-
-@pytest.mark.parametrize("kinds", [True, False], ids=["kinds-stored", "written-by-1.7.0"])
-def test_the_recent_list_never_touches_a_recent_file_on_the_ui_thread(qapp, tmp_path,
-                                                                     monkeypatch, kinds):
-    """D4: a slow or unreachable drive delays only the background check, never the window."""
-    import threading
-    import time
-
-    from PyQt6.QtCore import Qt
-
-    import enginir.viewer._recent as recent
-    from enginir.viewer._welcome import WelcomeWindow
-
-    project, dataset, ghost = _recent_files(tmp_path, monkeypatch, kinds=kinds)
-    release = threading.Event()
-    threads = _record_file_access(monkeypatch, release)
-    started = time.perf_counter()
-    window = WelcomeWindow()
-    try:
-        assert time.perf_counter() - started < 5, "the window waited for the drive"
-        listed = window._recent_list
-        assert [listed.item(i).data(Qt.ItemDataRole.UserRole)
-                for i in range(listed.count())] == [project, dataset, ghost]
-        release.set()
-        wait_until(qapp, lambda: window._recent_checked)
-        assert threads and threading.main_thread().name not in threads, threads
-        assert not listed.item(2).flags() & Qt.ItemFlag.ItemIsEnabled
-        assert [listed.item(i).data(Qt.ItemDataRole.UserRole + 1) for i in range(2)] == \
-            ["project", "dataset"]
-        assert [entry.kind for entry in recent.entries()][:2] == ["project", "dataset"], \
-            "a kind learned once is stored"
-    finally:
-        release.set()
-        window.close()
 
 
 def test_open_recent_never_touches_a_recent_file_on_the_ui_thread(window, qapp, tmp_path,

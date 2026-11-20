@@ -70,8 +70,8 @@ stores nothing, and no stored object refers to a missing one. In the viewer,
   objects and checks their relationships, without Qt. `Project.open()` does
   both.
 - Heavy arrays load when needed: a model's artifacts on first use
-  (`ProjectState.ensure_model_run_artifact_refs`), ROI pixels for a fit or the
-  Project ROIs tiles.
+  (`load_model_run_artifact_refs`), ROI pixels for a fit or the Project ROIs
+  tiles.
 - Raw ROI pixels stay in their stored dtype (uint16 counts, or float32 for
   corrected data); working arrays are float32. Arrays are stored with Blosc
   (engiNIR 1.7.3; gzip before), see `hdf5_format.md`.
