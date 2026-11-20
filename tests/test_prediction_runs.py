@@ -23,8 +23,10 @@ from enginir.prediction import (
     PredictionProgressEvent,
     build_dataset_ref_from_spectral_data,
     predict_with_model_run,
+    preflight_prediction,
 )
 from enginir.preprocessing import PreprocessingRecipe
+from enginir.project import FitSpec
 from enginir.project import (
     ReferenceCorrection,
     PredictionRun,
@@ -847,3 +849,152 @@ def test_image_files_stream_into_the_same_prediction_as_in_memory_data(tmp_path,
 
     np.testing.assert_allclose(streamed.y_pred, in_memory.y_pred, rtol=1e-6)
     assert streamed.spatial_map.shape == selected.X.shape[:2]
+
+
+def test_preflight_prediction_uses_memory_budgeted_default_frame_chunks(tmp_path):
+    class _DummyPredictor:
+        def predict(self, X):
+            return np.zeros(X.shape[0], dtype=np.float32)
+
+    def _preflight(cube_shape: tuple[int, int, int]):
+        n_bands = cube_shape[2]
+        wavelengths = np.arange(n_bands, dtype=np.float32)
+        dataset = build.dataset(
+            wavelengths,
+            dataset_id="dataset_large",
+            source_path="/data/large.h5",
+            source_format="hdf5",
+            cube_shape=cube_shape,
+            n_bands=n_bands,
+        )
+        reference_correction = build.reference_correction(
+            reference_correction_id="cal_raw",
+            dataset_id=dataset.dataset_id,
+        )
+        signal_domain = build.signal_domain(
+            wavelengths,
+            signal_domain_id="signal_domain_raw",
+            input_format="hdf5",
+            corrected_input_allowed=False,
+            n_bands=n_bands,
+        )
+        model_run = build.model_run(
+            fit_spec=FitSpec().to_dict(),
+            model_run_id="model_large",
+            sample_set_id="sample_large",
+            signal_domain_id=signal_domain.signal_domain_id,
+            hyperparameters={},
+            cv_spec={},
+            metrics={},
+            artifact_refs={},
+        )
+        return preflight_prediction(
+            project_path=str(tmp_path / "unused.h5"),
+            model_run=model_run,
+            signal_domain=signal_domain,
+            recipe=PreprocessingRecipe(),
+            dataset=dataset,
+            reference_correction=reference_correction,
+            model_registry={model_run.model_run_id: _DummyPredictor()},
+        )
+
+    typical = _preflight((3490, 312, 220))
+    oversized = _preflight((1000, 1000, 1000))
+
+    assert typical.chunk_size == 512
+    assert typical.n_chunks == (3490 + 511) // 512
+    assert oversized.chunk_size == 512
+
+
+def test_preflight_prediction_rejects_invalid_chunk_size(tmp_path):
+    class _DummyPredictor:
+        def predict(self, X):
+            return np.zeros(X.shape[0], dtype=np.float32)
+
+    wavelengths = np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
+    dataset = build.dataset(
+        wavelengths,
+        dataset_id="dataset_chunk",
+        source_path="/data/chunk.h5",
+        source_format="hdf5",
+        cube_shape=(2, 2, 3),
+        n_bands=3,
+    )
+    reference_correction = build.reference_correction(reference_correction_id="cal_chunk", dataset_id=dataset.dataset_id)
+    signal_domain = build.signal_domain(
+        wavelengths,
+        signal_domain_id="signal_domain_chunk",
+        input_format="hdf5",
+        corrected_input_allowed=False,
+        n_bands=3,
+    )
+    model_run = build.model_run(
+        fit_spec=FitSpec().to_dict(),
+        model_run_id="model_chunk",
+        sample_set_id="sample_chunk",
+        signal_domain_id=signal_domain.signal_domain_id,
+        hyperparameters={},
+        cv_spec={},
+        metrics={},
+        artifact_refs={},
+    )
+
+    with pytest.raises(ValueError, match="chunk_size"):
+        preflight_prediction(
+            project_path=str(tmp_path / "unused.h5"),
+            model_run=model_run,
+            signal_domain=signal_domain,
+            recipe=PreprocessingRecipe(),
+            dataset=dataset,
+            reference_correction=reference_correction,
+            model_registry={model_run.model_run_id: _DummyPredictor()},
+            chunk_size=0,
+        )
+
+
+def test_calibrations_normalize_the_case_of_enum_values():
+    """Signal units and modes compare case-insensitively (dataset-reference-correction contract)."""
+    reference_correction = build.reference_correction(
+        reference_correction_id="cal_signal_case",
+        dataset_id="dataset_1",
+        mode="Dark_White_Reference",
+        black_level=0.0,
+        white_level=100.0,
+        output_signal_unit=" reflectance",
+    )
+    assert reference_correction.mode == "dark_white_reference"
+    assert reference_correction.output_signal_unit == "Reflectance"
+    with pytest.raises(ValueError, match="output_signal_unit must be one of"):
+        build.reference_correction(
+            reference_correction_id="cal_bad_unit",
+            dataset_id="dataset_1",
+            mode="dark_white_reference",
+            black_level=0.0,
+            white_level=100.0,
+            output_signal_unit="transmittance",
+        )
+
+
+def test_training_and_prediction_use_identical_signal_conversion(tmp_path):
+    project_path = str(tmp_path / "identity.h5")
+    write_model_project(project_path)
+    state = _fit_phase6_model(project_path)
+    context = state.build_prediction_job_context(model_run_id="model_run_1")
+    roi = next(iter(state.rois.values()))
+    raw = roi.load_spectra(project_path)
+    reference_correction = state.reference_corrections[roi.reference_correction_id]
+    dataset = state.datasets[roi.dataset_id]
+
+    training = transform_spectra_to_signal_domain(
+        raw, dataset=dataset, reference_correction=reference_correction, signal_domain=context.signal_domain
+    )
+    chunks = [
+        transform_spectra_to_signal_domain(
+            raw[i:i + 1], dataset=dataset, reference_correction=reference_correction,
+            signal_domain=context.signal_domain, check_compatibility=False,
+        )
+        for i in range(raw.shape[0])
+    ]
+
+    np.testing.assert_array_equal(np.vstack(chunks), training)
+    assert training.dtype == np.float32

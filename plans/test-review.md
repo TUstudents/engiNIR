@@ -237,6 +237,17 @@ statistics, SNV). Line coverage 87 % as before. Lesson: line coverage cannot see
 value-pinning tests; the 900-mutant sample missed these four, so more of this kind
 may be gone.
 
+## PR review (agent, 2026-11-20)
+
+A read-only review of PR 22 found 17 deleted tests that pinned frozen rules or values
+no other test pins (ROI storage dtype and uint16 range, float32 working arrays,
+per-ROI primary metrics, grouped cross-validation, training vs prediction
+conversion, the bundled Kestreleye table and its id, the loaders' positive paths,
+chunk preflight, enum case); all restored (708 passed). `check_all` now fails on an
+empty table and lets pytest skips through; two stale doc references fixed.
+`CoreSession` copies the library glue of the removed ProjectState methods, so
+`finalize_model_run_result` is exercised only through the viewer tests.
+
 ## Next
 
 Review the remaining modules by reading; rerun mutation with the full related

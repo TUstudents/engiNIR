@@ -131,9 +131,8 @@ Runtime collections include:
 - `dataset_id_of(path)` — the dataset a path belongs to at any of its candidate paths (`is_data_file_of`)
 - `moved_data_files(old, new)` — missing data files that exist after the folder change of one Locate (`moved_path`), for `HSIViewer._locate_moved_data_files`
 - `register_dataset(...)`, `set_active_reference_correction(...)`, `add_roi(...)`, `define_target(...)`, `assign_target_to_roi(...)` — store through `Project` + emit
-- `build_sample_set(...)`, `fit_model_run(...)` — high-level workflows
-- `predict_dataset(...)`, `add_prediction(result)` — predict in memory (`prefer_saved_model=True`, so a model fitted in the session gets the DModXPS and T²PS maps) and keep the result for the session; nothing is written
-- `ensure_model_run_artifact_refs(...)` — lazy-load heavy persisted arrays only when a workflow actually needs them
+- `add_prediction(result)` — keep a computed prediction for the session (the Predict page's job makes it with `prefer_saved_model=True`, so a model fitted in the session gets the DModXPS and T²PS maps); nothing is written
+- Fitting and predicting run in the viewer's jobs (`_jobs.py`); the library services they call are `enginir.modeling.fit_model_run` and `enginir.prediction.predict_with_model_run`
 
 ---
 

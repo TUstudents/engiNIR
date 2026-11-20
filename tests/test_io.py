@@ -777,3 +777,148 @@ def test_a_wavenumber_axis_enters_a_project_in_nm(tmp_path):
     axis, meta = spectral_axis_in_nm(state.wavelengths, state.meta)
     assert np.allclose(axis, state.wavelengths) and meta["x_units"] == "nm"
     assert np.allclose(spectral_axis_in_nm([1.0, 2.5], {"x_units": "um"})[0], [1000, 2500])
+
+
+def test_hdf5_round_trip_and_metadata(tmp_path):
+    from enginir.io import SpectralData, load_hdf5, save_hdf5
+
+    X = np.arange(24, dtype=np.float32).reshape(2, 3, 4)
+    wavelengths = np.linspace(900.0, 1200.0, 4)
+    path = tmp_path / "spectra.h5"
+
+    save_hdf5(str(path), X, wavelengths, meta={"instrument": "alpha", "ids": ["a", "b"]})
+    data = load_hdf5(str(path))
+
+    assert isinstance(data, SpectralData)
+    np.testing.assert_allclose(data.X, X)
+    np.testing.assert_allclose(data.wavelengths, wavelengths)
+    assert data.meta["instrument"] == "alpha"
+    assert list(data.meta["ids"]) == ["a", "b"]
+    assert data.meta["hdf5_schema"] == "enginir_simple_spectral_hdf5"
+    assert data.meta["hdf5_spectra_key"] == "spectra"
+    assert data.meta["x_units"] == "nm"
+
+
+def test_load_hdf5_supports_frame_slices_and_header_only(tmp_path):
+    from enginir.io import load_hdf5, save_hdf5
+
+    X = np.arange(60, dtype=np.uint16).reshape(5, 3, 4)
+    wavelengths = np.linspace(900.0, 1200.0, 4)
+    path = tmp_path / "chunkable.h5"
+
+    save_hdf5(str(path), X, wavelengths)
+
+    sliced = load_hdf5(str(path), frames=slice(1, 4))
+    header = load_hdf5(str(path), frames=slice(1, 4), header_only=True)
+
+    np.testing.assert_array_equal(sliced.X, X[1:4])
+    assert header.X.shape == (0, 3, 4)
+    assert header.meta["source_shape"] == (3, 3, 4)
+    assert header.meta["frames_loaded"] == 0
+    assert header.meta["frames_total"] == 5
+
+
+def test_load_hdf5_supports_blosc_compressed_data_dataset(tmp_path):
+    import h5py
+    import hdf5plugin
+
+    from enginir.io import load_spectra
+
+    cube = np.arange(5 * 10 * 20, dtype=np.uint16).reshape(5, 10, 20)
+    path = tmp_path / "kestreleye_like.h5"
+    with h5py.File(path, "w") as handle:
+        handle.create_dataset(
+            "data",
+            data=cube,
+            chunks=(1, 10, 20),
+            **hdf5plugin.Blosc(),
+        )
+
+    data = load_spectra(str(path), frames=slice(1, 3))
+
+    np.testing.assert_array_equal(data.X, cube[1:3])
+    np.testing.assert_array_equal(data.wavelengths, np.arange(20, dtype=float))
+    assert data.meta["hdf5_schema"] == "kestreleye_raw_hdf5"
+    assert data.meta["hdf5_spectra_key"] == "data"
+    assert data.meta["x_units"] == "band_index"
+
+
+def test_load_eiff_supports_header_only_and_full_cube(synthetic_eiff):
+    from enginir.io.eiff_io import load_eiff
+
+    path, frames, wavelengths = synthetic_eiff
+    header_only = load_eiff(path, header_only=True)
+    full = load_eiff(path)
+
+    assert header_only.X.shape == (0, 4, 8)
+    assert header_only.meta["count"] == 3
+    assert header_only.meta["source_shape"] == (3, 4, 8)
+    np.testing.assert_allclose(header_only.wavelengths, wavelengths, atol=0.03)
+    np.testing.assert_array_equal(full.X[0], frames[0])
+
+
+def test_load_spc_reads_multi_spectrum_payload(synthetic_spc):
+    from enginir.io.spc_io import load_spc
+
+    path, wavelengths, spectra = synthetic_spc
+    data = load_spc(path)
+
+    np.testing.assert_allclose(data.X, spectra, atol=1e-6)
+    np.testing.assert_allclose(data.wavelengths, wavelengths, atol=0.01)
+    assert data.meta["n_spectra"] == 2
+
+
+def test_load_spa_reads_values_wavelengths_and_metadata(synthetic_spa):
+    from enginir.io.spa_io import load_spa
+
+    path, x_first, x_last, y = synthetic_spa
+    data = load_spa(str(path))
+
+    assert data.X.shape == (1, y.shape[0])
+    assert data.wavelengths[0] == pytest.approx(x_first, rel=1e-4)
+    assert data.wavelengths[-1] == pytest.approx(x_last, rel=1e-4)
+    np.testing.assert_allclose(data.X[0], y, atol=1e-6)
+    assert data.meta["title"] == "NIR Test"
+    assert data.meta["date"] == "Thu Jan 08 10:15:00 2026"  # not run into the type code
+    assert data.meta["data_type"] == "absorbance"
+
+
+def test_load_jcamp_reads_xy_variants_multiblock_and_yfactor(tmp_path):
+    from enginir.io.jcamp_io import load_jcamp
+
+    x = np.linspace(4000, 400, 40)
+    y1 = np.linspace(0.1, 0.9, 40)
+    y2 = np.linspace(0.9, 0.1, 40)
+    compound = (
+        _build_jcamp_xpluspy(x, y1, title="Block 1")
+        + "\n"
+        + _build_jcamp_xpluspy(x, y2, title="Block 2")
+    )
+    compound_path = tmp_path / "compound.dx"
+    compound_path.write_text(compound, encoding="latin-1")
+    compound_data = load_jcamp(str(compound_path))
+
+    assert compound_data.X.shape == (2, 40)
+    np.testing.assert_allclose(compound_data.X[0], y1, atol=1e-5)
+    np.testing.assert_allclose(compound_data.X[1], y2, atol=1e-5)
+
+    xyxy_path = tmp_path / "xyxy.jdx"
+    xyxy_path.write_text(
+        _build_jcamp_xyxy(np.linspace(1000, 2500, 20), np.linspace(0.2, 0.8, 20)),
+        encoding="latin-1",
+    )
+    xyxy_data = load_jcamp(str(xyxy_path))
+    assert xyxy_data.X.shape == (1, 20)
+
+    yfactor_path = tmp_path / "yfactor.dx"
+    yfactor_path.write_text(_build_jcamp_xpluspy(x, y1, yfactor=0.001), encoding="latin-1")
+    yfactor_data = load_jcamp(str(yfactor_path))
+    np.testing.assert_allclose(yfactor_data.X[0], y1, atol=1e-5)
+
+
+def test_roi_storage_rejects_integers_outside_uint16():
+    from enginir.io.project_store import as_roi_storage_array
+
+    assert as_roi_storage_array(np.array([[0, 65535]], dtype=np.int32)).dtype == np.uint16
+    with pytest.raises(ValueError, match="fit into uint16"):
+        as_roi_storage_array(np.array([[-1, 70000]], dtype=np.int32))

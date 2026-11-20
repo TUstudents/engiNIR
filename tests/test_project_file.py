@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 from enginir import PreprocessingRecipe, Project
 from enginir.io.project_store import (
+    load_roi_spectra_batch,
     create_project,
     discard_prediction_run_artifacts,
     finalize_prediction_run_artifacts,
@@ -870,3 +871,49 @@ def test_a_project_of_an_earlier_format_is_refused_as_a_project_not_read_as_data
             read(old)
 
 
+def test_roi_spectra_preserve_float32_for_precalibrated_sources(project_path, wavelengths):
+    create_project(project_path)
+    _seed_dataset_context(project_path, wavelengths)
+    n_bands = len(wavelengths)
+    reflectance = np.linspace(0.01, 0.99, 2 * n_bands, dtype=np.float32).reshape(2, n_bands)
+    raw_dn = np.arange(2 * n_bands, dtype=np.uint16).reshape(2, n_bands) + 10
+    save_training_roi(
+        project_path,
+        "roi_float",
+        _roi_payload(wavelengths, name="Float", n_pixels=2),
+        reflectance,
+    )
+    save_training_roi(
+        project_path,
+        "roi_raw",
+        _roi_payload(wavelengths, name="Raw", n_pixels=2),
+        raw_dn,
+    )
+
+    with h5py.File(project_path, "r") as handle:
+        assert handle["rois/roi_float/spectra"].dtype == np.float32
+        assert handle["rois/roi_raw/spectra"].dtype == np.uint16
+
+    loaded = load_roi_spectra_batch(project_path, ["/rois/roi_float/spectra"])
+    np.testing.assert_array_equal(loaded["/rois/roi_float/spectra"], reflectance)
+
+    from enginir.io.project_store import load_roi_spectra_matrix
+
+    matrix, slices = load_roi_spectra_matrix(
+        project_path,
+        ["/rois/roi_raw/spectra", "/rois/roi_float/spectra"],
+        n_bands=len(wavelengths),
+    )
+    assert matrix.dtype == np.float32
+    np.testing.assert_array_equal(matrix[slices["/rois/roi_float/spectra"]], reflectance)
+    np.testing.assert_array_equal(
+        matrix[slices["/rois/roi_raw/spectra"]],
+        raw_dn.astype(np.float32),
+    )
+
+    raw_only, _ = load_roi_spectra_matrix(
+        project_path,
+        ["/rois/roi_raw/spectra"],
+        n_bands=len(wavelengths),
+    )
+    assert raw_only.dtype == np.uint16

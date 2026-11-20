@@ -8,7 +8,7 @@ import pytest
 from tests._tables import check_all
 from scipy.spatial.distance import cdist
 
-from enginir.models import SIMCA, PLSRegression
+from enginir.models import PCR, SIMCA, PLSRegression
 from enginir.validation import (
     aggregate_regression_predictions,
     bias,
@@ -214,3 +214,21 @@ def test_q_limit_recovers_the_chi_square_quantile_for_gaussian_residuals():
     X = np.random.default_rng(5).standard_normal((20000, 20))  # Q is exactly chi2(20)
     q_crit = spectral_outliers(X, np.zeros_like(X), alpha=0.05)[1]
     assert q_crit == pytest.approx(chi2.ppf(0.95, 20), rel=0.02)
+
+
+def test_grouped_cross_validation_never_splits_a_group():
+    class RecordingPCR(PCR):
+        seen: list = []
+
+        def fit(self, X, y):
+            RecordingPCR.seen.append(set(np.round(X[:, 0], 12)))
+            return super().fit(X, y)
+
+    groups = np.repeat(np.arange(10), 4)
+    X = RNG.random((40, 5))
+    cross_validate(RecordingPCR(n_components=2), X, RNG.random(40), groups=groups)
+    assert RecordingPCR.seen
+    for training_rows in RecordingPCR.seen:
+        for group in range(10):
+            members = set(np.round(X[groups == group, 0], 12))
+            assert members <= training_rows or not members & training_rows

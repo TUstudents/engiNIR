@@ -8,6 +8,7 @@ from enginir import PreprocessingRecipe, Project
 from enginir.io import save_hdf5
 from enginir.io.project_store import (
     create_project,
+    load_project_store,
     load_roi_band_images,
     save_reference_correction,
     save_dataset_ref,
@@ -673,3 +674,106 @@ def test_the_viewer_shows_missing_roi_scores_as_not_available():
     assert "scores_roi" not in payload and "not available" in payload["scores_message"]
     nan_row = np.array([[1.0, 2.0], [np.nan, np.nan]], dtype=np.float32)
     assert _roi_score_payload({"roi_scores": nan_row})["scores_without_pixels"] == 1
+
+
+def test_fit_model_run_uses_roi_aggregated_primary_metrics(tmp_path, monkeypatch):
+    project_path = str(tmp_path / "phase5_model_run_aggregated.h5")
+    _create_model_project(project_path)
+
+    state = CoreSession()
+    state.open_project(project_path)
+    sample_set_data = build_sample_set(
+        project_path=project_path,
+        rois=state.rois,
+        target_assignments=state.target_assignments,
+        target_id="target_moisture",
+        preprocessing_recipe_id="recipe_none",
+        roi_ids=["roi_1", "roi_2"],
+        sample_set_id="sample_set_agg",
+    )
+
+    def _fake_cross_validate(estimator, X, y, cv, groups, scoring=None, return_train_score=False):
+        del estimator, X, scoring, return_train_score
+        assert isinstance(cv, RoundRobinGroups) and cv.n_splits == 7  # cv="auto"
+        # One label per ROI: its position in the sample set's roi_ids.
+        np.testing.assert_array_equal(groups, [0, 0, 1, 1])
+        np.testing.assert_array_equal(y, np.array([1.0, 1.0, 2.0, 2.0], dtype=np.float32))
+        return {
+            "y_true": y,
+            # the component curve's cross-validation: one column per number of components
+            "y_pred": np.array([[0.0], [2.0], [1.0], [3.0]], dtype=np.float32),
+            "cv_scheme": {"type": "LeaveOneGroupOut", "n_splits": 2},
+        }
+
+    monkeypatch.setattr("enginir.modeling._components.cross_validate", _fake_cross_validate)
+
+    result = fit_model_run(
+        project_path=project_path,
+        sample_set=sample_set_data.sample_set,
+        datasets=state.datasets,
+        reference_corrections=state.reference_corrections,
+        rois=state.rois,
+        target_assignments=state.target_assignments,
+        recipes=state.recipes,
+        signal_domains=state.signal_domains,
+        signal_domain_id="signal_domain_1",
+        model_type="PLS",
+        # the pipeline path (its cross_validate is replaced); kernel fits run on sums
+        hyperparameters={"n_components": 1, "algorithm": "nipals"},
+        model_run_id="model_run_agg",
+    )
+
+    assert result.model_run.metrics["rmsecv"] == pytest.approx(0.0)
+    assert result.model_run.metrics["bias"] == pytest.approx(0.0)
+    assert result.model_run.cv_spec["type"] == "LeaveOneGroupOut"
+    assert result.model_run.cv_spec["requested"] == "auto"
+    assert result.model_run.metrics["pixel_rmsecv"] == pytest.approx(1.0)
+    assert result.model_run.metrics["pixel_bias"] == pytest.approx(0.0)
+    np.testing.assert_array_equal(result.roi_ids, np.array(["roi_1", "roi_2"], dtype=object))
+    np.testing.assert_allclose(result.roi_y_true, np.array([1.0, 2.0], dtype=np.float32))
+    np.testing.assert_allclose(result.roi_y_pred, np.array([1.0, 2.0], dtype=np.float32))
+
+
+def test_model_run_working_arrays_are_float32(tmp_path):
+    """Targets, CV predictions and persisted ROI diagnostics use the float32 working dtype."""
+    project_path = str(tmp_path / "dtype.h5")
+    _create_model_project(project_path)
+    state = CoreSession()
+    state.open_project(project_path)
+    sample_set_data = state.build_sample_set(
+        target_id="target_moisture",
+        preprocessing_recipe_id="recipe_none",
+    )
+    result = state.fit_model_run(
+        sample_set_id=sample_set_data.sample_set.sample_set_id,
+        signal_domain_id="signal_domain_1",
+        model_type="PLS",
+        hyperparameters={"n_components": 1},
+        cv="logo",
+    )
+
+    assert sample_set_data.y.dtype == np.float32
+    for array in (result.pixel_y_true, result.pixel_y_pred, result.roi_y_true, result.roi_y_pred):
+        assert array.dtype == np.float32
+    cv_outputs = result.model_run.artifact_refs["cv_outputs"]
+    assert cv_outputs["y_true_roi"].dtype == cv_outputs["y_pred_roi"].dtype == np.float32
+
+
+def test_fit_model_run_rejects_a_signal_domain_the_training_data_cannot_produce(tmp_path):
+    from enginir.project import SignalDomainCompatibilityError
+
+    project_path = str(tmp_path / "model_run_incompatible.h5")
+    _create_model_project(project_path)
+    domain = load_project_store(project_path)["signal_domains"]["signal_domain_1"]
+    save_signal_domain_contract(project_path, "signal_domain_swir",
+                                {**domain, "source_modality": "swir_line_scan"})
+    state = CoreSession()
+    state.open_project(project_path)
+    data = build_sample_set(project_path=project_path, rois=state.rois,
+                            target_assignments=state.target_assignments,
+                            target_id="target_moisture", preprocessing_recipe_id="recipe_none",
+                            roi_ids=["roi_1", "roi_2"], sample_set_id="sample_set_swir")
+
+    with pytest.raises(SignalDomainCompatibilityError, match="source_modality"):
+        fit_model_run(**_fit_kwargs(project_path, state, data.sample_set,
+                                    signal_domain_id="signal_domain_swir"))

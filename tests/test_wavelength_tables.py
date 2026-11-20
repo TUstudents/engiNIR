@@ -236,3 +236,14 @@ def test_the_checks_fix_sets_the_wavelengths_of_the_shown_dataset(qapp, tmp_path
         window.close()
 
 
+def test_the_kestreleye_table_holds_the_helios_wavelengths():
+    """Extracted from an .eiff of the Kestreleye setting (EVK-Helios-EC-32, 176 bands from
+    wavelength start 36); a changed value changes the id."""
+    table = wavelength_table(KESTRELEYE)
+    assert table.n_bands == N_BANDS and "Helios" in table.camera
+    assert table.wavelengths[[0, 1, 90, 175]].tolist() == pytest.approx(
+        [1041.75, 1044.9, 1323.45, 1589.5], abs=1e-4)
+    assert np.all(np.diff(table.wavelengths) > 3.1) and np.all(np.diff(table.wavelengths) < 3.2)
+    assert table.table_id == "wlt-4927c6969fd7d903"
+    assert [t.name for t in wavelength_tables(N_BANDS)] == [KESTRELEYE]
+    assert wavelength_tables(220) == []

@@ -229,3 +229,11 @@ def test_the_guard_can_be_switched_off_and_the_curve_stores_the_new_fields(tmp_p
     assert fixed.record.fit_specification.components_noise_guard == "off"
     assert fixed.record.fit_specification.components_rule_choice == 2
     assert "warnings" in fixed.record.cv_spec
+
+
+def test_the_f_test_uses_the_fold_groups_not_the_pixels():
+    curve = {"rmsecv": [2.0, 1.2, 1.04, 1.0], "rmsecv_se": [0.0] * 4, "q2": [0.5] * 4}
+    # (1.2/1.0)² = 1.44 passes F(0.75; 6, 6) = 1.78 but not F(0.75; 200, 200) = 1.10.
+    assert f.ppf(0.75, 6, 6) > 1.44 > f.ppf(0.75, 200, 200)
+    assert choose_components(curve, "f_test", n_samples=6) == 2
+    assert choose_components(curve, "f_test", n_samples=200) == 3

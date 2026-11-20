@@ -5,7 +5,7 @@
 Housekeeping: a smaller, sharper test suite and less dead code. No change for
 users of the library or the viewer.
 
-- **Tests:** 1190 down to 689 test cases (830 to 573 test functions) with the
+- **Tests:** 1190 down to 708 test cases (830 to 592 test functions) with the
   same line coverage; table-style cases are one test each, tests that detect
   nothing the others do not are gone, the model-run and prediction tests run
   without Qt (`tests/_sessions.py`), and `benchmarks/` holds the kernel PLS
