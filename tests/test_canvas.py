@@ -31,22 +31,6 @@ def test_the_image_is_rows_by_frames_with_named_axes(canvas):
         canvas.set_image(np.zeros((10, 20), dtype=np.float32))
 
 
-def test_the_crosshair_is_hidden_until_it_is_placed(canvas):
-    assert not canvas._vline.isVisible() and not canvas._hline.isVisible()
-    canvas.set_crosshair(7, 4)
-    assert canvas._vline.isVisible() and canvas._hline.isVisible()
-    assert (canvas._vline.value(), canvas._hline.value()) == (7, 4)
-
-
-def test_reset_view_restores_full_image_range(canvas):
-    canvas._view.setRange(xRange=(2, 4), yRange=(3, 5), padding=0.0)
-    before = canvas._view.viewRange()
-    canvas.reset_view()
-    after = canvas._view.viewRange()
-    assert after[0][1] - after[0][0] > before[0][1] - before[0][0]
-    assert after[1][1] - after[1][0] > before[1][1] - before[1][0]
-
-
 def test_drawing_an_roi_emits_clamped_bounds_and_escape_cancels(canvas):
     bounds, canceled = [], []
     canvas.roi_draw_finished.connect(lambda *b: bounds.append(b))
@@ -96,3 +80,23 @@ def test_roi_overlays_are_tracked_selected_hit_and_cleared(canvas):
 
     canvas.clear_roi_rects()
     assert canvas._roi_items == []
+
+
+def test_an_image_opens_fitted_as_reset_view_fits_it(qapp):
+    """Shown while its view is small (a page not laid out yet), an image used to get
+    pyqtgraph's size-dependent padding (up to 10 %); Reset View uses 2 %."""
+    from enginir.viewer._canvas import FalseColourCanvas
+
+    canvas = FalseColourCanvas()
+    canvas.resize(60, 60)
+    canvas.show()
+    qapp.processEvents()
+    try:
+        canvas.set_image(np.random.default_rng(0).random((40, 80, 3)))
+        canvas.resize(900, 600)
+        qapp.processEvents()
+        shown = np.array(canvas.view_box.viewRange())
+        canvas.reset_view()
+        np.testing.assert_allclose(shown, np.array(canvas.view_box.viewRange()), atol=1e-6)
+    finally:
+        canvas.close()

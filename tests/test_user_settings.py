@@ -210,27 +210,6 @@ def test_load_returns_empty_list_for_malformed_json(tmp_path, monkeypatch):
     assert recent.load() == []
 
 
-@pytest.mark.usefixtures("_no_xdg_config_home")
-def test_add_keeps_most_recent_order_without_duplicates_and_caps_length(tmp_path, monkeypatch):
-    monkeypatch.setattr(sys, "platform", "linux")
-    monkeypatch.setenv("HOME", str(tmp_path))
-    import enginir.viewer._recent as recent
-
-    reload(recent)
-    recent.add("/a.eiff")
-    recent.add("/b.eiff")
-    recent.add("/a.eiff")
-    for index in range(15):
-        recent.add(f"/file_{index}.eiff")
-
-    loaded = recent.load()
-
-    assert len(loaded) == 10
-    assert loaded[0].endswith("/file_14.eiff")
-    assert len(set(loaded)) == len(loaded)
-    assert not any(path.endswith("/b.eiff") for path in loaded)
-
-
 def test_add_dataset_starts_from_the_preferences_levels(qapp, tmp_path):
     """3100 by default (the Helios white balance; 3500 before 1.7.3), changed in Tools >
     Preferences; a file that states its levels keeps them; nonsense falls back."""

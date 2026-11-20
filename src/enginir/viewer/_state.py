@@ -14,7 +14,6 @@ from typing import Any
 import numpy as np
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
-from ..io import file_format, load_spectra
 from .._workflow import (
     DEFAULT_BLACK_LEVEL,
     DEFAULT_WHITE_LEVEL,
@@ -22,8 +21,6 @@ from .._workflow import (
     Project,
     data_file_labels,
     is_data_file_of,
-    resolve_dataset,
-    resolve_prediction_reference_correction,
 )
 from ..project import (
     ReferenceCorrection,
@@ -37,8 +34,7 @@ from ..project import (
 )
 from ..preprocessing import PreprocessingRecipe
 from ..preprocessing.recipe import SG_FILTERS
-from ..prediction import (PredictionResult, RoiPredictionSummary, predict_with_model_run,
-                          spectral_axis_in_nm)
+from ..prediction import (PredictionResult, RoiPredictionSummary, spectral_axis_in_nm)
 from .._checks import log_and_raise
 from .._logging import get_logger
 from ..io.project_store import as_roi_storage_array
@@ -91,14 +87,6 @@ class PredictionJobContext:
     reference_corrections: dict[str, ReferenceCorrection]
     active_reference_correction_ids: dict[str, str]
     model_registry: dict[str, Any]
-
-
-def _load_prediction_metadata(data_path: str, *, loader_kwargs: dict[str, Any] | None) -> Any:
-    """Read the metadata of a prediction input; EIFF and HDF5 skip the pixel data."""
-    kwargs = dict(loader_kwargs or {})
-    if file_format(data_path) in ("eiff", "hdf5"):
-        kwargs["header_only"] = True
-    return load_spectra(data_path, **kwargs)
 
 
 #: Every live project mirror of this process, to refresh windows on the same project.
@@ -515,84 +503,11 @@ class ProjectState(QObject):
         self._written()
         self.sample_sets_changed.emit()
 
-    def build_sample_set(
-        self,
-        *,
-        target_id: str,
-        preprocessing_recipe_id: str,
-        roi_ids: list[str] | None = None,
-        sample_set_id: str | None = None,
-        created_at: str | None = None,
-    ) -> Any:
-        """Build and persist one sample set from the current project workspace."""
-        from ..modeling import build_sample_set as build_project_sample_set
-
-        project_path = self._require_project_path("build_sample_set")
-        sample_set_data = build_project_sample_set(
-            project_path=project_path,
-            rois=self.rois,
-            target_assignments=self.target_assignments,
-            target_id=target_id,
-            preprocessing_recipe_id=preprocessing_recipe_id,
-            roi_ids=roi_ids,
-            sample_set_id=sample_set_id,
-            created_at=created_at,
-        )
-        self.create_sample_set(sample_set_data.sample_set)
-        return sample_set_data
-
     def register_model_run(self, model_run: ModelRun) -> None:
         """Persist a model run."""
         self._require_project("register_model_run").save_model_run(model_run)
         self._written()
         self.model_runs_changed.emit()
-
-    def fit_model_run(
-        self,
-        *,
-        sample_set_id: str,
-        signal_domain_id: str,
-        signal_domain: SignalDomainContract | None = None,
-        model_type: str,
-        hyperparameters: dict[str, Any] | None = None,
-        cv: int | str = "auto",
-        model_run_id: str | None = None,
-        created_at: str | None = None,
-    ) -> Any:
-        """Fit, persist, and activate one grouped model run."""
-        from ..modeling import fit_model_run as fit_project_model_run
-
-        project = self._require_project("fit_model_run")
-        if sample_set_id not in self.sample_sets:
-            log_and_raise("Unknown sample_set_id '{}'", sample_set_id)
-        project.require_current_sample_set(sample_set_id, action="fit model")
-        sample_set = self.sample_sets[sample_set_id]
-        target = self.targets.get(sample_set.target_id)
-        signal_domains = dict(self.signal_domains)
-        if signal_domain is not None:
-            signal_domains[signal_domain.signal_domain_id] = signal_domain
-        if signal_domain_id not in signal_domains:
-            log_and_raise("Unknown signal_domain_id '{}'", signal_domain_id)
-        model_run_result = fit_project_model_run(
-            project_path=project.path,
-            sample_set=sample_set,
-            datasets=self.datasets,
-            reference_corrections=self.reference_corrections,
-            rois=self.rois,
-            target_assignments=self.target_assignments,
-            recipes=self.recipes,
-            signal_domains=signal_domains,
-            signal_domain_id=signal_domain_id,
-            model_type=model_type,
-            hyperparameters=hyperparameters,
-            cv=cv,
-            model_run_id=model_run_id,
-            created_at=created_at,
-            target_name=None if target is None else target.name,
-        )
-        self.finalize_model_run_result(model_run_result=model_run_result,
-                                       signal_domain=signal_domain)
-        return model_run_result
 
     def finalize_model_run_result(
         self,
@@ -665,48 +580,6 @@ class ProjectState(QObject):
         self.predictions_changed.emit()
         self.prediction_completed.emit(run_id)
 
-    def predict_dataset(
-        self,
-        *,
-        model_run_id: str,
-        data_path: str,
-        reference_correction: ReferenceCorrection | None = None,
-        dataset_id: str | None = None,
-        prediction_run_id: str | None = None,
-        created_at: str | None = None,
-        loader_kwargs: dict[str, Any] | None = None,
-    ) -> PredictionResult:
-        """Resolve the dataset and reference correction and predict in memory; nothing is written.
-
-        The result (with the DModXPS and T²PS maps when the saved model has
-        projection data) is kept for this session (:meth:`add_prediction`).
-        """
-        context = self.build_prediction_job_context(model_run_id=model_run_id)
-        spectral_data = _load_prediction_metadata(data_path, loader_kwargs=loader_kwargs)
-        dataset, _ = resolve_dataset(context.datasets, data_path, spectral_data,
-                                     dataset_id=dataset_id, created_at=created_at,
-                                     project_path=context.project_path)
-        resolved_reference_correction, _ = resolve_prediction_reference_correction(
-            dataset, context.reference_corrections, context.active_reference_correction_ids, reference_correction)
-        result = predict_with_model_run(
-            project_path=context.project_path,
-            model_run=context.model_run,
-            signal_domain=context.signal_domain,
-            recipe=context.recipe,
-            dataset=dataset,
-            reference_correction=resolved_reference_correction,
-            model_registry=context.model_registry,
-            data_path=data_path,
-            spectral_data=spectral_data,
-            preprocessing_recipe_id=context.preprocessing_recipe_id,
-            prediction_run_id=prediction_run_id,
-            created_at=created_at,
-            loader_kwargs=loader_kwargs,
-            prefer_saved_model=True,
-        )
-        self.add_prediction(result)
-        return result
-
     def remove_roi(self, roi_id: str) -> None:
         """Delete an ROI and its assignments."""
         removed = self.rois.get(roi_id)
@@ -722,10 +595,6 @@ class ProjectState(QObject):
             if self.model_runs_for_sample_sets(affected_sample_set_ids):
                 self.model_runs_changed.emit()
 
-    def get_target_assignment(self, roi_id: str, target_id: str) -> TargetAssignment | None:
-        """Return one assignment by `(roi_id, target_id)` if present."""
-        return self.target_assignments.get((roi_id, target_id))
-
     def _require_project(self, action: str) -> Project:
         if self.project is None:
             log_and_raise("{} called with no active project", action, error=RuntimeError, depth=2)
@@ -733,20 +602,6 @@ class ProjectState(QObject):
 
     def _require_project_path(self, action: str) -> str:
         return self._require_project(action).path
-
-    # -- heavy artifacts -------------------------------------------------------------
-
-    def ensure_model_run_artifact_refs(self, model_run_id: str) -> dict[str, Any]:
-        """Load heavy model-run artifact refs on demand and merge them into memory."""
-        from ..io.project_store import load_model_run_artifact_refs
-
-        project_path = self._require_project_path("ensure_model_run_artifact_refs")
-        model_run = self.model_runs.get(model_run_id)
-        if model_run is None:
-            log_and_raise("Unknown model_run_id '{}'", model_run_id, error=KeyError)
-        loaded = load_model_run_artifact_refs(project_path, model_run_id)
-        model_run.artifact_refs = _merge_artifact_refs(model_run.artifact_refs, loaded)
-        return model_run.artifact_refs
 
     # -- mirroring -------------------------------------------------------------------
 
@@ -800,15 +655,6 @@ class ProjectState(QObject):
         self.sample_sets_changed.emit()
         self.model_runs_changed.emit()
         self.predictions_changed.emit()
-
-
-def _merge_artifact_refs(current: dict[str, Any], loaded: dict[str, Any]) -> dict[str, Any]:
-    merged = dict(current)
-    for key, value in loaded.items():
-        current_value = merged.get(key)
-        merged[key] = (_merge_artifact_refs(current_value, value)
-                       if isinstance(current_value, dict) and isinstance(value, dict) else value)
-    return merged
 
 
 class ViewerState(QObject):
@@ -1418,43 +1264,6 @@ class ViewerState(QObject):
             return np.zeros((0, 0), dtype=np.uint16)
         left, right, top, bottom = self._normalized_roi_bounds(f0, f1, r0, r1)
         return self.cube[left : right + 1, top : bottom + 1, :].reshape(-1, self.n_bands)
-
-    def roi_reference_spectra(
-        self,
-        ref: np.ndarray,
-        f0: int,
-        f1: int,
-        r0: int,
-        r1: int,
-    ) -> np.ndarray:
-        """Return cross-track reference rows aligned to ``raw_roi_spectra`` order."""
-        if not self.has_dataset:
-            return np.zeros((0, 0), dtype=_WORKING_DTYPE)
-        left, right, top, bottom = self._normalized_roi_bounds(f0, f1, r0, r1)
-        n_frames = right - left + 1
-        ref_arr = np.asarray(ref, dtype=_WORKING_DTYPE)
-        if ref_arr.ndim != 2 or ref_arr.shape != (self.height, self.n_bands):
-            log_and_raise(
-                "ROI reference spectra require ref shape ({}, {}), got {}",
-                self.height, self.n_bands, ref_arr.shape,
-            )
-        row_refs = ref_arr[top : bottom + 1]
-        return np.tile(row_refs, (n_frames, 1)).astype(_WORKING_DTYPE, copy=False)
-
-    def roi_dark_white_reference_spectra(
-        self,
-        f0: int,
-        f1: int,
-        r0: int,
-        r1: int,
-    ) -> tuple[np.ndarray, np.ndarray] | None:
-        """Return ROI-local dark/white refs aligned to stored raw ROI spectra."""
-        if self.dark_ref is None or self.white_ref is None:
-            return None
-        return (
-            self.roi_reference_spectra(self.dark_ref, f0, f1, r0, r1),
-            self.roi_reference_spectra(self.white_ref, f0, f1, r0, r1),
-        )
 
     def _normalized_roi_bounds(
         self,

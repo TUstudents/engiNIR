@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication, QDockWidget, QMainWindow, QSplitter, QTreeWidget
+from PyQt6.QtWidgets import QApplication, QTreeWidget
 import numpy as np
 import pytest
 from enginir import Project
 from enginir.io import save_hdf5
-from enginir.project import FitSpec
-from enginir.project._models import software_versions
-from tests._project_payloads import projection_payload, recipe_payload, roi_provenance
 from tests._qt import wait_until
 from tests._scans import framed_scan
 
@@ -80,33 +77,6 @@ def _fit(qapp, window, n_components=1, **form):
     (new,) = set(window.project_state.model_runs) - before
     window.refresh_checks()
     return window.project_state.model_runs[new]
-
-
-def test_every_workspace_action_is_a_menu_item_and_follows_its_button(qapp, layers):
-    window = _open(qapp, layers)
-    try:
-        titles = [action.text() for action in window.menuBar().actions()]
-        assert titles == ["File", "Edit", "View", "Project", "ROI", "Model", "Predict",
-                          "Tools", "Help"]
-        assert window.findChildren(type(window._workflow_bar)) == [window._workflow_bar], \
-            "the workflow strip is the only bar: no toolbar of actions"
-        from enginir.viewer._viewer import _button_of
-
-        # A page built on first use gives its buttons through a function (D8).
-        pairs = [(action, _button_of(button)) for action, button in window._button_actions]
-        buttons = {button for _action, button in pairs}
-        assert window._modeling_view._btn_fit_model in buttons
-        assert window._prediction_view._btn_predict_rois in buttons
-        assert window._eda_view._btn_roi_grid in buttons
-        for action, button in pairs:
-            button.setEnabled(False)
-            window._sync_button_actions()
-            assert not action.isEnabled(), action.text()
-            button.setEnabled(True)
-            window._sync_button_actions()
-            assert action.isEnabled(), action.text()
-    finally:
-        window.close()
 
 
 def test_the_strip_opens_each_step_and_shows_the_open_checks(qapp, layers):
@@ -229,27 +199,6 @@ def test_the_models_panel_shows_each_model_with_the_library_verdict(qapp, layers
         window.close()
 
 
-def test_the_window_is_menus_strip_three_columns_and_a_bottom_panel(qapp, layers):
-    window = _open(qapp, layers)
-    try:
-        area = window.dockWidgetArea
-        assert area(window._controls_dock) == Qt.DockWidgetArea.RightDockWidgetArea
-        assert area(window._project_browser_dock) == Qt.DockWidgetArea.LeftDockWidgetArea
-        bottom = [window._checks_dock, window._roi_table_dock, window._models_dock,
-                  window._log_dock]
-        assert all(area(dock) == Qt.DockWidgetArea.BottomDockWidgetArea for dock in bottom)
-        assert set(window.tabifiedDockWidgets(window._checks_dock)) == set(bottom[1:])
-        for dock in (*bottom, window._controls_dock, window._project_browser_dock):
-            features = dock.features()
-            assert not features & dock.DockWidgetFeature.DockWidgetFloatable, "fixed (Q6)"
-            assert not features & dock.DockWidgetFeature.DockWidgetMovable
-        assert not window._workspace_tabs.tabBar().isVisible(), "the strip navigates"
-        assert window._project_browser_dock.windowTitle() == "Project"
-        assert window._inspector_dock.windowTitle() == "Properties"
-    finally:
-        window.close()
-
-
 def test_the_example_project_is_created_once_and_opens_with_a_model(qapp, tmp_path,
                                                                      monkeypatch):
     from enginir._example import create_example_project
@@ -290,16 +239,6 @@ def test_no_bar_repeats_the_checks_and_the_fit_summary_gives_the_verdict(qapp, l
     window = _open(qapp, layers)
     try:
         assert window.centralWidget() is window._workspace_content_stack, "no bar above"
-        window.show_step("values")
-        qapp.processEvents()
-        checks = window._checks_panel.checks()
-        row = next(i for i, c in enumerate(checks)
-                   if c.check_id == "values.differ_within_sample")
-        button = window._checks_panel.fix_button(row)
-        assert button is not None and button.text() == "Go to ROI"
-        button.click()
-        assert window._selected_roi_id() == layers.roi("high3").roi_id
-
         window.show_step("predict")
         qapp.processEvents()
         assert window._predict_page_stack.currentWidget() is window._predict_empty, \
@@ -498,271 +437,6 @@ def cube_and_wavelengths():
     return cube, wavelengths
 
 
-def _create_reopenable_model_project(path: str, wavelengths: np.ndarray) -> None:
-    from enginir.io.project_store import (
-        create_project,
-        save_reference_correction,
-        save_dataset_ref,
-        save_model_run,
-        save_prediction_run,
-        save_preprocessing_recipe,
-        save_sample_set,
-        save_signal_domain_contract,
-        save_target_assignment,
-        save_target_definition,
-        save_training_roi,
-    )
-    from enginir.models.pls import PLSRegression
-
-    create_project(path)
-    save_dataset_ref(
-        path,
-        "dataset_1",
-        {
-            "source_path": "/data/train.eiff",
-            "source_format": "eiff",
-            "source_modality": "nir_hsi",
-            "cube_shape": (4, 8, 4),
-            "n_bands": 4,
-            "wavelengths": wavelengths.astype(np.float32),
-            "loader_metadata": {},
-            "import_timestamp": "2026-04-13T10:00:00+00:00",
-        },
-    )
-    save_reference_correction(
-        path,
-        "dataset_1",
-        "cal_1",
-        {"mode": "raw_dn", "output_signal_unit": "DN", "created_at": "2026-04-13T10:00:01+00:00"},
-    )
-    save_target_definition(
-        path,
-        "target_1",
-        {
-            "name": "moisture",
-            "unit": "% w/w",
-            "value_type": "float",
-            "missing_value_policy": "allowed",
-            "created_at": "2026-04-13T10:00:02+00:00",
-        },
-    )
-    save_preprocessing_recipe(
-        path,
-        "recipe_1",
-        recipe_payload(),
-    )
-    save_signal_domain_contract(
-        path,
-        "signal_domain_1",
-        {
-            "input_format": "eiff",
-            "source_modality": "nir_hsi",
-            "required_signal_unit": "DN",
-            "required_correction_mode": "raw_dn",
-            "requires_dark_ref": False,
-            "requires_white_ref": False,
-            "corrected_input_allowed": False,
-            "n_bands": int(len(wavelengths)),
-            "wavelengths": wavelengths.astype(np.float32),
-            "wavelength_tolerance_nm": 0.0,
-            "band_mapping_policy": "exact",
-            "output_dtype": "float32",
-            "created_at": "2026-04-13T10:00:04+00:00",
-        },
-    )
-    roi_specs = {
-        "roi_1": (
-            np.array([[1.0, 2.0, 3.0, 4.0], [1.1, 2.1, 3.1, 4.1]], dtype=np.float64),
-            1.0,
-            (0, 1, 0, 1),
-        ),
-        "roi_2": (
-            np.array([[2.0, 3.0, 4.0, 5.0], [2.1, 3.1, 4.1, 5.1]], dtype=np.float64),
-            2.0,
-            (2, 3, 0, 1),
-        ),
-    }
-    for index, (roi_id, (spectra, value, bounds)) in enumerate(roi_specs.items(), start=1):
-        save_training_roi(
-            path,
-            roi_id,
-            {
-                "dataset_id": "dataset_1",
-                "reference_correction_id": "cal_1",
-                "name": roi_id,
-                "wavelengths": wavelengths.astype(np.float32),
-                "source_file": "/data/train.eiff",
-                "job": "calibration",
-                "spatial_bounds": bounds,
-                "n_pixels": int(spectra.shape[0]),
-                "created_at": f"2026-04-13T10:00:1{index}+00:00",
-                "provenance": roi_provenance(
-                    created_at=f"2026-04-13T10:00:{10 + index:02d}+00:00"
-                ),
-            },
-            spectra.astype(np.uint16),
-        )
-        save_target_assignment(
-            path,
-            "target_1",
-            roi_id,
-            {"value": value, "assigned_at": f"2026-04-13T10:00:2{index}+00:00"},
-        )
-    save_sample_set(
-        path,
-        "sample_set_1",
-        {
-            "roi_ids": ["roi_1", "roi_2"],
-            "target_id": "target_1",
-            "observation_unit": "pixel",
-            "target_level": "roi",
-            "grouping_unit": "roi",
-            "validation_unit": "roi",
-            "weighting_policy": "per_pixel_unweighted",
-            "reporting_level": "roi",
-            "roi_aggregation": "mean",
-            "preprocessing_recipe_id": "recipe_1",
-            "dataset_ids": ["dataset_1"],
-            "created_at": "2026-04-13T10:00:30+00:00",
-        },
-    )
-    X = np.vstack([roi_specs["roi_1"][0], roi_specs["roi_2"][0]])
-    y = np.array([1.0, 1.0, 2.0, 2.0], dtype=np.float64)
-    model = PLSRegression(n_components=2)
-    model.fit(X, y)
-    save_model_run(
-        path,
-        "model_1",
-        {
-            "sample_set_id": "sample_set_1",
-            "signal_domain_id": "signal_domain_1",
-            "model_type": "PLS",
-            "fit_spec": FitSpec(groups=(0, 1)).to_dict(),
-            "software": software_versions(),
-            "hyperparameters": {"n_components": 2},
-            "cv_spec": {"cv": "logo"},
-            "metrics": {"rmsecv": 0.55, "r2": 0.9, "bias": 0.05},
-            "artifact_refs": {
-                "prediction_model": {
-                    "n_components": 1,
-                    "model_type": "PLSRegression",
-                    "wavelengths": wavelengths.astype(np.float32),
-                    "target_names": ["moisture"],
-                    "coef_": np.asarray(model.coef_, dtype=np.float32),
-                    "intercept_": np.asarray(model.intercept_, dtype=np.float32),
-                    "x_mean_": np.asarray(model.x_mean_, dtype=np.float32),
-                    "x_std_": np.asarray(model.x_std_, dtype=np.float32),
-                    "y_mean_": np.asarray(model.y_mean_, dtype=np.float32),
-                    "y_std_": np.asarray(model.y_std_, dtype=np.float32),
-                    **projection_payload(wavelengths.size),
-                },
-                "diagnostics": {
-                    "wavelengths": wavelengths.astype(np.float32),
-                    "coef_": np.asarray(model.coef_, dtype=np.float32),
-                    "x_loadings_": np.asarray(model.x_loadings_, dtype=np.float32),
-                    "x_weights_": np.asarray(model.x_weights_, dtype=np.float32),
-                    "y_loadings_": np.asarray(model.y_loadings_, dtype=np.float32),
-                    "x_scores_": np.asarray(model.x_scores_, dtype=np.float32),
-                    "y_scores_": np.asarray(model.y_scores_, dtype=np.float32),
-                },
-            },
-            "created_at": "2026-04-13T10:00:40+00:00",
-        },
-    )
-    save_prediction_run(
-        path,
-        "prediction_1",
-        {
-            "dataset_id": "dataset_1",
-            "reference_correction_id": "cal_1",
-            "model_run_id": "model_1",
-            "signal_domain_id": "signal_domain_1",
-            "preprocessing_recipe_id": "recipe_1",
-            "artifact_refs": {
-                "source_path": "/data/predict.eiff",
-                "y_pred": np.array([0.2, 0.4, 0.6, 0.8], dtype=np.float32),
-                "spatial_map": np.array([[0.2, 0.4], [0.6, 0.8]], dtype=np.float32),
-                "clip_low_count": 1,
-                "clip_high_count": 2,
-                "near_zero_denominator_count": 0,
-            },
-            "created_at": "2026-04-10T10:05:30+00:00",
-        },
-    )
-
-
-def test_the_shell_builds_its_workspaces_and_docks_of_fixed_width(qapp, cube_and_wavelengths):
-    from enginir.viewer._viewer import HSIViewer
-
-    cube, wavelengths = cube_and_wavelengths
-    viewer = HSIViewer(cube, wavelengths)
-
-    assert isinstance(viewer, QMainWindow)
-    assert viewer._canvas is not None
-    assert viewer._model_diagnostics_widget is None
-    assert viewer._predict_map_widget is None
-
-    viewer._workspace_tabs.setCurrentIndex(1)
-    qapp.processEvents()
-    assert isinstance(viewer._model_workspace_splitter, QSplitter)
-    assert viewer._model_workspace_splitter.orientation() == Qt.Orientation.Horizontal
-    assert viewer._model_workspace_splitter.widget(0) is viewer._model_diagnostics_widget
-    assert viewer._model_workspace_splitter.widget(1) is viewer._model_text_panel
-    assert viewer._model_text_panel.maximumWidth() == 360
-
-    viewer._workspace_tabs.setCurrentIndex(2)
-    qapp.processEvents()
-    assert isinstance(viewer._predict_workspace_splitter, QSplitter)
-    assert viewer._predict_workspace_splitter.orientation() == Qt.Orientation.Horizontal
-    assert viewer._predict_workspace_splitter.widget(0) is viewer._predict_graph_panel
-    assert viewer._predict_workspace_splitter.widget(1) is viewer._predict_text_panel
-    assert viewer._predict_text_panel.maximumWidth() == 360
-    assert viewer._project_browser.minimumWidth() == 260
-    assert viewer._project_browser.maximumWidth() == 260
-    assert viewer._inspector.minimumWidth() == 260
-    assert viewer._inspector.maximumWidth() == 260
-    assert viewer._project_browser_dock.minimumWidth() == 260
-    assert viewer._project_browser_dock.maximumWidth() == 260
-    assert (
-        viewer._project_browser_dock.features()
-        == QDockWidget.DockWidgetFeature.DockWidgetClosable
-    )
-    assert viewer._inspector_dock.minimumWidth() == 260
-    assert viewer._inspector_dock.maximumWidth() == 260
-    assert viewer._inspector_dock.features() == QDockWidget.DockWidgetFeature.DockWidgetClosable
-    # The Settings dock: the outer right column, a fixed width per screen-size class.
-    assert viewer._controls_dock.minimumWidth() == viewer._controls_dock.maximumWidth()
-    assert viewer._controls_dock.maximumWidth() in (340, 304)
-    assert viewer.dockWidgetArea(viewer._controls_dock) == Qt.DockWidgetArea.RightDockWidgetArea
-    assert viewer._spectrum_panel.minimumHeight() == viewer._spectrum_panel.maximumHeight()
-    assert viewer._spectrum_panel.maximumHeight() == 220
-    assert viewer._spectrum_toggle_action.isCheckable()
-    assert [viewer._workspace_tabs.tabText(i) for i in range(viewer._workspace_tabs.count())] == [
-        "Explore",
-        "Model",
-        "Predict",
-    ]
-
-    # The Settings dock keeps its width and takes the step's title.
-    expected_width = viewer._controls_dock.maximumWidth()
-    titles = {viewer._eda_view: "View settings", viewer._modeling_view: "Fit settings",
-              viewer._prediction_view: "Prediction settings"}
-
-    for widget, spectrum_visible in (
-        (viewer._eda_view, True),
-        (viewer._modeling_view, False),
-        (viewer._prediction_view, False),
-        (viewer._eda_view, True),
-    ):
-        viewer._workspace_tabs.setCurrentWidget(widget)
-        qapp.processEvents()
-        assert viewer._controls_dock.minimumWidth() == expected_width
-        assert viewer._controls_dock.maximumWidth() == expected_width
-        assert viewer._controls_dock.windowTitle() == titles[widget]
-        assert viewer._spectrum_panel.isHidden() is not spectrum_visible
-        assert viewer._spectrum_toggle_action.isEnabled() is spectrum_visible
-
-
 def test_status_strip_and_canvas_click_track_cursor_state(qapp, cube_and_wavelengths):
     from enginir.viewer._viewer import HSIViewer
 
@@ -778,9 +452,8 @@ def test_status_strip_and_canvas_click_track_cursor_state(qapp, cube_and_wavelen
 
 
 def test_add_data_file_propagates_unexpected_errors(qapp, cube_and_wavelengths, monkeypatch,
-                                                    tmp_path):
+                                                    tmp_path, boxes):
     """Expected file errors become a dialog; programming errors are not hidden in one."""
-    from PyQt6.QtWidgets import QMessageBox
 
     from enginir import Project
     from enginir.viewer._viewer import HSIViewer
@@ -788,54 +461,28 @@ def test_add_data_file_propagates_unexpected_errors(qapp, cube_and_wavelengths, 
     cube, wavelengths = cube_and_wavelengths
     viewer = HSIViewer(cube, wavelengths)
     viewer.project_state.open_project(str(Project.create(tmp_path / "p.h5").path))
-    criticals: list[str] = []
     monkeypatch.setattr(
         "enginir.viewer._viewer.read_header",
         lambda path: (_ for _ in ()).throw(AttributeError("unexpected bug")),
-    )
-    monkeypatch.setattr(
-        QMessageBox, "critical", lambda *args, **kwargs: criticals.append(str(args[2]))
     )
 
     with pytest.raises(AttributeError, match="unexpected bug"):
         viewer.add_data_file("/tmp/broken.eiff")
 
-    assert criticals == []
-
-
-def test_reopened_project_renders_model_and_prediction_workspaces(
-    qapp, cube_and_wavelengths, tmp_path
-):
-    from enginir.viewer._viewer import HSIViewer
-
-    cube, wavelengths = cube_and_wavelengths
-    project_path = tmp_path / "reopened.h5"
-    _create_reopenable_model_project(str(project_path), wavelengths[:4])
-
-    viewer = HSIViewer(cube, wavelengths)
-    viewer.project_state.open_project(str(project_path))
-
-    viewer._workspace_tabs.setCurrentWidget(viewer._modeling_view)
-    qapp.processEvents()
-    assert viewer._workspace_content_stack.currentWidget() is viewer._model_content_page
-    assert viewer._model_card_model_value.text() != "none"
-
-    viewer._workspace_tabs.setCurrentWidget(viewer._prediction_view)
-    qapp.processEvents()
-    assert viewer._workspace_content_stack.currentWidget() is viewer._predict_content_page
-    # the stored prediction run of the file is not shown: predictions live in the session
-    assert not viewer._predict_headline.text().startswith("Map of")
+    assert boxes.critical == []
 
 
 def test_project_browser_selection_syncs_inspector_and_canvas(qapp, cube_and_wavelengths, tmp_path):
     from enginir.viewer._viewer import HSIViewer
 
     cube, wavelengths = cube_and_wavelengths
+    from tests._project_payloads import write_model_project
+
     project_path = tmp_path / "browser_roi_selection.h5"
-    _create_reopenable_model_project(str(project_path), wavelengths[:4])
+    write_model_project(str(project_path))
 
     viewer = HSIViewer(cube, wavelengths)
-    viewer._cube_path = "/data/train.eiff"  # the window shows the data file of the ROIs
+    viewer._cube_path = "/data/train.h5"  # the window shows the data file of the ROIs
     viewer.project_state.open_project(str(project_path))
     qapp.processEvents()
 
@@ -856,24 +503,6 @@ def test_project_browser_selection_syncs_inspector_and_canvas(qapp, cube_and_wav
     qapp.processEvents()
     payload = viewer._project_browser.currentItem().data(0, Qt.ItemDataRole.UserRole)
     assert payload == {"kind": "roi", "id": "roi_1"}
-
-
-def test_workspace_refresh_requests_are_coalesced(qapp, cube_and_wavelengths, monkeypatch):
-    from enginir.viewer._viewer import HSIViewer
-
-    cube, wavelengths = cube_and_wavelengths
-    viewer = HSIViewer(cube, wavelengths)
-    calls: list[bool] = []
-    monkeypatch.setattr(
-        viewer, "_refresh_workspace_content_pages", lambda *_args: calls.append(True)
-    )
-
-    viewer.schedule_workspace_content_refresh()
-    viewer.schedule_workspace_content_refresh()
-    viewer.schedule_workspace_content_refresh()
-    qapp.processEvents()
-
-    assert calls == [True]
 
 
 @pytest.mark.parametrize("button", ["Copy Path", "Open Location"])
@@ -919,7 +548,11 @@ def test_about_box_has_no_log_path(qapp, cube_and_wavelengths, monkeypatch):
     monkeypatch.setattr(QMessageBox, "exec", lambda box: shown.append(box.text()))
     viewer = HSIViewer(*cube_and_wavelengths)
     next(a for a in viewer._menu_help.actions() if a.text() == "About engiNIR").trigger()
-    assert "engiNIR" in shown[0] and "Log" not in shown[0]
+    from enginir import __version__
+    from enginir.viewer._viewer import about_text
+
+    assert shown == [about_text(__version__)], "the Help menu shows the citation text"
+    assert "Log" not in shown[0], "no log path in a box users screenshot"
 
 
 def test_workspace_navigation_preserves_context_and_redraws_only_the_visible_workspace(
@@ -929,19 +562,16 @@ def test_workspace_navigation_preserves_context_and_redraws_only_the_visible_wor
     from enginir.viewer._viewer import HSIViewer
 
     from tests._project_payloads import write_model_project
+    from tests._sessions import fit_stored_model
 
     cube, wavelengths = cube_and_wavelengths
     project_path = str(tmp_path / "navigation.h5")
     write_model_project(project_path)
+    fit_stored_model(project_path, model_type="PLS", n_components=1, model_run_id="model_1")
     viewer = HSIViewer(cube, wavelengths)
     viewer.show()  # plots draw only while visible
     project = viewer.project_state
     project.open_project(project_path)
-    project.build_sample_set(target_id="target_moisture", preprocessing_recipe_id="recipe_none",
-                             sample_set_id="sample_set_1")
-    project.fit_model_run(sample_set_id="sample_set_1", signal_domain_id="signal_domain_1",
-                          model_type="PLS", hyperparameters={"n_components": 1}, cv="logo",
-                          model_run_id="model_1")
     viewer.state.set_frame(3)
     viewer.state.set_row(5)
     viewer.state.set_band(2)
@@ -957,6 +587,8 @@ def test_workspace_navigation_preserves_context_and_redraws_only_the_visible_wor
     tabs = viewer._workspace_tabs
     tabs.setCurrentWidget(viewer._modeling_view)
     qapp.processEvents()
+    assert viewer._workspace_content_stack.currentWidget() is viewer._model_content_page
+    assert viewer._model_card_model_value.text() != "none", "the reopened model is shown"
     before = context()
     from enginir.viewer._plot_panel import PlotPanel
 
@@ -974,6 +606,11 @@ def test_workspace_navigation_preserves_context_and_redraws_only_the_visible_wor
         tabs.setCurrentWidget(widget)
         qapp.processEvents()
         assert context() == before
+    tabs.setCurrentWidget(viewer._prediction_view)
+    qapp.processEvents()
+    assert viewer._workspace_content_stack.currentWidget() is viewer._predict_content_page
+    # the stored prediction run of the file is not shown: predictions live in the session
+    assert not viewer._predict_headline.text().startswith("Map of")
     renders_while_hidden = len(renders)
     viewer._modeling_view._invalidate_diagnostics_cache()  # a refresh would draw a new payload
     viewer.schedule_workspace_content_refresh()
@@ -1155,21 +792,6 @@ def test_the_project_tree_counts_and_properties_are_a_table_with_plain_text(qapp
     assert rendered.count('colspan="2"') == 2, "only 'Target' is a key"
 
 
-def test_the_example_has_one_open_check_a_tablet_outside_the_model_and_a_good_model(example):
-    """The example shows good practice: values vary within each scan, one sample per tablet.
-
-    Its one open check is in Predict: the prediction tablet P_T4 lies outside the model.
-    """
-    from enginir import Project
-
-    project = Project.open(example)
-    open_checks = [check for check in project.checks() if check.is_open]
-    assert [check.check_id for check in open_checks] == ["predict.rois_outside"]
-    assert open_checks[0].roi_ids == (project.roi("P_T4").roi_id,)
-    assert not [check for check in project.checks(predict=False) if check.is_open]
-    assert project.model("PLS 2 LV").verdict().level == "good"
-
-
 # -- Opening a dataset from the project tree -------------------------------------------
 
 
@@ -1188,33 +810,6 @@ def test_opening_a_dataset_from_the_project_tree_shows_its_image(qapp, tmp_path)
         assert window._eda_view.shown_dataset_id() == scan.record.dataset_id
     finally:
         window.close()
-
-
-def test_the_prediction_check_arrives_after_the_other_checks(qapp, window):
-    """The panel shows the checks at once; the prediction-ROI check comes from a job."""
-    def ids():
-        return {check.check_id for check in window._checks}
-
-    window.refresh_checks()
-    assert "predict.rois_ready" in ids() and "predict.rois_outside" not in ids(), \
-        "the fast checks first, without predicting"
-    wait_until(qapp, lambda: "predict.rois_outside" in ids(), timeout=30)
-    (outside,) = [check for check in window._checks if check.check_id == "predict.rois_outside"]
-    assert window._workflow.state("predict")[0] == "open"
-    assert window._checks_panel.open_count() >= 1
-
-    # A result of an earlier refresh is dropped.
-    from enginir._guidance import Check
-
-    fast = list(window._checks)
-    window.refresh_checks()
-    stale = window._checks_generation - 1
-    window._apply_prediction_checks(stale, window.project_state.project, fast,
-                                    [Check("predict.stale", "predict", "attention", "stale")])
-    assert "predict.stale" not in ids()
-    wait_until(qapp, lambda: "predict.rois_outside" in ids(), timeout=30)
-    assert outside.roi_ids == next(c for c in window._checks
-                                   if c.check_id == "predict.rois_outside").roi_ids
 
 
 def test_a_refresh_does_not_bring_a_known_check_to_the_front_again(qapp, window):
@@ -1243,31 +838,6 @@ def _example_window(qapp, tmp_path):
     window.show()
     qapp.processEvents()
     return window
-
-
-def test_the_fit_settings_and_the_predict_page_are_built_when_first_shown(qapp, tmp_path):
-    window = _example_window(qapp, tmp_path)
-    try:
-        view = window._modeling_view
-        assert view.fit_form is None and window._prediction_page is None, \
-            "a window that stays in Explore builds neither"
-        assert window._modeling_view.current_target() is not None, \
-            "the current target is there without the Model page (Explore and the ROI table)"
-        window.show_step("model")
-        form = view.fit_form
-        assert form is not None and form.isVisibleTo(window)
-        assert window._fit_footer is not None and window._fit_footer.isVisibleTo(window)
-        window.show_step("predict")
-        page = window._prediction_page
-        assert page is not None and window._workspace_tabs.currentWidget() is page
-        assert window._controls_dock.windowTitle() == "Prediction settings"
-        window.show_step("data")
-        window.show_step("model")
-        window.show_step("predict")
-        assert view.fit_form is form and window._prediction_view is page, "built once"
-        assert not window._fit_footer.isVisibleTo(window), "Fit Model shows with Model only"
-    finally:
-        window.close()
 
 
 def test_menus_and_fixes_reach_pages_that_were_never_shown(qapp, tmp_path, monkeypatch):
@@ -1329,19 +899,6 @@ def test_the_log_panel_sets_its_fixed_width_font_when_first_shown(qapp, tmp_path
 # -- 1.7.3: About, the Log panel's level, the image fit ---------------------------------
 
 
-def test_the_about_box_cites_engINIR_and_links_its_repository():
-    """The citation of the README, with the concept DOI and the GitHub link."""
-    from pathlib import Path
-
-    from enginir.viewer._viewer import CONCEPT_DOI, GITHUB_URL, about_text
-
-    text = about_text("9.9.9")
-    readme = (Path(__file__).resolve().parent.parent / "README.md").read_text(encoding="utf-8")
-    assert CONCEPT_DOI in readme and GITHUB_URL in readme, "the same as the README"
-    assert f'href="https://doi.org/{CONCEPT_DOI}"' in text and f'href="{GITHUB_URL}"' in text
-    assert "9.9.9" in text and "please cite" in text
-
-
 def test_the_log_panel_shows_the_preferences_level(qapp, tmp_path):
     from dataclasses import replace
 
@@ -1363,28 +920,6 @@ def test_the_log_panel_shows_the_preferences_level(qapp, tmp_path):
         assert "debug line two" in text.toPlainText(), "a change applies at once"
     finally:
         window.close()
-
-
-def test_an_image_opens_fitted_as_reset_view_fits_it(qapp):
-    """Shown while its view is small (a page not laid out yet), an image used to get
-    pyqtgraph's size-dependent padding (up to 10 %); Reset View uses 2 %."""
-    import numpy as np
-
-    from enginir.viewer._canvas import FalseColourCanvas
-
-    canvas = FalseColourCanvas()
-    canvas.resize(60, 60)
-    canvas.show()
-    qapp.processEvents()
-    try:
-        canvas.set_image(np.random.default_rng(0).random((40, 80, 3)))
-        canvas.resize(900, 600)
-        qapp.processEvents()
-        shown = np.array(canvas.view_box.viewRange())
-        canvas.reset_view()
-        np.testing.assert_allclose(shown, np.array(canvas.view_box.viewRange()), atol=1e-6)
-    finally:
-        canvas.close()
 
 
 def test_the_checks_tables_where_and_fix_columns_have_room(qapp):

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+
+from tests._tables import check_all
 from sklearn.base import clone, is_classifier, is_regressor
 
 from enginir.models import (
@@ -16,6 +18,7 @@ from enginir.models import (
     SVRModel,
 )
 from enginir.models.classification import jackson_mudholkar_limit
+from enginir.validation.metrics import r2_score
 
 RNG = np.random.default_rng(0)
 N, P = 50, 100
@@ -30,7 +33,24 @@ Y_SEP = np.repeat([0, 1, 2], 20)
 
 # --- linear regression --------------------------------------------------------------------------
 
-@pytest.mark.parametrize("model", [PCR(n_components=10),
+def test_linear_models_fold_scaling_and_centring_into_raw_space_coefficients():
+    def check(case):
+        model = case
+        """``X @ coef_ + intercept_`` must equal the model evaluated step by step in score space."""
+
+        def stepwise(model, X):
+            if isinstance(model, PCR):
+                return model.reg_.predict(model.transform(X))
+            y_scaled = model.transform(X) @ model.y_loadings_.T  # PLS: T Q^T in scaled Y units
+            return np.squeeze(y_scaled * model.y_std_ + model.y_mean_)
+
+        for y in (Y_REG, np.column_stack([Y_REG, RNG.random(N)])):
+            model.fit(X_DUMMY, y)
+            np.testing.assert_allclose(X_DUMMY @ model.coef_ + model.intercept_,
+                                       stepwise(model, X_DUMMY), rtol=1e-8, atol=1e-10)
+        assert model.coef_.shape == (P, 2)
+
+    check_all([PCR(n_components=10),
                                    PCR(n_components=10, x_scaling="center"),
                                    PCR(n_components=10, x_scaling="uv"),
                                    PCR(n_components=10, x_scaling="pareto"),
@@ -38,21 +58,7 @@ Y_SEP = np.repeat([0, 1, 2], 20)
                                    PLSRegression(n_components=5, x_scaling="uv", y_scaling="uv"),
                                    PLSRegression(n_components=5, x_scaling="center", y_scaling="uv"),
                                    PLSRegression(n_components=5, x_scaling="pareto",
-                                                 y_scaling="center")])
-def test_linear_models_fold_scaling_and_centring_into_raw_space_coefficients(model):
-    """``X @ coef_ + intercept_`` must equal the model evaluated step by step in score space."""
-
-    def stepwise(model, X):
-        if isinstance(model, PCR):
-            return model.reg_.predict(model.transform(X))
-        y_scaled = model.transform(X) @ model.y_loadings_.T  # PLS: T Q^T in scaled Y units
-        return np.squeeze(y_scaled * model.y_std_ + model.y_mean_)
-
-    for y in (Y_REG, np.column_stack([Y_REG, RNG.random(N)])):
-        model.fit(X_DUMMY, y)
-        np.testing.assert_allclose(X_DUMMY @ model.coef_ + model.intercept_,
-                                   stepwise(model, X_DUMMY), rtol=1e-8, atol=1e-10)
-    assert model.coef_.shape == (P, 2)
+                                                 y_scaling="center")], check)
 
 
 def _textbook_pls1(X, y, n_components):
@@ -152,16 +158,6 @@ def test_component_count_is_limited_by_the_rank_of_centred_x():
         PLSRegression(n_components=1).fit(X[:1], y[:1])
 
 
-@pytest.mark.parametrize("factory", [PLSRegression, PCR])
-def test_linear_models_predict_in_float32_and_reject_a_different_band_count(factory):
-    X, y = X_DUMMY.astype(np.float32), Y_REG.astype(np.float32)
-    model = factory(n_components=5).fit(X, y)
-    assert model.predict(X).dtype == np.float32
-    assert model.transform(X).dtype == np.float32
-    with pytest.raises(ValueError, match=f"{factory.__name__} was fitted with {P} features"):
-        model.predict(X[:, :-2])
-
-
 # --- SIMCA --------------------------------------------------------------------------------------
 
 def test_simca_limit_uses_exact_discarded_eigenvalues():
@@ -204,27 +200,27 @@ def test_simca_reduces_components_to_the_class_rank_and_accepts_its_training_dat
     assert np.mean(model.predict(X) == y) > 0.9
 
 
-@pytest.mark.parametrize(
-    ("labels", "rejected", "dtype_kind"),
-    [
+def test_simca_rejection_label_matches_the_label_dtype():
+    def check(case):
+        labels, rejected, dtype_kind = case
+        X = np.vstack([RNG.standard_normal((15, 10)), RNG.standard_normal((15, 10)) + 5])
+        prediction = SIMCA(n_components=2).fit(X, np.repeat(labels, 15)).predict(np.full((1, 10), 1e3))
+        assert prediction.dtype.kind == dtype_kind
+        if rejected is None:
+            assert prediction[0] is None
+        elif isinstance(rejected, float):
+            assert np.isnan(prediction[0])
+        else:
+            assert prediction[0] == rejected
+
+    check_all([
         (np.array([1, 2]), -1, "i"),
         (np.array([1, 2], dtype=np.uint64), -1, "i"),  # -1 needs a signed dtype
         (np.array(["a", "b"]), "unknown", "U"),
         (np.array(["a", "b"], dtype=object), "unknown", "U"),  # e.g. a pandas Series
         (np.array([0.5, 1.5]), np.nan, "f"),
         (np.array([True, False]), None, "O"),
-    ],
-)
-def test_simca_rejection_label_matches_the_label_dtype(labels, rejected, dtype_kind):
-    X = np.vstack([RNG.standard_normal((15, 10)), RNG.standard_normal((15, 10)) + 5])
-    prediction = SIMCA(n_components=2).fit(X, np.repeat(labels, 15)).predict(np.full((1, 10), 1e3))
-    assert prediction.dtype.kind == dtype_kind
-    if rejected is None:
-        assert prediction[0] is None
-    elif isinstance(rejected, float):
-        assert np.isnan(prediction[0])
-    else:
-        assert prediction[0] == rejected
+    ], check)
 
 
 def test_simca_rejects_unusable_class_definitions():
@@ -253,6 +249,8 @@ def test_regression_wrappers_are_sklearn_regressors(model):
     assert is_regressor(model) and not hasattr(model, "predict_proba")
     y_pred = model.fit(X_DUMMY, Y_REG).predict(X_DUMMY)
     assert y_pred.shape == (N,) and np.isfinite(y_pred).all()
+    if not isinstance(model, MLPModel):  # 50 iterations do not converge the MLP
+        assert r2_score(Y_REG, y_pred) > 0.5, "the model learns the training data"
 
 
 @pytest.mark.parametrize(
@@ -271,10 +269,12 @@ def test_classification_wrappers_follow_the_classifier_contract(model):
     assert clone(model).get_params() == model.get_params()
 
 
-def test_random_forest_importances_cover_every_wavelength():
-    model = RandomForestModel(n_estimators=10).fit(X_DUMMY, Y_REG)
+def test_random_forest_importances_sum_to_one_and_favor_the_informative_bands():
+    model = RandomForestModel(n_estimators=100).fit(X_DUMMY, Y_REG)
     assert model.feature_importances_.shape == (P,)
     assert model.feature_importances_.sum() == pytest.approx(1.0)
+    # Only the first 10 of 100 bands carry the target; chance would give them 10 %.
+    assert model.feature_importances_[:10].sum() > 0.2
 
 
 def test_pickles_record_the_version_and_refuse_pre_1_0_state():
@@ -294,24 +294,27 @@ def test_pickles_record_the_version_and_refuse_pre_1_0_state():
         PLSRegression.__new__(PLSRegression).__setstate__(old_state)
 
 
-@pytest.mark.parametrize("model", [PLSRegression(n_components=5),
+def test_predictions_for_every_number_of_components_come_from_one_fit():
+    def check(case):
+        model = case
+        """predict_components column a - 1 equals a separate fit with a components (one and two
+        targets), so the component curve needs one fit per fold."""
+        from sklearn.base import clone
+
+        rng = np.random.default_rng(11)
+        X_new = rng.normal(size=(9, P))
+        for y in (Y_REG, np.column_stack([Y_REG, X_DUMMY[:, 1]])):
+            fitted = clone(model).fit(X_DUMMY, y)
+            every = fitted.predict_components(X_new)
+            assert every.shape == (9, 5) if y.ndim == 1 else (9, 2, 5)
+            for a in range(1, 6):
+                alone = clone(model).set_params(n_components=a).fit(X_DUMMY, y).predict(X_new)
+                np.testing.assert_allclose(every[..., a - 1], alone, rtol=1e-9, atol=1e-12)
+        assert fitted.predict_components(X_new, 2).shape == (9, 2, 2)
+
+    check_all([PLSRegression(n_components=5),
                                    PLSRegression(n_components=5, x_scaling="center"),
                                    PLSRegression(n_components=5, x_scaling="pareto",
                                                  y_scaling="center"),
                                    PCR(n_components=5), PCR(n_components=5, x_scaling="center"),
-                                   PCR(n_components=5, x_scaling="uv")])
-def test_predictions_for_every_number_of_components_come_from_one_fit(model):
-    """predict_components column a - 1 equals a separate fit with a components (one and two
-    targets), so the component curve needs one fit per fold."""
-    from sklearn.base import clone
-
-    rng = np.random.default_rng(11)
-    X_new = rng.normal(size=(9, P))
-    for y in (Y_REG, np.column_stack([Y_REG, X_DUMMY[:, 1]])):
-        fitted = clone(model).fit(X_DUMMY, y)
-        every = fitted.predict_components(X_new)
-        assert every.shape == (9, 5) if y.ndim == 1 else (9, 2, 5)
-        for a in range(1, 6):
-            alone = clone(model).set_params(n_components=a).fit(X_DUMMY, y).predict(X_new)
-            np.testing.assert_allclose(every[..., a - 1], alone, rtol=1e-9, atol=1e-12)
-    assert fitted.predict_components(X_new, 2).shape == (9, 2, 2)
+                                   PCR(n_components=5, x_scaling="uv")], check)

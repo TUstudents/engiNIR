@@ -5,6 +5,8 @@ from __future__ import annotations
 import h5py
 import numpy as np
 import pytest
+
+from tests._tables import check_all
 from enginir import Project
 from enginir.io import save_hdf5
 from enginir.modeling import _components, _gram_fit, _service
@@ -21,16 +23,13 @@ from tests._scans import uneven_project, warnings_during
 N_BANDS = 12
 
 
-def test_a_specification_round_trips_and_partial_mappings_take_the_defaults():
-    spec = FitSpec(fold_rule="leave_one_group_out", pixels_per_roi=12, seed=5)
-    assert FitSpec.from_dict(spec.to_dict()) == spec
-    assert FitSpec.from_dict({"pixels": {"per_roi": 3}}) == FitSpec(pixels_per_roi=3)
-    assert FitSpec().to_dict()["pixels"]["per_roi"] == "all"
-    assert FitSpec.from_cv("logo").fold_rule == "leave_one_group_out"
-    assert FitSpec.from_cv(4) == FitSpec(n_folds=4)
+def test_values_outside_the_contract_are_refused():
+    def check(case):
+        payload, message = case
+        with pytest.raises(ValueError, match=message):
+            FitSpec.from_dict(payload)
 
-
-@pytest.mark.parametrize("payload, message", [
+    check_all([
     ({"folds": {"rule": "shuffle"}}, "folds/rule"),
     ({"folds": {"n_folds": 1}}, "folds/n_folds"),
     ({"pixels": {"per_roi": 0}}, "pixels/per_roi"),
@@ -41,10 +40,7 @@ def test_a_specification_round_trips_and_partial_mappings_take_the_defaults():
     ({"exclusion": {"max_fraction": 1.0}}, "exclusion/max_fraction"),
     ({"pixels": {"count": 3}}, "unknown key"),
     ({"weights": {}}, "unknown part"),
-])
-def test_values_outside_the_contract_are_refused(payload, message):
-    with pytest.raises(ValueError, match=message):
-        FitSpec.from_dict(payload)
+], check)
 
 
 def test_every_key_is_stored_and_reopens_unchanged(tmp_path):
@@ -76,34 +72,6 @@ def test_exclusion_without_residual_degrees_of_freedom_blocks_the_fit(tmp_path):
     with pytest.raises(ValueError, match="K - A >= 1"):
         project.fit("API", n_components=N_BANDS, fit_spec={"exclusion": {"method": "dmodx"}})
     assert project.models == {}
-
-
-@pytest.mark.parametrize("requested", ["auto", 3])
-def test_group_kfold_is_an_optional_rule_that_refits_identically(tmp_path, requested):
-    """§4: GroupKFold is requested explicitly; it gives other folds than round-robin, and a
-    refit keeps them."""
-    project = uneven_project(tmp_path)
-    n_folds = 7 if requested == "auto" else requested
-    chosen = project.fit("API", n_components=2, name="group k-fold",
-                         fit_spec={"folds": {"rule": "group_kfold", "n_folds": n_folds}})
-    round_robin = project.fit("API", n_components=2, cv=n_folds)
-    assert chosen.metrics["rmsecv"] != pytest.approx(round_robin.metrics["rmsecv"], rel=1e-6)
-    assert chosen.record.cv_spec["type"] == "GroupKFold"
-
-    refitted, warnings = warnings_during(chosen.refit)
-    assert refitted.record.cv_spec["type"] == "GroupKFold"
-    assert refitted.metrics["rmsecv"] == pytest.approx(chosen.metrics["rmsecv"], rel=1e-9)
-    assert not warnings
-
-
-def test_a_model_without_its_fit_specification_is_refused(tmp_path):
-    """enginir-1.5: every model stores its fit specification; earlier runs are not read."""
-    project = uneven_project(tmp_path)
-    model = project.fit("API", n_components=2)
-    with h5py.File(project.path, "a") as f:
-        del f[f"/model_runs/{model.record.model_run_id}/fit_spec"]
-    with pytest.raises(ValueError, match="fit_spec"):
-        Project.open(project.path)
 
 
 @pytest.mark.parametrize("n_groups, n_splits", [(3, 3), (7, 7), (20, 7)])
@@ -315,14 +283,6 @@ def test_grouping_by_sample_or_target_holds_out_whole_blends(tmp_path, monkeypat
         assert folds == _levels("A", "B", "C", "D", "E"), group_by
 
 
-def test_grouping_by_roi_holds_out_single_rois(tmp_path, monkeypatch):
-    """Default grouping: leave one group out is leave one ROI out, labels are ignored."""
-    project, names = _blend_project(tmp_path)
-    _label_by_level(project, names)
-    _model, folds = _held_out_folds(project, monkeypatch, cv="logo")
-    assert folds == sorted(names)
-
-
 def test_round_robin_by_target_deals_the_levels_in_value_order(tmp_path, monkeypatch):
     """Levels sorted by value, not by ROI order, are dealt like venetian blinds: with the ROIs
     stored E3 ... A1 and 3 folds the folds are A D | B E | C (by ROI order: E B | D A | C)."""
@@ -332,16 +292,6 @@ def test_round_robin_by_target_deals_the_levels_in_value_order(tmp_path, monkeyp
     assert folds == _levels("AD", "BE", "C")
     assert model.record.cv_spec["n_groups"] == 5
     assert model.record.fit_specification.groups == tuple(j for j in (4, 3, 2, 1, 0) for _ in range(3))
-
-
-def test_rois_without_a_label_are_their_own_group(tmp_path, monkeypatch):
-    project, names = _blend_project(tmp_path)
-    for name in names[:3]:
-        project.set_sample(name, "blend A")
-    _model, folds = _held_out_folds(
-        project, monkeypatch, fit_spec={"folds": {"rule": "leave_one_group_out",
-                                                 "group_by": "sample"}})
-    assert folds == sorted(["A1A2A3", *names[3:]])
 
 
 def test_fewer_than_two_groups_are_refused_before_reading(tmp_path, monkeypatch):

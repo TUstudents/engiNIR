@@ -120,7 +120,7 @@ window writes, every other window of the process on the same project
 re-reads it (``reload``) on the next event-loop pass.
 
 .. autoclass:: enginir.viewer.ProjectState
-   :members: new_project, open_project, reload, locate_data_file, set_dataset_wavelengths, register_dataset, set_active_reference_correction, define_target, assign_target_to_roi, add_roi, register_recipe, register_signal_domain, create_sample_set, build_sample_set, register_model_run, fit_model_run, predict_dataset, add_prediction, remove_roi, get_target_assignment
+   :members: new_project, open_project, reload, locate_data_file, set_dataset_wavelengths, register_dataset, set_active_reference_correction, define_target, assign_target_to_roi, add_roi, register_recipe, register_signal_domain, create_sample_set, register_model_run, add_prediction, remove_roi
    :exclude-members: staticMetaObject, project_loaded, datasets_changed, reference_corrections_changed, rois_changed, targets_changed, target_assignments_changed, recipes_changed, signal_domains_changed, sample_sets_changed, model_runs_changed, predictions_changed, model_fitted, active_model_changed, prediction_completed
 
 EDA view

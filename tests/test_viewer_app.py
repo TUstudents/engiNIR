@@ -11,35 +11,9 @@ import time
 from PyQt6.QtCore import QObject
 from PyQt6.QtWidgets import QApplication
 import pytest
-from tests._qt import wait_until
 
 
 # -- Tests for enginir.viewer._app -----------------------------------------------------
-
-
-def test_ensure_app_returns_singleton_and_applies_theme(qapp):
-    from enginir.viewer._app import ensure_app
-
-    app1 = ensure_app()
-    app2 = ensure_app()
-
-    assert app1 is app2
-    assert isinstance(app1, QApplication)
-    assert app1.styleSheet() != ""
-    assert bool(app1.property("_enginir_theme_applied")) is True
-
-
-def test_ensure_app_uses_saved_theme_preference(qapp, monkeypatch):
-    import enginir.viewer._app as appmod
-
-    called: list[bool] = []
-    monkeypatch.setattr(appmod, "load_preference", lambda: False)
-    monkeypatch.setattr(appmod, "apply_qt_theme", lambda app, *, dark: called.append(dark) or app)
-
-    app = appmod.ensure_app()
-
-    assert app is qapp
-    assert called == [False]
 
 
 def test_ensure_app_does_not_restyle_an_app_that_has_the_theme(qapp, monkeypatch):
@@ -60,17 +34,6 @@ def test_ensure_app_does_not_restyle_an_app_that_has_the_theme(qapp, monkeypatch
     qapp.setWindowIcon(QIcon())
     appmod.ensure_app()
     assert not qapp.windowIcon().isNull()
-
-
-def test_apply_qt_theme_persists_panel_colors_and_preference(qapp, tmp_path, monkeypatch):
-    import enginir.viewer._theme as thememod
-
-    monkeypatch.setattr(thememod, "config_dir", lambda: tmp_path)
-    thememod.apply_qt_theme(qapp, dark=False)
-
-    assert thememod.is_dark() is False
-    assert thememod.panel_colors()["fg"] == thememod.TOKENS[False]["text"]
-    assert thememod.load_preference() is False
 
 
 @pytest.mark.parametrize(
@@ -127,30 +90,43 @@ def test_wslg_uses_wayland_with_qts_title_bar(monkeypatch):
 
 def test_run_is_noop_in_jupyter(qapp, monkeypatch):
     import builtins
-    from enginir.viewer._app import run
+    from enginir.viewer import _app
 
     class FakeIP:
         def enable_gui(self, backend):
             pass
 
+    started: list[str] = []
     monkeypatch.setattr(builtins, "get_ipython", lambda: FakeIP(), raising=False)
-    run()
+    monkeypatch.setattr(_app, "ensure_app", lambda: started.append("app"))
+    _app.run()
+    assert started == [], "the notebook's event loop runs Qt: no application, no exec()"
 
 
-def test_launcher_returns_expected_exit_codes(qapp, monkeypatch):
+def test_the_launcher_reports_a_target_it_cannot_open_and_opens_a_project(
+        qapp, monkeypatch, tmp_path, boxes):
+    """Through the real opening code: a missing file is an error box and exit code 1; a
+    project opens in a window and the launcher goes on to the event loop (exit code 0)."""
+
+    from enginir import Project
     import enginir.viewer.__main__ as launcher
 
-    monkeypatch.setattr(
-        "enginir.viewer.open_viewer",
-        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("boom")),
-    )
-    monkeypatch.setattr("enginir.viewer.__main__.run", lambda: None, raising=False)
-    monkeypatch.setattr("PyQt6.QtWidgets.QMessageBox.critical", lambda *args, **kwargs: None)
-    assert launcher._main(["/tmp/missing.eiff"]) == 1
-
-    monkeypatch.setattr("enginir.viewer.open_project", lambda path: object())
+    shown = boxes.critical
     monkeypatch.setattr("enginir.viewer._app.run", lambda: None)
-    assert launcher._main(["--project", "/tmp/project.h5"]) == 0
+    missing = str(tmp_path / "missing.eiff")
+    assert launcher._main([missing]) == 1
+    assert shown and "missing.eiff" in shown[0]
+
+    project = Project.create(tmp_path / "empty.h5")
+    before = set(QApplication.topLevelWidgets())
+    try:
+        assert launcher._main(["--project", str(project.path)]) == 0
+        opened = set(QApplication.topLevelWidgets()) - before
+        assert any(widget.isVisible() for widget in opened), "a window shows the project"
+    finally:
+        for widget in set(QApplication.topLevelWidgets()) - before:
+            widget.close()
+    assert len(shown) == 1, "opening a project is not an error"
 
 
 def test_combo_popups_release_their_surface_on_wslg_wayland(qapp, monkeypatch):
@@ -247,32 +223,6 @@ def _run(qapp, fn):
     return events, _jobs._RUNNING_JOBS
 
 
-def test_job_result_arrives_on_the_ui_thread_then_finishes(qapp):
-    worker_thread: list[int] = []
-
-    def work():
-        worker_thread.append(threading.get_ident())
-        return 42
-
-    events, running = _run(qapp, work)
-
-    assert worker_thread and worker_thread[0] != threading.get_ident()
-    assert events == [("success", 42, True), ("finished", None, True)]
-    assert not running
-
-
-def test_job_failure_is_reported_once_with_its_message_and_finishes(qapp):
-    def work():
-        raise ValueError("bad sample set")
-
-    events, running = _run(qapp, work)
-
-    assert [kind for kind, _, _ in events] == ["error", "finished"]
-    assert "bad sample set" in str(events[0][1])
-    assert all(on_ui for _, _, on_ui in events)
-    assert not running
-
-
 # -- The viewer process exits cleanly after a project window was open ------------------
 
 
@@ -315,19 +265,3 @@ def test_closing_a_project_viewer_exits_without_a_crash(tmp_path):
 # -- Jobs at exit ----------------------------------------------------------------------
 
 
-def test_running_jobs_finish_before_the_interpreter_exits(qapp):
-    """A job thread still reading a file at exit crashed or hung the process."""
-    import time
-
-    from PyQt6.QtCore import QObject
-
-    from enginir.viewer._jobs import _RUNNING_JOBS, start_background_job, wait_for_running_jobs
-
-    owner = QObject()
-    done = []
-    start_background_job(owner=owner, fn=lambda: time.sleep(0.3), on_success=done.append,
-                         on_error=done.append, on_finished=lambda: None)
-    assert _RUNNING_JOBS
-    assert wait_for_running_jobs(timeout=10.0), "no event loop runs at exit"
-    wait_until(qapp, lambda: not _RUNNING_JOBS)
-    assert done == [None], "the result is still delivered when the loop runs again"

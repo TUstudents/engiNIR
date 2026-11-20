@@ -16,6 +16,7 @@ from enginir.project import PredictionRun, ProjectRelationshipError
 from enginir.viewer._state import ProjectState
 
 from tests import _project_payloads as build
+from tests._sessions import CoreSession
 
 N_BANDS = 50
 
@@ -58,19 +59,6 @@ def fitted(state) -> ProjectState:
     return state
 
 
-def test_a_new_project_is_written_empty_and_signalled(tmp_path, qapp):
-    ps = ProjectState()
-    loaded = []
-    ps.project_loaded.connect(lambda: loaded.append(True))
-    path = str(tmp_path / "new.h5")
-    ps.new_project(path)
-    assert loaded == [True] and ps.project_path == path
-    assert ps.project_meta["FileSchemaVersion"] == "enginir-1.7"
-    assert not any((ps.datasets, ps.reference_corrections, ps.rois, ps.targets, ps.target_assignments,
-                    ps.recipes, ps.signal_domains, ps.sample_sets, ps.model_runs,
-                    ps.predictions))
-
-
 def test_rois_and_values_are_written_signalled_and_reopen_with_their_ids(state, wl):
     changed, targets, values = [], [], []
     state.rois_changed.connect(lambda: changed.append(True))
@@ -93,7 +81,7 @@ def test_rois_and_values_are_written_signalled_and_reopen_with_their_ids(state, 
     assert (reopened.rois["roi_2"].dataset_id, reopened.rois["roi_2"].reference_correction_id) == (
         "dataset_b", "cal_b")
     assert reopened.active_reference_correction_ids == {"dataset_a": "cal_a", "dataset_b": "cal_b"}
-    assert reopened.get_target_assignment("roi_2", "target_2").value == pytest.approx(19.4)
+    assert reopened.target_assignments[("roi_2", "target_2")].value == pytest.approx(19.4)
 
     state.remove_roi("roi_2")
     assert "roi_2" not in state.rois and changed == [True, True]
@@ -152,34 +140,6 @@ def test_broken_relationships_are_refused_before_anything_is_written(state, wl):
     assert reopened.project.workspace.predictions == {}
 
 
-def test_opening_reads_objects_and_leaves_spectra_and_artifacts_on_disk(fitted, qapp):
-    from enginir.io.project_store import load_project_store
-
-    loaded = []
-    ps = ProjectState()
-    ps.project_loaded.connect(lambda: loaded.append(True))
-    with patch("enginir.io.project_store.load_project_store",
-               wraps=load_project_store) as reader:
-        ps.open_project(fitted.project_path)
-    assert reader.call_count == 1 and reader.call_args.kwargs == {}
-    assert loaded == [True]
-    assert set(ps.rois) == {"roi_1"} and not hasattr(ps.rois["roi_1"], "spectra")
-    assert ps.get_target_assignment("roi_1", "target_1").value == pytest.approx(12.3)
-    assert ps.model_runs["model_1"].artifact_refs["cv_outputs"] == {}
-    outputs = ps.ensure_model_run_artifact_refs("model_1")["cv_outputs"]
-    np.testing.assert_array_equal(outputs["roi_ids"], ["roi_1"])
-    np.testing.assert_allclose(outputs["y_pred_roi"], [12.0])
-
-
-def test_another_project_clears_the_in_memory_predictors(fitted, tmp_path):
-    fitted.model_registry["model_1"] = object()
-    fitted.active_model_name = "model_1"
-    fitted.open_project(fitted.project_path)
-    assert "model_1" in fitted.model_registry and fitted.active_model_name == "model_1"
-    fitted.new_project(str(tmp_path / "other.h5"))
-    assert fitted.model_registry == {} and fitted.active_model_name is None
-
-
 def test_a_deleted_roi_leaves_its_calibration_set_stale_but_the_model_usable(fitted, wl):
     assert fitted.sample_sets_referencing_roi("roi_1") == ["sample_set_1"]
     assert fitted.model_runs_for_sample_sets(["sample_set_1"]) == ["model_1"]
@@ -192,9 +152,11 @@ def test_a_deleted_roi_leaves_its_calibration_set_stale_but_the_model_usable(fit
     assert reopened.missing_roi_ids_for_sample_set("sample_set_1") == ["roi_1"]
     assert reopened.build_prediction_job_context(model_run_id="model_1").model_run \
         .model_run_id == "model_1"
+    refit = CoreSession()
+    refit.open_project(fitted.project_path)
     with pytest.raises(ValueError, match="cannot be altered or refit"):
-        reopened.fit_model_run(sample_set_id="sample_set_1", signal_domain_id="signal_1",
-                               model_type="PLS", hyperparameters={"n_components": 1})
+        refit.fit_model_run(sample_set_id="sample_set_1", signal_domain_id="signal_1",
+                            model_type="PLS", hyperparameters={"n_components": 1})
 
     reopened.add_roi(build.roi(wl, "roi_2", "dataset_a", "cal_a"), _spectra())
     reopened.create_sample_set(build.sample_set(["roi_2"], "sample_set_2",

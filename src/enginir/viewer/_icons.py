@@ -34,11 +34,6 @@ def _sources() -> dict[str, str]:
         return {}
 
 
-def icon_names() -> list[str]:
-    """The names of the bundled icons."""
-    return sorted(_sources())
-
-
 def icon(name: str, color: str | None = None) -> QIcon:
     """The icon ``name`` in ``color`` (a token name or a colour; default ``text_secondary``).
 

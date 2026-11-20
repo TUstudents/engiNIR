@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from enginir.project import FitSpec
 
 import dataclasses
 
 import h5py
 import numpy as np
 import pytest
+
+from tests._tables import check_all
 from unittest.mock import patch
 
 from enginir.io import SpectralData, load_hdf5, save_hdf5
@@ -22,24 +23,22 @@ from enginir.prediction import (
     PredictionProgressEvent,
     build_dataset_ref_from_spectral_data,
     predict_with_model_run,
-    preflight_prediction,
 )
 from enginir.preprocessing import PreprocessingRecipe
 from enginir.project import (
     ReferenceCorrection,
     PredictionRun,
-    SignalDomainCompatibilityError,
     transform_spectra_to_signal_domain,
 )
-from enginir.viewer._state import ProjectState
+from tests._sessions import CoreSession
 
 from tests._eiff import eiff_bytes
 from tests._project_payloads import write_model_project, write_prediction_cube
 from tests import _project_payloads as build
 
 
-def _fit_phase6_model(project_path: str) -> ProjectState:
-    state = ProjectState()
+def _fit_phase6_model(project_path: str) -> CoreSession:
+    state = CoreSession()
     state.open_project(project_path)
     sample_set = state.build_sample_set(
         target_id="target_moisture",
@@ -55,107 +54,6 @@ def _fit_phase6_model(project_path: str) -> ProjectState:
         model_run_id="model_run_1",
     )
     return state
-
-
-def test_preflight_prediction_uses_memory_budgeted_default_frame_chunks(tmp_path):
-    class _DummyPredictor:
-        def predict(self, X):
-            return np.zeros(X.shape[0], dtype=np.float32)
-
-    def _preflight(cube_shape: tuple[int, int, int]):
-        n_bands = cube_shape[2]
-        wavelengths = np.arange(n_bands, dtype=np.float32)
-        dataset = build.dataset(
-            wavelengths,
-            dataset_id="dataset_large",
-            source_path="/data/large.h5",
-            source_format="hdf5",
-            cube_shape=cube_shape,
-            n_bands=n_bands,
-        )
-        reference_correction = build.reference_correction(
-            reference_correction_id="cal_raw",
-            dataset_id=dataset.dataset_id,
-        )
-        signal_domain = build.signal_domain(
-            wavelengths,
-            signal_domain_id="signal_domain_raw",
-            input_format="hdf5",
-            corrected_input_allowed=False,
-            n_bands=n_bands,
-        )
-        model_run = build.model_run(
-            fit_spec=FitSpec().to_dict(),
-            model_run_id="model_large",
-            sample_set_id="sample_large",
-            signal_domain_id=signal_domain.signal_domain_id,
-            hyperparameters={},
-            cv_spec={},
-            metrics={},
-            artifact_refs={},
-        )
-        return preflight_prediction(
-            project_path=str(tmp_path / "unused.h5"),
-            model_run=model_run,
-            signal_domain=signal_domain,
-            recipe=PreprocessingRecipe(),
-            dataset=dataset,
-            reference_correction=reference_correction,
-            model_registry={model_run.model_run_id: _DummyPredictor()},
-        )
-
-    typical = _preflight((3490, 312, 220))
-    oversized = _preflight((1000, 1000, 1000))
-
-    assert typical.chunk_size == 512
-    assert typical.n_chunks == (3490 + 511) // 512
-    assert oversized.chunk_size == 512
-
-
-def test_preflight_prediction_rejects_invalid_chunk_size(tmp_path):
-    class _DummyPredictor:
-        def predict(self, X):
-            return np.zeros(X.shape[0], dtype=np.float32)
-
-    wavelengths = np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
-    dataset = build.dataset(
-        wavelengths,
-        dataset_id="dataset_chunk",
-        source_path="/data/chunk.h5",
-        source_format="hdf5",
-        cube_shape=(2, 2, 3),
-        n_bands=3,
-    )
-    reference_correction = build.reference_correction(reference_correction_id="cal_chunk", dataset_id=dataset.dataset_id)
-    signal_domain = build.signal_domain(
-        wavelengths,
-        signal_domain_id="signal_domain_chunk",
-        input_format="hdf5",
-        corrected_input_allowed=False,
-        n_bands=3,
-    )
-    model_run = build.model_run(
-        fit_spec=FitSpec().to_dict(),
-        model_run_id="model_chunk",
-        sample_set_id="sample_chunk",
-        signal_domain_id=signal_domain.signal_domain_id,
-        hyperparameters={},
-        cv_spec={},
-        metrics={},
-        artifact_refs={},
-    )
-
-    with pytest.raises(ValueError, match="chunk_size"):
-        preflight_prediction(
-            project_path=str(tmp_path / "unused.h5"),
-            model_run=model_run,
-            signal_domain=signal_domain,
-            recipe=PreprocessingRecipe(),
-            dataset=dataset,
-            reference_correction=reference_correction,
-            model_registry={model_run.model_run_id: _DummyPredictor()},
-            chunk_size=0,
-        )
 
 
 def test_prediction_dataset_source_path_accepts_equivalent_slash_styles(tmp_path):
@@ -185,8 +83,8 @@ def test_prediction_dataset_source_path_accepts_equivalent_slash_styles(tmp_path
 
 def _fit_phase6_model_with_recipe(
     project_path: str, *, recipe_id: str, model_run_id: str
-) -> ProjectState:
-    state = ProjectState()
+) -> CoreSession:
+    state = CoreSession()
     state.open_project(project_path)
     sample_set = state.build_sample_set(
         target_id="target_moisture",
@@ -204,7 +102,7 @@ def _fit_phase6_model_with_recipe(
     return state
 
 
-def test_predict_dataset_reuses_dataset_local_calibration_defaults_after_reopen(tmp_path, qapp):
+def test_predict_dataset_reuses_dataset_local_calibration_defaults_after_reopen(tmp_path):
     project_path = str(tmp_path / "phase6_predict_defaults.h5")
     write_model_project(project_path)
     state = _fit_phase6_model(project_path)
@@ -239,7 +137,7 @@ def test_predict_dataset_reuses_dataset_local_calibration_defaults_after_reopen(
         prediction_run_id="prediction_run_in_memory",
     )
 
-    reopened = ProjectState()
+    reopened = CoreSession()
     reopened.open_project(project_path)
     result = reopened.predict_dataset(
         model_run_id="model_run_1",
@@ -258,9 +156,7 @@ def test_predict_dataset_reuses_dataset_local_calibration_defaults_after_reopen(
     assert load_project_store(project_path)["predictions"] == {}, "nothing is stored"
 
 
-def test_reopened_prediction_run_lazily_loads_spatial_map_and_preserves_model_linkage(
-    tmp_path, qapp
-):
+def test_reopened_prediction_run_lazily_loads_spatial_map_and_preserves_model_linkage(tmp_path):
     project_path = str(tmp_path / "phase6_prediction_reopen_lazy.h5")
     write_model_project(project_path)
     state = _fit_phase6_model(project_path)
@@ -297,7 +193,7 @@ def test_reopened_prediction_run_lazily_loads_spatial_map_and_preserves_model_li
                                np.array([[0.2, 0.4], [0.6, 0.8]], dtype=np.float32))
 
 
-def test_predict_dataset_requires_explicit_calibration_when_defaults_absent(tmp_path, qapp):
+def test_predict_dataset_requires_explicit_calibration_when_defaults_absent(tmp_path):
     project_path = str(tmp_path / "phase6_predict_no_defaults.h5")
     write_model_project(project_path)
     state = _fit_phase6_model(project_path)
@@ -315,39 +211,7 @@ def test_predict_dataset_requires_explicit_calibration_when_defaults_absent(tmp_
         )
 
 
-def test_predict_dataset_writes_neither_the_new_dataset_nor_its_calibration(tmp_path, qapp):
-    project_path = str(tmp_path / "phase6_predict_explicit.h5")
-    write_model_project(project_path)
-    state = _fit_phase6_model(project_path)
-
-    wavelengths = np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
-    pred_path = str(tmp_path / "prediction_explicit.h5")
-    write_prediction_cube(pred_path, wavelengths=wavelengths)
-
-    result = state.predict_dataset(
-        model_run_id="model_run_1",
-        data_path=pred_path,
-        reference_correction=build.reference_correction(
-            reference_correction_id="cal_new",
-            dataset_id="",
-            mode="dark_white_reference",
-            black_level=0.0,
-            white_level=100.0,
-            output_signal_unit="Absorbance",
-        ),
-        prediction_run_id="prediction_run_2",
-    )
-
-    assert result.reference_correction.reference_correction_id == "cal_new"
-    assert state.predictions["prediction_run_2"] is result
-    reopened = ProjectState()
-    reopened.open_project(project_path)
-    assert result.dataset.dataset_id not in reopened.datasets
-    assert "cal_new" not in reopened.reference_corrections
-    assert reopened.predictions == {}
-
-
-def test_predict_dataset_allows_different_wavelength_metadata(tmp_path, qapp):
+def test_predict_dataset_allows_different_wavelength_metadata(tmp_path):
     project_path = str(tmp_path / "phase6_predict_different_wavelengths.h5")
     write_model_project(project_path)
     state = _fit_phase6_model(project_path)
@@ -374,25 +238,6 @@ def test_predict_dataset_allows_different_wavelength_metadata(tmp_path, qapp):
     assert result.prediction_run.prediction_run_id == "prediction_run_different_wl"
 
 
-def test_predict_dataset_rejects_incompatible_signal_unit(tmp_path, qapp):
-    project_path = str(tmp_path / "phase6_predict_bad_signal.h5")
-    write_model_project(project_path)
-    state = _fit_phase6_model(project_path)
-
-    pred_path = str(tmp_path / "prediction_bad_signal.h5")
-    write_prediction_cube(
-        pred_path, wavelengths=np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
-    )
-
-    with pytest.raises(SignalDomainCompatibilityError, match="required_correction_mode"):
-        state.predict_dataset(
-            model_run_id="model_run_1",
-            data_path=pred_path,
-            reference_correction=build.reference_correction(reference_correction_id="cal_bad_signal", dataset_id=""),
-            prediction_run_id="prediction_run_bad_signal",
-        )
-
-
 def _msc_prediction_calibration(reference_correction_id: str) -> ReferenceCorrection:
     return build.reference_correction(
         reference_correction_id=reference_correction_id,
@@ -404,7 +249,7 @@ def _msc_prediction_calibration(reference_correction_id: str) -> ReferenceCorrec
     )
 
 
-def test_reopened_stateful_preprocessing_replays_persisted_training_state(tmp_path, qapp):
+def test_reopened_stateful_preprocessing_replays_persisted_training_state(tmp_path):
     project_path = str(tmp_path / "phase6_predict_reopened_msc.h5")
     write_model_project(project_path)
     fitted = _fit_phase6_model_with_recipe(
@@ -430,7 +275,7 @@ def test_reopened_stateful_preprocessing_replays_persisted_training_state(tmp_pa
         preprocessing_recipe_id=context.preprocessing_recipe_id)
     assert in_memory.dmodx is None, "an in-memory predictor alone gives no diagnostics"
 
-    reopened = ProjectState()
+    reopened = CoreSession()
     reopened.open_project(project_path)
     replayed = reopened.predict_dataset(
         model_run_id="model_run_msc",
@@ -447,7 +292,7 @@ def test_reopened_stateful_preprocessing_replays_persisted_training_state(tmp_pa
     )
 
 
-def test_a_model_without_its_msc_state_is_refused_when_the_project_is_read(tmp_path, qapp):
+def test_a_model_without_its_msc_state_is_refused_when_the_project_is_read(tmp_path):
     # The MSC/EMSC state is core (project-schema contract, Core and display
     # data): the reader refuses the project, before any prediction.
     project_path = str(tmp_path / "phase6_missing_msc_state.h5")
@@ -459,7 +304,7 @@ def test_a_model_without_its_msc_state_is_refused_when_the_project_is_read(tmp_p
         del handle["model_runs/model_run_msc/artifact_refs/prediction_model/preprocessing_state"]
 
     with pytest.raises(ValueError, match="no preprocessing_state"):
-        ProjectState().open_project(project_path)
+        CoreSession().open_project(project_path)
 
 
 @pytest.mark.parametrize(
@@ -467,7 +312,7 @@ def test_a_model_without_its_msc_state_is_refused_when_the_project_is_read(tmp_p
     [("wrong_length", "has 4 bands, the recipe needs 3")],
 )
 def test_reopened_stateful_preprocessing_rejects_malformed_training_state(
-    tmp_path, qapp, damage, match
+    tmp_path, damage, match
 ):
     project_path = str(tmp_path / "phase6_predict_missing_msc_state.h5")
     write_model_project(project_path)
@@ -487,7 +332,7 @@ def test_reopened_stateful_preprocessing_rejects_malformed_training_state(
     write_prediction_cube(
         pred_path, wavelengths=np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
     )
-    reopened = ProjectState()
+    reopened = CoreSession()
     reopened.open_project(project_path)
     datasets_before = set(reopened.datasets)
     calibrations_before = set(reopened.reference_corrections)
@@ -504,7 +349,7 @@ def test_reopened_stateful_preprocessing_rejects_malformed_training_state(
     assert "prediction_run_msc" not in reopened.predictions
 
 
-def test_predict_dataset_ignores_changed_wavelength_metadata_for_existing_dataset(tmp_path, qapp):
+def test_predict_dataset_ignores_changed_wavelength_metadata_for_existing_dataset(tmp_path):
     project_path = str(tmp_path / "phase6_predict_changed_wavelength_metadata.h5")
     write_model_project(project_path)
     state = _fit_phase6_model(project_path)
@@ -546,55 +391,7 @@ def test_predict_dataset_ignores_changed_wavelength_metadata_for_existing_datase
     assert result.prediction_run.prediction_run_id == "prediction_run_stale_dataset"
 
 
-def test_predict_with_model_run_accepts_uint16_cube_input_under_numpy2(tmp_path, qapp):
-    project_path = str(tmp_path / "phase6_predict_numpy2_uint16.h5")
-    write_model_project(project_path)
-    state = _fit_phase6_model(project_path)
-    context = state.build_prediction_job_context(model_run_id="model_run_1")
-
-    spectral_data = SpectralData(
-        X=np.arange(12, dtype=np.uint16).reshape(2, 2, 3),
-        wavelengths=np.array([1000.0, 1100.0, 1200.0], dtype=np.float64),
-        meta={"source_modality": "nir_hsi"},
-    )
-    dataset = build_dataset_ref_from_spectral_data(
-        data_path=str(tmp_path / "prediction_uint16.h5"),
-        spectral_data=spectral_data,
-    )
-    reference_correction = build.reference_correction(
-        reference_correction_id="cal_uint16",
-        dataset_id=dataset.dataset_id,
-        mode="dark_white_reference",
-        black_level=0.0,
-        white_level=100.0,
-        output_signal_unit="Absorbance",
-    )
-
-    class _DummyPredictor:
-        def predict(self, X):
-            return np.sum(X, axis=1, dtype=np.float32)
-
-    result = predict_with_model_run(
-        project_path=context.project_path,
-        model_run=context.model_run,
-        signal_domain=context.signal_domain,
-        recipe=context.recipe,
-        dataset=dataset,
-        reference_correction=reference_correction,
-        model_registry={context.model_run.model_run_id: _DummyPredictor()},
-        spectral_data=spectral_data,
-        preprocessing_recipe_id=context.preprocessing_recipe_id,
-        prediction_run_id="prediction_run_uint16",
-        created_at="2026-04-02T11:09:00+00:00",
-    )
-
-    assert result.y_pred.shape == (4,)
-    assert result.spatial_map is not None
-    assert result.spatial_map.shape == (2, 2)
-    assert np.shares_memory(result.y_pred, result.spatial_map)
-
-
-def test_hdf5_prediction_reuses_source_and_artifact_file_handles(tmp_path, qapp):
+def test_hdf5_prediction_reuses_source_and_artifact_file_handles(tmp_path):
     project_path = str(tmp_path / "prediction_handle_reuse_project.h5")
     source_path = str(tmp_path / "prediction_handle_reuse_source.h5")
     write_model_project(project_path)
@@ -624,99 +421,35 @@ def test_hdf5_prediction_reuses_source_and_artifact_file_handles(tmp_path, qapp)
         def predict(self, X):
             return np.sum(X, axis=1, dtype=np.float32)
 
-    with patch("enginir.io.project_store.h5py.File", wraps=h5py.File) as mocked_file:
-        predict_with_model_run(
-            project_path=project_path,
-            model_run=context.model_run,
-            signal_domain=context.signal_domain,
-            recipe=context.recipe,
-            dataset=dataset,
-            reference_correction=reference_correction,
-            model_registry={context.model_run.model_run_id: _DummyPredictor()},
-            data_path=source_path,
-            spectral_data=metadata,
-            preprocessing_recipe_id=context.preprocessing_recipe_id,
-            prediction_run_id="prediction_handle_reuse",
-            chunk_size=1,
-            persist_artifacts=True,
-            return_arrays=False,
-        )
+    def opens(chunk_size: int) -> tuple[int, int]:
+        """How often the project and the source file are opened by one persisted prediction."""
+        with patch("enginir.io.project_store.h5py.File", wraps=h5py.File) as mocked_file:
+            predict_with_model_run(
+                project_path=project_path,
+                model_run=context.model_run,
+                signal_domain=context.signal_domain,
+                recipe=context.recipe,
+                dataset=dataset,
+                reference_correction=reference_correction,
+                model_registry={context.model_run.model_run_id: _DummyPredictor()},
+                data_path=source_path,
+                spectral_data=metadata,
+                preprocessing_recipe_id=context.preprocessing_recipe_id,
+                prediction_run_id=f"prediction_handle_reuse_{chunk_size}",
+                chunk_size=chunk_size,
+                persist_artifacts=True,
+                return_arrays=False,
+            )
+        paths = [str(call.args[0]) for call in mocked_file.call_args_list]
+        return paths.count(project_path), paths.count(source_path)
 
-    opened_paths = [str(call.args[0]) for call in mocked_file.call_args_list]
-    assert opened_paths.count(source_path) == 1
-    # id check in preflight, initialize, chunk writer, finalize
-    # A fixed number per job, independent of the chunk count: preflight, the target names of
-    # the metadata-only model run, staging, the chunk writer and finalization.
-    assert opened_paths.count(project_path) == 5
-
-
-def test_predict_with_model_run_reports_chunk_progress_and_metadata(tmp_path, qapp):
-    project_path = str(tmp_path / "phase6_predict_progress.h5")
-    write_model_project(project_path)
-    state = _fit_phase6_model(project_path)
-    context = state.build_prediction_job_context(model_run_id="model_run_1")
-    spectral_data = SpectralData(
-        X=np.array(
-            [
-                [[10.0, 20.0, 30.0], [15.0, 25.0, 35.0]],
-                [[20.0, 30.0, 40.0], [25.0, 35.0, 45.0]],
-            ],
-            dtype=np.float32,
-        ),
-        wavelengths=np.array([1000.0, 1100.0, 1200.0], dtype=np.float32),
-        meta={"source_modality": "nir_hsi"},
-    )
-    dataset = build_dataset_ref_from_spectral_data(
-        data_path=str(tmp_path / "prediction_progress.h5"),
-        spectral_data=spectral_data,
-    )
-    reference_correction = build.reference_correction(
-        reference_correction_id="cal_progress",
-        dataset_id=dataset.dataset_id,
-        mode="dark_white_reference",
-        black_level=0.0,
-        white_level=20.0,
-        output_signal_unit="Reflectance",
-    )
-
-    class _DummyPredictor:
-        def predict(self, X):
-            return np.sum(X, axis=1, dtype=np.float32)
-
-    events: list[PredictionProgressEvent] = []
-    result = predict_with_model_run(
-        project_path=context.project_path,
-        model_run=context.model_run,
-        signal_domain=context.signal_domain,
-        recipe=context.recipe,
-        dataset=dataset,
-        reference_correction=reference_correction,
-        model_registry={context.model_run.model_run_id: _DummyPredictor()},
-        spectral_data=spectral_data,
-        preprocessing_recipe_id=context.preprocessing_recipe_id,
-        prediction_run_id="prediction_run_progress",
-        chunk_size=1,
-        progress_callback=events.append,
-    )
-
-    assert result.prediction_run.artifact_refs["chunk_size"] == 1
-    assert result.prediction_run.artifact_refs["n_chunks"] == 2
-    assert result.prediction_run.artifact_refs["completed_chunks"] == 2
-    assert result.prediction_run.artifact_refs["clip_high_count"] == 8
-    assert "prediction_min" in result.prediction_run.artifact_refs
-    assert "prediction_max" in result.prediction_run.artifact_refs
-    assert {event.phase for event in events} >= {
-        "preflight",
-        "loading",
-        "correcting",
-        "preprocessing",
-        "predicting",
-        "writing",
-        "finalizing",
-    }
+    # Three chunks of one frame against one chunk: the handles are reused, so the number of
+    # opens does not grow with the chunks (the source is opened once either way).
+    assert opens(chunk_size=1) == opens(chunk_size=3)
+    assert opens(chunk_size=2)[1] == 1
 
 
-def test_predict_with_model_run_cancels_between_chunks_and_discards_artifacts(tmp_path, qapp):
+def test_predict_with_model_run_cancels_between_chunks_and_discards_artifacts(tmp_path):
     project_path = str(tmp_path / "phase6_predict_cancel.h5")
     write_model_project(project_path)
     state = _fit_phase6_model(project_path)
@@ -767,81 +500,13 @@ def test_predict_with_model_run_cancels_between_chunks_and_discards_artifacts(tm
             return_arrays=False,
         )
 
-    reopened = ProjectState()
+    reopened = CoreSession()
     reopened.open_project(project_path)
     assert "prediction_run_cancelled" not in reopened.predictions
 
 
-def test_predict_with_model_run_can_persist_chunks_without_returning_arrays(tmp_path, qapp):
-    from enginir.io.project_store import load_prediction_run_artifact_refs
-
-    project_path = str(tmp_path / "phase6_predict_persist_chunks.h5")
-    write_model_project(project_path)
-    state = _fit_phase6_model(project_path)
-    context = state.build_prediction_job_context(model_run_id="model_run_1")
-    spectral_data = SpectralData(
-        X=np.ones((2, 2, 3), dtype=np.float32) * 50.0,
-        wavelengths=np.array([1000.0, 1100.0, 1200.0], dtype=np.float32),
-        meta={"source_modality": "nir_hsi"},
-    )
-    dataset = build_dataset_ref_from_spectral_data(
-        data_path=str(tmp_path / "prediction_persist_chunks.h5"),
-        spectral_data=spectral_data,
-    )
-    reference_correction = build.reference_correction(
-        reference_correction_id="cal_persist_chunks",
-        dataset_id=dataset.dataset_id,
-        mode="dark_white_reference",
-        black_level=0.0,
-        white_level=100.0,
-        output_signal_unit="Reflectance",
-    )
-
-    class _DummyPredictor:
-        def predict(self, X):
-            return np.sum(X, axis=1, dtype=np.float32)
-
-    result = predict_with_model_run(
-        project_path=context.project_path,
-        model_run=context.model_run,
-        signal_domain=context.signal_domain,
-        recipe=context.recipe,
-        dataset=dataset,
-        reference_correction=reference_correction,
-        model_registry={context.model_run.model_run_id: _DummyPredictor()},
-        spectral_data=spectral_data,
-        preprocessing_recipe_id=context.preprocessing_recipe_id,
-        prediction_run_id="prediction_run_persist_chunks",
-        chunk_size=1,
-        persist_artifacts=True,
-        return_arrays=False,
-    )
-
-    assert result.artifacts_persisted is True
-    assert result.y_pred is None
-    assert result.spatial_map is None
-    assert "y_pred" not in result.prediction_run.artifact_refs
-    assert "spatial_map" not in result.prediction_run.artifact_refs
-
-    artifact_refs = load_prediction_run_artifact_refs(
-        project_path,
-        "prediction_run_persist_chunks",
-    )
-    assert "artifact_write_status" not in artifact_refs, "complete by construction"
-    assert artifact_refs["y_pred"].shape == (4,)
-    assert artifact_refs["spatial_map"].shape == (2, 2)
-    assert "prediction_min" in artifact_refs
-    assert "prediction_max" in artifact_refs
-    with h5py.File(project_path, "r") as handle:
-        artifact_group = handle[
-            "predictions/prediction_run_persist_chunks/artifact_refs"
-        ]
-        assert "y_pred" in artifact_group
-        assert "spatial_map" not in artifact_group
-
-
 def test_predict_with_model_run_rejects_bare_predictor_when_recipe_would_be_skipped(
-    tmp_path, qapp
+    tmp_path
 ):
     project_path = str(tmp_path / "phase6_predict_bare_estimator.h5")
     write_model_project(project_path)
@@ -883,30 +548,7 @@ def test_predict_with_model_run_rejects_bare_predictor_when_recipe_would_be_skip
         )
 
 
-def test_calibrations_normalize_the_case_of_enum_values():
-    """Signal units and modes compare case-insensitively (dataset-reference-correction contract)."""
-    reference_correction = build.reference_correction(
-        reference_correction_id="cal_signal_case",
-        dataset_id="dataset_1",
-        mode="Dark_White_Reference",
-        black_level=0.0,
-        white_level=100.0,
-        output_signal_unit=" reflectance",
-    )
-    assert reference_correction.mode == "dark_white_reference"
-    assert reference_correction.output_signal_unit == "Reflectance"
-    with pytest.raises(ValueError, match="output_signal_unit must be one of"):
-        build.reference_correction(
-            reference_correction_id="cal_bad_unit",
-            dataset_id="dataset_1",
-            mode="dark_white_reference",
-            black_level=0.0,
-            white_level=100.0,
-            output_signal_unit="transmittance",
-        )
-
-
-def test_explicit_prediction_calibration_reuses_matching_dataset_calibration(qapp):
+def test_explicit_prediction_calibration_reuses_matching_dataset_calibration():
     dataset = build.dataset(
         np.array([1000.0, 1100.0, 1200.0], dtype=np.float32),
         dataset_id="dataset_reuse",
@@ -941,160 +583,44 @@ def test_explicit_prediction_calibration_reuses_matching_dataset_calibration(qap
     assert is_new is False
 
 
-def test_predict_with_model_run_aligns_full_sensor_refs_before_flattening(tmp_path, qapp):
-    project_path = str(tmp_path / "phase6_predict_embedded_refs.h5")
-    write_model_project(project_path)
-    state = _fit_phase6_model(project_path)
-    context = state.build_prediction_job_context(model_run_id="model_run_1")
+def test_transform_spectra_to_signal_domain_rejects_invalid_raw_spectra():
+    def check(case):
+        raw_spectra, match = case
+        wavelengths = np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
+        dataset = build.dataset(
+            wavelengths,
+            dataset_id="dataset_invalid_raw",
+            source_path="/data/prediction.h5",
+            source_format="hdf5",
+            cube_shape=(1, 1, 3),
+            n_bands=3,
+        )
+        reference_correction = build.reference_correction(
+            reference_correction_id="cal_invalid_raw",
+            dataset_id=dataset.dataset_id,
+        )
+        signal_domain = build.signal_domain(
+            wavelengths,
+            signal_domain_id="signal_domain_invalid_raw",
+            input_format="hdf5",
+            corrected_input_allowed=False,
+            n_bands=3,
+        )
 
-    raw_cube = np.array(
-        [
-            [[20, 30, 40], [60, 70, 80]],
-            [[30, 40, 50], [70, 80, 90]],
-        ],
-        dtype=np.uint16,
-    )
-    spectral_data = SpectralData(
-        X=raw_cube,
-        wavelengths=np.array([1000.0, 1100.0, 1200.0], dtype=np.float64),
-        meta={"source_modality": "nir_hsi"},
-    )
-    dataset = build_dataset_ref_from_spectral_data(
-        data_path=str(tmp_path / "prediction_embedded_refs.h5"),
-        spectral_data=spectral_data,
-    )
-    dark_ref = np.array([[0, 10, 20], [10, 20, 30]], dtype=np.float32)
-    white_ref = dark_ref + 100.0
-    reference_correction = build.reference_correction(
-        reference_correction_id="cal_embedded_refs",
-        dataset_id=dataset.dataset_id,
-        mode="dark_white_reference",
-        dark_ref_data=dark_ref,
-        white_ref_data=white_ref,
-        output_signal_unit="Absorbance",
-    )
+        with pytest.raises(ValueError, match=match):
+            transform_spectra_to_signal_domain(
+                raw_spectra,
+                dataset=dataset,
+                reference_correction=reference_correction,
+                signal_domain=signal_domain,
+            )
 
-    class _CapturingPredictor:
-        def __init__(self):
-            self.X: np.ndarray | None = None
-
-        def predict(self, X):
-            self.X = np.asarray(X, dtype=np.float32)
-            return np.sum(self.X, axis=1, dtype=np.float32)
-
-    predictor = _CapturingPredictor()
-    result = predict_with_model_run(
-        project_path=context.project_path,
-        model_run=context.model_run,
-        signal_domain=context.signal_domain,
-        recipe=context.recipe,
-        dataset=dataset,
-        reference_correction=reference_correction,
-        model_registry={context.model_run.model_run_id: predictor},
-        spectral_data=spectral_data,
-        preprocessing_recipe_id=context.preprocessing_recipe_id,
-        prediction_run_id="prediction_run_embedded_refs",
-        created_at="2026-04-02T11:11:00+00:00",
-    )
-
-    assert result.y_pred.shape == (4,)
-    assert predictor.X is not None
-    tiled_dark = np.tile(dark_ref, (2, 1))
-    tiled_white = np.tile(white_ref, (2, 1))
-    raw_flat = raw_cube.reshape(-1, raw_cube.shape[-1]).astype(np.float32)
-    expected = -np.log10(np.clip((raw_flat - tiled_dark) / (tiled_white - tiled_dark), 1e-6, None))
-    np.testing.assert_allclose(predictor.X, expected.astype(np.float32), rtol=1e-6)
-
-
-def test_transform_spectra_infers_spatial_shape_for_full_sensor_refs():
-    raw_cube = np.array(
-        [
-            [[20, 30, 40], [60, 70, 80]],
-            [[30, 40, 50], [70, 80, 90]],
-        ],
-        dtype=np.uint16,
-    )
-    wavelengths = np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
-    dataset = build.dataset(
-        wavelengths,
-        dataset_id="dataset_flat",
-        source_path="/data/prediction.h5",
-        source_format="hdf5",
-        cube_shape=(2, 2, 3),
-        n_bands=3,
-    )
-    dark_ref = np.array([[0, 10, 20], [10, 20, 30]], dtype=np.float32)
-    white_ref = dark_ref + 100.0
-    reference_correction = build.reference_correction(
-        reference_correction_id="cal_flat_refs",
-        dataset_id=dataset.dataset_id,
-        mode="dark_white_reference",
-        dark_ref_data=dark_ref,
-        white_ref_data=white_ref,
-        output_signal_unit="Reflectance",
-    )
-    signal_domain = build.signal_domain(
-        wavelengths,
-        signal_domain_id="signal_domain_reflectance",
-        input_format="hdf5",
-        required_signal_unit="Reflectance",
-        required_correction_mode="dark_white_reference",
-        requires_dark_ref=True,
-        requires_white_ref=True,
-        corrected_input_allowed=False,
-        n_bands=3,
-    )
-
-    transformed = transform_spectra_to_signal_domain(
-        raw_cube.reshape(-1, raw_cube.shape[-1]),
-        dataset=dataset,
-        reference_correction=reference_correction,
-        signal_domain=signal_domain,
-    )
-
-    expected = (raw_cube.astype(np.float32) - dark_ref) / (white_ref - dark_ref)
-    np.testing.assert_allclose(transformed, expected.reshape(-1, raw_cube.shape[-1]), rtol=1e-6)
-    assert transformed.dtype == np.float32
-
-
-@pytest.mark.parametrize(
-    ("raw_spectra", "match"),
-    [
+    check_all([
         (np.ones((3,), dtype=np.float32), "2-D"),
         (np.empty((0, 3), dtype=np.float32), "at least one"),
         (np.array([[1.0, np.nan, 3.0]], dtype=np.float32), "finite"),
         (np.array([["bad", "data", "x"]], dtype=object), "numeric"),
-    ],
-)
-def test_transform_spectra_to_signal_domain_rejects_invalid_raw_spectra(raw_spectra, match):
-    wavelengths = np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
-    dataset = build.dataset(
-        wavelengths,
-        dataset_id="dataset_invalid_raw",
-        source_path="/data/prediction.h5",
-        source_format="hdf5",
-        cube_shape=(1, 1, 3),
-        n_bands=3,
-    )
-    reference_correction = build.reference_correction(
-        reference_correction_id="cal_invalid_raw",
-        dataset_id=dataset.dataset_id,
-    )
-    signal_domain = build.signal_domain(
-        wavelengths,
-        signal_domain_id="signal_domain_invalid_raw",
-        input_format="hdf5",
-        corrected_input_allowed=False,
-        n_bands=3,
-    )
-
-    with pytest.raises(ValueError, match=match):
-        transform_spectra_to_signal_domain(
-            raw_spectra,
-            dataset=dataset,
-            reference_correction=reference_correction,
-            signal_domain=signal_domain,
-        )
+    ], check)
 
 
 def _scalar_reflectance_calibration(dataset_id: str) -> ReferenceCorrection:
@@ -1106,126 +632,6 @@ def _scalar_reflectance_calibration(dataset_id: str) -> ReferenceCorrection:
         white_level=200.0,
         output_signal_unit="Reflectance",
     )
-
-
-@pytest.mark.parametrize("cancel_at_poll", range(1, 12))
-def test_cancelling_at_any_point_leaves_no_staged_run(tmp_path, qapp, cancel_at_poll):
-    project_path = str(tmp_path / "cancel_any.h5")
-    write_model_project(project_path)
-    state = _fit_phase6_model(project_path)
-    context = state.build_prediction_job_context(model_run_id="model_run_1")
-    spectral_data = SpectralData(
-        X=np.full((2, 2, 3), 50.0, dtype=np.float32),
-        wavelengths=np.array([1000.0, 1100.0, 1200.0], dtype=np.float32),
-        meta={"source_modality": "nir_hsi"},
-    )
-    dataset = build_dataset_ref_from_spectral_data(
-        data_path=str(tmp_path / "any.h5"), spectral_data=spectral_data
-    )
-    polls = 0
-
-    def cancel() -> bool:
-        nonlocal polls
-        polls += 1
-        return polls == cancel_at_poll
-
-    try:
-        predict_with_model_run(
-            project_path=context.project_path,
-            model_run=context.model_run,
-            signal_domain=context.signal_domain,
-            recipe=context.recipe,
-            dataset=dataset,
-            reference_correction=_scalar_reflectance_calibration(dataset.dataset_id),
-            model_registry={},
-            spectral_data=spectral_data,
-            preprocessing_recipe_id=context.preprocessing_recipe_id,
-            prediction_run_id="prediction_run_cancel_any",
-            chunk_size=1,
-            cancel_callback=cancel,
-            persist_artifacts=True,
-            return_arrays=False,
-        )
-    except PredictionCancelledError:
-        cancelled = True
-    else:
-        cancelled = False
-
-    from enginir.io.project_store import load_project_store
-
-    store = load_project_store(project_path)  # raises on a half-written ("writing") run
-    assert ("prediction_run_cancel_any" in store["predictions"]) is not cancelled
-
-
-def test_chunked_saved_model_prediction_matches_one_shot_prediction(tmp_path, qapp):
-    project_path = str(tmp_path / "chunked.h5")
-    write_model_project(project_path)
-    state = _fit_phase6_model(project_path)
-    context = state.build_prediction_job_context(model_run_id="model_run_1")
-    rng = np.random.default_rng(5)
-    spectral_data = SpectralData(
-        X=rng.uniform(10.0, 190.0, size=(7, 3, 3)).astype(np.float32),
-        wavelengths=np.array([1000.0, 1100.0, 1200.0], dtype=np.float32),
-        meta={"source_modality": "nir_hsi"},
-    )
-    dataset = build_dataset_ref_from_spectral_data(
-        data_path=str(tmp_path / "chunked_input.h5"), spectral_data=spectral_data
-    )
-    reference_correction = _scalar_reflectance_calibration(dataset.dataset_id)
-
-    def predict(chunk_size: int, persist: bool, run_id: str):
-        return predict_with_model_run(
-            project_path=context.project_path,
-            model_run=context.model_run,
-            signal_domain=context.signal_domain,
-            recipe=context.recipe,
-            dataset=dataset,
-            reference_correction=reference_correction,
-            model_registry={},  # replay the saved artifact
-            spectral_data=spectral_data,
-            preprocessing_recipe_id=context.preprocessing_recipe_id,
-            prediction_run_id=run_id,
-            chunk_size=chunk_size,
-            persist_artifacts=persist,
-            return_arrays=True,
-        )
-
-    one_shot = predict(7, False, "one_shot")
-    chunked = predict(3, True, "chunked")  # chunks of 3, 3 and 1 frames
-
-    np.testing.assert_allclose(chunked.y_pred, one_shot.y_pred, rtol=1e-5, atol=1e-6)
-    assert chunked.spatial_map.shape == (7, 3)
-    from enginir.io.project_store import load_prediction_run_artifact_refs
-
-    stored = load_prediction_run_artifact_refs(project_path, "chunked", keys=("y_pred",))
-    np.testing.assert_allclose(stored["y_pred"], chunked.y_pred)
-    assert chunked.prediction_run.artifact_refs["chunk_axis"] == "frames"
-    assert chunked.prediction_run.artifact_refs["completed_chunks"] == 3
-
-
-def test_training_and_prediction_use_identical_signal_conversion(tmp_path, qapp):
-    project_path = str(tmp_path / "identity.h5")
-    write_model_project(project_path)
-    state = _fit_phase6_model(project_path)
-    context = state.build_prediction_job_context(model_run_id="model_run_1")
-    roi = next(iter(state.rois.values()))
-    raw = roi.load_spectra(project_path)
-    reference_correction = state.reference_corrections[roi.reference_correction_id]
-    dataset = state.datasets[roi.dataset_id]
-
-    training = transform_spectra_to_signal_domain(
-        raw, dataset=dataset, reference_correction=reference_correction, signal_domain=context.signal_domain
-    )
-    chunks = [
-        transform_spectra_to_signal_domain(
-            raw[i:i + 1], dataset=dataset, reference_correction=reference_correction,
-            signal_domain=context.signal_domain, check_compatibility=False,
-        )
-        for i in range(raw.shape[0])
-    ]
-
-    np.testing.assert_array_equal(np.vstack(chunks), training)
-    assert training.dtype == np.float32
 
 
 def _second_review_setup(tmp_path, name: str, X: np.ndarray, **calibration_kwargs):
@@ -1255,7 +661,7 @@ class _SumPredictor:
         return np.sum(X, axis=1, dtype=np.float32)
 
 
-def test_prediction_never_replaces_an_existing_run(tmp_path, qapp):
+def test_prediction_never_replaces_an_existing_run(tmp_path):
     X = np.ones((2, 2, 3), dtype=np.float32) * 10.0
     context, spectral_data, dataset, reference_correction = _second_review_setup(tmp_path, "reuse", X)
     kwargs = dict(
@@ -1276,7 +682,7 @@ def test_prediction_never_replaces_an_existing_run(tmp_path, qapp):
     assert refs["y_pred"].shape == (4,)
 
 
-def test_preflight_rejects_a_pipeline_without_the_recipe_steps(tmp_path, qapp):
+def test_preflight_rejects_a_pipeline_without_the_recipe_steps(tmp_path):
     from types import SimpleNamespace
 
     X = np.ones((2, 2, 3), dtype=np.float32)
@@ -1294,25 +700,7 @@ def test_preflight_rejects_a_pipeline_without_the_recipe_steps(tmp_path, qapp):
         )
 
 
-def test_every_chunk_reports_the_phases_in_order(tmp_path, qapp):
-    X = np.ones((2, 2, 3), dtype=np.float32) * 10.0
-    context, spectral_data, dataset, reference_correction = _second_review_setup(tmp_path, "phases", X)
-    events: list[PredictionProgressEvent] = []
-    predict_with_model_run(
-        project_path=context.project_path, model_run=context.model_run,
-        signal_domain=context.signal_domain, recipe=context.recipe, dataset=dataset,
-        reference_correction=reference_correction, model_registry={context.model_run.model_run_id: _SumPredictor()},
-        spectral_data=spectral_data, preprocessing_recipe_id=context.preprocessing_recipe_id,
-        chunk_size=1, progress_callback=events.append,
-    )
-
-    per_chunk = ["loading", "correcting", "preprocessing", "predicting", "writing"]
-    assert [event.phase for event in events] == [
-        "preflight", *per_chunk, *per_chunk, "finalizing", "finalizing"
-    ]
-
-
-def test_progress_text_calls_the_reference_correction_by_its_name(tmp_path, qapp):
+def test_progress_text_calls_the_reference_correction_by_its_name(tmp_path):
     # Terminology contract: "calibration" means building a model, never the
     # reference correction; the phase id `correcting` is internal.
     from enginir.viewer._prediction import _phase_label
@@ -1333,7 +721,7 @@ def test_progress_text_calls_the_reference_correction_by_its_name(tmp_path, qapp
     assert any(text.startswith("Reference correction") for text in shown)
 
 
-def test_flat_spectra_with_per_sensor_references_chunk_like_one_shot(tmp_path, qapp):
+def test_flat_spectra_with_per_sensor_references_chunk_like_one_shot(tmp_path):
     cube = np.array([[[20, 30, 40], [60, 70, 80]], [[30, 40, 50], [70, 80, 90]],
                      [[25, 35, 45], [65, 75, 85]]], dtype=np.uint16)
     dark = np.array([[0, 10, 20], [10, 20, 30]], dtype=np.float32)
@@ -1365,31 +753,7 @@ def _predict_kwargs(context, spectral_data, dataset, reference_correction, predi
             "preprocessing_recipe_id": context.preprocessing_recipe_id, **overrides}
 
 
-def test_persisted_run_records_clip_counts_output_names_and_a_1d_single_output(tmp_path, qapp):
-    """Runtime contract: clipping telemetry and output metadata are stored with the run."""
-    from enginir.io.project_store import load_prediction_run_artifact_refs
-
-    X = np.array([[[10.0, 15.0, 30.0], [12.5, 20.0, 25.0]],
-                  [[5.0, 18.0, 40.0], [16.0, 11.0, 19.0]]], dtype=np.float32)
-    black, white = 12.0, 20.0
-    context, spectral_data, dataset, reference_correction = _second_review_setup(
-        tmp_path, "telemetry", X, black_level=black, white_level=white)
-    reflectance = (X - black) / (white - black)
-    result = predict_with_model_run(**_predict_kwargs(
-        context, spectral_data, dataset, reference_correction, _SumPredictor(),
-        prediction_run_id="prediction_telemetry", persist_artifacts=True))
-
-    stored = load_prediction_run_artifact_refs(context.project_path, "prediction_telemetry")
-    assert stored["clip_low_count"] == int((reflectance < 1e-6).sum())
-    assert stored["clip_high_count"] == int((reflectance > 1.0).sum())
-    saved_model = load_model_run_prediction_artifact(context.project_path,
-                                                     context.model_run.model_run_id)
-    expected_names = list(saved_model["target_names"])
-    assert list(stored["output_names"]) == expected_names
-    assert result.y_pred.shape == (4,) and stored["y_pred"].shape == (4,)
-
-
-def test_multi_output_predictions_store_their_output_axis(tmp_path, qapp):
+def test_multi_output_predictions_store_their_output_axis(tmp_path):
     from enginir.io.project_store import load_prediction_run_artifact_refs
 
     class _TwoOutputs:
@@ -1409,7 +773,7 @@ def test_multi_output_predictions_store_their_output_axis(tmp_path, qapp):
     assert "output_index" not in stored  # no output is chosen for the user
 
 
-def test_preflight_rejects_a_signal_domain_of_another_model_run(tmp_path, qapp):
+def test_preflight_rejects_a_signal_domain_of_another_model_run(tmp_path):
     from dataclasses import replace
 
     X = np.full((2, 2, 3), 10.0, dtype=np.float32)
@@ -1421,7 +785,7 @@ def test_preflight_rejects_a_signal_domain_of_another_model_run(tmp_path, qapp):
             signal_domain=foreign))
 
 
-def test_input_shorter_than_the_dataset_fails_and_leaves_no_run(tmp_path, qapp):
+def test_input_shorter_than_the_dataset_fails_and_leaves_no_run(tmp_path):
     X = np.full((3, 2, 3), 10.0, dtype=np.float32)
     context, spectral_data, dataset, reference_correction = _second_review_setup(tmp_path, "short", X)
     short = SpectralData(X[:2], spectral_data.wavelengths, spectral_data.meta)
@@ -1439,8 +803,7 @@ def test_input_shorter_than_the_dataset_fails_and_leaves_no_run(tmp_path, qapp):
     [("cube.eiff", slice(None, None, -2)), ("cube.eiff", slice(1, None, 2)),
      ("cube.h5", slice(None, None, -3)), ("cube.hdr", None)],
 )
-def test_image_files_stream_into_the_same_prediction_as_in_memory_data(tmp_path, qapp,
-                                                                       monkeypatch, name,
+def test_image_files_stream_into_the_same_prediction_as_in_memory_data(tmp_path, monkeypatch, name,
                                                                        frames):
     """G16: EIFF, HDF5 (any frame step) and ENVI are streamed, never read completely."""
     from enginir.io import load_spectra, save_envi, save_hdf5

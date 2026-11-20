@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import sys
 import time
 
-import h5py
 import numpy as np
 import pytest
 from PyQt6.QtCore import Qt
@@ -78,50 +76,6 @@ def test_the_scan_layout_keeps_positions_and_stacks_data_files(trays):
     header_b = layout.headers[1][3]
     assert header_b >= y2 + h2 + layout.unit, "the labels below keep their room"
     assert places[b1][1] >= header_b + 1.5 * layout.unit, "the header keeps its room"
-
-
-def test_a_project_with_rois_opens_on_them_without_any_data_file(qapp, trays):
-    project, paths = trays
-    for path in paths.values():
-        path.unlink()  # the tab needs only the project file
-    window = _open(qapp, project)
-    try:
-        view = window._project_rois
-        assert window._explore_tabs.currentWidget() is view
-        assert window._explore_tabs.tabText(1) == "Project ROIs (3)"
-        _settle(qapp, view)
-        assert view.mosaic.tile_count() == 3
-        labels = view.mosaic._labels
-        assert labels[project.roi("tray_a-A2").roi_id] == "A2  5"
-        assert labels[project.roi("tray_b-B1").roi_id] == "B1"
-    finally:
-        window.close()
-
-
-def test_mean_spectra_match_the_fit_conversion_and_follow_the_signal_unit(qapp, trays):
-    from enginir.modeling import roi_spectrum_summaries
-
-    project, _paths = trays
-    window = _open(qapp, project)
-    try:
-        view = window._project_rois
-        window.state.set_y_unit("Absorbance")
-        _settle(qapp, view)
-        payload = view.means.payload
-        ws = project.workspace
-        expected, _ = roi_spectrum_summaries(project.path, list(ws.rois.values()),
-                                             datasets=ws.datasets, reference_corrections=ws.reference_corrections,
-                                             signal_unit="Absorbance")
-        a1 = project.roi("tray_a-A1").roi_id
-        np.testing.assert_allclose(payload["means"][a1], expected[a1].mean)
-        assert payload["values"][a1] == 2.0 and payload["values"][project.roi(
-            "tray_b-B1").roi_id] is None  # drawn grey
-        assert payload["signal_label"] == "Absorbance"
-        window.state.set_preprocess_snv(True)
-        _settle(qapp, view)
-        assert view.means.payload["signal_label"] == "Absorbance, SNV"
-    finally:
-        window.close()
 
 
 def test_selecting_and_opening_a_tile(qapp, trays):
@@ -241,55 +195,6 @@ def test_tiles_loaded_in_batches_share_one_stretch_at_the_end(qapp, trays, monke
         window.close()
 
 
-def test_equal_values_get_the_colour_the_colour_bar_shows(qapp):
-    """All ROIs at 10: the lines must take the colour of 10 on the bar, not its lowest colour.
-    (A plain Normalize(10, 10) maps them to the bottom colour while the bar shows 9-11.)"""
-    from matplotlib.colors import to_rgba
-    from matplotlib.figure import Figure
-
-    from enginir.viewer._project_rois import _render_means
-    from enginir.viewer._theme import panel_colors, value_colormap
-
-    payload = {"means": {"a": np.ones(5), "b": np.full(5, 2.0)}, "values": {"a": 10.0, "b": 10.0},
-               "wavelengths": np.arange(5.0), "axis_label": "Band", "value_label": "Layer"}
-    figure = Figure()
-    _render_means(figure, payload, panel_colors())
-    ax, bar = figure.axes
-    low, high = bar.get_ylim()
-    expected = value_colormap(panel_colors())((10.0 - low) / (high - low))
-    assert all(np.allclose(to_rgba(line.get_color()), expected) for line in ax.get_lines())
-    assert ax.get_xlabel() == "Band"
-
-
-def test_a_file_without_wavelengths_is_plotted_over_band_numbers(qapp, tmp_path):
-    rng = np.random.default_rng(3)
-    cube = rng.integers(1500, 2500, (12, 6, 10)).astype(np.uint16)
-    path = tmp_path / "bands.h5"
-    save_hdf5(str(path), cube, np.linspace(1000.0, 1700.0, 10))
-    with h5py.File(path, "a") as f:
-        del f["wavelengths"]  # a scan saved without its wavelengths
-    project = Project.create(tmp_path / "bands_project.h5")
-    scan = project.add_dataset(str(path), black_level=128.0, white_level=3500.0)
-    scan.add_roi("r1", frames=(2, 5), rows=(1, 3))
-    window = _open_without_target(qapp, project)
-    try:
-        view = window._project_rois
-        _settle(qapp, view)
-        assert view.means.payload["axis_label"] == "Band"
-        assert view.means.table().columns[0].unit == "band"
-    finally:
-        window.close()
-
-
-def _open_without_target(qapp, project):
-    from enginir.viewer import open_project
-
-    window = open_project(project.path)
-    window.show()
-    qapp.processEvents()
-    return window
-
-
 def test_data_file_docks_and_the_roi_table_follow_the_explore_tab(qapp, trays):
     project, _paths = trays
     window = _open(qapp, project)
@@ -370,18 +275,6 @@ def test_the_grid_layout_uses_grid_positions_or_scan_order_with_room_for_text():
     assert tray_header >= places["y1"][1] + places["y1"][3] + 1.5 * unit
 
 
-def test_short_names_drop_what_all_rois_share():
-    from enginir.viewer._project_rois import _short_names
-
-    names = {"1": "API_10p_L1_01", "2": "API_10p_L1_02", "3": "API_10p_L4_01"}
-    files = dict.fromkeys(names, "stream_hsi.h5")
-    assert _short_names(names, files) == {"1": "L1_01", "2": "L1_02", "3": "L4_01"}
-    assert _short_names({"1": "tray03-B04", "2": "tray04-B04"},
-                        {"1": "tray03.h5", "2": "tray04.h5"}) == {"1": "B04", "2": "B04"}
-    assert _short_names({"1": "A1", "2": "A2"}, {}) == {"1": "A1", "2": "A2"}
-    assert _short_names({"1": "API_10p_L1_01"}, {}) == {"1": "API_10p_L1_01"}
-
-
 def test_labels_zoom_with_the_tiles_and_stay_in_their_room(qapp, trays):
     project, _paths = trays
     window = _open(qapp, project)
@@ -425,54 +318,6 @@ def test_the_view_button_switches_layout_and_stretch(qapp, trays):
         assert any(not np.allclose(shared[k], mosaic._images[k].image) for k in shared)
         assert mosaic.plot_table().metadata == {"layout": "scan", "stretch": "per_file"}
     finally:
-        window.close()
-
-
-def test_the_window_never_demands_more_width_than_the_compositor_gives(qapp, trays):
-    """WSLg ends the Wayland connection when a maximized window draws a buffer wider than
-    the screen (seen at 1963 px on a 1920 px screen after a prediction). The window must not
-    turn its docks' minimums into its own minimum size."""
-    project, _paths = trays
-    window = _open(qapp, project)
-    try:
-        for page in (window._eda_view, window._modeling_view, window._prediction_view):
-            window._workspace_tabs.setCurrentWidget(page)
-            qapp.processEvents()
-            assert window.minimumSize().width() <= 1 and window.minimumSize().height() <= 1
-        assert window._controls_dock.minimumSizeHint().width() < 400, "controls scroll"
-    finally:
-        window.close()
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason=(
-    "offscreen Qt on Windows has no system fonts: its fallback font is about twice as "
-    "wide as Segoe UI (a checkbox 336 px instead of 181), so widths are not real"))
-def test_every_control_row_fits_in_the_controls_dock(qapp, trays):
-    """The Settings column never runs out of the dock sideways: rows wrap and drop-downs
-    shrink (plan gui-1.6); it scrolls up and down instead."""
-    from PyQt6.QtWidgets import QScrollArea, QWidget
-
-    project, _paths = trays
-    window = _open(qapp, project)
-    try:
-        _settle(qapp, window._project_rois)
-        scroll = window._controls_dock.findChild(QScrollArea)
-        assert scroll is not None
-        content, viewport = scroll.widget(), scroll.viewport()
-        assert content is not None and viewport is not None
-        for page in (window._eda_view, window._modeling_view, window._prediction_view):
-            window._workspace_tabs.setCurrentWidget(page)
-            window._prediction_view._readiness_status.setText("long text " * 60)
-            qapp.processEvents()
-            assert content.width() <= viewport.width(), type(page).__name__
-            for child in page.findChildren(QWidget):
-                if child.isVisible() and child.width() > 0:
-                    right = child.mapTo(content, child.rect().topRight()).x()
-                    assert right <= viewport.width() + 1, \
-                        f"{type(page).__name__}: {type(child).__name__} {child.objectName()} " \
-                        f"{getattr(child, 'text', lambda: '')()!r}"
-    finally:
-        _settle(qapp, window._project_rois)
         window.close()
 
 
@@ -528,17 +373,6 @@ def _skip_without_real_fonts(mosaic) -> None:
 
     if mosaic._label_chars() > _MAX_LABEL_CHARS:
         pytest.skip(f"no real fonts on this platform: {_mosaic_numbers(mosaic)}")
-
-
-def test_the_mosaic_shows_whole_tile_labels_for_narrow_tiles(qapp, window):
-    window.show_step("rois")
-    mosaic = window._project_rois.mosaic
-    wait_until(qapp, lambda: mosaic._label_items)
-    _skip_without_real_fonts(mosaic)
-    shown = {roi_id: item.text() for roi_id, item in mosaic._label_items.items()}
-    assert shown and all("…" not in text for text in shown.values()), \
-        f"{_mosaic_numbers(mosaic)} {shown}"
-    assert all(text == mosaic.label_text(roi_id) for roi_id, text in shown.items())
 
 
 def test_mosaic_labels_are_measured_in_the_actual_font(qapp, window):

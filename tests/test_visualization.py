@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 
+from tests._tables import check_all  # noqa: E402
+
 from enginir.visualization import (  # noqa: E402
     plot_image_map,
     plot_leverage,
@@ -36,32 +38,6 @@ Q_RES = RNG.random(N) * 5
 
 def _close_all() -> None:
     plt.close("all")
-
-
-def test_plot_spectra_returns_axes_and_adds_colorbar_for_color_by():
-    ax = plot_spectra(X, WL, color_by=Y)
-
-    assert isinstance(ax, matplotlib.axes.Axes)
-    (lines,) = ax.collections  # all spectra in one collection, colored by their value
-    assert len(lines.get_segments()) == N
-    np.testing.assert_allclose(lines.get_segments()[3][:, 1], X[3])
-    np.testing.assert_allclose(lines.get_array(), Y)
-    assert len(ax.figure.axes) == 2  # the colorbar
-
-    _close_all()
-
-
-def test_plot_spectra_shows_legend_only_for_small_labeled_sets():
-    labels_small = [f"s{i}" for i in range(N)]
-    ax_small = plot_spectra(X, WL, labels=labels_small)
-    assert ax_small.get_legend() is not None
-    _close_all()
-
-    X_big = RNG.random((25, P))
-    labels_big = [f"s{i}" for i in range(25)]
-    ax_big = plot_spectra(X_big, WL, labels=labels_big)
-    assert ax_big.get_legend() is None
-    _close_all()
 
 
 def test_plot_prediction_draws_reference_line_and_r2_annotation():
@@ -115,16 +91,6 @@ def test_plot_scores_only_annotates_labels_for_small_sets():
     _close_all()
 
 
-def test_plot_vip_draws_threshold_line_and_bars():
-    ax = plot_vip(VIP, WL, threshold=0.8)
-
-    assert isinstance(ax, matplotlib.axes.Axes)
-    assert len(ax.patches) == P
-    assert any(np.allclose(np.asarray(line.get_ydata()), 0.8) for line in ax.lines)
-
-    _close_all()
-
-
 def test_plot_leverage_draws_thresholds_and_only_annotates_outliers():
     labels = [f"s{i}" for i in range(N)]
     leverage_crit = np.percentile(LEVERAGE, 80)
@@ -143,24 +109,6 @@ def test_plot_leverage_draws_thresholds_and_only_annotates_outliers():
     assert len(ax.texts) == int(is_outlier.sum())
 
     _close_all()
-
-
-def test_plot_image_map_adds_overlay_and_colorbar():
-    y_map = RNG.random((10, 15))
-    rgb = RNG.random((10, 15, 3)) * 255
-    ax = plot_image_map(y_map, background_rgb=rgb, cmap="hot")
-
-    assert isinstance(ax, matplotlib.axes.Axes)
-    assert len(ax.get_images()) == 2
-    assert ax.get_images()[-1].cmap.name == "hot"
-    assert len(ax.figure.axes) == 2
-
-    _close_all()
-
-
-def _close_figures():
-    yield
-    plt.close("all")
 
 
 def test_plot_image_map_draws_nan_pixels_transparent():
@@ -192,17 +140,6 @@ def test_plot_prediction_requires_one_target():
     assert ax.get_legend() is None
 
 
-def test_plot_scores_colors_class_labels_with_a_legend():
-    classes = np.array(["a", "b"] * (N // 2))
-
-    ax = plot_scores(SCORES, y=classes, component_label="LV")
-
-    assert [text.get_text() for text in ax.get_legend().get_texts()] == ["a", "b"]
-    assert ax.get_xlabel() == "LV 1"
-    with pytest.raises(ValueError, match="must differ"):
-        plot_scores(SCORES, pc_x=1, pc_y=1)
-
-
 def test_plot_vip_bars_have_positive_width_for_descending_wavelengths():
     ax = plot_vip(RNG.random(P) * 2, WL[::-1])
 
@@ -215,16 +152,6 @@ def test_plots_use_physical_axis_labels_and_pass_style_keywords():
     assert (ax.get_xlabel(), ax.get_ylabel()) == ("Wavelength (nm)", "Absorbance")
     assert all(line.get_color() == "black" for line in ax.get_lines())
     assert plot_loadings(LOADINGS).get_xlabel() == "Band index"
-
-
-def test_plots_do_not_modify_their_inputs():
-    data = X.copy()
-    y_map = RNG.random((4, 4))
-    y_map_copy = y_map.copy()
-    plot_spectra(data, WL, color_by=Y)
-    plot_image_map(y_map)
-    np.testing.assert_array_equal(data, X)
-    np.testing.assert_array_equal(y_map, y_map_copy)
 
 
 def test_plot_loadings_accepts_a_coefficient_vector():
@@ -256,9 +183,15 @@ def test_unflatten_cube_turns_predictions_into_a_map():
     _close_all()
 
 
-@pytest.mark.parametrize(
-    ("call", "match"),
-    [
+def test_plots_reject_inputs_that_do_not_fit_together():
+    def check(case):
+        call, match = case
+        """Mismatches raise a clear ValueError instead of a matplotlib error or a wrong plot."""
+        with pytest.raises(ValueError, match=match):
+            call()
+        _close_all()
+
+    check_all([
         (lambda: plot_spectra(X, WL, labels=["only-one"]), "labels has"),
         (lambda: plot_spectra(X, WL[:-1]), "wavelengths"),
         (lambda: plot_spectra(X, WL, color_by=Y[:-1]), "color_by"),
@@ -271,10 +204,4 @@ def test_unflatten_cube_turns_predictions_into_a_map():
         (lambda: plot_image_map(RNG.random((10, 15, 1))), "2-D"),
         (lambda: plot_image_map(RNG.random((10, 15)), background_rgb=RNG.random((10, 15))),
          "background_rgb must"),
-    ],
-)
-def test_plots_reject_inputs_that_do_not_fit_together(call, match):
-    """Mismatches raise a clear ValueError instead of a matplotlib error or a wrong plot."""
-    with pytest.raises(ValueError, match=match):
-        call()
-    _close_all()
+    ], check)

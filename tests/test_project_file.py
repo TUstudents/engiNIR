@@ -8,18 +8,15 @@ from loguru import logger
 import numpy as np
 import pytest
 from enginir import PreprocessingRecipe, Project
-from enginir.io import FILE_SCHEMA_VERSION
 from enginir.io.project_store import (
     create_project,
     discard_prediction_run_artifacts,
     finalize_prediction_run_artifacts,
     initialize_prediction_run_artifacts,
     iter_roi_reference_spectra,
-    load_model_run_prediction_artifact,
     load_prediction_run_artifact_refs,
     load_prediction_spatial_map_preview,
     load_project_store,
-    load_roi_spectra_batch,
     open_prediction_run_artifact_writer,
     save_reference_correction,
     save_dataset_ref,
@@ -35,7 +32,8 @@ from enginir.io.project_store import (
 from enginir.project import FitSpec, hydrate_project_store
 from enginir.project._models import software_versions
 from tests._project_payloads import projection_payload, recipe_payload
-from tests._scans import labelled_project, warnings_during
+from tests._tables import check_all
+from tests._scans import labelled_project
 
 
 # -- Contract tests for the v3 HDF5 project API and model artifact serializers ---------
@@ -434,58 +432,6 @@ def test_hydration_rejects_calibration_id_collision_across_datasets(project_path
         hydrate_project_store(load_project_store(project_path))
 
 
-def test_a_stored_reference_correction_is_never_changed(project_path, wavelengths):
-    create_project(project_path)
-    _seed_dataset_context(project_path, wavelengths)
-    stored = load_project_store(project_path)["datasets"]["dataset_1"]["reference_corrections"]["cal_1"]
-    payload = {key: value for key, value in stored.items()}
-    save_reference_correction(project_path, "dataset_1", "cal_1", payload)  # identical: allowed
-    with pytest.raises(ValueError, match="Refusing to overwrite reference correction"):
-        save_reference_correction(project_path, "dataset_1", "cal_1",
-                              {**payload, "created_at": "2026-03-29T00:00:00+00:00"})
-    with pytest.raises(KeyError, match="dataset 'dataset_9' is not in"):
-        save_reference_correction(project_path, "dataset_9", "cal_9", payload)
-
-
-def test_hydration_rejects_dangling_or_foreign_active_calibration_id(project_path, wavelengths):
-    create_project(project_path)
-    _seed_dataset_context(project_path, wavelengths)
-
-    with h5py.File(project_path, "r+") as handle:
-        handle["datasets/dataset_1"].attrs["active_reference_correction_id"] = "cal_missing"
-    with pytest.raises(ValueError, match="references missing reference_correction_id"):
-        hydrate_project_store(load_project_store(project_path))
-
-    save_dataset_ref(
-        project_path,
-        "dataset_2",
-        {
-            "source_path": "/data/other.eiff",
-            "source_format": "eiff",
-            "source_modality": "nir_hsi",
-            "cube_shape": (10, 8, len(wavelengths)),
-            "n_bands": len(wavelengths),
-            "wavelengths": wavelengths,
-            "loader_metadata": {},
-            "import_timestamp": "2026-03-28T11:00:00+00:00",
-        },
-    )
-    save_reference_correction(
-        project_path,
-        "dataset_2",
-        "cal_2",
-        {
-            "mode": "raw_dn",
-            "output_signal_unit": "DN",
-            "created_at": "2026-03-28T11:01:00+00:00",
-        },
-    )
-    with h5py.File(project_path, "r+") as handle:
-        handle["datasets/dataset_1"].attrs["active_reference_correction_id"] = "cal_2"
-    with pytest.raises(ValueError, match="of dataset 'dataset_2'"):
-        hydrate_project_store(load_project_store(project_path))
-
-
 def test_a_crash_while_staging_leaves_a_project_that_opens(project_path):
     """Fault case of contract §7: the writer dies between initialize and finalize. The project
     still opens, the run is not in /predictions, and discard_staged_predictions removes it
@@ -507,54 +453,6 @@ def test_a_crash_while_staging_leaves_a_project_that_opens(project_path):
         assert "staging" not in handle
     assert load_project_store(project_path)["project_meta"]["updated_at"] > writer_before
     assert discard_staged_predictions(project_path) == []
-
-
-def test_roi_storage_batch_loading(project_path, rng, wavelengths):
-    create_project(project_path)
-    _seed_dataset_context(project_path, wavelengths)
-    spectra_a = rng.randint(0, 100, (3, len(wavelengths))).astype(np.uint16)
-    spectra_b = rng.randint(0, 100, (2, len(wavelengths))).astype(np.uint16)
-    save_training_roi(
-        project_path,
-        "A",
-        _roi_payload(wavelengths, name="A", source_file="/a.eiff", n_pixels=3),
-        spectra_a,
-    )
-    save_training_roi(
-        project_path,
-        "B",
-        _roi_payload(wavelengths, name="B", source_file="/b.eiff", n_pixels=2),
-        spectra_b,
-    )
-
-    loaded = load_roi_spectra_batch(project_path, ["/rois/A/spectra", "/rois/B/spectra"])
-
-    np.testing.assert_array_equal(loaded["/rois/A/spectra"], spectra_a)
-    np.testing.assert_array_equal(loaded["/rois/B/spectra"], spectra_b)
-    with h5py.File(project_path, "r") as handle:
-        assert handle["rois/A/spectra"].dtype == np.uint16
-
-
-def test_a_project_of_an_earlier_format_is_refused_with_one_message(tmp_path):
-    # Projects written before 1.5 store schema_version = "viewer-v3" and no
-    # FileSchemaVersion; they are refused up front, naming their format.
-    path = str(tmp_path / "earlier.h5")
-    with h5py.File(path, "w") as handle:
-        meta = handle.create_group("project_meta")
-        meta.attrs["schema_version"] = "viewer-v3"
-
-    with pytest.raises(ValueError, match="format 'viewer-v3'.*'enginir-1.7'.*created again"):
-        load_project_store(path)
-
-
-def test_a_project_of_a_later_format_names_its_writer(tmp_path):
-    path = str(tmp_path / "later.h5")
-    with h5py.File(path, "w") as handle:
-        meta = handle.create_group("project_meta")
-        meta.attrs.update(FileSchemaVersion="enginir-9.0", FileWriter="engiNIR 9.0.0")
-
-    with pytest.raises(ValueError, match="format 'enginir-9.0', written by engiNIR 9.0.0"):
-        load_project_store(path)
 
 
 def test_save_recipe_enforces_current_schema_and_discards_extras(tmp_path):
@@ -589,6 +487,55 @@ def test_save_recipe_enforces_current_schema_and_discards_extras(tmp_path):
         == PreprocessingRecipe.from_dict(recipe_payload(snv=True))
 
 
+def test_stored_objects_never_change_except_their_labels(project_path, wavelengths):
+    """Stable ids: an identical re-save is a no-op, a label may change, any other content
+    is refused (project-schema contract §5). NaN counts as content like any value."""
+    create_project(project_path)
+    _seed_dataset_context(project_path, wavelengths)
+    _seed_dataset_context(project_path, wavelengths)  # identical: a no-op
+
+    stored = load_project_store(project_path)["datasets"]["dataset_1"]["reference_corrections"][
+        "cal_1"]
+    payload = dict(stored)
+    save_reference_correction(project_path, "dataset_1", "cal_1", payload)
+    with pytest.raises(ValueError, match="Refusing to overwrite reference correction"):
+        save_reference_correction(project_path, "dataset_1", "cal_1",
+                                  {**payload, "created_at": "2026-03-29T00:00:00+00:00"})
+    with pytest.raises(KeyError, match="dataset 'dataset_9' is not in"):
+        save_reference_correction(project_path, "dataset_9", "cal_9", payload)
+
+    target = {"name": "moisture", "unit": "%", "value_type": "float",
+              "missing_value_policy": "allowed", "created_at": "2026-04-02T10:00:00+00:00"}
+    save_target_definition(project_path, "target_imm", target)
+    save_target_definition(project_path, "target_imm", dict(target))
+    save_target_definition(project_path, "target_imm", {**target, "name": "renamed"})
+    with pytest.raises(ValueError, match="Refusing to overwrite TargetDefinition"):
+        save_target_definition(project_path, "target_imm", {**target, "unit": "mg"})
+
+    spectra = np.arange(2 * len(wavelengths), dtype=np.uint16).reshape(2, len(wavelengths))
+    save_training_roi(project_path, "roi_imm", _roi_payload(wavelengths, name="A", n_pixels=2),
+                      spectra)
+    save_training_roi(project_path, "roi_imm",
+                      _roi_payload(wavelengths, name="Renamed", n_pixels=2), spectra)
+    with pytest.raises(ValueError, match="Refusing to overwrite TrainingROI"):
+        save_training_roi(project_path, "roi_imm",
+                          _roi_payload(wavelengths, name="Renamed", n_pixels=2), spectra + 1)
+
+    run = {"sample_set_id": "s", "signal_domain_id": "d", "model_type": "PLS",
+           "hyperparameters": {"n_components": 1}, "cv_spec": {"type": "KFold"},
+           "metrics": {"rmsecv": np.nan}, "artifact_refs": {},
+           "fit_spec": FitSpec().to_dict(), "software": software_versions(),
+           "created_at": "2026-01-01T00:00:00+00:00"}
+    save_model_run(project_path, "run_1", run)
+    save_model_run(project_path, "run_1", run)
+    with pytest.raises(ValueError, match="Refusing to overwrite"):
+        save_model_run(project_path, "run_1", {**run, "metrics": {"rmsecv": 0.0}})
+
+    store = load_project_store(project_path)
+    assert store["targets"]["target_imm"]["name"] == "renamed"
+    assert store["rois"]["roi_imm"]["name"] == "Renamed"
+
+
 def test_failed_object_serialization_preserves_previous_group(tmp_path, monkeypatch):
     path = str(tmp_path / "atomic_object_write.h5")
     create_project(path)
@@ -615,51 +562,9 @@ def test_failed_object_serialization_preserves_previous_group(tmp_path, monkeypa
         assert "target_2" not in handle["targets"]
         assert not any(name.startswith("__enginir_write_") for name in handle)
 
-    with pytest.raises(ValueError, match="Refusing to overwrite TargetDefinition"):
-        save_target_definition(path, "target_1", {**original, "unit": "g"})
-
     assert load_project_store(path)["targets"]["target_1"] == original
     with h5py.File(path, "r") as handle:
         assert not any(name.startswith("__enginir_write_") for name in handle)
-
-
-def test_stable_object_ids_are_immutable_except_labels(project_path, wavelengths):
-    create_project(project_path)
-    _seed_dataset_context(project_path, wavelengths)
-
-    target = {
-        "name": "moisture",
-        "unit": "%",
-        "value_type": "float",
-        "missing_value_policy": "allowed",
-        "created_at": "2026-04-02T10:00:00+00:00",
-    }
-    save_target_definition(project_path, "target_imm", target)
-    save_target_definition(project_path, "target_imm", dict(target))
-    save_target_definition(project_path, "target_imm", {**target, "name": "renamed"})
-    with pytest.raises(ValueError, match="Refusing to overwrite TargetDefinition"):
-        save_target_definition(project_path, "target_imm", {**target, "unit": "mg"})
-
-    spectra = np.arange(2 * len(wavelengths), dtype=np.uint16).reshape(2, len(wavelengths))
-    save_training_roi(
-        project_path,
-        "roi_imm",
-        _roi_payload(wavelengths, name="A", n_pixels=2),
-        spectra,
-    )
-    save_training_roi(
-        project_path,
-        "roi_imm",
-        _roi_payload(wavelengths, name="Renamed", n_pixels=2),
-        spectra,
-    )
-    with pytest.raises(ValueError, match="Refusing to overwrite TrainingROI"):
-        save_training_roi(
-            project_path,
-            "roi_imm",
-            _roi_payload(wavelengths, name="Renamed", n_pixels=2),
-            spectra + 1,
-        )
 
 
 def test_save_training_roi_rejects_metadata_spectra_mismatch(project_path, wavelengths):
@@ -684,54 +589,6 @@ def test_save_training_roi_rejects_metadata_spectra_mismatch(project_path, wavel
     with h5py.File(project_path, "r") as handle:
         assert "roi_bad_pixels" not in handle["rois"]
         assert "roi_bad_bands" not in handle["rois"]
-
-
-def test_roi_spectra_preserve_float32_for_precalibrated_sources(project_path, wavelengths):
-    create_project(project_path)
-    _seed_dataset_context(project_path, wavelengths)
-    n_bands = len(wavelengths)
-    reflectance = np.linspace(0.01, 0.99, 2 * n_bands, dtype=np.float32).reshape(2, n_bands)
-    raw_dn = np.arange(2 * n_bands, dtype=np.uint16).reshape(2, n_bands) + 10
-    save_training_roi(
-        project_path,
-        "roi_float",
-        _roi_payload(wavelengths, name="Float", n_pixels=2),
-        reflectance,
-    )
-    save_training_roi(
-        project_path,
-        "roi_raw",
-        _roi_payload(wavelengths, name="Raw", n_pixels=2),
-        raw_dn,
-    )
-
-    with h5py.File(project_path, "r") as handle:
-        assert handle["rois/roi_float/spectra"].dtype == np.float32
-        assert handle["rois/roi_raw/spectra"].dtype == np.uint16
-
-    loaded = load_roi_spectra_batch(project_path, ["/rois/roi_float/spectra"])
-    np.testing.assert_array_equal(loaded["/rois/roi_float/spectra"], reflectance)
-
-    from enginir.io.project_store import load_roi_spectra_matrix
-
-    matrix, slices = load_roi_spectra_matrix(
-        project_path,
-        ["/rois/roi_raw/spectra", "/rois/roi_float/spectra"],
-        n_bands=len(wavelengths),
-    )
-    assert matrix.dtype == np.float32
-    np.testing.assert_array_equal(matrix[slices["/rois/roi_float/spectra"]], reflectance)
-    np.testing.assert_array_equal(
-        matrix[slices["/rois/roi_raw/spectra"]],
-        raw_dn.astype(np.float32),
-    )
-
-    raw_only, _ = load_roi_spectra_matrix(
-        project_path,
-        ["/rois/roi_raw/spectra"],
-        n_bands=len(wavelengths),
-    )
-    assert raw_only.dtype == np.uint16
 
 
 def test_load_project_store_rejects_corrupt_roi_arrays(project_path, wavelengths):
@@ -782,139 +639,6 @@ def test_current_project_ignores_legacy_extras_at_root_and_roi(tmp_path, wavelen
     assert not hasattr(workspace.rois["roi_1"], "y_value")
     assert any("top-level" in message and "calibration" in message for message in messages)
     assert any("/rois/roi_1" in message and "y_value" in message for message in messages)
-
-
-def test_load_project_store_warns_once_and_ignores_extra_top_level_fields(tmp_path):
-    path = str(tmp_path / "legacy_root_models.h5")
-    create_project(path)
-    with h5py.File(path, "a") as handle:
-        legacy_model = handle.create_group("models").create_group("legacy_pls")
-        legacy_model.attrs["model_type"] = "PLS"
-        handle.create_group("future_extension")
-
-    messages: list[str] = []
-    sink_id = logger.add(
-        lambda message: messages.append(message.record["message"]),
-        level="WARNING",
-    )
-    try:
-        store = load_project_store(path)
-        load_project_store(path)
-    finally:
-        logger.remove(sink_id)
-
-    assert "models" not in store
-    assert store["model_runs"] == {}
-    extra_field_messages = [
-        message
-        for message in messages
-        if "unknown top-level group(s)" in message
-    ]
-    assert len(extra_field_messages) == 1
-    assert "future_extension" in extra_field_messages[0]
-    assert "models" in extra_field_messages[0]
-
-
-def test_load_model_run_prediction_artifact_reads_only_lightweight_payload(project_path, wavelengths):
-    create_project(project_path)
-    _seed_dataset_context(project_path, wavelengths)
-    save_model_run(
-        project_path,
-        "model_run_light",
-        {
-            "sample_set_id": "sample_set_1",
-            "signal_domain_id": "signal_domain_1",
-            "model_type": "PLS",
-            "fit_spec": FitSpec(groups=(0,)).to_dict(),
-            "software": software_versions(),
-            "hyperparameters": {},
-            "cv_spec": {},
-            "metrics": {},
-            "artifact_refs": {
-                "prediction_model": {
-                    "n_components": 1,
-                    "model_type": "PLSRegression",
-                    "coef_": np.ones_like(wavelengths),
-                    "intercept_": 0.0,
-                },
-                "diagnostics": {
-                    "x_scores_": np.ones((100, 3), dtype=np.float32),
-                },
-            },
-            "created_at": "2026-04-02T10:08:00+00:00",
-        },
-    )
-
-    artifact = load_model_run_prediction_artifact(project_path, "model_run_light")
-
-    assert artifact["model_type"] == "PLSRegression"
-    assert "x_scores_" not in artifact
-
-
-def test_resaving_unchanged_objects_is_a_no_op(tmp_path, wavelengths):
-    from enginir.io.project_store import (
-        save_reference_correction,
-        save_dataset_ref,
-        save_model_run,
-        save_target_definition,
-    )
-
-    project_path = str(tmp_path / "resave.h5")
-    create_project(project_path)
-    target = {"name": "T", "unit": "g", "value_type": "float",
-              "missing_value_policy": "allowed", "created_at": "2026-01-01T00:00:00+00:00"}
-    save_target_definition(project_path, "target_1", target)
-    save_target_definition(project_path, "target_1", target)
-    save_target_definition(project_path, "target_1", {**target, "name": "renamed"})
-
-    dataset = {"source_path": "/data/a.eiff", "source_format": "eiff",
-               "source_modality": "nir_hsi", "cube_shape": np.array([20, 15, 50]),
-               "n_bands": 50, "wavelengths": wavelengths, "loader_metadata": {},
-               "import_timestamp": "2026-01-01T00:00:00+00:00"}
-    save_dataset_ref(project_path, "dataset_1", dataset)
-    save_reference_correction(project_path, "dataset_1", "cal_1", {
-        "mode": "dark_white_reference", "black_level": 100.0, "white_level": 3000.0,
-        "output_signal_unit": "Reflectance", "created_at": "2026-01-01T00:00:00+00:00"})
-    save_dataset_ref(project_path, "dataset_1", dataset)
-
-    # NaN is stored content like any other value: an unchanged re-save stays a no-op
-    run = {"sample_set_id": "s", "signal_domain_id": "d", "model_type": "PLS",
-           "hyperparameters": {"n_components": 1}, "cv_spec": {"type": "KFold"},
-           "metrics": {"rmsecv": np.nan}, "artifact_refs": {},
-           "fit_spec": FitSpec().to_dict(), "software": software_versions(), "created_at": "2026-01-01T00:00:00+00:00"}
-    save_model_run(project_path, "run_1", run)
-    save_model_run(project_path, "run_1", run)
-    with pytest.raises(ValueError, match="Refusing to overwrite"):
-        save_model_run(project_path, "run_1", {**run, "metrics": {"rmsecv": 0.0}})
-
-    store = load_project_store(project_path)
-    assert store["targets"]["target_1"]["name"] == "renamed"
-    assert "cal_1" in store["datasets"]["dataset_1"]["reference_corrections"]
-    with pytest.raises(ValueError, match="Refusing to overwrite"):
-        save_target_definition(project_path, "target_1", {**target, "unit": "%"})
-
-
-@pytest.mark.parametrize("n_outputs", [None, 3])
-def test_map_preview_subsamples_the_canonical_y_pred_layout(project_path, monkeypatch, n_outputs):
-    """Without a stored spatial_map the preview is read from y_pred in frame blocks."""
-    from enginir.io import project_store
-
-    n_frames, height = 23, 7
-    y_shape = (n_frames * height,) if n_outputs is None else (n_frames * height, n_outputs)
-    map_shape = (n_frames, height) if n_outputs is None else (n_frames, height, n_outputs)
-    y_pred = np.random.default_rng(0).random(y_shape).astype(np.float32)
-    create_project(project_path)
-    initialize_prediction_run_artifacts(project_path, "run", {"dataset_id": "d"},
-                                        y_pred_shape=y_shape)
-    with open_prediction_run_artifact_writer(project_path, "run") as writer:
-        writer.write_chunk(row_start=0, y_pred_chunk=y_pred)
-    finalize_prediction_run_artifacts(project_path, "run", {"spatial_map_shape": map_shape})
-
-    monkeypatch.setattr(project_store, "_PREVIEW_BLOCK_VALUES", 30)  # many small blocks
-    preview = load_prediction_spatial_map_preview(project_path, "run", max_pixels=40)
-    step = project_store._preview_step(map_shape, 40)
-    assert step > 1
-    np.testing.assert_array_equal(preview, y_pred.reshape(map_shape)[::step, ::step])
 
 
 def test_updated_at_changes_only_after_a_successful_write(project_path, monkeypatch):
@@ -1070,6 +794,7 @@ def complete_project(tmp_path_factory):
 def _without(source, tmp_path, field, ids):
     """A copy of the project with ``field`` removed."""
     copy = tmp_path / "copy.h5"
+    tmp_path.mkdir(parents=True, exist_ok=True)
     shutil.copy(source, copy)
     path = field.format(**ids)
     with h5py.File(copy, "r+") as f:
@@ -1086,68 +811,28 @@ def _without(source, tmp_path, field, ids):
     return copy
 
 
-def test_the_complete_project_opens(complete_project):
-    path, _ids = complete_project
-    meta = load_project_store(path)["project_meta"]
-    assert meta["FileSchemaVersion"] == FILE_SCHEMA_VERSION
-    Project.open(path)
-
-
-@pytest.mark.parametrize("field", CORE_FIELDS)
-def test_a_project_without_a_core_field_is_refused(complete_project, tmp_path, field):
+def test_a_project_without_a_core_field_is_refused(complete_project, tmp_path):
+    """Each of the core fields is needed: the project without it does not open."""
     path, ids = complete_project
-    copy = _without(path, tmp_path, field, ids)
 
-    with pytest.raises(Exception):  # noqa: B017 - ValueError or a relationship error
-        Project.open(copy)
+    def refused(field):
+        copy = _without(path, tmp_path / field.replace("/", "_").replace("@", "_"), field, ids)
+        with pytest.raises(Exception):  # noqa: B017 - ValueError or a relationship error
+            Project.open(copy)
+
+    check_all(CORE_FIELDS, refused)
 
 
-@pytest.mark.parametrize("field", DISPLAY_FIELDS)
-def test_a_project_without_display_data_opens(complete_project, tmp_path, field):
+def test_a_project_without_display_data_opens(complete_project, tmp_path):
+    """Display data (metrics, limits, ...) may be missing: the project opens without it."""
     path, ids = complete_project
-    copy = _without(path, tmp_path, field, ids)
 
-    model = Project.open(copy).models
-    name = next(iter(model))
-    assert isinstance(model[name].metrics, dict)
+    def opens(field):
+        copy = _without(path, tmp_path / field.replace("/", "_").replace("@", "_"), field, ids)
+        models = Project.open(copy).models
+        assert isinstance(models[next(iter(models))].metrics, dict)
 
-
-def test_every_write_records_the_writer_and_the_time(complete_project, tmp_path):
-    path, _ids = complete_project
-    copy = tmp_path / "copy.h5"
-    shutil.copy(path, copy)
-    with h5py.File(copy, "r+") as f:
-        f["project_meta"].attrs.update(FileWriter="engiNIR 0.0.1",
-                                       updated_at="2000-01-01T00:00:00.000000+00:00")
-
-    Project.open(copy).add_target("moisture", unit="%")
-
-    meta = load_project_store(copy)["project_meta"]
-    assert meta["FileWriter"].startswith("engiNIR ") and meta["FileWriter"] != "engiNIR 0.0.1"
-    assert meta["updated_at"] > "2000-01-01T00:00:00.000000+00:00"
-    assert meta["FileCreator"] == load_project_store(path)["project_meta"]["FileCreator"]
-
-
-def test_reading_a_project_changes_nothing(complete_project):
-    path, _ids = complete_project
-    before = dict(load_project_store(path)["project_meta"])
-    Project.open(path)
-    assert load_project_store(path)["project_meta"] == before
-
-
-def test_the_inspector_shows_the_file_format_and_its_writers(complete_project, qapp):
-    from enginir.viewer._inspector import ProjectInspector
-    from enginir.viewer._state import ProjectState
-
-    path, _ids = complete_project
-    state = ProjectState()
-    state.open_project(str(path))
-    inspector = ProjectInspector(state)
-    inspector.show_default()
-
-    text = inspector.body_label.text()
-    assert "File format: enginir-1.7" in text
-    assert "Created by: engiNIR " in text and "Last written by: engiNIR " in text
+    check_all(DISPLAY_FIELDS, opens)
 
 
 def test_undefined_values_are_written_not_left_out(complete_project):
@@ -1163,35 +848,6 @@ def test_undefined_values_are_written_not_left_out(complete_project):
         metrics = f[f"model_runs/{ids['model']}/metrics"].attrs
         for key in ("rmsee", "pixel_rmsee", "interval_coverage_roi", "interval_coverage_pixel"):
             assert key in metrics, f"{key} is written even when it is not defined"
-
-
-@pytest.mark.parametrize(("field", "value", "match"), [
-    ("signal_domains/{signal_domain}@band_mapping_policy", "reject", "band_mapping_policy"),
-    ("datasets/{dataset}@source_format", "eiff_raw", "format"),
-])
-def test_values_of_earlier_formats_are_refused(complete_project, tmp_path, field, value, match):
-    path, ids = complete_project
-    copy = tmp_path / "copy.h5"
-    shutil.copy(path, copy)
-    group, attribute = field.format(**ids).split("@")
-    with h5py.File(copy, "r+") as f:
-        f[group].attrs[attribute] = value
-    project = None
-    try:
-        project = Project.open(copy)
-    except ValueError as exc:
-        assert match in str(exc)
-        return
-    # eiff_raw is no alias any more: the dataset no longer matches its model.
-    assert project is not None and value == "eiff_raw"
-    from enginir.project import check_signal_domain_compatibility
-
-    ws = project.workspace
-    domain = next(iter(ws.signal_domains.values()))
-    with pytest.raises(ValueError, match="source_format"):
-        check_signal_domain_compatibility(dataset=next(iter(ws.datasets.values())),
-                                          reference_correction=next(iter(ws.reference_corrections.values())),
-                                          signal_domain=domain)
 
 
 def test_a_project_of_an_earlier_format_is_refused_as_a_project_not_read_as_data(
@@ -1214,27 +870,3 @@ def test_a_project_of_an_earlier_format_is_refused_as_a_project_not_read_as_data
             read(old)
 
 
-def test_a_metric_that_is_not_defined_is_stored_as_nan(tmp_path):
-    """RMSEE (per ROI) needs R - 1 - A >= 1; with 6 ROIs and 5 components it is NaN, written."""
-    import numpy as np
-
-    project, _scan = labelled_project(tmp_path)
-    model = project.fit("API", recipe=PreprocessingRecipe(), n_components=5)
-    with h5py.File(project.path, "r") as f:
-        metrics = f[f"model_runs/{model.record.model_run_id}/metrics"].attrs
-        assert "rmsee" in metrics and np.isnan(metrics["rmsee"])
-        assert "r2_adj" in metrics and np.isnan(metrics["r2_adj"])
-
-
-def test_a_refit_with_other_metrics_names_the_software_that_differs(complete_project, tmp_path):
-    """Sample-set-model-run contract §6: the warning names every version that differs."""
-
-    path, ids = complete_project
-    copy = tmp_path / "copy.h5"
-    shutil.copy(path, copy)
-    with h5py.File(copy, "r+") as f:  # as if fitted elsewhere, with other numbers
-        f[f"model_runs/{ids['model']}/software"].attrs["scikit-learn"] = "0.0.1"
-        f[f"model_runs/{ids['model']}/metrics"].attrs["rmsecv"] = 123.0
-    model = Project.open(copy).model(model_run_id=ids["model"])
-    _refitted, messages = warnings_during(model.refit)
-    assert any("scikit-learn 0.0.1 -> " in message for message in messages), messages

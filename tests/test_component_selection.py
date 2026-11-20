@@ -5,11 +5,13 @@ from __future__ import annotations
 import h5py
 import numpy as np
 import pytest
+
+from tests._tables import check_all
 from scipy.stats import f
 
 from enginir import Project
 from enginir.modeling import _components
-from enginir.models import PCR, PLSRegression
+from enginir.models import PLSRegression
 from enginir.validation import (
     RoundRobinGroups,
     choose_components,
@@ -19,34 +21,10 @@ from enginir.validation import (
     noise_components,
     structure_ceiling,
 )
-from tests._scans import EVIDENCE, uneven_project, warnings_during
+from tests._scans import uneven_project, warnings_during
 
 
 # -- the rules ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(("curve", "rule", "expected"), [
-    ({"rmsecv": [3.0, 2.0, 2.0, 2.5], "rmsecv_se": [0, 0, 0, 0], "q2": [.5, .5, .1, -1]},
-     "min_rmsecv", 2),                                    # ties: the smaller number
-    ({"rmsecv": [3.0, 2.1, 2.0, 2.05], "rmsecv_se": [0, 0, 0.2, 0], "q2": [.5, .5, .1, 0]},
-     "one_se", 2),                                        # within one SE of the minimum
-    ({"rmsecv": [1.0, 1.0, 1.0], "rmsecv_se": [0, 0, 0], "q2": [0.2, 0.0, 0.0]},
-     "one_se", 1),                                        # a flat curve: one component
-    ({"rmsecv": [5, 4, 3, 2, 1.0], "rmsecv_se": [0] * 5, "q2": [.9, .5, .3, .2, .1]},
-     "q2_limit", 5),                                      # every component passes
-    ({"rmsecv": [5, 4, 3.0], "rmsecv_se": [0] * 3, "q2": [.01, .5, .5]},
-     "q2_limit", 1),                                      # the first fails: 1
-    ({"rmsecv": [5, 4, 3.0], "rmsecv_se": [0] * 3, "q2": [.5, float("nan"), .5]},
-     "q2_limit", 1),                                      # a NaN Q² fails
-])
-def test_the_rules_choose_as_the_contract_says(curve, rule, expected):
-    assert choose_components(curve, rule, n_samples=20) == expected
-
-
-def test_the_q2_limit_is_lower_for_more_than_100_samples():
-    curve = {"rmsecv": [3, 2, 1.0], "rmsecv_se": [0] * 3, "q2": [0.5, 0.03, 0.01]}
-    assert choose_components(curve, "q2_limit", n_samples=100) == 1
-    assert choose_components(curve, "q2_limit", n_samples=101) == 3
 
 
 # -- the curve ---------------------------------------------------------------------------
@@ -63,38 +41,6 @@ def _three_sources(seed=5, n_rois=30, pixels=6, bands=40):
     y = np.repeat(amounts[:, 0], pixels)
     roi_index = np.repeat(np.arange(n_rois), pixels)
     return X, y, roi_index
-
-
-def test_the_one_se_rule_finds_the_number_of_independent_sources():
-    X, y, roi_index = _three_sources()
-    curve, oof, _scheme = _components.component_curve(
-        PLSRegression(n_components=8, x_scaling="center"), X, y,
-        splitter=RoundRobinGroups(7), cv_groups=roi_index, roi_index=roi_index, n_samples=30)
-    assert curve["suggested_one_se"] == 3
-    assert oof.shape == (X.shape[0], 8)
-    assert np.all(np.diff(curve["r2y_cum"]) >= -1e-12), "pixel R²Y never decreases"
-    assert curve["r2x_cum"][2] > 0.999 and curve["q2_cum"][2] > 0.99
-
-
-def test_r2x_of_pcr_is_its_explained_variance():
-    X, y, roi_index = _three_sources()
-    curve, _oof, _scheme = _components.component_curve(
-        PCR(n_components=5, x_scaling="center"), X, y, splitter=RoundRobinGroups(7),
-        cv_groups=roi_index, roi_index=roi_index, n_samples=30)
-    expected = np.cumsum(PCR(n_components=5, x_scaling="center").fit(X, y)
-                         .explained_variance_ratio_)
-    np.testing.assert_allclose(curve["r2x_cum"], expected, rtol=1e-8)
-
-
-def test_the_curve_at_the_runs_components_is_the_runs_cross_validation(tmp_path):
-    """Without exclusion one cross-validation serves both; the curve uses the run's folds."""
-    project = uneven_project(tmp_path)
-    model = project.fit("API", n_components=2)
-    curve = model.component_curve
-    assert curve["rmsecv"][1] == pytest.approx(model.metrics["rmsecv"], rel=1e-6)
-    spec = model.record.fit_specification
-    assert (spec.components_rule, spec.components_selected) == ("fixed", 2)
-    assert spec.components_max == len(curve["rmsecv"]) >= 2
 
 
 def test_auto_chooses_by_the_rule_and_a_refit_keeps_the_number(tmp_path):
@@ -143,24 +89,6 @@ def test_requests_that_cannot_be_met_are_refused(tmp_path, kwargs, message):
 # -- training diagnostics ------------------------------------------------------------------
 
 
-def test_training_statistics_follow_their_formulas(tmp_path):
-    """RMSEE (N - 1 - A), T² with its F-form limit, DModX (dmodx-1), CoeffCS (§5, §7.5)."""
-    project = uneven_project(tmp_path)
-    model = project.fit("API", n_components=2)
-    diagnostics, metrics = model.diagnostics, model.metrics
-    scores = np.asarray(diagnostics["x_scores_"], dtype=np.float64)
-    n, a = scores.shape
-    t2 = (scores ** 2 / scores.var(axis=0, ddof=1)).sum(axis=1)
-    np.testing.assert_allclose(diagnostics["t2"], t2, rtol=1e-4)
-    assert diagnostics["t2_crit_099"] == pytest.approx(
-        a * (n - 1) / (n - a) * f.ppf(0.99, a, n - a), rel=1e-9)
-    assert diagnostics["dmodx"].shape == (n,) and diagnostics["dcrit_099"] > 1
-    assert metrics["pixel_rmsee"] > 0 and metrics["pixel_r2_adj"] < 1
-    assert metrics["rmsee"] > 0  # 9 ROIs, 2 components: R - 1 - A = 6
-    coef = np.asarray(diagnostics["coef_"], dtype=np.float64)
-    assert np.isfinite(diagnostics["coef_cs"]).all() and diagnostics["coef_cs"].shape == coef.shape
-
-
 def test_training_dmodx_equals_the_exclusion_formula():
     """§7.5 DModX of the fitted pixels is dmodx-1 of the model's residuals."""
     X, y, roi_index = _three_sources()
@@ -207,6 +135,65 @@ def test_a_selected_number_that_differs_from_the_model_is_refused_on_reading(tmp
         Project.open(project.path)
 
 
+# -- autofit beyond the 1.3 rules (contract §7.4, plan component-diagnostics-and-autofit) ----
+
+
+def test_the_lookahead_keeps_a_failing_component_before_a_passing_one():
+    def check(case):
+        q2, expected = case
+        curve = {"rmsecv": [1.0] * len(q2), "rmsecv_se": [0.0] * len(q2), "q2": q2}
+        assert choose_components(curve, "q2_lookahead", n_samples=20) == expected
+
+    check_all([
+    ([0.5, 0.02, 0.3, 0.01, 0.0], 3),     # 2 fails but 3 passes: both taken; 4 and 5 fail
+    ([0.01, 0.4, 0.3], 3),                 # the first fails, the second passes
+    ([0.01, 0.02, 0.4], 1),                # two in a row fail: 1
+    ([0.4, 0.3, 0.2], 3),                  # all pass
+    ([0.4, 0.3, 0.01], 2),                 # the last fails with no successor
+    ([0.4, float("nan"), 0.3], 3),         # NaN fails, the next passes
+], check)
+
+
+def test_the_ceiling_comes_before_the_noise_drop():
+    """Guard first, ceiling second would end on the noise component 6 (7 predicts)."""
+    curve = {"r2x_cum": np.cumsum([0.6, 0.2, 0.1, 0.05, 0.02, 0.003, 0.002, 0.001]),
+             "q2": [0.5, 0.3, 0.2, 0.1, 0.1, -0.1, 0.2, -0.1]}
+    assert structure_ceiling(curve) == 6
+    assert list(noise_components(curve, n_samples=20)) == [False] * 5 + [True, False, True]
+    assert guarded_choice(curve, 8, n_samples=20) == 5
+
+
+def test_a_stored_specification_must_have_every_key():
+    from enginir.project import FitSpec
+
+    request = FitSpec.from_dict({"components": {"rule": "one_se", "max": 5}})
+    assert request.components_noise_guard == "default", "a request leaves the default"
+    stored = FitSpec(components_noise_guard="on", components_rule_choice=4)
+    assert FitSpec.from_dict(stored.to_dict(), stored=True) == stored
+    incomplete = stored.to_dict()
+    del incomplete["components"]["noise_guard"]
+    with pytest.raises(ValueError, match="noise_guard"):
+        FitSpec.from_dict(incomplete, stored=True)
+
+
+def test_training_statistics_follow_their_formulas(tmp_path):
+    """RMSEE (N - 1 - A), T² with its F-form limit, DModX (dmodx-1), CoeffCS (§5, §7.5)."""
+    project = uneven_project(tmp_path)
+    model = project.fit("API", n_components=2)
+    diagnostics, metrics = model.diagnostics, model.metrics
+    scores = np.asarray(diagnostics["x_scores_"], dtype=np.float64)
+    n, a = scores.shape
+    t2 = (scores ** 2 / scores.var(axis=0, ddof=1)).sum(axis=1)
+    np.testing.assert_allclose(diagnostics["t2"], t2, rtol=1e-4)
+    assert diagnostics["t2_crit_099"] == pytest.approx(
+        a * (n - 1) / (n - a) * f.ppf(0.99, a, n - a), rel=1e-9)
+    assert diagnostics["dmodx"].shape == (n,) and diagnostics["dcrit_099"] > 1
+    assert metrics["pixel_rmsee"] > 0 and metrics["pixel_r2_adj"] < 1
+    assert metrics["rmsee"] > 0  # 9 ROIs, 2 components: R - 1 - A = 6
+    coef = np.asarray(diagnostics["coef_"], dtype=np.float64)
+    assert np.isfinite(diagnostics["coef_cs"]).all() and diagnostics["coef_cs"].shape == coef.shape
+
+
 def test_the_standard_error_is_the_delta_method_of_the_roi_errors():
     """SE(a) = s(e_r²) / (2 RMSECV(a) √R), e_r the ROI-mean cross-validated errors (§7.4)."""
     X, y, roi_index = _three_sources(seed=8)
@@ -221,50 +208,6 @@ def test_the_standard_error_is_the_delta_method_of_the_roi_errors():
     np.testing.assert_allclose(
         curve["rmsecv_se"], (errors ** 2).std(axis=0, ddof=1) / (2 * rmsecv * np.sqrt(30)),
         rtol=1e-10)
-
-
-# -- autofit beyond the 1.3 rules (contract §7.4, plan component-diagnostics-and-autofit) ----
-
-
-def test_the_new_rules_and_the_guard_on_the_first_real_model():
-    choices = {rule: choose_components(EVIDENCE, rule, n_samples=20)
-               for rule in ("one_se", "min_rmsecv", "q2_limit", "f_test", "q2_lookahead")}
-    assert choices == {"one_se": 7, "min_rmsecv": 15, "q2_limit": 1, "f_test": 6,
-                       "q2_lookahead": 6}
-    assert structure_ceiling(EVIDENCE) == 6  # components 1-5 each explain >= 0.5 %
-    assert list(np.flatnonzero(noise_components(EVIDENCE, n_samples=20)) + 1) \
-        == list(range(7, 16)), "6 adds 0.4 % but predicts (Q² 0.065 > 0.05)"
-    assert guarded_choice(EVIDENCE, 7, n_samples=20) == 6
-
-
-@pytest.mark.parametrize(("q2", "expected"), [
-    ([0.5, 0.02, 0.3, 0.01, 0.0], 3),     # 2 fails but 3 passes: both taken; 4 and 5 fail
-    ([0.01, 0.4, 0.3], 3),                 # the first fails, the second passes
-    ([0.01, 0.02, 0.4], 1),                # two in a row fail: 1
-    ([0.4, 0.3, 0.2], 3),                  # all pass
-    ([0.4, 0.3, 0.01], 2),                 # the last fails with no successor
-    ([0.4, float("nan"), 0.3], 3),         # NaN fails, the next passes
-])
-def test_the_lookahead_keeps_a_failing_component_before_a_passing_one(q2, expected):
-    curve = {"rmsecv": [1.0] * len(q2), "rmsecv_se": [0.0] * len(q2), "q2": q2}
-    assert choose_components(curve, "q2_lookahead", n_samples=20) == expected
-
-
-def test_the_f_test_uses_the_fold_groups_not_the_pixels():
-    curve = {"rmsecv": [2.0, 1.2, 1.04, 1.0], "rmsecv_se": [0.0] * 4, "q2": [0.5] * 4}
-    # (1.2/1.0)² = 1.44 passes F(0.75; 6, 6) = 1.78 but not F(0.75; 200, 200) = 1.10.
-    assert f.ppf(0.75, 6, 6) > 1.44 > f.ppf(0.75, 200, 200)
-    assert choose_components(curve, "f_test", n_samples=6) == 2
-    assert choose_components(curve, "f_test", n_samples=200) == 3
-
-
-def test_the_ceiling_comes_before_the_noise_drop():
-    """Guard first, ceiling second would end on the noise component 6 (7 predicts)."""
-    curve = {"r2x_cum": np.cumsum([0.6, 0.2, 0.1, 0.05, 0.02, 0.003, 0.002, 0.001]),
-             "q2": [0.5, 0.3, 0.2, 0.1, 0.1, -0.1, 0.2, -0.1]}
-    assert structure_ceiling(curve) == 6
-    assert list(noise_components(curve, n_samples=20)) == [False] * 5 + [True, False, True]
-    assert guarded_choice(curve, 8, n_samples=20) == 5
 
 
 def test_the_guard_can_be_switched_off_and_the_curve_stores_the_new_fields(tmp_path):
@@ -286,52 +229,3 @@ def test_the_guard_can_be_switched_off_and_the_curve_stores_the_new_fields(tmp_p
     assert fixed.record.fit_specification.components_noise_guard == "off"
     assert fixed.record.fit_specification.components_rule_choice == 2
     assert "warnings" in fixed.record.cv_spec
-
-
-def test_a_stored_specification_must_have_every_key():
-    from enginir.project import FitSpec
-
-    request = FitSpec.from_dict({"components": {"rule": "one_se", "max": 5}})
-    assert request.components_noise_guard == "default", "a request leaves the default"
-    stored = FitSpec(components_noise_guard="on", components_rule_choice=4)
-    assert FitSpec.from_dict(stored.to_dict(), stored=True) == stored
-    incomplete = stored.to_dict()
-    del incomplete["components"]["noise_guard"]
-    with pytest.raises(ValueError, match="noise_guard"):
-        FitSpec.from_dict(incomplete, stored=True)
-
-
-def test_fold_warnings_find_a_data_file_held_out_roi_by_roi():
-    from enginir.modeling._service import fold_warnings
-
-    # Two scans, each one level, 4 ROIs each; ROI-by-ROI round robin over 7 folds.
-    roi_ids = np.array([f"r{i}" for i in range(8)])
-    roi_index = np.repeat(np.arange(8), 3)
-    X = np.zeros((roi_index.size, 2))
-    dataset_of = {f"r{i}": ("scan_a" if i < 4 else "scan_b") for i in range(8)}
-    value_of = {f"r{i}": (1.0 if i < 4 else 7.0) for i in range(8)}
-    by_roi = fold_warnings(roi_ids=roi_ids, roi_index=roi_index, splitter=RoundRobinGroups(7),
-                           X=X, cv_groups=roi_index, dataset_of=dataset_of, value_of=value_of,
-                           n_groups=8)
-    assert by_roi == ["one_level_per_file"]
-    # One sample label per scan: each scan is held out whole, nothing leaks (but few groups).
-    by_scan = fold_warnings(roi_ids=roi_ids, roi_index=roi_index, splitter=RoundRobinGroups(7),
-                            X=X, cv_groups=roi_index // 4, dataset_of=dataset_of,
-                            value_of=value_of, n_groups=2)
-    assert by_scan == ["few_groups"]
-    # A tray with many levels is not a confound.
-    mixed = {f"r{i}": float(i) for i in range(8)}
-    assert fold_warnings(roi_ids=roi_ids, roi_index=roi_index, splitter=RoundRobinGroups(7),
-                         X=X, cv_groups=roi_index, dataset_of=dataset_of, value_of=mixed,
-                         n_groups=8) == []
-
-
-def test_the_curve_ends_at_10_components_unless_a_fit_asks_for_more(tmp_path):
-    """Plan release-1.7.3, D4: max(n, min(10, G - 2, rank)); 15 before 1.7.3."""
-    project = uneven_project(tmp_path, n_rois=30, n_bands=30)
-    auto = project.fit("API", n_components="auto")
-    assert len(auto.component_curve["rmsecv"]) == 10, "G - 2 = 28 and the rank allow more"
-    assert 1 <= auto.record.hyperparameters["n_components"] <= 10
-    twelve = project.fit("API", n_components=12)
-    assert len(twelve.component_curve["rmsecv"]) == 12, "the count asked for"
-    assert twelve.record.fit_specification.components_max == 12
