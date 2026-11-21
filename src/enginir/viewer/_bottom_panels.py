@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 from .._guidance import Check, Fix, Verdict
 from .._logging import get_logger
 from ._icons import icon
+from ._ui_helpers import wrap_tooltip
 
 logger = get_logger(__name__)
 
@@ -154,10 +155,10 @@ class ChecksPanel(QWidget):
                 continue
             name, color = _SEVERITY_ICONS.get(check.severity, ("info-circle", None))
             mark = QTableWidgetItem(icon(name, color), "")
-            mark.setToolTip(check.severity.capitalize())
+            mark.setToolTip(wrap_tooltip(check.severity.capitalize()))
             self.table.setItem(row, 0, mark)
             text = QTableWidgetItem(check.message)
-            text.setToolTip(check.message)
+            text.setToolTip(wrap_tooltip(check.message))
             self.table.setItem(row, 1, text)
             where = STEP_LABELS.get(check.step, check.step)
             if check.model_run_id in self._names:
@@ -267,7 +268,7 @@ class ModelsPanel(QWidget):
             if verdict is not None:
                 name, color = _VERDICT_ICONS[verdict.level]
                 cells[7] = QTableWidgetItem(icon(name, color), _VERDICT_TEXT[verdict.level])
-                cells[7].setToolTip(verdict.summary)
+                cells[7].setToolTip(wrap_tooltip(verdict.summary))
             cells[0].setData(Qt.ItemDataRole.UserRole, row["id"])
             for column, cell in enumerate(cells):
                 self.table.setItem(index, column, cell)

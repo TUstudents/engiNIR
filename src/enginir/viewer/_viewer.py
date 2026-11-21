@@ -93,7 +93,7 @@ from ._panels import (
     SpectrumPanel,
 )
 from ._theme import apply_qt_theme, is_dark, panel_colors, secondary_text_style
-from ._ui_helpers import reveal_in_file_manager
+from ._ui_helpers import reveal_in_file_manager, wrap_tooltip
 
 logger = get_logger(__name__)
 _QtObject = TypeVar("_QtObject")
@@ -442,7 +442,7 @@ class HSIViewer(QMainWindow):
                                        self._canvas, provenance=self._explore_provenance)
         self._data_file_job: Any = None
         self._data_file_combo = QComboBox()
-        self._data_file_combo.setToolTip("Dataset of the project shown in the image")
+        self._data_file_combo.setToolTip(wrap_tooltip("Dataset of the project shown in the image"))
         self._data_file_combo.setMinimumWidth(180)
         self._data_file_combo.activated.connect(self._on_data_file_chosen)
         self._canvas_frame.add_header_widget(self._data_file_combo)
@@ -665,14 +665,14 @@ class HSIViewer(QMainWindow):
 
         # Two levels (model-workspace-diagnostics contract): ROI means, single pixels.
         metrics_box = QGroupBox("Metrics per ROI")
-        metrics_box.setToolTip("Over ROI means: the model's quality. The target, the folds "
-                               "and the reported metrics are per ROI.")
+        metrics_box.setToolTip(wrap_tooltip("Over ROI means: the model's quality. The target, the folds "
+                               "and the reported metrics are per ROI."))
         self._model_metrics_layout = QFormLayout(metrics_box)
         self._model_metrics_layout.setContentsMargins(8, 8, 8, 8)
         self._model_metrics_layout.setSpacing(4)
         pixel_box = QGroupBox("Metrics per pixel")
-        pixel_box.setToolTip("Over single pixels (what the model is fitted on). Single "
-                             "pixels are noisy, so these are worse than per ROI.")
+        pixel_box.setToolTip(wrap_tooltip("Over single pixels (what the model is fitted on). Single "
+                             "pixels are noisy, so these are worse than per ROI."))
         self._model_pixel_metrics_layout = QFormLayout(pixel_box)
         self._model_pixel_metrics_layout.setContentsMargins(8, 8, 8, 8)
         self._model_pixel_metrics_layout.setSpacing(4)
@@ -1923,7 +1923,7 @@ class HSIViewer(QMainWindow):
         if shortcut:
             action.setShortcut(shortcut)
         if tip:
-            action.setToolTip(tip)
+            action.setToolTip(wrap_tooltip(tip))
         def press(_checked: bool = False) -> None:
             if before is not None:
                 before()
@@ -1959,13 +1959,13 @@ class HSIViewer(QMainWindow):
         act.setIcon(icon("photo-plus"))
         act.triggered.connect(lambda: self.add_data_file())
         act = _add_required_action(m, "Name Dataset...")
-        act.setToolTip("A short name for a dataset, shown instead of its file name")
+        act.setToolTip(wrap_tooltip("A short name for a dataset, shown instead of its file name"))
         act.triggered.connect(lambda: self.name_dataset())
         act = _add_required_action(m, "Set Wavelengths...")
-        act.setToolTip("Wavelengths from a table for datasets whose files have none")
+        act.setToolTip(wrap_tooltip("Wavelengths from a table for datasets whose files have none"))
         act.triggered.connect(lambda: self.set_wavelengths())
         act = _add_required_action(m, "Locate Moved Datasets...")
-        act.setToolTip("Find the files of datasets that are not at their stored place")
+        act.setToolTip(wrap_tooltip("Find the files of datasets that are not at their stored place"))
         act.triggered.connect(self._locate_first_missing)
         m.addSeparator()
         self._menu_button_action(m, "Targets...", model._btn_target, icon_name="target")
@@ -2300,12 +2300,12 @@ class HSIViewer(QMainWindow):
         if verdict is None:
             self._model_verdict_icon.clear()
             self._model_verdict_value.setText("–")
-            self._model_verdict_value.setToolTip("")
+            self._model_verdict_value.setToolTip(wrap_tooltip(""))
             return
         mark, text = verdict_mark(verdict.level)
         self._model_verdict_icon.setPixmap(mark.pixmap(16, 16))
         self._model_verdict_value.setText(text)
-        self._model_verdict_value.setToolTip(verdict.summary)
+        self._model_verdict_value.setToolTip(wrap_tooltip(verdict.summary))
 
     def _refresh_models_panel(self, project: Any) -> None:
         from .._workflow import Model
@@ -2433,7 +2433,7 @@ class HSIViewer(QMainWindow):
         act.triggered.connect(self._open_data)
 
         act = _add_required_action(m, "Add Dataset...")
-        act.setToolTip("Add a dataset with its reference correction to the open project")
+        act.setToolTip(wrap_tooltip("Add a dataset with its reference correction to the open project"))
         act.triggered.connect(lambda: self.add_data_file())
 
         self._menu_open_recent = _add_required_menu(m, "Open Recent")
@@ -2450,7 +2450,7 @@ class HSIViewer(QMainWindow):
         act.triggered.connect(self._eda_view.open_project_btn_clicked)
 
         act = _add_required_action(m, "Open Example Project")
-        act.setToolTip("Five synthetic tablet scans with a fitted model, created on first use")
+        act.setToolTip(wrap_tooltip("Five synthetic tablet scans with a fitted model, created on first use"))
         act.triggered.connect(self.open_example_project)
 
         m.addSeparator()
@@ -2458,7 +2458,7 @@ class HSIViewer(QMainWindow):
         act = _add_required_action(m, "Export ROI Spectra (CSV)...")
         act.triggered.connect(self._eda_view.export_csv_btn_clicked)
         act = _add_required_action(m, "Export Plots...")
-        act.setToolTip("Save every plot of the current workspace as PNG and CSV")
+        act.setToolTip(wrap_tooltip("Save every plot of the current workspace as PNG and CSV"))
         act.triggered.connect(self._action_export_plots)
 
         m.addSeparator()

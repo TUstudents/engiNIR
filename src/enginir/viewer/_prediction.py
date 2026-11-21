@@ -52,7 +52,7 @@ from ._theme import (GUIDE_COLOR, SERIES, heat_colormap, panel_colors, secondary
                      value_colormap)
 from ._plot_panel import PlotColumn, PlotSpec, PlotTable, draw_placeholder, print_copy
 from ._plot_registry import register_plot
-from ._ui_helpers import FlowLayout, LayoutState, maybe_tight_layout, style_axes
+from ._ui_helpers import FlowLayout, LayoutState, maybe_tight_layout, style_axes, wrap_tooltip
 from ._ui_helpers import recipe_text as describe_recipe
 
 logger = get_logger(__name__)
@@ -209,15 +209,15 @@ class PredictionMapWidget(QWidget):
         self.hover_text = ""
         self._hover: dict[str, Any] = {}
         self._output_combo = QComboBox()
-        self._output_combo.setToolTip("Prediction output shown in the map")
+        self._output_combo.setToolTip(wrap_tooltip("Prediction output shown in the map"))
         self._output_combo.currentIndexChanged.connect(self._on_output_changed)
         self._output_combo.setVisible(False)
         self._layer_combo = QComboBox()
         self._layer_combo.addItems(list(MAP_LAYERS))
-        self._layer_combo.setToolTip("Map layer: the prediction; the distance to the model "
+        self._layer_combo.setToolTip(wrap_tooltip("Map layer: the prediction; the distance to the model "
                                      "(DModXPS) or within it (T²PS) with the pixels above the "
                                      "0.95 limit marked; or the ± half-width of the 95 % "
-                                     "prediction interval, none outside the model")
+                                     "prediction interval, none outside the model"))
         self._layer_combo.currentIndexChanged.connect(self._on_output_changed)
         self._overlay: Any = None
         #: Colour limits the user set (⋯ menu); ``None``: the training range of the target.
@@ -232,7 +232,7 @@ class PredictionMapWidget(QWidget):
         self._reset_button = QToolButton()
         self._reset_button.setText("Reset View")
         self._reset_button.setAutoRaise(True)
-        self._reset_button.setToolTip("Show the whole map")
+        self._reset_button.setToolTip(wrap_tooltip("Show the whole map"))
         self._reset_button.clicked.connect(self.reset_view)
         self._canvas.mpl_connect("motion_notify_event", self._on_motion)
         self._canvas.mpl_connect("resize_event", self._on_canvas_resize)
@@ -274,12 +274,12 @@ class PredictionMapWidget(QWidget):
                 continue
             available = name in layers
             item.setEnabled(available)
-            item.setToolTip("" if available else _missing_layer_reason(name))
+            item.setToolTip(wrap_tooltip("" if available else _missing_layer_reason(name)))
 
     def _mode_button(self, text: str, tip: str, toggle: Any) -> QToolButton:
         button = QToolButton()
         button.setText(text)
-        button.setToolTip(tip)
+        button.setToolTip(wrap_tooltip(tip))
         button.setAutoRaise(True)
         button.setCheckable(True)
         button.clicked.connect(lambda _checked=False: (toggle(), self._sync_mode_buttons()))
@@ -853,14 +853,14 @@ class PredictionView(QWidget):
         self._btn_predict_rois = QToolButton()
         self._btn_predict_rois.setText("Predict ROIs...")
         self._btn_predict_rois.setToolTip(
-            "Predict the prediction ROIs (tablets) with one or more models, from the project "
-            "file alone; one result per ROI")
+            wrap_tooltip("Predict the prediction ROIs (tablets) with one or more models, from the project "
+            "file alone; one result per ROI"))
         self._btn_predict_rois.clicked.connect(self.predict_rois_clicked)
         button_row.addWidget(self._btn_predict_rois)
         self._btn_predict = QToolButton()
         self._btn_predict.setText("Predict Map...")
-        self._btn_predict.setToolTip("Predict every pixel of a project dataset with one model, "
-                                     "with the results of its prediction ROIs")
+        self._btn_predict.setToolTip(wrap_tooltip("Predict every pixel of a project dataset with one model, "
+                                     "with the results of its prediction ROIs"))
         self._btn_predict.clicked.connect(self.predict_btn_clicked)
         button_row.addWidget(self._btn_predict)
         self._btn_cancel = QToolButton()
@@ -875,8 +875,8 @@ class PredictionView(QWidget):
         # Two lines: one line is wider than the Settings column on a laptop screen.
         self._exclusion_check = QCheckBox("Exclude pixels above the\nDModXPS limit")
         self._exclusion_check.setToolTip(
-            "Leave pixels outside the model (glare, exposed substrate, direct reflections) "
-            "out of every ROI statistic; recalculated without predicting again")
+            wrap_tooltip("Leave pixels outside the model (glare, exposed substrate, direct reflections) "
+            "out of every ROI statistic; recalculated without predicting again"))
         self._exclusion_level = QDoubleSpinBox()
         self._exclusion_level.setRange(0.5, 0.999)
         self._exclusion_level.setDecimals(3)
@@ -889,8 +889,8 @@ class PredictionView(QWidget):
         exclusion_row.addWidget(self._exclusion_level)
         self._dcrit_label = QLabel("")
         self._dcrit_label.setStyleSheet(secondary_text_style())
-        self._dcrit_label.setToolTip("The DModXPS limit at this level, per model: pixels above "
-                                     "it are excluded")
+        self._dcrit_label.setToolTip(wrap_tooltip("The DModXPS limit at this level, per model: pixels above "
+                                     "it are excluded"))
         exclusion_row.addWidget(self._dcrit_label)
         exclusion_row.addStretch(1)
         layout.addLayout(exclusion_row)
@@ -910,9 +910,9 @@ class PredictionView(QWidget):
         self._colour_mode = QComboBox()
         self._colour_mode.addItem("Calibration range", "training")
         self._colour_mode.addItem("Own limits", "own")
-        self._colour_mode.setToolTip("Map colors: the calibration range (the target values of "
+        self._colour_mode.setToolTip(wrap_tooltip("Map colors: the calibration range (the target values of "
                                      "the calibration set), or your own limits (one scale over "
-                                     "a series of trays); values outside get their own colors")
+                                     "a series of trays); values outside get their own colors"))
         self._colour_low, self._colour_high = QDoubleSpinBox(), QDoubleSpinBox()
         for spin in (self._colour_low, self._colour_high):
             spin.setRange(-1e6, 1e6)
@@ -928,10 +928,10 @@ class PredictionView(QWidget):
         grid.addWidget(QLabel("High limit"), 2, 0)
         grid.addWidget(self._colour_high, 2, 1, 1, 2)
         self._show_outlines = QCheckBox("ROI outlines")
-        self._show_outlines.setToolTip("Outline the prediction ROIs on the map, with their mean")
+        self._show_outlines.setToolTip(wrap_tooltip("Outline the prediction ROIs on the map, with their mean"))
         self._grey_removed = QCheckBox("Gray excluded pixels")
-        self._grey_removed.setToolTip("Gray the pixels above the DModXPS limit when pixels are "
-                                      "excluded")
+        self._grey_removed.setToolTip(wrap_tooltip("Gray the pixels above the DModXPS limit when pixels are "
+                                      "excluded"))
         for check in (self._show_outlines, self._grey_removed):
             check.setChecked(True)
             check.toggled.connect(self._on_display_changed)
@@ -941,9 +941,9 @@ class PredictionView(QWidget):
         self._histogram_source = QComboBox()
         self._histogram_source.addItem("ROI pixels", "rois")
         self._histogram_source.addItem("Whole map", "map")
-        self._histogram_source.setToolTip("The histogram's pixels: the kept pixels of the "
+        self._histogram_source.setToolTip(wrap_tooltip("The histogram's pixels: the kept pixels of the "
                                           "prediction ROIs (when there are ROI results), or "
-                                          "every pixel of the shown map")
+                                          "every pixel of the shown map"))
         self._histogram_source.currentIndexChanged.connect(self._on_display_changed)
         grid.addWidget(QLabel("Histogram"), 5, 0)
         grid.addWidget(self._histogram_source, 5, 1, 1, 2)
@@ -1133,8 +1133,8 @@ class PredictionView(QWidget):
         self._exclusion_level.setValue(LIMIT_LEVEL if default is None else default)
         self._exclusion_check.setEnabled(has_projection)
         self._exclusion_check.setToolTip(
-            self._exclusion_check.toolTip() if has_projection
-            else "Not available: this model's projection data is missing")
+            wrap_tooltip(self._exclusion_check.toolTip() if has_projection
+            else "Not available: this model's projection data is missing"))
         for widget in (self._exclusion_check, self._exclusion_level):
             widget.blockSignals(False)
         self._recompute_roi_results()

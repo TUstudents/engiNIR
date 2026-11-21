@@ -645,7 +645,7 @@ def test_every_model_plot_has_help_that_the_user_guide_repeats(qapp):
     try:
         panel = widget.grid.panel(model_ids[0])
         assert panel is not None and panel._help_button is not None
-        assert panel._help_button.toolTip() == PLOT_SPECS[model_ids[0]].help
+        assert " ".join(panel._help_button.toolTip().split()) == PLOT_SPECS[model_ids[0]].help
         panel.show_help()  # shows a tooltip; must not raise
     finally:
         widget.close()

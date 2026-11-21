@@ -35,6 +35,7 @@ from .._logging import get_logger
 from .._workflow import GridCell, _plan_roi_grid, roi_grid
 from ._grid_settings import NAME_PATTERNS, PLACEHOLDERS, GridDefaults, save_grid_defaults
 from ._theme import secondary_text_style
+from ._ui_helpers import wrap_tooltip
 
 logger = get_logger(__name__)
 
@@ -65,7 +66,7 @@ class GridGeometryForm(QWidget):
         self._pattern = QComboBox()
         self._pattern.setEditable(True)
         self._pattern.addItems(list(NAME_PATTERNS))
-        self._pattern.setToolTip("Pick a pattern or type your own.")
+        self._pattern.setToolTip(wrap_tooltip("Pick a pattern or type your own."))
         self._pattern.currentTextChanged.connect(self.changed)
         self._order = QComboBox()
         self._order.addItem("Row by row", "rows")
@@ -159,10 +160,10 @@ def prediction_only_check(checked: bool) -> QCheckBox:
     """The Prediction only checkbox of the ROI dialogs (roi-target contract, ``job``)."""
     check = QCheckBox("Prediction only (a sample to predict; never used to fit a model)")
     check.setChecked(checked)
-    check.setToolTip("Prediction ROIs mark tablets to predict in Predict > Predict ROIs. They "
+    check.setToolTip(wrap_tooltip("Prediction ROIs mark tablets to predict in Predict > Predict ROIs. They "
                      "never enter a model fit, even with a target value; a target value then "
                      "only gives the prediction's residual. The choice is remembered for this "
-                     "dataset.")
+                     "dataset."))
     return check
 
 
@@ -195,8 +196,8 @@ class RoiGridDialog(QDialog):
         select_none = QPushButton("Select None")
         select_none.clicked.connect(lambda: self._select_all(False))
         self._make_defaults = QPushButton("Make Defaults")
-        self._make_defaults.setToolTip("Use this geometry and these names for every new ROI grid "
-                                       "(Tools > ROI Grid Defaults)")
+        self._make_defaults.setToolTip(wrap_tooltip("Use this geometry and these names for every new ROI grid "
+                                       "(Tools > ROI Grid Defaults)"))
         self._make_defaults.clicked.connect(self.make_defaults)
         select_row = QHBoxLayout()
         hint = QLabel("Click a cell to mark an empty position.")
@@ -324,7 +325,7 @@ class RoiGridDialog(QDialog):
         for (row, column), button in self._buttons.items():
             # Positions fit a button; the full ROI name is the tooltip.
             button.setText(f"{GridCell(row, column, (0, 0), (0, 0), '').position}")
-            button.setToolTip(names.get((row, column), "empty"))
+            button.setToolTip(wrap_tooltip(names.get((row, column), "empty")))
         if outside:
             message = (f"{len(outside)} ROI(s) lie outside the image (red), e.g. "
                        f"{outside[0].position}: move the origin, shrink the grid or mark "

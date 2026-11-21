@@ -64,7 +64,7 @@ from ._plot_registry import register_plot
 from ._state import ProjectState, ViewerState, signal_label
 from ._theme import (GUIDE_COLOR, panel_colors, print_colors, secondary_text_style,
                      value_colormap)
-from ._ui_helpers import spectral_axis_label, style_axes, with_unit
+from ._ui_helpers import spectral_axis_label, style_axes, with_unit, wrap_tooltip
 
 logger = get_logger(__name__)
 
@@ -399,7 +399,7 @@ class RoiMosaic(QWidget):
     def _make_view_button(self) -> QToolButton:
         button = QToolButton()
         button.setText("View")
-        button.setToolTip("Layout of the tiles and their contrast stretch")
+        button.setToolTip(wrap_tooltip("Layout of the tiles and their contrast stretch"))
         button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(button)
         self._mode_actions: dict[str, QAction] = {}
@@ -473,7 +473,7 @@ class RoiMosaic(QWidget):
                              if self.layout_mode == GRID else 0.0)
         for _dataset_id, name, x, y, width in self._layout.headers:
             header = self._text(name, x, y + 0.2 * unit, 1.25 * unit, width, bold=True)
-            header.setToolTip(name)
+            header.setToolTip(wrap_tooltip(name))
         for roi_id, (x, y, w, h) in self._layout.places.items():
             outline = QGraphicsRectItem(x, y, w, h)
             self._plot.addItem(outline)
@@ -894,8 +894,8 @@ class ProjectRoisView(QWidget):
         for text, action in (("Add ROI", "add_roi"), ("Add ROI Grid", "add_roi_grid")):
             button = QToolButton()
             button.setText(text)
-            button.setToolTip(f"{text} on the dataset chosen here (or the one you pick): "
-                              "shows its image first")
+            button.setToolTip(wrap_tooltip(f"{text} on the dataset chosen here (or the one you pick): "
+                              "shows its image first"))
             button.clicked.connect(lambda _checked=False, a=action: self.add_rois_requested.emit(
                 a, self.shown_dataset_id()))
             top.addWidget(button)

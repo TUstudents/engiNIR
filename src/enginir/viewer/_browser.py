@@ -14,7 +14,7 @@ from .._guidance import figure_text
 from ..project import ReferenceCorrection
 from ._icons import icon
 from ._state import ProjectState, signal_label
-from ._ui_helpers import with_unit
+from ._ui_helpers import with_unit, wrap_tooltip
 
 #: The icon of each section of the project tree.
 _SECTION_ICONS = {"datasets": "database", "reference_corrections": "adjustments-horizontal",
@@ -216,7 +216,7 @@ class ProjectBrowser(QTreeWidget):
                                  key=lambda d: state.data_file_label(d).casefold()):
             dataset = state.datasets[dataset_id]
             item = QTreeWidgetItem([state.data_file_label(dataset_id)])
-            item.setToolTip(0, _with_id(dataset.source_path or "", dataset_id))
+            item.setToolTip(0, wrap_tooltip(_with_id(dataset.source_path or "", dataset_id)))
             item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "dataset", "id": dataset_id})
             section.addChild(item)
 
@@ -230,7 +230,7 @@ class ProjectBrowser(QTreeWidget):
         for reference_correction_id in sorted(state.reference_corrections, key=lambda c: file_of(c).casefold()):
             reference_correction = state.reference_corrections[reference_correction_id]
             item = QTreeWidgetItem([f"{file_of(reference_correction_id)}: {correction_text(reference_correction)}"])
-            item.setToolTip(0, _with_id("Reference correction", reference_correction_id))
+            item.setToolTip(0, wrap_tooltip(_with_id("Reference correction", reference_correction_id)))
             item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "reference_correction", "id": reference_correction_id})
             section.addChild(item)
 
@@ -242,7 +242,7 @@ class ProjectBrowser(QTreeWidget):
             _natural(pair[1].name or pair[0])))
         for roi_id, roi in rois:
             item = QTreeWidgetItem([roi.name or roi_id])
-            item.setToolTip(0, _with_id(state.data_file_label(roi.dataset_id), roi_id))
+            item.setToolTip(0, wrap_tooltip(_with_id(state.data_file_label(roi.dataset_id), roi_id)))
             item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "roi", "id": roi_id})
             section.addChild(item)
 
@@ -252,7 +252,7 @@ class ProjectBrowser(QTreeWidget):
         for target_id in sorted(targets, key=lambda t: targets[t].name.casefold()):
             target = targets[target_id]
             item = QTreeWidgetItem([with_unit(target.name, target.unit)])
-            item.setToolTip(0, _with_id("Target", target_id))
+            item.setToolTip(0, wrap_tooltip(_with_id("Target", target_id)))
             item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "target", "id": target_id})
             section.addChild(item)
 
@@ -289,7 +289,7 @@ class ProjectBrowser(QTreeWidget):
         target_label = target.name if target is not None else sample_set.target_id
         item = QTreeWidgetItem([f"Calibration set: {len(sample_set.roi_ids)} ROIs, "
                                 f"{target_label}{suffix}"])
-        item.setToolTip(0, sample_set_id)
+        item.setToolTip(0, wrap_tooltip(sample_set_id))
         item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "sample_set", "id": sample_set_id})
         return item
 
@@ -297,7 +297,7 @@ class ProjectBrowser(QTreeWidget):
         domain = self.project_state.signal_domains[signal_domain_id]
         item = QTreeWidgetItem([f"Input contract: {domain.input_format}, "
                                 f"{signal_label(domain.required_signal_unit)}{suffix}"])
-        item.setToolTip(0, signal_domain_id)
+        item.setToolTip(0, wrap_tooltip(signal_domain_id))
         item.setData(0, Qt.ItemDataRole.UserRole,
                      {"kind": "signal_domain", "id": signal_domain_id})
         return item
@@ -311,7 +311,7 @@ class ProjectBrowser(QTreeWidget):
                                               key=lambda pair: str(pair[1].created_at)):
             name = model_run.name or model_run.model_type
             item = QTreeWidgetItem([name])
-            item.setToolTip(0, _with_id("Model", model_run_id))
+            item.setToolTip(0, wrap_tooltip(_with_id("Model", model_run_id)))
             item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "model_run", "id": model_run_id})
             if model_run.sample_set_id in state.sample_sets:
                 item.addChild(self._sample_set_item(model_run.sample_set_id))

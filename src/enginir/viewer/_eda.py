@@ -43,7 +43,7 @@ from ._roi_grid import RoiGridDialog
 from ._preferences import start_folder
 from ._state import DEFAULT_SOURCE_MODALITY, ProjectState, ViewerState
 from ._theme import secondary_text_style
-from ._ui_helpers import PROJECT_OPEN_FILTER, PROJECT_SAVE_FILTER, ask_save_path
+from ._ui_helpers import PROJECT_OPEN_FILTER, PROJECT_SAVE_FILTER, ask_save_path, wrap_tooltip
 from ..project._ids import now_iso
 
 logger = get_logger(__name__)
@@ -275,8 +275,8 @@ class EDAView(QWidget):
 
         self._btn_roi_grid = QToolButton()
         self._btn_roi_grid.setText("Add ROI Grid")
-        self._btn_roi_grid.setToolTip("Lay out a tray of equal ROIs by number, size, origin "
-                                      "and spacing (defaults in Tools > ROI Grid Defaults)")
+        self._btn_roi_grid.setToolTip(wrap_tooltip("Lay out a tray of equal ROIs by number, size, origin "
+                                      "and spacing (defaults in Tools > ROI Grid Defaults)"))
         self._btn_roi_grid.clicked.connect(self.open_roi_grid_dialog)
         place(self._btn_roi_grid)
 
@@ -287,7 +287,7 @@ class EDAView(QWidget):
 
         btn_table = QToolButton()
         btn_table.setText("ROI Table")
-        btn_table.setToolTip("Target values of all ROIs of the project")
+        btn_table.setToolTip(wrap_tooltip("Target values of all ROIs of the project"))
         btn_table.clicked.connect(self.roi_table_requested.emit)
         place(btn_table)
 
@@ -328,9 +328,9 @@ class EDAView(QWidget):
         if share is not None and share >= 0.001:
             msg += (f"\n⚠ {share:.1%} of the values are above white and clipped to "
                     "reflectance 1; check the white reference").replace("%", " %", 1)
-            self._signal_info.setToolTip("Values above the white reference become reflectance "
+            self._signal_info.setToolTip(wrap_tooltip("Values above the white reference become reflectance "
                                          "1 (absorbance 0); many of them point to a white "
-                                         "reference that is too dark or saturated pixels.")
+                                         "reference that is too dark or saturated pixels."))
         self._signal_info.setWordWrap(True)
         self._signal_info.setText(msg)
 
@@ -343,7 +343,7 @@ class EDAView(QWidget):
                                  "no references or detector levels)."}
         for unit, button in self._signal_buttons().items():
             button.setEnabled(unit in units)
-            button.setToolTip("" if unit in units else reasons[unit])
+            button.setToolTip(wrap_tooltip("" if unit in units else reasons[unit]))
 
     def _on_filter_changed(self, button) -> None:
         mode_map = {
@@ -366,8 +366,8 @@ class EDAView(QWidget):
         """A file without wavelengths offers band numbers only (review A1)."""
         has = self.state.has_wavelengths
         self._rb_nm.setEnabled(has)
-        self._rb_nm.setToolTip("" if has else "This file has no wavelengths; bands are "
-                               "numbered from 0.")
+        self._rb_nm.setToolTip(wrap_tooltip("" if has else "This file has no wavelengths; bands are "
+                               "numbered from 0."))
         if not has and self._rb_nm.isChecked():
             self._rb_band.setChecked(True)
 
@@ -512,7 +512,7 @@ class EDAView(QWidget):
                 hint = f"Selected ROI: {roi_name}. Delete ROI removes it from the project."
             else:
                 hint = "Click an ROI to inspect it, or Add ROI to draw one on Spatial Image."
-        self._btn_roi_training.setToolTip(tooltip)
+        self._btn_roi_training.setToolTip(wrap_tooltip(tooltip))
         self._roi_hint_label.setText(hint)
 
     def refresh_roi_overlays(self) -> None:

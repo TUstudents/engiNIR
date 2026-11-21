@@ -192,7 +192,7 @@ def test_the_models_panel_shows_each_model_with_the_library_verdict(qapp, layers
         assert panel.model_ids() == [run.model_run_id]
         verdict = Model(Project.open(layers.path), run).verdict()
         cell = panel.table.item(0, panel.COLUMNS.index("Verdict"))
-        assert cell is not None and cell.toolTip() == verdict.summary
+        assert cell is not None and " ".join(cell.toolTip().split()) == verdict.summary
         panel.table.cellDoubleClicked.emit(0, 0)
         assert window._workspace_tabs.currentWidget() is window._modeling_view
     finally:
@@ -252,7 +252,7 @@ def test_no_bar_repeats_the_checks_and_the_fit_summary_gives_the_verdict(qapp, l
         words = {"good": "Good", "usable_with_care": "Usable with care",
                  "not_usable": "Not usable"}[verdict.level]
         assert window._model_verdict_value.text() == words
-        assert window._model_verdict_value.toolTip() == verdict.summary
+        assert " ".join(window._model_verdict_value.toolTip().split()) == verdict.summary
         assert window._model_verdict_value.isVisibleTo(window)
     finally:
         window.close()
@@ -839,3 +839,32 @@ def test_the_log_panel_shows_the_preferences_level(qapp, tmp_path):
         window.close()
 
 
+
+
+def test_tooltips_break_into_lines_of_a_fixed_length(qapp, tmp_path):
+    """Every plain-text tooltip of the window, with all pages built, wraps at TOOLTIP_WIDTH."""
+    from PyQt6.QtWidgets import QWidget
+
+    from enginir.viewer._ui_helpers import TOOLTIP_WIDTH, wrap_tooltip
+
+    assert wrap_tooltip("a " * 100).count("\n") >= 2
+    assert wrap_tooltip("one\n\ntwo") == "one\n\ntwo", "paragraph breaks stay"
+    assert wrap_tooltip("<b>rich</b> " + "x " * 100).count("\n") == 0, "rich text wraps itself"
+
+    window = _example_window(qapp, tmp_path)
+    try:
+        window.show_step("model")
+        window.show_step("predict")
+        window.show_step("data")
+        qapp.processEvents()
+        too_long = []
+        seen = 0
+        for widget in window.findChildren(QWidget):
+            text = widget.toolTip()
+            if not text or text.lstrip().startswith("<"):
+                continue
+            seen += 1
+            too_long += [line for line in text.split("\n") if len(line) > TOOLTIP_WIDTH]
+        assert seen > 20 and not too_long, too_long[:3]
+    finally:
+        window.close()

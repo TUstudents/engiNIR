@@ -47,7 +47,7 @@ from .._checks import log_and_raise
 from .._logging import get_logger
 from ._icons import icon
 from ._theme import panel_colors, print_colors
-from ._ui_helpers import style_axes
+from ._ui_helpers import style_axes, wrap_tooltip
 
 logger = get_logger(__name__)
 
@@ -236,7 +236,7 @@ class _ElidedLabel(QLabel):
 
     def setText(self, a0: str | None) -> None:  # noqa: N802 (Qt API)
         self._full = a0 or ""
-        self.setToolTip(self._full)
+        self.setToolTip(wrap_tooltip(self._full))
         self._elide()
 
     def text(self) -> str:
@@ -302,7 +302,7 @@ class PlotFrame(QWidget):
         self._csv_action = self._add_action("Export CSV...", self._save_csv)
         self._copy_action = self._add_action("Copy image", self._copy_image)
         menu_button = self._header_button("dots")
-        menu_button.setToolTip("Export")
+        menu_button.setToolTip(wrap_tooltip("Export"))
         menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu_button.setMenu(self._menu)
         self._header.setFixedHeight(_HEADER_BUTTON + 4)
@@ -310,7 +310,7 @@ class PlotFrame(QWidget):
         self._help_button: QToolButton | None = None
         if help_text:
             self._help_button = self._header_button("help")
-            self._help_button.setToolTip(help_text)
+            self._help_button.setToolTip(wrap_tooltip(help_text))
             self._help_button.clicked.connect(self.show_help)
             self._header_layout.addWidget(self._help_button)
         self._header_layout.addWidget(self._max_button)
@@ -336,7 +336,7 @@ class PlotFrame(QWidget):
         if self._help_button is None:
             return
         anchor = self._help_button.mapToGlobal(self._help_button.rect().bottomLeft())
-        QToolTip.showText(anchor, self.help_text, self._help_button)
+        QToolTip.showText(anchor, wrap_tooltip(self.help_text), self._help_button)
 
     @property
     def title(self) -> str:
@@ -369,7 +369,7 @@ class PlotFrame(QWidget):
     def add_close_button(self, close: Callable[[], None]) -> None:
         """Add a close control (for a frame used as a dock title bar)."""
         button = self._header_button("x")
-        button.setToolTip("Close")
+        button.setToolTip(wrap_tooltip("Close"))
         button.clicked.connect(lambda _checked=False: close())
         self._header_layout.addWidget(button)
 
@@ -404,7 +404,7 @@ class PlotFrame(QWidget):
         name = "arrows-minimize" if maximized else "arrows-maximize"
         self._max_button.setProperty("icon_name", name)
         self._max_button.setIcon(icon(name))
-        self._max_button.setToolTip("Restore (Esc)" if maximized else "Maximize")
+        self._max_button.setToolTip(wrap_tooltip("Restore (Esc)" if maximized else "Maximize"))
 
     # ------------------------------------------------------------------
     # Export
@@ -475,7 +475,7 @@ class PlotFrame(QWidget):
         for action in (self._png_action, self._svg_action, self._csv_action,
                        self._copy_action):
             action.setEnabled(not reason)
-            action.setToolTip(reason)
+            action.setToolTip(wrap_tooltip(reason))
 
     def _save_image(self, suffix: str) -> None:
         path = self._ask_path(suffix, "PNG image (*.png)" if suffix == ".png"

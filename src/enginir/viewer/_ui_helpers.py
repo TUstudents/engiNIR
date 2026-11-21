@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import platform
 import subprocess
+import textwrap
 import warnings
 from collections.abc import Mapping
 from pathlib import Path
@@ -195,6 +196,7 @@ __all__ = [
     "spectral_axis_label",
     "style_axes",
     "with_unit",
+    "wrap_tooltip",
 ]
 
 
@@ -336,3 +338,21 @@ class CollapsibleSection(QWidget):
         self._content.setVisible(expanded)
         self._summary.setVisible(bool(self._summary_text) and not expanded)
         self.toggled.emit(expanded)
+
+
+#: The longest line of a tooltip, in characters.
+TOOLTIP_WIDTH = 72
+
+
+def wrap_tooltip(text: str, width: int = TOOLTIP_WIDTH) -> str:
+    """A plain-text tooltip broken into lines of at most ``width`` characters.
+
+    Line breaks already in the text stay; a longer line is wrapped at spaces.
+    Rich text (it starts with a tag) is left alone: Qt wraps that itself.
+    """
+    if not text or text.lstrip().startswith("<"):
+        return text
+    return "\n".join(
+        textwrap.fill(line, width=width, break_long_words=False, break_on_hyphens=False)
+        if line.strip() else line
+        for line in text.split("\n"))

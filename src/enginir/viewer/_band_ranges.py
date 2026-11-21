@@ -30,6 +30,7 @@ from ..modeling import BandProposal
 from ..preprocessing.recipe import format_ranges
 from ._jobs import start_background_job
 from ._theme import GUIDE_COLOR, panel_colors, secondary_text_style
+from ._ui_helpers import wrap_tooltip
 
 logger = get_logger(__name__)
 
@@ -108,7 +109,7 @@ class BandRangeDialog(QDialog):
         buttons_row.addWidget(self._add_exclude)
         for low, high in WATER_BANDS:
             water = QPushButton(f"Exclude Water {low:.0f}-{high:.0f}")
-            water.setToolTip("A common NIR water band; added only when you click.")
+            water.setToolTip(wrap_tooltip("A common NIR water band; added only when you click."))
             water.clicked.connect(lambda _checked=False, r=(low, high): self.add_region(
                 "exclude", r))
             buttons_row.addWidget(water)
