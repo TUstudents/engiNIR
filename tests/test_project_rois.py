@@ -120,7 +120,7 @@ def test_a_hidden_tab_reads_nothing(qapp, trays, monkeypatch):
             time.sleep(0.01)
         assert window._explore_tabs.currentWidget() is window._data_file_page
         assert calls == [] and not window._project_rois.busy()
-        window.show_project_rois()
+        window.show_step("rois")
         _settle(qapp, window._project_rois)
         assert calls
     finally:

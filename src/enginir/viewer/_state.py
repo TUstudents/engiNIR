@@ -1254,17 +1254,6 @@ class ViewerState(QObject):
         scale = np.maximum(percentiles[1] - percentiles[0], 1.0)
         return np.clip((raw_rgb - lo) / scale, 0.0, 1.0).astype(np.float32, copy=False)
 
-    def raw_roi_spectra(self, f0: int, f1: int, r0: int, r1: int) -> np.ndarray:
-        """Return raw ROI spectra as ``(n_pixels, n_bands)`` in the cube's dtype.
-
-        That is uint16 for raw counts and float32 for precalibrated cubes, the
-        storage dtypes of ROI spectra.
-        """
-        if not self.has_dataset:
-            return np.zeros((0, 0), dtype=np.uint16)
-        left, right, top, bottom = self._normalized_roi_bounds(f0, f1, r0, r1)
-        return self.cube[left : right + 1, top : bottom + 1, :].reshape(-1, self.n_bands)
-
     def _normalized_roi_bounds(
         self,
         f0: int,

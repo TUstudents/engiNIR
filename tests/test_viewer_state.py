@@ -143,14 +143,11 @@ def test_reference_shapes_validate_resample_and_broadcast(qapp):
 def test_raw_helpers_return_expected_shapes_and_ranges(state):
     band_image = state.raw_band_image(2)
     false_colour = state.raw_false_colour_rgb()
-    roi_spectra = state.raw_roi_spectra(0, 1, 2, 4)
 
     assert band_image.shape == (state.height, state.n_frames)
     assert false_colour.shape == (state.height, state.n_frames, 3)
     assert false_colour.dtype == np.float32
     assert float(false_colour.min()) >= 0.0
     assert float(false_colour.max()) <= 1.0
-    assert roi_spectra.shape == (6, state.n_bands)
-    assert roi_spectra.dtype == np.uint16
 
 

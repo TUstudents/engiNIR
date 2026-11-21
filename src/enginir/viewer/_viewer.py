@@ -1409,12 +1409,6 @@ class HSIViewer(QMainWindow):
             self._explore_maximized = saved.removeprefix("explore.")
         self._sync_workspace_content_host()
 
-    def show_project_rois(self) -> None:
-        """Show the Project ROIs tab of Explore."""
-        self._workspace_tabs.setCurrentWidget(self._eda_view)
-        if self._project_rois is not None:
-            self._explore_tabs.setCurrentWidget(self._project_rois)
-
     def open_roi(self, roi_id: str) -> None:
         """Show the data file of an ROI with the ROI selected (Data file tab)."""
         roi = self.project_state.rois.get(roi_id)

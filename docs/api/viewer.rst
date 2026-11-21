@@ -272,7 +272,7 @@ HSIViewer
 .. autoclass:: enginir.viewer._viewer.HSIViewer
    :members: show, export_csv, export_workspace_plots, workspace_plot_frames, reset_layout,
              add_data_file, show_data_file, wait_for_data_file, apply_shown_reference_correction,
-             locate_data_file, set_wavelengths, use_registered_axis, show_roi_table, show_project_rois, open_roi
+             locate_data_file, set_wavelengths, use_registered_axis, show_roi_table, open_roi
 
 Datasets
 --------
