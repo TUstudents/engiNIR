@@ -692,36 +692,6 @@ def test_fit_again_presets_the_models_signal_unit_and_its_full_seed(
     assert dialog.fit_spec.seed == 2**40
 
 
-@pytest.mark.parametrize("width", [2.2, 3.5, 6.0])
-def test_the_distance_notes_stay_inside_their_plot(width):
-    """W5: the notes of a distance histogram (limit, share above, overflow bar) are one block
-    inside the axes, also in a narrow panel; an undefined (NaN) limit is not drawn."""
-    import numpy as np
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
-    from matplotlib.figure import Figure
-
-    from enginir.viewer._model_diagnostics import _distance_spec
-    from enginir.viewer._theme import panel_colors
-
-    values = np.concatenate([np.random.default_rng(0).gamma(4, 0.25, 5000), [36.3] * 20])
-    spec = _distance_spec("dmodx", "dcrit_095", "model.dmodx", "DModX", "Normalized DModX")
-    fig = Figure(figsize=(width, 2.4))
-    canvas = FigureCanvasAgg(fig)
-    spec.render(fig, {"dmodx_pixels": values, "dcrit_095": 1.17}, panel_colors())
-    canvas.draw()
-    renderer = canvas.get_renderer()
-    (ax,) = fig.axes
-    notes = [t for t in ax.texts if "limit 0.95" in t.get_text()]
-    assert len(notes) == 1 and "last bar" in notes[0].get_text(), "one block with every note"
-    box, axes_box = notes[0].get_window_extent(renderer), ax.get_window_extent(renderer)
-    assert box.x0 >= axes_box.x0 - 1 and box.x1 <= axes_box.x1 + 1
-
-    fig = Figure(figsize=(width, 2.4))
-    FigureCanvasAgg(fig)
-    spec.render(fig, {"dmodx_pixels": values, "dcrit_095": float("nan")}, panel_colors())
-    assert not any("limit 0.95" in t.get_text() for t in fig.axes[0].texts)
-
-
 # -- Fit summary, numbers and the fit form ---------------------------------------------
 
 

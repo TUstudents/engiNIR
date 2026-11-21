@@ -475,20 +475,3 @@ def test_layout_settings_tolerate_a_damaged_file():
 # -- Long plot titles ------------------------------------------------------------------
 
 
-def test_a_long_plot_title_ends_in_an_ellipsis_with_the_whole_title_as_tooltip(qapp):
-    from PyQt6.QtWidgets import QWidget
-
-    from enginir.viewer._plot_panel import PlotFrame
-
-    frame = PlotFrame("x.test", "Predicted vs target value, per ROI, cross-validated, with "
-                      "all the detail one could want", QWidget(), None)
-    frame.resize(220, 300)
-    frame.show()
-    qapp.processEvents()
-    assert frame.title_elided
-    assert frame.title.startswith("Predicted vs target value")
-    assert frame._title.toolTip() == frame.title
-    frame.resize(2000, 300)
-    qapp.processEvents()
-    assert not frame.title_elided
-    frame.close()

@@ -332,7 +332,7 @@ class _ImagePanel(_PanelBase):
     def restyle_theme(self) -> None:
         colors = panel_colors()
         self._plot_widget.setBackground(colors["bg"])
-        self._message.setStyleSheet(f"color: {colors['fg']};")
+        self._message.setStyleSheet(f"color: {colors['fg']}; background: {colors['bg']};")
         axis_color = QColor(colors["fg"])
         axis_color.setAlpha(160)
         for name, label in (("bottom", self._x_label), ("left", self._y_label)):
@@ -681,7 +681,7 @@ class SpatialProfilePanel(_PanelBase):
     def restyle_theme(self) -> None:
         colors = panel_colors()
         self._plot_widget.setBackground(colors["bg"])
-        self._message.setStyleSheet(f"color: {colors['fg']};")
+        self._message.setStyleSheet(f"color: {colors['fg']}; background: {colors['bg']};")
         self._curve.setPen(pg.mkPen(colors["accent"], width=1))
         self._marker.setPen(pg.mkPen(tokens()["error"], width=1.5))
         axis_color = QColor(colors["fg"])

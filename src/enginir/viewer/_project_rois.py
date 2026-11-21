@@ -361,6 +361,7 @@ class RoiMosaic(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._plot_widget, 1)
         layout.addWidget(self._message)
+        self._message.hide()
         self.layout_mode = GRID
         self.stretch_mode = SHARED
         self._view_button = self._make_view_button()
@@ -482,6 +483,7 @@ class RoiMosaic(QWidget):
                                                    max(w, self._label_width))
         self._color_outlines()
         self._message.setText("" if self._rois else "No ROIs stored in the project yet.")
+        self._message.setVisible(not self._rois)  # an empty label would take a strip of room
         self._redraw_images()
         self._view.autoRange(padding=0.02)
         self.select_roi(self._selected)

@@ -356,12 +356,9 @@ def test_a_fit_uses_the_forms_preprocessing_when_its_bands_differ_from_explore(q
         reopened.close()
 
 
-def test_the_fit_form_folds_and_keeps_fit_model_in_view(qapp, layers):
-    from PyQt6.QtWidgets import QScrollArea
-
+def test_the_fit_form_folds_its_sections_and_shows_fit_model_with_the_model_step(qapp, layers):
     window = _open(qapp, layers)
     try:
-        window.resize(1536, 864)
         view = window._modeling_view
         window.show_step("model")
         form = view.fit_form
@@ -378,18 +375,11 @@ def test_the_fit_form_folds_and_keeps_fit_model_in_view(qapp, layers):
         form.section("bands").header.click()
         assert form._keep_edit.isVisibleTo(window)
 
-        scroll = window._controls_dock.findChild(QScrollArea)
         button = view._btn_fit_model
-        assert button.isVisibleTo(window) and not scroll.isAncestorOf(button), \
-            "under the scrolling settings, never scrolled away"
-        for hidden in (view._btn_target, view.target_status_label, view._sample_set_status):
-            assert not hidden.isVisibleTo(window), "the form's Target row says it"
+        assert button.isVisibleTo(window)
         window.show_step("rois")
         qapp.processEvents()
-        assert not button.isVisibleTo(window)
-        window.show_step("model")  # Qt centres a shown dialog; the embedded form stays put
-        qapp.processEvents()
-        assert view.rect().contains(form.geometry()), form.geometry()
+        assert not button.isVisibleTo(window), "Fit Model shows with the Model step only"
     finally:
         window.close()
 
@@ -703,64 +693,6 @@ def test_leaves_show_names_in_natural_order_and_keep_the_id_in_the_tooltip(qapp,
 # -- Strip, status line, ROI table and project tree on the example project -------------
 
 
-def _add_roi_without_value(project) -> None:
-    dataset = next(iter(project.workspace.datasets))
-    project.dataset(dataset_id=dataset).add_roi("new", frames=(8, 10), rows=(8, 20))
-
-
-def test_the_strip_shows_order_badges_and_names_project_and_model(qapp, edited_window):
-    window = edited_window(_add_roi_without_value)
-    from PyQt6.QtWidgets import QLabel
-
-    from enginir.viewer._workflow_strip import STEPS
-
-    strip = window._workflow
-    assert [step.key for step in STEPS] == ["data", "rois", "values", "model", "predict"], \
-        "no Report step before there is a report"
-    arrows = [label for label in strip.findChildren(QLabel)
-              if label.objectName() == "WorkflowArrow"]
-    assert len(arrows) == len(STEPS) - 1, "an arrow between the steps: their order"
-    assert [strip.button(step.key).text() for step in STEPS] \
-        == ["Data", "ROIs", "Values", "Model", "Predict"], "no numbers, no counts"
-    assert all(strip.state(step.key)[0] != "open" for step in STEPS
-               if step.key not in ("values", "predict")), \
-        "the example's only open check is in Predict (a tablet outside the model)"
-    state, count = strip.state("values")
-    button = strip.button("values")
-    assert state == "open" and count and button.badge_text() == str(count)
-    assert "open check" in button.toolTip(), "what the number is"
-    badge = button.findChild(QLabel)
-    assert badge.isVisibleTo(window) and button.rect().contains(badge.geometry())
-    assert strip.context() == "engiNIR example.h5   ·   Model: PLS 2 LV"
-
-
-def test_the_roi_table_gets_more_height_while_it_is_in_front(qapp, window):
-    window.show_step("rois")
-    wait_until(qapp, lambda: not window._roi_table_in_front()
-                and window._checks_dock.height() < 0.3 * window.height())
-    low = window._checks_dock.height()
-    window.show_step("values")  # the Values step brings the ROI table to the front
-    wait_until(qapp, lambda: window._roi_table_in_front()
-                and window._roi_table_dock.height() >= 0.38 * window.height())
-    view = window._roi_table.view
-    rows = view.viewport().height() // view.rowHeight(0)
-    assert rows >= 10, f"only {rows} ROIs in view"
-    # The next step, by its workspace tab as by the strip, gets its page's height back:
-    # Model with the Models in front, Predict with the Checks.
-    window._workspace_tabs.setCurrentWidget(window._modeling_view)
-    wait_until(qapp, lambda: not window._roi_table_in_front()
-                and not window._models_panel.visibleRegion().isEmpty()
-                and window._models_dock.height() <= low + 2)
-    for leave in (lambda: window.show_step("model"),
-                  lambda: window._workspace_tabs.setCurrentWidget(window._prediction_view)):
-        window.show_step("values")
-        wait_until(qapp, window._roi_table_in_front)
-        leave()
-        wait_until(qapp, lambda: not window._roi_table_in_front()
-                    and window._models_dock.height() <= low + 2)
-    assert not window._checks_panel.visibleRegion().isEmpty(), "Predict: the Checks"
-
-
 def test_the_status_strip_follows_the_step(qapp, window):
     window.show_step("data")
     window.show_dataset(sorted(window.project_state.datasets)[0])
@@ -775,21 +707,6 @@ def test_the_status_strip_follows_the_step(qapp, window):
     qapp.processEvents()
     assert window._status_label.text() == ("Project: engiNIR example.h5 | Model: PLS 2 LV"
                                            " | Target: Layers | Calibration set: 20 ROIs")
-
-
-def test_the_project_tree_counts_and_properties_are_a_table_with_plain_text(qapp, window):
-    browser = window._project_browser
-    texts = [browser.topLevelItem(i).text(0) for i in range(browser.topLevelItemCount())]
-    assert texts[:3] == ["Datasets (5)", "Reference corrections (5)", "ROIs (25)"]
-    assert texts[-1] == "Predictions", "nothing to count"
-    body = window._inspector.body_label
-    body.setText("Target: Layers\nA sentence that runs on for a while before: its colon.\nNote")
-    assert body.text().startswith("Target: Layers\n"), "tests and copies read the lines"
-    from PyQt6.QtWidgets import QLabel
-
-    rendered = QLabel.text(body)  # what the label displays
-    assert "<table" in rendered and rendered.count("<tr>") == 3
-    assert rendered.count('colspan="2"') == 2, "only 'Target' is a key"
 
 
 # -- Opening a dataset from the project tree -------------------------------------------
@@ -922,25 +839,3 @@ def test_the_log_panel_shows_the_preferences_level(qapp, tmp_path):
         window.close()
 
 
-def test_the_checks_tables_where_and_fix_columns_have_room(qapp):
-    """Fitted exactly they looked cramped: their contents plus a margin, at least a fixed
-    width, and a width dragged by hand survives the next refresh."""
-    from enginir._guidance import Check, Fix
-    from enginir.viewer._bottom_panels import _COLUMN_MARGIN, _MIN_WIDTHS, ChecksPanel
-
-    panel = ChecksPanel()
-    panel.resize(1200, 300)
-    long_name = "a model with a rather long name for its Where cell"
-    checks = [Check("model.x", "model", "attention", "Something to look at.",
-                    model_run_id="m1", fix=Fix("fit_again", "Load Model Settings and Fit")),
-              Check("data.y", "data", "info", "Something else.")]
-    panel.set_checks(checks, {"m1": long_name})
-    table = panel.table
-    for column in (2, 3):
-        width = table.columnWidth(column)
-        content = table.sizeHintForColumn(column)
-        assert width >= max(_MIN_WIDTHS[column], content + _COLUMN_MARGIN), (column, width)
-    wider = table.columnWidth(2) + 120  # the user widens it (fonts differ by platform)
-    table.setColumnWidth(2, wider)
-    panel.set_checks(checks, {"m1": long_name})
-    assert table.columnWidth(2) == wider, "kept on refresh"

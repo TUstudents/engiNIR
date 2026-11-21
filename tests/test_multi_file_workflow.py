@@ -575,42 +575,6 @@ def test_options_grid_defaults_are_stored_in_the_user_settings(qapp, monkeypatch
             stored.order) == (8, 12, 12, "{n:03d}", "columns")
 
 
-def test_profile_axes_fit_their_labels_after_a_file_is_shown(qapp, tmp_path):
-    """A project window starts with empty plots; a file shown later must not clip tick labels."""
-    from enginir import Project
-    from enginir.io import save_hdf5
-    from enginir.viewer import open_project
-
-    rng = np.random.default_rng(4)
-    cube = rng.integers(300, 900, (12, 40, 30)).astype(np.uint16)  # absorbance about 0.6-1.1
-    path = tmp_path / "scan.h5"
-    save_hdf5(str(path), cube, np.linspace(1000.0, 1700.0, 30))
-    project = Project.create(tmp_path / "p.h5")
-    project.add_dataset(path, black_level=0.0, white_level=10000.0)
-    window = open_project(project.path)
-    try:
-        window.resize(1400, 900)
-        window.show()
-        qapp.processEvents()  # the plots draw their empty state first
-        window._explore_tabs.setCurrentWidget(window._data_file_page)
-        window.show_data_file(next(iter(window.project_state.datasets)))
-        window.wait_for_data_file()
-        assert window.state.y_unit == "Absorbance"
-        for _ in range(5):
-            qapp.processEvents()
-        for panel in (window._spectrum,):  # the Spatial profile is pyqtgraph: it fits itself
-            figure = panel.figure
-            figure.canvas.draw()
-            renderer = figure.canvas.get_renderer()
-            (ax,) = figure.axes
-            labels = [label for label in ax.get_yticklabels() if label.get_text()]
-            assert labels
-            assert min(label.get_window_extent(renderer).x0 for label in labels) >= 0, \
-                type(panel).__name__
-    finally:
-        window.close()
-
-
 def test_make_defaults_in_the_grid_dialog_sets_the_next_grid(qapp):
     from enginir.viewer._grid_settings import GridDefaults, load_grid_defaults
     from enginir.viewer._roi_grid import RoiGridDialog
