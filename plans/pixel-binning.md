@@ -1,6 +1,6 @@
 # Plan: spatial pixel binning, an option of Add Dataset
 
-Status: decided (user, 2026-11-22), not built. Binning is an option of the
+Status: built on branch `pixel-binning` (2026-11-22), phases 1 to 5; not merged. Binning is an option of the
 dataset, applied on every read (no derived file, no extra tool); a file to
 predict is binned like the model; D1 to D4 below.
 
@@ -124,11 +124,14 @@ proof that the rest of the pipeline needs no change, and it is written first.
    project schema §5), `hdf5_format.md`, `coverage.md`, the user guide and
    CHANGELOG.
 
-## Risks
+## Risks (checked)
 
-- Older engiNIR (1.7.3) opening a binned project ignores `binning`, sees a
-  `cube_shape` that does not match the file, and treats every binned dataset as
-  changed. Acceptable within `enginir-1.7` only if the refusal message is
-  clear; otherwise this needs a format bump (decide in phase 2).
-- About 12 read sites: one missed site reads unbinned pixels into a binned
-  dataset. The acceptance test through every public path is the guard.
+- engiNIR 1.7.4 opening a project with a binned dataset (checked with the
+  released 1.7.4): it opens, refits the model from the stored ROIs with the
+  same RMSECV, and refuses to predict the file ("it has shape (24, 8, 6), the
+  dataset has (12, 4, 6)"). No silent unbinned read, so no format bump.
+- A read site that misses the binning reads unbinned pixels: the acceptance
+  tests go through every public path (ROIs, references, Locate, fit,
+  prediction, the viewer's image), each fault-injected.
+- Changed from the plan: the Add Dataset preview stays unbinned, because the
+  reference frames are chosen there in frames as stored.

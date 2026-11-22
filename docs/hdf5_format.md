@@ -258,9 +258,10 @@ offset and microseconds, e.g. `2026-11-12T09:56:05.852000+00:00`.
 ├── @label                   the user's short name for the dataset; "" for none (display data, engiNIR 1.6; missing reads "")
 ├── @wavelength_table        name of the wavelength table that gave a file without wavelengths its axis; "" for none (display data, engiNIR 1.7.2; missing reads "")
 ├── @wavelength_table_id     the table's content id, "wlt-" and 16 hex digits; "" for none (display data, engiNIR 1.7.2)
+├── @binning                 k: every read averages k × k blocks of frames and rows; only when above 1 (content, engiNIR 1.8; missing reads 1)
 ├── @source_format
 ├── @source_modality
-├── @cube_shape              (n_frames, height, n_bands)
+├── @cube_shape              (n_frames, height, n_bands), after binning
 ├── @n_bands
 ├── @import_timestamp
 ├── @active_reference_correction_id   the dataset's reference correction (written with the dataset)
@@ -287,6 +288,15 @@ one by Set Wavelengths) stores the table's values here, and the table's name
 and id in `@wavelength_table` and `@wavelength_table_id`; its ROIs store the
 same axis. The file itself keeps band numbers: compare it with the dataset
 by those (`enginir._workflow.file_wavelengths`).
+
+A binned dataset (`@binning` k, `Project.add_dataset(path, binning=k)`)
+averages k × k blocks of frames and rows of its file on every read, before
+any reference correction (`enginir.io.bin_blocks`): integer counts keep their
+dtype (the mean rounded half up), floating data become float32 means, and
+frames and rows short of a block are dropped. `@cube_shape`, the ROIs' bounds
+and pixels and the reference arrays are binned; reference frames of the file
+are read as stored and binned over the rows only. A file has one binning in a
+project; it never changes.
 
 Reference correction is dataset-owned. A project-global `/calibration` group
 is refused. A reference correction id belongs to one dataset, and a stored
@@ -413,7 +423,8 @@ restores these values without fitting on prediction data.
 ├── @wavelength_tolerance_nm
 ├── @band_mapping_policy    exact (the only value; reserved for a future remapping contract)
 ├── @output_dtype           float32
-└── @created_at
+├── @created_at
+└── @binning                the training datasets' binning; only when above 1 (engiNIR 1.8; missing reads 1)
 ```
 
 `exact` does not imply interpolation or automatic band remapping. It means

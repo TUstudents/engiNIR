@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Spatial pixel binning of a dataset.** Add Dataset's **Binning** (2 × 2,
+  3 × 3, 4 × 4) and `Project.add_dataset(path, binning=k)` average k × k
+  blocks of frames and rows every time the file is read, before the reference
+  correction. Counts stay counts (the mean is rounded and keeps the file's
+  integer type), so levels, references, ROIs and models work unchanged on the
+  binned pixels. Reference frames are frames of the file as stored. A file has
+  one binning in a project, fixed when it is added. A model records its
+  binning: a new scan is binned like the model to be predicted, a scan
+  registered with another binning is refused, and a calibration set mixing
+  binnings is refused. `enginir.io.bin_blocks`, `bin_rows` and
+  `bin_frame_chunks` do the same on arrays. The format stays `enginir-1.7`;
+  the binning is stored only for binned datasets. engiNIR 1.7.4 opens a
+  project with a binned dataset and refits its models from the stored ROIs,
+  but refuses its data file (the shape differs) rather than read it unbinned.
+
 ## 1.7.4 (2026-11-22)
 
 Viewer fixes and a smaller, sharper test suite. Projects, scripts and the

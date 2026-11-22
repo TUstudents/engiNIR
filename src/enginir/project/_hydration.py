@@ -155,7 +155,8 @@ def hydrate_project_store(
         .to_dict()
         for recipe_id, payload in store.get("recipes", {}).items()
     }
-    signal_domains = _build_all(SignalDomainContract, "signal_domains", "signal_domain_id", store)
+    signal_domains = _build_all(SignalDomainContract, "signal_domains", "signal_domain_id", store,
+                                optional=("binning",))
     sample_sets = _build_all(SampleSet, "sample_sets", "sample_set_id", store)
     # cv_spec and metrics are display data: tolerated when missing
     # (project-schema contract, Core and display data).
@@ -234,7 +235,9 @@ def _dataset_ref(location: str, payload: dict[str, Any], dataset_id: str) -> Dat
                        "are ignored", location, display["wavelength_table"],
                        display["wavelength_table_id"])
         display["wavelength_table"] = display["wavelength_table_id"] = ""
-    return _build(DatasetRecord, location, {**payload, **display},
+    # binning is stored only when a dataset has one (engiNIR 1.8): absent means none
+    return _build(DatasetRecord, location, {**payload, **display,
+                                            "binning": payload.get("binning", 1)},
                   {"dataset_id": dataset_id}, ignored={"reference_corrections", "active_reference_correction_id"})
 
 
@@ -320,10 +323,11 @@ _WRITABLE_MODELS: dict[str, type] = {
 }
 _WRITE_OPTIONS: dict[str, dict[str, Any]] = {
     "DatasetRecord": {"ignored": {"reference_corrections", "active_reference_correction_id"},
-                   "optional": _DATASET_DISPLAY_FIELDS},
+                   "optional": (*_DATASET_DISPLAY_FIELDS, "binning")},
     "ReferenceCorrection": {"optional": _REFERENCE_FIELDS},
     "TrainingROI": {"ignored": {"spectra", "reference_spectra"}, "optional": ("sample",)},
     "ModelRun": {"optional": ("name",)},
+    "SignalDomainContract": {"optional": ("binning",)},
 }
 
 

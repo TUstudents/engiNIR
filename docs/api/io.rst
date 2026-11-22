@@ -91,6 +91,33 @@ save_hdf5
 
 .. autofunction:: enginir.io.save_hdf5
 
+Pixel binning
+-------------
+
+.. automodule:: enginir.io._binning
+   :no-members:
+
+bin_blocks
+~~~~~~~~~~
+
+.. autofunction:: enginir.io.bin_blocks
+
+bin_frame_chunks
+~~~~~~~~~~~~~~~~
+
+.. autofunction:: enginir.io.bin_frame_chunks
+
+bin_rows
+~~~~~~~~
+
+.. autofunction:: enginir.io.bin_rows
+
+BINNING_FACTORS
+~~~~~~~~~~~~~~~
+
+.. autodata:: enginir.io.BINNING_FACTORS
+   :no-value:
+
 Wavelength tables
 -----------------
 
