@@ -1,19 +1,32 @@
 # Changelog
 
-## Unreleased
+## 1.7.4 (2026-11-22)
 
-Housekeeping: a smaller, sharper test suite and less dead code. No change for
-users of the library or the viewer.
+Viewer fixes and a smaller, sharper test suite. Projects, scripts and the
+format (`enginir-1.7`) are unchanged.
 
-- **Tests:** 1190 down to 708 test cases (830 to 592 test functions) with the
-  same line coverage; table-style cases are one test each, tests that detect
-  nothing the others do not are gone, the model-run and prediction tests run
-  without Qt (`tests/_sessions.py`), and `benchmarks/` holds the kernel PLS
-  timing test.
-- **Viewer internals:** removed members nothing called (`ProjectState.fit_model_run`,
-  `build_sample_set`, `predict_dataset`, `get_target_assignment`,
-  `ensure_model_run_artifact_refs`, `icon_names`, and others); the viewer
-  fits and predicts through its jobs, as before.
+### Fixed
+
+- **Tooltips break into lines** of at most 72 characters. The help of each
+  plot (its **?** button) and the other long tooltips were one wide line.
+- **The ROI mosaic fills its frame:** an empty message line took a dark strip
+  under the mosaic, so it ended above the ROI mean spectra and Selected ROI
+  pixels plots.
+- **Sensor frame and Spatial profile without data** show the panel colour,
+  like the Spatial image beside them, not the darker window colour.
+
+### Changed
+
+- **Tests:** 1190 down to 694 test cases (830 to 578 test functions) with the
+  same line coverage. Table-style cases are one test each; tests that detect
+  nothing the others do not, and tests of layout and colours only, are gone;
+  the model-run and prediction tests run without Qt (`tests/_sessions.py`);
+  the kernel PLS timing test is in `benchmarks/`.
+- **Viewer internals:** members nothing called are removed
+  (`ProjectState.fit_model_run`, `build_sample_set`, `predict_dataset`,
+  `get_target_assignment`, `ensure_model_run_artifact_refs`,
+  `HSIViewer.show_project_rois`, `ViewerState.raw_roi_spectra`, `icon_names`
+  and others). The viewer fits and predicts through its jobs, as before.
 
 ## 1.7.3 (2026-11-19)
 
