@@ -1,6 +1,18 @@
 # Changelog
 
-## Unreleased
+## 1.7.6 (2026-11-22)
+
+A faster cold start on Windows and a fix for opening the example project while
+the viewer is still loading. Projects and the format (`enginir-1.7`) are
+unchanged; pandas is no longer installed with engiNIR.
+
+### Fixed
+
+- **Open Example Project while the viewer was still loading** (the first
+  seconds after the welcome window appears) imported the library in a second
+  thread at the same time as the start-up imports (seen on Windows). Two
+  threads importing the same packages can deadlock; it now waits for them,
+  like opening a project or a data file.
 
 ### Changed
 
@@ -15,10 +27,6 @@
   install it themselves.
 - **The launcher no longer loads NumPy** before the welcome window (264
   modules instead of 349).
-- **Fixed: Open Example Project during the warm-up** imported the library in
-  a second thread at the same time as the warm-up (seen on Windows); it now
-  waits for the warm-up like opening a project or a data file, since two
-  threads importing the same packages can deadlock.
 - **The log shows where a start's time goes:** each step of the warm-up
   (NumPy, SciPy, scikit-learn, h5py, matplotlib, engiNIR, the Qt parts) logs
   its time, its number of modules and the size of its native files; the
