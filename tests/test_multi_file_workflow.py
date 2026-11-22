@@ -82,7 +82,7 @@ def test_open_data_adds_the_file_with_frame_references_in_the_same_window(
     window = open_viewer(paths["tray_a"], project=project_path)
     try:
         windows = len(open_windows())
-        window._open_data_path(str(path_c))  # File > Open Data in a window showing tray_a
+        window._open_data_path(str(path_c))  # Open Recent: a data file, in a window showing tray_a
         window.wait_for_data_file()
         assert len(dialogs) == 1 and len(open_windows()) == windows  # no new window
         state = window.project_state

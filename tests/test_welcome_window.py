@@ -221,11 +221,13 @@ def test_open_recent_never_touches_a_recent_file_on_the_ui_thread(window, qapp, 
     menu = window._menu_open_recent
     try:
         menu.aboutToShow.emit()
-        assert [act.text() for act in menu.actions()] == [project, dataset, ghost]
-        assert all(act.isEnabled() for act in menu.actions()), "not checked yet"
+        entries = [act for act in menu.actions() if not act.isSeparator()]
+        assert [act.text() for act in entries] == [project, dataset, ghost], \
+            "the project first, then the data files"
+        assert all(act.isEnabled() for act in entries), "not checked yet"
         release.set()
-        wait_until(qapp, lambda: not menu.actions()[2].isEnabled())
-        assert menu.actions()[0].isEnabled() and menu.actions()[1].isEnabled()
+        wait_until(qapp, lambda: not entries[2].isEnabled())
+        assert entries[0].isEnabled() and entries[1].isEnabled()
         assert threads and threading.main_thread().name not in threads, threads
     finally:
         release.set()

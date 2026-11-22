@@ -20,10 +20,10 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_icons.py` | The line icons (Tabler Icons, MIT, `_resources/icons/`) rendered in a theme colour |
 | `_workflow_strip.py` | `WorkflowStrip`: the steps Data → ROIs → Values → Model → Predict under the menu bar (arrows between them, open checks in a round badge), their state from `Project.checks()`; navigation only |
 | `_bottom_panels.py` | `ChecksPanel` (the library's checks with fix buttons) and `ModelsPanel` (models with figures of merit and the library's verdict), tabs of the bottom panel |
-| `_preferences.py` | `Preferences` (stored per user in `preferences.json`, never in a project), `PreferencesDialog` (Tools > Preferences: Appearance, Data and paths, Fitting defaults, Prediction defaults, Plots and export, Performance, Logging, Keyboard); the interface scale (`QT_SCALE_FACTOR`) and BLAS threads act through the environment |
+| `_preferences.py` | `Preferences` (stored per user in `preferences.json`, never in a project), `PreferencesDialog` (Edit > Preferences: Appearance, Data and paths, Fitting defaults, Prediction defaults, Plots and export, Performance, Logging, Keyboard); the interface scale (`QT_SCALE_FACTOR`) and BLAS threads act through the environment |
 | `_state.py` | `ViewerState` (UI) + `ProjectState` (Qt adapter over `enginir.Project`) |
 | `_canvas.py` | `FalseColourCanvas` (pyqtgraph image surface, crosshair, ROI draw/selection) |
-| `_panels.py` | Explore plots: Histogram and Spectrum (matplotlib); Band image and Sensor Frame (pyqtgraph `_ImagePanel`); Spatial Profile (pyqtgraph, upright) |
+| `_panels.py` | Explore plots: Histogram and Spectrum (matplotlib); Sensor Frame (pyqtgraph `_ImagePanel`); Spatial Profile (pyqtgraph, upright) |
 | `_viewer.py` | `HSIViewer(QMainWindow)`: menus (every action; no toolbar), the workflow strip, Project and Properties on the left, the Settings dock on the right (the workspace controls; the Model workspace's fit settings are the embedded fit form), the bottom panel (Checks, ROI table, Models, Log as tabs), status strip, workspace host; `run_fix` runs the fix a check offers |
 | `_welcome.py` | Launcher window with recent files list (drawn without file access; checked in a job) and startup routing |
 | `_windows.py` | The registry of open top-level windows (`keep_open`, `open_windows`); see Window lifetime |
@@ -42,7 +42,7 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_data_helpers.py` | Dataset-shape and spectral array helpers shared by viewer workflows |
 | `_project_rois.py` | `ProjectRoisView` (Explore's Project ROIs tab), `RoiMosaic` (stored ROI pixels as tiles, a `PlotSource`; `mosaic_layout` places them in a compact grid from `grid_cells` or at their scan positions, with room for text drawn in mosaic units; outlines in the value color; stretch shared or per dataset), specs `explore.roi_means`/`explore.roi_pixels` fed by `enginir.modeling.roi_spectrum_summaries`. Tiles arrive in background batches of 40 and are drawn incrementally with the stretch of the first batch, then re-stretched once together; target and value changes update the labels in place (coalesced), without a new layout |
 | `_roi_table.py` | `RoiTableModel`/`RoiTableWidget`: sample labels and target values of all ROIs (a Sample column, one column per target), Enter-to-next-row editing, column paste, dataset and missing-value filters; labels are written through `ProjectState.set_roi_samples` → `Project.save_roi_sample` |
-| `_roi_grid.py` | `RoiGridDialog`: a grid of equal ROIs by number, size, origin and spacing (`roi_grid`), empty-position buttons, a live preview on the canvas (outside cells red); `GridDefaultsDialog` (Tools > ROI Grid Defaults...) and the shared `GridGeometryForm` |
+| `_roi_grid.py` | `RoiGridDialog`: a grid of equal ROIs by number, size, origin and spacing (`roi_grid`), empty-position buttons, a live preview on the canvas (outside cells red); `GridDefaultsDialog` (ROI > ROI Grid Defaults...) and the shared `GridGeometryForm` |
 | `_grid_settings.py` | `GridDefaults` every new grid starts with, in the user settings (`roi_grid.json`) |
 | `_data_files.py` | `AddDataFileDialog` and `DataFileRequest`: the reference correction of a dataset added to a project (reference files, frame ranges, shared references, levels, raw) and, for a file without wavelengths, the wavelength table; `SetWavelengthsDialog` (Project > Set Wavelengths) |
 | `_ui_helpers.py` | Shared plot styling and figure-layout helpers; `FlowLayout` (rows that wrap) and `CollapsibleSection` (a part of a settings form that folds to its header and a one-line summary) |
@@ -153,8 +153,6 @@ Wired in `_viewer.py:_wire_signals()`:
 
 **Panel → State:**
 ```
-Band image panel (`DC3Panel`).frame_pick     → ViewerState.set_frame
-Band image panel (`DC3Panel`).row_pick       → ViewerState.set_row
 Sensor Frame panel (`SensorPanel`).row_pick    → ViewerState.set_row
 Sensor Frame panel (`SensorPanel`).band_pick   → ViewerState.set_band
 SpatialProfilePanel.row_pick  → ViewerState.set_row
@@ -426,7 +424,7 @@ Plots that update their artists in place (the Explore panels in
 implement `PlotSource` (`plot_table()`, `print_figure()`) and are shown in a
 `PlotFrame`:
 
-- The Band image and Sensor Frame panels (`_ImagePanel`) and the Spatial Profile
+- The Sensor Frame panel (`_ImagePanel`) and the Spatial Profile
   draw with pyqtgraph and build their print figure by redrawing the shown
   view with matplotlib. The Sensor Frame and the Spatial Profile follow the
   canvas's rows (`link_rows(canvas.view_box)`: a pyqtgraph Y link), so the
@@ -460,7 +458,7 @@ implement `PlotSource` (`plot_table()`, `print_figure()`) and are shown in a
   (`_sensor_frame`, `_spatial_frame`), shown or hidden with the View menu
   switches in `_page_plot_actions` and maximized within the page like the
   image and the spectrum (`_apply_explore_page_layout`). The data-file docks
-  (Histogram, Band image) are shown only on Explore's Dataset tab. `_sync_data_file_docks()` runs on
+  (the Histogram) are shown only on Explore's Dataset tab. `_sync_data_file_docks()` runs on
   every workspace and Explore tab change; the user's choice per dock lives in
   `_explore_plot_visibility` and is recorded from `isHidden()` (a dock behind
   another dock's tab is not visible but still shown). The ROI table follows

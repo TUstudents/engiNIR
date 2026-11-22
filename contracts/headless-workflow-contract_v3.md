@@ -282,7 +282,7 @@ and writes nothing they would reject.
     `white_level` metadata, else the instrument levels
     `DEFAULT_BLACK_LEVEL = 128` and `DEFAULT_WHITE_LEVEL = 3100` (the EVK Helios
     white balance; 3500 before engiNIR 1.7.3). The viewer prefills the levels of
-    Tools > Preferences, which start at these
+    Edit > Preferences, which start at these
 
   A reference correction with the same content as an existing one of that dataset is
   reused (`ReferenceCorrection.same_content_as`), never duplicated; the one used

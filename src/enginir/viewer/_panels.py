@@ -35,7 +35,6 @@ from ._ui_helpers import LayoutState, maybe_tight_layout, style_axes
 logger = get_logger(__name__)
 
 __all__ = [
-    "DC3Panel",
     "HistogramPanel",
     "SensorPanel",
     "SpatialProfilePanel",
@@ -63,7 +62,7 @@ class _PanelBase(QWidget):
     immediately after viewer construction.
     """
 
-    #: The header title changed (e.g. the Band image panel's band).
+    #: The header title changed (e.g. the map's unit).
     title_changed = pyqtSignal(str)
     plot_title = ""
 
@@ -459,61 +458,6 @@ class HistogramPanel(_BasePanelWidget):
 
 # ------------------------------------------------------------------
 # Raw panel
-# ------------------------------------------------------------------
-
-
-class DC3Panel(_ImagePanel):
-    """Raw band view: cube[:, :, band].T — height × n_frames with yellow crosshairs.
-
-    Emits
-    -----
-    frame_pick(int): user clicked a new frame position
-    row_pick(int):   user clicked a new row position
-    """
-
-    frame_pick = pyqtSignal(int)
-    row_pick = pyqtSignal(int)
-    plot_title = "Band image"
-
-    def __init__(self, state: ViewerState) -> None:
-        super().__init__(state, x_label="Frame", y_label="Row")
-        self._build()
-        state.frame_changed.connect(self._on_cursor_changed)
-        state.row_changed.connect(self._on_cursor_changed)
-        state.band_changed.connect(self._build)
-
-    def _build(self, *_) -> None:
-        if self._defer_until_visible(self._build):
-            return
-        if not self._state.has_dataset:
-            self._set_title("Band image")
-            self._show_empty("No dataset attached")
-            return
-        band = self._state.band
-        self._set_image(self._state.raw_band_image(band), (self._state.frame, self._state.row))
-        wavelength = float(self._state.wavelengths[band])
-        self._set_title(f"Band image, band {band} ({wavelength:.1f} nm), raw counts (DN)")
-
-    def _on_cursor_changed(self, *_) -> None:
-        # Only the crosshair moves; that is cheap enough to do while hidden.
-        if self._data is not None:
-            self._set_crosshair(self._state.frame, self._state.row)
-
-    def _picked(self, column: int, row: int) -> None:
-        self.frame_pick.emit(column)
-        self.row_pick.emit(row)
-
-    def plot_table(self) -> PlotTable | None:
-        if self._data is None:
-            return None
-        metadata = self._metadata("band")
-        metadata["signal_unit"] = "Raw counts (DN)"
-        return PlotTable(matrix=self._data, row_label="row", column_label="frame",
-                         metadata=metadata)
-
-
-# ------------------------------------------------------------------
-# Sensor panel
 # ------------------------------------------------------------------
 
 

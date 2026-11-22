@@ -44,17 +44,6 @@ def state_and_project(tmp_path):
     return state, project
 
 
-class _FakePanel:
-    def __init__(self):
-        self.values: list[bool] = []
-
-    def toggle_roi_mode(self, enabled: bool) -> None:
-        self.values.append(enabled)
-
-    def toggle_training_roi_mode(self, enabled: bool) -> None:
-        self.values.append(enabled)
-
-
 class _FakeSignal:
     def __init__(self):
         self.values: list[tuple] = []
@@ -108,7 +97,6 @@ def _make_view(
     view = EDAView(
         state,
         project,
-        dc3_panel=_FakePanel(),
         canvas=canvas,
         cube_path_provider=lambda: cube_path,
         dataset_attached_provider=lambda: dataset_attached,
@@ -171,7 +159,6 @@ def test_training_roi_selection_requires_project_and_attached_dataset(qapp, tmp_
     view = EDAView(
         state,
         project,
-        dc3_panel=_FakePanel(),
         canvas=_FakeCanvas(),
         cube_path_provider=lambda: str(tmp_path / "cube.eiff"),
         dataset_attached_provider=lambda: False,
@@ -311,7 +298,6 @@ def viewer(qapp):
     viewer.resize(1400, 900)
     viewer.show()
     viewer._hist_dock.show()
-    viewer._dc3_dock.show()
     viewer.state.set_frame(4)
     viewer.state.set_row(7)
     viewer.state.set_band(3)
@@ -343,7 +329,7 @@ def _frames(viewer) -> dict:
 def test_every_explore_plot_exports_what_it_shows(viewer, tmp_path):
     state = viewer.state
     frames = _frames(viewer)
-    assert sorted(frames) == ["explore.histogram", "explore.image", "explore.raw",
+    assert sorted(frames) == ["explore.histogram", "explore.image",
                               "explore.sensor", "explore.spatial", "explore.spectrum"]
     tables = {}
     for plot_id, frame in frames.items():
@@ -366,10 +352,6 @@ def test_every_explore_plot_exports_what_it_shows(viewer, tmp_path):
     _prov, header, values = tables["explore.spatial"]
     np.testing.assert_allclose(values[:, 1], state.get_spatial_profile(3), rtol=1e-6)
     assert _prov["band"] == "3"
-
-    _prov, header, values = tables["explore.raw"]
-    assert header[0] == "row\\frame"
-    np.testing.assert_array_equal(values[:, 1:], state.raw_band_image(3))
 
     _prov, header, values = tables["explore.sensor"]
     assert header[0] == "row\\band"
@@ -530,35 +512,6 @@ def test_hidden_histogram_defers_refresh_until_visible(qapp, state, monkeypatch)
     monkeypatch.setattr(state, "current_frame_image", lambda: np.full((8, 5), 1000.0, np.float32))
     panel._on_update()
     assert panel._ax.get_ylim()[1] > 40
-
-
-def test_image_panels_pick_the_clicked_pixel_and_follow_the_cursor(qapp, state):
-    import types
-
-    from PyQt6.QtCore import QPointF
-
-    from enginir.viewer._panels import DC3Panel
-
-    panel = DC3Panel(state)
-    panel.resize(400, 300)
-    panel.show()
-    qapp.processEvents()
-    picks: list[tuple[str, int]] = []
-    panel.frame_pick.connect(lambda f: picks.append(("frame", f)))
-    panel.row_pick.connect(lambda r: picks.append(("row", r)))
-    # Click where pixel (row 6, frame 2) is drawn, a little off its centre.
-    scene_pos = panel._image.mapToScene(QPointF(2.5 + 0.3, 6.5 - 0.3))
-    panel._on_scene_click(types.SimpleNamespace(scenePos=lambda: scene_pos))
-    assert picks == [("frame", 2), ("row", 6)]
-
-    data = panel._data
-    state.set_frame(3)
-    state.set_row(1)
-    assert panel._data is data, "a cursor move does not rebuild the band image"
-    assert (panel._vline.value(), panel._hline.value()) == (3, 1)
-    state.set_band(4)
-    assert panel.plot_title.startswith("Band image, band 4 ")
-    np.testing.assert_array_equal(panel._data, state.raw_band_image(4))
 
 
 def test_model_diagnostics_show_empty_states_in_the_plots(qapp):

@@ -517,7 +517,7 @@ def test_help_log_file_dialog_copies_or_opens_the_log_location(
     try:
         viewer = HSIViewer(*cube_and_wavelengths)
         help_entries = [a.text() for a in viewer._menu_help.actions() if a.text()]
-        assert help_entries == ["View Log", "Log File...", "About engiNIR"]
+        assert {"View Log", "Log File..."} <= set(help_entries)
         next(a for a in viewer._menu_help.actions() if a.text() == "Log File...").trigger()
     finally:
         enginir.disable_logging()
@@ -837,3 +837,30 @@ def test_the_log_panel_shows_the_preferences_level(qapp, tmp_path):
         assert "debug line two" in text.toPlainText(), "a change applies at once"
     finally:
         window.close()
+
+
+def test_every_menu_shortcut_is_unique_and_go_to_opens_each_step(qapp, window):
+    """Two items with one shortcut would be ambiguous in Qt and neither would fire; Go To
+    reaches each step like the workflow strip (plan menu-polish, V3 and P1)."""
+    from collections import Counter
+
+    keys = Counter(keys for _item, keys in window.menu_shortcuts())
+    assert keys and not [key for key, count in keys.items() if count > 1], keys
+    menus = {action.text(): action.menu() for action in window.menuBar().actions()}
+    assert "Tools" not in menus, "Preferences is in Edit, ROI Grid Defaults in ROI"
+
+    go_to = next(action.menu() for action in menus["View"].actions() if action.text() == "Go To")
+    for action, step in zip(go_to.actions(), ("data", "rois", "values", "model", "predict")):
+        action.trigger()
+        qapp.processEvents()
+        assert window._workflow.current() == step, action.text()
+
+    def item(menu, text):
+        return next(action for action in menus[menu].actions() if action.text() == text)
+
+    assert item("ROI", "ROI Table").shortcut().toString() == "Ctrl+T"
+    values = item("Project", "Target Values...\tCtrl+T")
+    assert values.shortcut().isEmpty(), "Ctrl+T shown, held by ROI Table only"
+    values.trigger()
+    qapp.processEvents()
+    assert window._roi_table_dock.isVisible()

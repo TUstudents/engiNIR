@@ -78,7 +78,6 @@ class EDAView(QWidget):
         viewer_state: ViewerState,
         project_state: ProjectState,
         *,
-        dc3_panel: QWidget,
         canvas: _CanvasLike,
         cube_path_provider: Callable[[], str | None],
         dataset_attached_provider: Callable[[], bool],
@@ -89,7 +88,6 @@ class EDAView(QWidget):
         super().__init__(parent)
         self.state = viewer_state
         self.project_state = project_state
-        self._dc3 = dc3_panel
         self._canvas = canvas
         self._cube_path_provider = cube_path_provider
         self._dataset_attached_provider = dataset_attached_provider
@@ -655,7 +653,7 @@ class EDAView(QWidget):
             QMessageBox.warning(
                 self,
                 "No project open",
-                "No project open. Use Project > New or Project > Open first.",
+                "No project open. Use File > New Project or File > Open Project first.",
             )
             return
         if not self._dataset_attached_provider():
