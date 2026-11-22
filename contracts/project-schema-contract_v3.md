@@ -518,6 +518,7 @@ project.h5
 |   +-- @label               (display data; the user's short name, "" for none)
 |   +-- @wavelength_table    (display data; the wavelength table's name, "" for none)
 |   +-- @wavelength_table_id (display data; its content id, "" for none)
+|   +-- @binning             (content; k for k x k binning, stored only when above 1)
 |   +-- @source_format
 |   +-- @source_modality
 |   +-- @cube_shape

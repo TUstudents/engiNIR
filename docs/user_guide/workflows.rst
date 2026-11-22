@@ -111,6 +111,19 @@ their band numbers and predict as before. Your own tables are CSV files
 (``band,wavelength_nm`` with a ``# name: ...`` line) in
 ``~/.enginir/wavelength_tables/``.
 
+A scan can be **binned**: ``binning=2`` (3 or 4) averages 2 × 2 blocks of
+frames and rows on every read, before the reference correction; ROIs,
+references and models then use the binned pixels, and counts stay counts.
+
+.. code-block:: python
+
+   scan = project.add_dataset("tray.h5", binning=2, dark_frames=(0, 1),
+                              white_frames=(78, 79))   # frames of the file as stored
+
+A file has one binning in a project. A model fitted on binned data bins a new
+scan the same way when it predicts it (``model.predict(path)``); a scan
+registered with another binning is refused.
+
 A scan that was moved or renamed is pointed at its new place with
 ``dataset.locate(new_path)``. The file is accepted only if it is the same
 scan (format, shape, wavelengths, and the stored pixels of every ROI);

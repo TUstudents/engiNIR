@@ -45,6 +45,7 @@ class _Block:
     table_lines: list[str] = field(default_factory=list)
 
     def number(self, label: str) -> float | None:
+        """The number at the start of ``label``'s value, or ``None`` when the label is absent."""
         value = self.labels.get(label)
         if value is None:
             return None

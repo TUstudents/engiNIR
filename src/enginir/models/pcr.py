@@ -51,6 +51,7 @@ class GramPCA:
 
     @property
     def n_components_(self) -> int:
+        """Number of components."""
         return int(self.components_.shape[0])
 
     def transform(self, X: np.ndarray) -> np.ndarray:
@@ -68,6 +69,7 @@ class ScoreRegression:
     intercept_: float | np.ndarray
 
     def predict(self, scores: np.ndarray) -> np.ndarray:
+        """Predict from scores."""
         return np.asarray(scores) @ np.asarray(self.coef_).T + self.intercept_
 
 

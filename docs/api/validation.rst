@@ -21,6 +21,7 @@ Cross-validation
 .. autoclass:: enginir.validation.RoundRobinGroups
    :members:
 .. autofunction:: enginir.validation.kennard_stone
+.. autodata:: enginir.validation.DEFAULT_GROUPED_N_SPLITS
 
 Aggregation
 -----------
@@ -31,6 +32,8 @@ Number of components
 --------------------
 
 .. autofunction:: enginir.validation.choose_components
+
+.. autodata:: enginir.validation.COMPONENT_CHOICE_RULES
 
 .. autofunction:: enginir.validation.guarded_choice
 

@@ -170,6 +170,7 @@ class _Search:
     tick: Callable[[], None]
 
     def baseline(self) -> BandStep:
+        """The step without bands: the cross-validated mean of y."""
         oof = np.empty(self.y.size)
         for train, test in zip(self.folds.train, self.folds.test, strict=True):
             oof[test] = self.y[train].mean()
@@ -257,6 +258,7 @@ class _StatsSearch:
         return model.fit_stats(self.stats, blocks, single_target=True, columns=columns)
 
     def baseline(self) -> BandStep:
+        """The step without bands: the cross-validated mean of y."""
         _x, y_roi = self.stats.roi_means()
         predicted = np.empty(self.stats.roi_n.size)
         for train, test in self.folds:

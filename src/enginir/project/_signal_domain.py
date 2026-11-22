@@ -95,6 +95,11 @@ def check_signal_domain_compatibility(
     if dataset.source_modality != signal_domain.source_modality:
         _fail("Dataset '{}' has source_modality {!r}, but the model requires {!r}",
               dataset.dataset_id, dataset.source_modality, signal_domain.source_modality)
+    if dataset.binning != signal_domain.binning:
+        _fail("Dataset '{}' is binned {} x {}, but the model was fitted on {} x {} binning; add "
+              "the file to another project to bin it like the model",
+              dataset.dataset_id, dataset.binning, dataset.binning, signal_domain.binning,
+              signal_domain.binning)
     if dataset.n_bands != signal_domain.n_bands:
         _fail("Dataset '{}' has n_bands={}, but the model requires n_bands={}",
               dataset.dataset_id, dataset.n_bands, signal_domain.n_bands)

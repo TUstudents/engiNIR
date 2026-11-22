@@ -72,6 +72,7 @@ def build_stats(X: np.ndarray, y: np.ndarray, lay: Layout) -> GramStats:
 
 @dataclass
 class Fold:
+    """One cross-validation fold: the blocks to train on and the ROIs to test."""
     train_blocks: np.ndarray
     test_rois: np.ndarray
 
@@ -135,6 +136,7 @@ def x_residual_sums(model: Any, stats: GramStats) -> tuple[np.ndarray, float]:
 
 @dataclass
 class CurveResult:
+    """The component curve, the model of every fold and the model fitted on all data."""
     curve: dict[str, Any]
     fold_models: list[Any]
     full: Any

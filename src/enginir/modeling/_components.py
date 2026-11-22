@@ -53,11 +53,13 @@ class AllComponents(RegressorMixin, BaseEstimator):
         self.estimator = estimator
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> AllComponents:
+        """Fit a clone of the estimator."""
         model: Any = clone(self.estimator)
         self.estimator_ = model.fit(X, y)
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
+        """The predictions for every number of components."""
         return component_predictions(self.estimator_, X)
 
 

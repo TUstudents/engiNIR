@@ -24,12 +24,14 @@ from enginir._logging import get_logger
 
 from ..io import (
     SpectralData,
+    bin_frame_chunks,
     file_format,
     iter_eiff_frame_chunks,
     iter_envi_frame_chunks,
     iter_hdf5_frame_chunks,
     load_spectra,
 )
+from ..io._binning import binned_frames
 from ..io.project_store import (
     PredictionArtifactWriter,
     discard_prediction_run_artifacts,
@@ -696,24 +698,28 @@ def _iter_input_chunks(
     height = dataset.cube_shape[1]
     blocks: Iterator[tuple[int, np.ndarray]]
     source_format = dataset.source_format.lower()
+    # A binned dataset reads k times the frames per chunk and bins them (pixels already in
+    # memory, ``spectral_data.X``, are the dataset's own and are not binned again).
+    k = dataset.binning
+    frames = binned_frames(loader_kwargs.get("frames"), k)
     if spectral_data is not None and np.shape(spectral_data.X)[0] > 0:
         blocks = _blocks_of_array(np.asarray(spectral_data.X), chunk_size, height)
+        k = 1
     elif source_format == "hdf5":
         blocks = iter_hdf5_frame_chunks(
-            data_path, chunk_size=chunk_size, frames=loader_kwargs.get("frames"),
+            data_path, chunk_size=chunk_size * k, frames=frames,
             spectra_key=str(loader_kwargs.get("spectra_key", "spectra")),
         )
     elif source_format == "eiff":
-        blocks = iter_eiff_frame_chunks(data_path, chunk_size=chunk_size,
-                                        frames=loader_kwargs.get("frames"))
+        blocks = iter_eiff_frame_chunks(data_path, chunk_size=chunk_size * k, frames=frames)
     elif source_format == "envi":
-        blocks = iter_envi_frame_chunks(data_path, chunk_size=chunk_size)
+        blocks = iter_envi_frame_chunks(data_path, chunk_size=chunk_size * k)
     else:
         # Point-spectrum formats (CSV, SPC, SPA, JCAMP) hold no image cube.
         X = np.asarray(load_spectra(data_path, **loader_kwargs).X)
         blocks = _blocks_of_array(X, chunk_size, height)
     n_bands = dataset.cube_shape[2]
-    for offset, block in blocks:
+    for offset, block in bin_frame_chunks(blocks, k):
         # The file must still be the registered dataset: a block of another height or
         # band count would be placed into a map of the wrong shape.
         if (block.ndim == 3 and block.shape[1:] != (height, n_bands)) \
@@ -817,6 +823,7 @@ class _PredictionOutputs:
 
     def add(self, row_start: int, y_chunk: np.ndarray,
             diagnostics: tuple[np.ndarray, np.ndarray] | None = None) -> None:
+        """Store one chunk of predictions (and diagnostics) starting at ``row_start``."""
         if self._chunks == 0:
             self._start(tuple(int(dim) for dim in y_chunk.shape[1:]))
         if self.y_pred is not None:
@@ -942,6 +949,7 @@ class _Progress:
         self.total = 0
 
     def report(self, phase: str, message: str, *, check_cancel: bool = True) -> None:
+        """Send a progress event; raise ``PredictionCancelledError`` if cancelled."""
         if self._callback is not None:
             self._callback(PredictionProgressEvent(
                 phase=phase,

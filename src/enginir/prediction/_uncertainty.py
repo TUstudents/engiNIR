@@ -62,6 +62,7 @@ class IntervalInputs:
 
 
 def check_level(level: float) -> None:
+    """Raise unless ``level`` lies strictly between 0 and 1."""
     if not 0.0 < float(level) < 1.0:
         log_and_raise("The interval level must be between 0 and 1, got {}", level, depth=2)
 

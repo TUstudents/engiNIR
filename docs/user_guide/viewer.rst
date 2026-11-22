@@ -566,6 +566,15 @@ its wavelengths later with **Project > Set Wavelengths...**, together with its
 ROIs; models fitted before keep their band numbers and predict as before.
 The Checks tab offers the table for datasets that have band numbers.
 
+An image file can be **binned**: **Binning** 2 × 2, 3 × 3 or 4 × 4 averages
+blocks of frames and rows every time the file is read, before the reference
+correction, so the image, ROIs, references and models all use the binned
+pixels; raw counts stay raw counts. The reference frames you choose are frames
+of the file as stored. The binning is fixed when the file is added: a file has
+one binning in a project. A model predicts only scans binned like it: a scan
+added from **Predict** gets the model's binning. In a map of a whole scan, the
+blocks at the scan's own reference frames mix reference and sample frames.
+
 The dialog asks for no signal unit: DN, reflectance and absorbance are
 chosen in Explore and in **Fit Model**. Only a file that already holds
 corrected values (floating point) asks what it holds, reflectance or

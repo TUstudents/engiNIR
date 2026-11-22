@@ -23,6 +23,7 @@ from typing import Any
 import numpy as np
 
 from enginir._checks import check_choice, check_integer, check_real, log_and_raise
+from enginir._levels import BINNING_FACTORS
 from enginir._logging import get_logger
 
 from ._fit_spec import FitSpec
@@ -47,6 +48,14 @@ SAMPLE_SET_SEMANTICS = {
 # ---------------------------------------------------------------------------
 # Field checks
 # ---------------------------------------------------------------------------
+
+
+def _binning(value: Any) -> int:
+    """A binning factor (:data:`enginir.io.BINNING_FACTORS`); ``None`` (not stored) is 1."""
+    binning = check_integer(1 if value is None else value, "binning", minimum=1)
+    if binning not in BINNING_FACTORS:
+        log_and_raise("binning must be one of {}, got {}", BINNING_FACTORS, binning, depth=2)
+    return binning
 
 
 def _text(value: Any, name: str, *, required: bool = True) -> str:
@@ -202,7 +211,7 @@ class DatasetRecord(SerializableModel):
     source_modality : str
         Measurement modality, e.g. ``"NIR"``.
     cube_shape : tuple of int
-        ``(n_frames, height, n_bands)`` of the full cube.
+        ``(n_frames, height, n_bands)`` of the full cube, after ``binning``.
     n_bands : int
         Number of spectral bands, equal to ``cube_shape[2]``.
     wavelengths : numpy.ndarray of float32, shape (n_bands,)
@@ -223,6 +232,11 @@ class DatasetRecord(SerializableModel):
         to a file that stores none (:mod:`enginir.io.wavelength_tables`);
         ``""`` when the wavelengths are the file's own. The file itself then
         has band numbers (display data, engiNIR 1.7.2).
+    binning : int
+        ``k`` when the dataset averages ``k x k`` blocks of frames and rows of
+        its file (:data:`enginir.io.BINNING_FACTORS`), else 1. Every read of the
+        file bins it; ``cube_shape`` and the references are binned. Content,
+        never changed; stored only when above 1 (engiNIR 1.8).
     """
 
     dataset_id: str
@@ -238,9 +252,11 @@ class DatasetRecord(SerializableModel):
     label: str = ""
     wavelength_table: str = ""
     wavelength_table_id: str = ""
+    binning: int = 1
 
     def __post_init__(self) -> None:
         self.dataset_id = _text(self.dataset_id, "dataset_id")
+        self.binning = _binning(self.binning)
         self.source_path = _text(self.source_path, "source_path")
         # Display data: None (not stored) is "not defined", an empty string.
         self.relative_path = ("" if self.relative_path is None
@@ -265,6 +281,14 @@ class DatasetRecord(SerializableModel):
         self.wavelengths = _wavelengths(self.wavelengths, "wavelengths", size=self.n_bands)
         self.loader_metadata = _mapping(self.loader_metadata, "loader_metadata")
         self.import_timestamp = _timestamp(self.import_timestamp, "import_timestamp")
+
+    def to_dict(self) -> dict[str, Any]:
+        """The fields; ``binning`` only when there is one, so unbinned datasets keep the
+        content they had before binning existed (a stored object never changes)."""
+        payload = SerializableModel.to_dict(self)
+        if self.binning == 1:
+            payload["binning"] = None
+        return payload
 
 
 @dataclass(slots=True, eq=False)
@@ -623,6 +647,10 @@ class SignalDomainContract(SerializableModel):
         ``"float32"``.
     created_at : str
         ISO 8601 creation time.
+    binning : int
+        The binning of the training datasets (:attr:`DatasetRecord.binning`);
+        a scan is binned the same way to be predicted. Stored only when above 1
+        (engiNIR 1.8).
     """
 
     signal_domain_id: str
@@ -639,6 +667,7 @@ class SignalDomainContract(SerializableModel):
     band_mapping_policy: str
     output_dtype: str
     created_at: str
+    binning: int = 1
 
     def __post_init__(self) -> None:
         self.signal_domain_id = _text(self.signal_domain_id, "signal_domain_id")
@@ -674,6 +703,14 @@ class SignalDomainContract(SerializableModel):
                                            ("exact",))
         self.output_dtype = _choice(self.output_dtype, "output_dtype", ("float32",))
         self.created_at = _timestamp(self.created_at, "created_at")
+        self.binning = _binning(self.binning)
+
+    def to_dict(self) -> dict[str, Any]:
+        """The fields; ``binning`` only when above 1, so existing contracts keep their content."""
+        payload = SerializableModel.to_dict(self)
+        if self.binning == 1:
+            payload["binning"] = None
+        return payload
 
     @classmethod
     def for_training_data(
@@ -718,6 +755,7 @@ class SignalDomainContract(SerializableModel):
             band_mapping_policy="exact",
             output_dtype="float32",
             created_at=created_at or now_iso(),
+            binning=dataset.binning,
         )
 
 

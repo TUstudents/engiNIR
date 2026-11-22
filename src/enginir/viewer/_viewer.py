@@ -56,7 +56,7 @@ from ._browser import ProjectBrowser
 from ..io import file_format
 from ..io import is_band_numbers
 from ..prediction import spectral_axis_in_nm
-from ._inspector import ProjectInspector
+from ._inspector import ProjectInspector, binning_text
 from ._data_files import AddDataFileDialog, SetWavelengthsDialog
 from ._project_rois import ProjectRoisView
 from ._roi_table import RoiTableWidget
@@ -242,20 +242,6 @@ class _ColumnScrollArea(QScrollArea):
         content, viewport = self.widget(), self.viewport()
         if content is not None and viewport is not None:
             content.setFixedWidth(viewport.width())
-
-
-class _WidthScrollArea(QScrollArea):
-    """Scrolls sideways only: the content always gets the viewport's height.
-
-    The Controls dock's rows are wide but short; a plain scroll area would let
-    the content grow taller than the dock and hide its lower rows.
-    """
-
-    def resizeEvent(self, a0: Any) -> None:  # noqa: N802 (Qt API)
-        super().resizeEvent(a0)
-        content, viewport = self.widget(), self.viewport()
-        if content is not None and viewport is not None:
-            content.setFixedHeight(viewport.height())
 
 
 class LogPanel(QWidget):
@@ -1316,6 +1302,10 @@ class HSIViewer(QMainWindow):
                              else os.path.basename(self._cube_path))
         parts = [f"Project: {project_label}", f"Dataset: {dataset_label}",
                  f"Signal: {signal_label(self.state.y_unit_effective)}"]
+        shown_record = (None if not self._cube_path else self.project_state.datasets.get(
+            self._eda_view.shown_dataset_id() or ""))
+        if shown_record is not None and shown_record.binning > 1:
+            parts.insert(2, f"Binned {binning_text(shown_record.binning)}")
         if not hasattr(self, "_explore_tabs") or self._on_data_file_page():
             # Frame, row and band are the crosshair of the dataset's image.
             has = self.state.has_dataset
@@ -2523,7 +2513,7 @@ class HSIViewer(QMainWindow):
     # ------------------------------------------------------------------
 
     def add_data_file(self, path: str | None = None, *,
-                      trained_with: str | None = None) -> str | None:
+                      trained_with: str | None = None, binning: int = 1) -> str | None:
         """Add a data file to the project with its reference correction, then show it.
 
         A file that is already registered is shown directly. Returns the
@@ -2554,7 +2544,7 @@ class HSIViewer(QMainWindow):
             path, header, state.datasets,
             {dataset_id: reference_correction for dataset_id in state.datasets
              if (reference_correction := state.active_reference_correction(dataset_id)) is not None},
-            trained_with=trained_with, parent=self)
+            trained_with=trained_with, binning=binning, parent=self)
         if dialog.exec() != QDialog.DialogCode.Accepted or dialog.request is None:
             return None
         request = dialog.request
@@ -2653,8 +2643,10 @@ class HSIViewer(QMainWindow):
             busy.end()
             self._data_file_job = None
 
+        record = self.project_state.datasets.get(dataset_id)
+        binning = 1 if record is None else record.binning
         self._data_file_job = start_background_job(
-            owner=self, fn=lambda: load_spectra(path),
+            owner=self, fn=lambda: load_spectra(path, binning=binning),
             on_success=lambda data: self._apply_data_file(dataset_id, data),
             on_error=self._data_file_failed,
             on_finished=finished)
@@ -3206,9 +3198,11 @@ class HSIViewer(QMainWindow):
 
     def _add_prediction_data_file(self, model_run_id: str) -> str | None:
         """Add a scan for prediction with the Add data file dialog, noting the model's training."""
-        note = self._prediction_view._training_reference_correction(
-            self.project_state.model_runs[model_run_id])
-        return self.add_data_file(trained_with=note)
+        model_run = self.project_state.model_runs[model_run_id]
+        note = self._prediction_view._training_reference_correction(model_run)
+        domain = self.project_state.signal_domains.get(model_run.signal_domain_id)
+        return self.add_data_file(trained_with=note,
+                                  binning=1 if domain is None else domain.binning)
 
     def _release_minimum_size(self) -> None:
         """Let the compositor choose the window size, whatever the docks' minimums.
