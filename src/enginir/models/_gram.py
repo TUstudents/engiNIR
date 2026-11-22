@@ -124,14 +124,17 @@ class GramStats:
 
     @property
     def n_features(self) -> int:
+        """Number of bands."""
         return int(self.sx.shape[1])
 
     @property
     def n_targets(self) -> int:
+        """Number of targets."""
         return int(self.sy.shape[1])
 
     @property
     def n_blocks(self) -> int:
+        """Number of blocks."""
         return int(self.n.shape[0])
 
     @classmethod
@@ -208,6 +211,7 @@ class GramStats:
                     self._add(X[chunk], Y[chunk], int(block), int(roi), None, sign=-1.0)
 
     def copy(self) -> GramStats:
+        """A copy with every array copied."""
         return GramStats(**{name: np.array(getattr(self, name), copy=True)
                             for name in self.__dataclass_fields__})
 
@@ -259,6 +263,7 @@ class Moments:
         return _divisor(np.diag(self.cxx), self.n, scaling, "column")
 
     def y_scale(self, scaling: str) -> np.ndarray:
+        """The divisor of every target for ``scaling`` (see :meth:`x_scale`)."""
         return _divisor(np.diag(self.cyy), self.n, scaling, "target")
 
 

@@ -22,6 +22,7 @@ from .metrics import r2_score, rmsec, rmsecv, rmsep, rpd, rpiq
 
 logger = get_logger(__name__)
 
+#: Default number of folds of the grouped cross-validation (:class:`RoundRobinGroups`).
 DEFAULT_GROUPED_N_SPLITS = 7
 _AUTO_CV = "auto"
 _SUPPORTED_STRING_CV = {_AUTO_CV, "loo", "logo"}

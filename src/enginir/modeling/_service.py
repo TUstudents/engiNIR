@@ -153,6 +153,7 @@ class _StatelessRecipePredictor:
     estimator: Any
 
     def predict(self, X: np.ndarray) -> np.ndarray:
+        """Predict from raw spectra: the preprocessing steps, then the estimator."""
         return self.estimator.predict(transform_preprocessing_steps(X, self.steps))
 
 

@@ -20,6 +20,8 @@ Running predictions
 
 .. autofunction:: enginir.prediction.wavelength_mismatch
 
+.. autodata:: enginir.prediction.DEFAULT_CHUNK_SIZE
+
 Prediction ROIs
 ---------------
 

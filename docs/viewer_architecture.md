@@ -48,6 +48,7 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_ui_helpers.py` | Shared plot styling and figure-layout helpers; `FlowLayout` (rows that wrap) and `CollapsibleSection` (a part of a settings form that folds to its header and a one-line summary) |
 | `_plot_panel.py` | `PlotSpec`, `PlotTable`, `PlotPanel`: one plot with a header (title, maximize, PNG/SVG/CSV export) |
 | `_plot_grid.py` | `PlotGrid`, `PlotPage`, `PlotSlot`: paged plot grids with lazy pages and in-place maximize |
+| `_plot_help.py` | `MODEL_PLOT_HELP`: the help text of each Model diagnostics plot (its **?** button); `docs/user_guide/model_plots.rst` carries the same texts, and a test keeps them equal |
 | `_plot_registry.py` | Registry of all plots and of the plot pages of each workspace |
 | `_layout_settings.py` | Maximized plot per workspace in the user settings (`plot_layout.json`) |
 | `_project_settings.py` | Last shown dataset per `project_id` in the user settings (`project_ui.json`) |

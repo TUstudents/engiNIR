@@ -39,6 +39,7 @@ class Projection:
 
     @property
     def n_components(self) -> int:
+        """Number of components of the projection."""
         return int(self.rotations.shape[1])
 
 
@@ -116,6 +117,7 @@ class DiagnosticsSummary:
     _seen: bool = field(default=False, repr=False)
 
     def add(self, y: np.ndarray, t2: np.ndarray, distance: np.ndarray) -> None:
+        """Count one chunk of pixels: predictions ``y``, T² and distance per pixel."""
         finite = np.isfinite(t2) & np.isfinite(distance)
         over_t2 = (t2 > self.t2_crit) if self.t2_crit is not None else np.zeros_like(finite)
         over_d = (distance > self.dcrit) if self.dcrit is not None else np.zeros_like(finite)
