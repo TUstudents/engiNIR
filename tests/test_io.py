@@ -612,18 +612,21 @@ def test_eiff_keeps_the_full_wavelength_table_and_warns_on_band_mismatch(tmp_pat
 
 
 def test_load_csv_reads_xlsx_workbooks_and_selects_sheets(tmp_path):
-    import pandas as pd
+    import openpyxl
 
     from enginir.io import load_spectra
 
     path = tmp_path / "spectra.xlsx"
-    with pd.ExcelWriter(path) as writer:
-        pd.DataFrame({"sample": ["a"], 1000.0: [1.0], 1001.0: [2.0]}).to_excel(
-            writer, sheet_name="first", index=False
-        )
-        pd.DataFrame({"sample": ["b", "c"], 1000.0: [3.0, 5.0], 1001.0: [4.0, 6.0]}).to_excel(
-            writer, sheet_name="Cal set", index=False
-        )
+    workbook = openpyxl.Workbook()
+    first_sheet = workbook.active
+    assert first_sheet is not None
+    first_sheet.title = "first"
+    for row in (["sample", 1000.0, 1001.0], ["a", 1.0, 2.0]):
+        first_sheet.append(row)
+    calibration = workbook.create_sheet("Cal set")
+    for row in (["sample", 1000.0, 1001.0], ["b", 3.0, 4.0], ["c", 5.0, 6.0]):
+        calibration.append(row)
+    workbook.save(path)
 
     first = load_spectra(path)
     reference_correction = load_spectra(path, sheet_name="Cal set")
@@ -717,6 +720,35 @@ def test_eiff_device_info_reads_nul_terminated_utf16_fields_at_fixed_offsets():
         "serial": "SN-42", "camera_model": "AlphaVision", "manufacturer": "EVK"
     }
     assert _parse_device_info(bytes(100)) == {}  # short payload: absent fields are omitted
+
+
+def test_csv_files_read_and_write_as_pandas_did(tmp_path):
+    """load_csv and save_csv no longer use pandas (plan cold-start, phase 1); files and
+    sample names stay as pandas wrote and read them: numbers in each dtype's shortest form,
+    NaN as an empty cell, numeric ids normalised, missing cells NaN."""
+    pd = pytest.importorskip("pandas")
+    from enginir.io import load_csv, save_csv
+
+    rng = np.random.default_rng(0)
+    for X in (rng.normal(size=(3, 4)), rng.normal(size=(2, 4)).astype(np.float32),
+              np.array([[3100, 128, 0, 7]], np.uint16), np.array([[np.nan, np.inf, -1e-12, 1]])):
+        wavelengths = np.array([1000.0, 1000.5, 1001.25, 2500.0])
+        names = [f"s,{index}" for index in range(len(X))]
+        ours, theirs = tmp_path / "ours.csv", tmp_path / "theirs.csv"
+        save_csv(ours, X, wavelengths, sample_names=names, columns={"note": ['q"'] * len(X)})
+        table = pd.DataFrame(X, columns=[str(w) for w in wavelengths])
+        table.insert(0, "note", ['q"'] * len(X))
+        table.insert(0, "sample_id", names)
+        table.to_csv(theirs, index=False)
+        assert ours.read_bytes() == theirs.read_bytes(), X.dtype
+
+    path = tmp_path / "odd.csv"
+    path.write_text("\ufeffid,roi,1000, 1001 \n\n001,R1,1,NA\n7,,,2\n8,R3,3\n", encoding="utf-8")
+    data = load_csv(path)
+    table = pd.read_csv(path)
+    assert data.meta["sample_names"] == [str(value) for value in table["id"]] == ["1", "7", "8"]
+    assert data.meta["sample_columns"] == {"roi": [str(value) for value in table["roi"]]}
+    np.testing.assert_array_equal(data.X, table.iloc[:, 2:].to_numpy(dtype=np.float64))
 
 
 def test_csv_text_columns_round_trip_next_to_the_sample_id(tmp_path):

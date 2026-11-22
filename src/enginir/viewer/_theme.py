@@ -15,8 +15,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
 from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import QApplication
 
@@ -256,6 +254,7 @@ def value_colormap(colors: Mapping[str, str] | None = None) -> Any:
     For the plot colours ``colors`` (screen or print, by their ``mode``); the
     current theme by default.
     """
+    import numpy as np  # not at module level: the launcher imports this module (D2)
     from matplotlib import colormaps
     from matplotlib.colors import ListedColormap
 

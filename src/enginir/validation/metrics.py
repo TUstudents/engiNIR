@@ -170,7 +170,8 @@ def metrics_report(
         Both must be given.
     as_dataframe:
         If ``True``, return a one-row :class:`pandas.DataFrame` instead of a
-        dict.
+        dict. Needs pandas, which engiNIR does not install
+        (``pip install enginir[pandas]``); :class:`ImportError` without it.
 
     Returns
     -------
@@ -203,8 +204,11 @@ def metrics_report(
             RPIQ=rpiq(y_true_test, y_pred_test),
         )
     if as_dataframe:
-        import pandas as pd
-
+        try:
+            import pandas as pd
+        except ImportError as exc:  # pandas is optional (enginir[pandas])
+            log_and_raise("as_dataframe=True needs pandas: pip install pandas "
+                          "(or enginir[pandas])", error=ImportError, cause=exc)
         return pd.DataFrame([report])
     return report
 

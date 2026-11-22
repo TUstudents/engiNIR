@@ -96,7 +96,8 @@ def mark_start() -> None:
         logger.info("Startup timing: the process start time is not known; times below count "
                     "from the launcher")
     else:
-        logger.info("Startup timing: the launcher ran {:.2f}s after the process started", age)
+        logger.info("Startup timing: the launcher ran {:.2f}s after the process started "
+                    "({} modules loaded)", age, len(sys.modules))
 
 
 def since_start() -> float:

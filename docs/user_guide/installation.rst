@@ -81,6 +81,13 @@ With pip:
 
    pip install enginir
 
+pandas is not installed with engiNIR; only
+``metrics_report(..., as_dataframe=True)`` needs it. Add it with the extra:
+
+.. code-block:: bash
+
+   pip install "enginir[pandas]"
+
 Install from source
 -------------------
 

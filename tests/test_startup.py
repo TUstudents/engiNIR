@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import textwrap
@@ -12,7 +13,7 @@ import pytest
 
 #: Not loaded before the welcome window is shown (D2): the scientific stack and the parts of
 #: engiNIR that need it. Each would cost seconds on a cold Windows start.
-HEAVY = ("sklearn", "scipy", "pandas", "h5py", "matplotlib", "pyqtgraph",
+HEAVY = ("numpy", "sklearn", "scipy", "pandas", "h5py", "matplotlib", "pyqtgraph",
          "enginir._workflow", "enginir.io", "enginir.project", "enginir.models",
          "enginir.modeling", "enginir.prediction", "enginir.validation", "enginir.viewer._viewer")
 
@@ -65,6 +66,35 @@ def test_every_public_name_still_resolves(package):
         assert getattr(module, name) is not None, name
     with pytest.raises(AttributeError):
         module.__getattr__("no_such_name")
+
+
+_WITHOUT_PANDAS = textwrap.dedent("""
+    import sys
+    class NoPandas:  # as if pandas were not installed
+        def find_spec(self, name, path=None, target=None):
+            if name == "pandas" or name.startswith("pandas."):
+                raise ModuleNotFoundError(f"No module named {name!r}")
+    sys.meta_path.insert(0, NoPandas())
+    import numpy as np
+    from enginir.viewer._warmup import BACKGROUND_STEPS, _import_all
+    _import_all(BACKGROUND_STEPS)
+    from enginir.io import load_csv, save_csv
+    from enginir.validation import metrics_report
+    save_csv(sys.argv[1], np.array([[1.5, 2.0]]), np.array([1000.0, 1001.0]), ["a"])
+    assert load_csv(sys.argv[1]).X.tolist() == [[1.5, 2.0]]
+    try:
+        metrics_report(np.array([1.0, 2.0, 3.0]), np.array([1.1, 2.0, 2.9]), as_dataframe=True)
+    except ImportError as exc:
+        print(exc)
+""")
+
+
+def test_enginir_works_without_pandas(tmp_path):
+    """pandas is optional (plan cold-start, phase 1): scikit-learn imports it whenever it is
+    installed, so a start without it opens fewer files. The warm-up, CSV files and metrics
+    work without it; only a metrics DataFrame needs it, and says how to get it."""
+    result = _run([sys.executable, "-c", _WITHOUT_PANDAS, str(tmp_path / "s.csv")], timeout=60)
+    assert "enginir[pandas]" in result.stdout, result.stderr[-3000:]
 
 
 _WARM_THEN_OPEN = textwrap.dedent("""
@@ -209,6 +239,14 @@ def test_the_log_shows_the_start_from_the_process_start(tmp_path):
     for line in ("the launcher ran", "welcome window shown", "warm-up done"):
         found = [entry for entry in text.splitlines() if line in entry]
         assert found and "after the process started" in found[0], (line, text[-3000:])
+    # Where a cold start's time goes: one line per warm-up step, with what it loaded.
+    from enginir.viewer._warmup import BACKGROUND_STEPS, UI_MODULES
+
+    imported = re.findall(r"warm-up imported (\S+) in [\d.]+s \((\d+) modules, (\d+) native",
+                          text)
+    assert [step for step, _, _ in imported] == [step for step, _ in BACKGROUND_STEPS] + list(
+        UI_MODULES), text[-3000:]
+    assert dict((step, int(n)) for step, n, _ in imported)["scipy"] > 100
 
 
 
@@ -285,3 +323,35 @@ def test_no_job_thread_starts_while_a_window_is_built_or_shown(qapp, tmp_path, m
         assert started and early() == [], started
     finally:
         welcome.close()
+
+
+@pytest.mark.parametrize("loader", ["_load_dataset_startup", "_load_project_startup",
+                                    "create_project", "_load_example_startup"])
+def test_a_welcome_pick_waits_for_the_warmup_before_loading(loader, monkeypatch, tmp_path):
+    """Two threads importing the library at once can deadlock (2026-11-19): a pick on the
+    welcome window loads nothing until the warm-up's imports have ended. The example
+    project did not wait (found on Windows, 2026-11-22)."""
+    import threading
+
+    import enginir._example
+    import enginir.io.project_store
+    import enginir.viewer._open
+    from enginir.viewer import __main__ as launcher
+    from enginir.viewer import _recent, _warmup
+
+    called: list[str] = []
+    for module, name in ((enginir.viewer._open, "_load_dataset_startup"),
+                         (enginir.viewer._open, "_load_project_startup"),
+                         (enginir.io.project_store, "create_project"),
+                         (enginir._example, "create_example_project")):
+        monkeypatch.setattr(module, name, lambda *args, _name=name, **kwargs: called.append(_name))
+    monkeypatch.setattr(_recent, "config_dir", lambda: tmp_path)
+    monkeypatch.setattr(_warmup, "_LIBRARY_IMPORTED", threading.Event())  # a warm-up runs
+    args = () if loader == "_load_example_startup" else (str(tmp_path / "x.h5"),)
+    thread = threading.Thread(target=getattr(launcher, loader), args=args, daemon=True)
+    thread.start()
+    thread.join(0.3)
+    assert called == [], f"{loader} loaded during the warm-up: {called}"
+    _warmup._LIBRARY_IMPORTED.set()
+    thread.join(5)
+    assert called, f"{loader} did not load after the warm-up"

@@ -6,7 +6,7 @@ opening a file needs (D3), so the first project or data file opens without
 that wait:
 
 1. a background job imports the non-Qt stack: the workflow (scikit-learn,
-   SciPy, pandas), the readers (h5py) and matplotlib's core;
+   SciPy), the readers (h5py) and matplotlib's core;
 2. when it has ended, the Qt modules (pyqtgraph, matplotlib's Qt backend,
    the main window) are imported on the UI thread, one per idle-timer step,
    because Qt modules are only safe to import on the main thread.
@@ -17,11 +17,17 @@ threads importing the same packages at once can deadlock Python's import locks
 (a module's lock taken before its package's in one thread, the other way round
 in the other; seen on Python 3.13.18 and 3.14, 2026-11-19). The wait costs
 nothing, since those imports would have blocked the pick anyway.
+
+Each step is logged with its time and what it loaded (modules, how many of
+them native, their size), so a cold start's log shows where the time goes:
+many small files or large native ones (plan ``plans/cold-start.md``, phase 2).
 """
 
 from __future__ import annotations
 
 import importlib
+import os
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -32,14 +38,16 @@ from .._logging import get_logger
 
 logger = get_logger(__name__)
 
-#: Imported by the background job (no Qt objects at import time).
-BACKGROUND_MODULES = (
-    "enginir._workflow",
-    "enginir.io",
-    "enginir.modeling",
-    "enginir.prediction",
-    "matplotlib.figure",
-    "matplotlib.backends.backend_agg",
+#: Imported by the background job (no Qt objects at import time), as named steps
+#: in dependency order, so that each step's time is its own (SciPy's does not
+#: include NumPy's). ``scipy.stats`` loads most of SciPy.
+BACKGROUND_STEPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("numpy", ("numpy",)),
+    ("scipy", ("scipy.stats", "scipy.signal")),
+    ("scikit-learn", ("sklearn.base",)),
+    ("h5py", ("h5py",)),
+    ("matplotlib", ("matplotlib.figure", "matplotlib.backends.backend_agg")),
+    ("engiNIR", ("enginir._workflow", "enginir.io", "enginir.modeling", "enginir.prediction")),
 )
 #: Imported on the UI thread, one per step, after the background job.
 UI_MODULES = (
@@ -50,15 +58,30 @@ UI_MODULES = (
 )
 
 
+def _timed_import(step: str, names: tuple[str, ...]) -> None:
+    """Import ``names`` and log the time and what they loaded."""
+    before = set(sys.modules.copy())
+    started = time.perf_counter()
+    for name in names:
+        importlib.import_module(name)
+    elapsed = time.perf_counter() - started
+    added = [sys.modules.get(name) for name in set(sys.modules.copy()) - before]
+    native = [path for path in (getattr(module, "__file__", None) for module in added)
+              if path and path.endswith((".pyd", ".so"))]
+    size = sum(os.path.getsize(path) for path in native if os.path.exists(path))
+    logger.info("Startup timing: warm-up imported {} in {:.2f}s ({} modules, {} native, "
+                "{:.0f} MB native)", step, elapsed, len(added), len(native), size / 1e6)
+
+
 #: Set when the background imports have ended (or failed); unset while they run.
 _LIBRARY_IMPORTED = threading.Event()
 _LIBRARY_IMPORTED.set()
 
 
-def _import_all(names: tuple[str, ...]) -> None:
+def _import_all(steps: tuple[tuple[str, tuple[str, ...]], ...]) -> None:
     try:
-        for name in names:
-            importlib.import_module(name)
+        for step, names in steps:
+            _timed_import(step, names)
     finally:
         _LIBRARY_IMPORTED.set()
 
@@ -104,7 +127,7 @@ def start_warmup(owner: QObject, *, on_done: Callable[[], None] | None = None) -
             return
         name = pending.pop(0)
         try:
-            importlib.import_module(name)
+            _timed_import(name, (name,))
         except Exception as exc:  # a warm-up must never take the launcher down
             logger.warning("Warm-up import of {} failed: {}", name, exc)
             finish("stopped")
@@ -119,9 +142,9 @@ def start_warmup(owner: QObject, *, on_done: Callable[[], None] | None = None) -
 
     timer.timeout.connect(step)
     _LIBRARY_IMPORTED.clear()
-    start_background_job(owner=owner, fn=lambda: _import_all(BACKGROUND_MODULES),
+    start_background_job(owner=owner, fn=lambda: _import_all(BACKGROUND_STEPS),
                          on_success=background_done, on_error=background_failed,
                          on_finished=lambda: None)
 
 
-__all__ = ["BACKGROUND_MODULES", "UI_MODULES", "start_warmup", "wait_for_library"]
+__all__ = ["BACKGROUND_STEPS", "UI_MODULES", "start_warmup", "wait_for_library"]

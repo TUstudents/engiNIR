@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.7.6 (2026-11-22)
+
+A faster cold start on Windows and a fix for opening the example project while
+the viewer is still loading. Projects and the format (`enginir-1.7`) are
+unchanged; pandas is no longer installed with engiNIR.
+
+### Fixed
+
+- **Open Example Project while the viewer was still loading** (the first
+  seconds after the welcome window appears) imported the library in a second
+  thread at the same time as the start-up imports (seen on Windows). Two
+  threads importing the same packages can deadlock; it now waits for them,
+  like opening a project or a data file.
+
+### Changed
+
+- **pandas is no longer installed with engiNIR.** scikit-learn imports pandas
+  whenever it is installed, so every start of the viewer read about 290 more
+  modules; on a cold Windows start each file costs time. CSV and Excel files
+  are read and written without it (`load_csv`, `save_csv`), with the same
+  results: the files are byte for byte what pandas wrote, sample names as
+  pandas read them. `metrics_report(..., as_dataframe=True)` needs pandas:
+  install it with `pip install "enginir[pandas]"`; without it, an
+  `ImportError` says so. Scripts that used pandas because engiNIR brought it
+  install it themselves.
+- **The launcher no longer loads NumPy** before the welcome window (264
+  modules instead of 349).
+- **The log shows where a start's time goes:** each step of the warm-up
+  (NumPy, SciPy, scikit-learn, h5py, matplotlib, engiNIR, the Qt parts) logs
+  its time, its number of modules and the size of its native files; the
+  launcher logs how many modules were loaded before it ran.
+
 ## 1.7.5 (2026-11-22)
 
 Spatial pixel binning of a dataset and tidier menus. The format stays

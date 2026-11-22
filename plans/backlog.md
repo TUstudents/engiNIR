@@ -68,7 +68,11 @@ its own plan (`plans/pixel-binning.md`) and the 2.0 items are in
 16. **Windows novice walkthrough:** one-line install, Start menu, taskbar pin
     and icon, update, uninstall.
 17. **Windows startup measurement:** cold and warm, with the `Startup timing`
-    log lines; no result is recorded.
+    log lines (per warm-up step since `plans/cold-start.md`). First result
+    (2026-11-22, 1.7.4): warm 0.8 s to the welcome window, warm-up 3.7 s;
+    cold 19.3 s and 31.3 s. Per step on a second machine, fresh install:
+    `plans/cold-start.md` (SciPy 12 of 20 s; half small files, half native).
+    A start after a reboot on the work laptop is not recorded yet.
 18. **Rare flakiness, not reproduced since:** a hang in garbage collection, a
     hang of the two-window tests, a Qt `commitData` warning when editing the
     ROI table, a stall of the full run. A fault in any later CI run reopens

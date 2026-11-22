@@ -71,6 +71,18 @@ def _open_loaded_project_viewer(payload: Any) -> Any:
     return open_loaded(payload)
 
 
+def _load_example_startup() -> Any:
+    """Create the example project (if needed) and load it, after the warm-up's imports."""
+    from ._warmup import wait_for_library
+
+    wait_for_library()
+    from .._example import create_example_project
+    from ._open import _load_project_startup as load
+    from ._recent import config_dir
+
+    return load(str(create_example_project(config_dir() / "example")))
+
+
 def create_project(path: str) -> Any:
     from ._warmup import wait_for_library
 
@@ -362,13 +374,9 @@ def _main(argv: list[str] | None = None) -> int:
         welcome.project_selected.connect(_on_project_selected)
 
         def _on_example_requested() -> None:
-            from .._example import create_example_project
-            from ._recent import config_dir
-
             _start_welcome_job(
                 text="Preparing the example project",
-                fn=lambda _progress: _load_project_startup(
-                    str(create_example_project(config_dir() / "example"))),
+                fn=lambda _progress: _load_example_startup(),
                 on_success=_show_loaded_project,
                 error_title="Cannot open the example project",
                 log_context="Failed to create the example project",

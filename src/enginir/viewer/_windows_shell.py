@@ -22,10 +22,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn
 
-from .._checks import log_and_raise
 from .._logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _fail(message: str, *args: Any, error: type[Exception] = OSError,
+          cause: BaseException | None = None) -> NoReturn:
+    """``log_and_raise`` for this module, imported on use: the launcher imports
+    this module for :data:`WINDOWS_APP_ID`, and ``enginir._checks`` brings NumPy,
+    which a cold start must not load before the welcome window (D2)."""
+    from .._checks import log_and_raise
+
+    log_and_raise(message, *args, error=error, cause=cause, depth=2)
 
 #: The Windows taskbar groups windows by this id, not by python.exe, and shows
 #: the window icon for it (otherwise Python's icon, or none). Shortcuts carry
@@ -81,7 +90,7 @@ def launcher_path() -> Path:
         return beside
     found = shutil.which(_LAUNCHER)
     if found is None:
-        log_and_raise("The viewer launcher {} was not found next to {} or on PATH; "
+        _fail("The viewer launcher {} was not found next to {} or on PATH; "
                       "install engiNIR with 'uv tool install enginir'",
                       _LAUNCHER, sys.executable, error=FileNotFoundError)
     return Path(found)
@@ -216,7 +225,7 @@ def read_shortcut(path: Path) -> Shortcut:
 
 
 def _refuse() -> NoReturn:
-    log_and_raise("Shortcuts are only made on Windows (this is {})", sys.platform,
+    _fail("Shortcuts are only made on Windows (this is {})", sys.platform,
                   error=OSError)
 
 
@@ -244,7 +253,7 @@ if sys.platform == "win32":
         guid = _Guid()
         result = ctypes.windll.ole32.CLSIDFromString(ctypes.c_wchar_p(text), ctypes.byref(guid))
         if result != 0:
-            log_and_raise("Invalid GUID {} (HRESULT {:#x})", text, result & 0xFFFFFFFF,
+            _fail("Invalid GUID {} (HRESULT {:#x})", text, result & 0xFFFFFFFF,
                           error=OSError)
         return guid
 
@@ -268,7 +277,7 @@ if sys.platform == "win32":
             ctypes.byref(_guid(_CLSID_SHELL_LINK)), None, _CLSCTX_INPROC_SERVER,
             ctypes.byref(_guid(_IID_SHELL_LINK_W)), ctypes.byref(link))
         if result != 0:
-            log_and_raise("Cannot create a Windows shell link (HRESULT {:#x})",
+            _fail("Cannot create a Windows shell link (HRESULT {:#x})",
                           result & 0xFFFFFFFF, error=OSError)
         return link
 
@@ -282,7 +291,7 @@ if sys.platform == "win32":
         try:
             _method(interface, slot, argtypes)(interface, *args)
         except OSError as exc:
-            log_and_raise("Windows shell call failed: {}", exc, error=OSError, cause=exc)
+            _fail("Windows shell call failed: {}", exc, error=OSError, cause=exc)
 
     def _query(interface: ctypes.c_void_p, iid: str) -> ctypes.c_void_p:
         other = ctypes.c_void_p()
@@ -302,7 +311,7 @@ if sys.platform == "win32":
             ctypes.byref(_guid(folder_id)), 0, None, ctypes.byref(text))
         try:
             if result != 0 or not text.value:
-                log_and_raise("Cannot find the Windows folder {} (HRESULT {:#x})", folder_id,
+                _fail("Cannot find the Windows folder {} (HRESULT {:#x})", folder_id,
                               result & 0xFFFFFFFF, error=OSError)
             return Path(text.value)
         finally:

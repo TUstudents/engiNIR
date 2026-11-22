@@ -87,7 +87,8 @@ RMSECV/R2_cv, and independent test set predictions for RMSEP/SEP/bias/RPD/RPIQ:
                            y_true_test=y_test, y_pred_test=y_pred_test)
    # dict keys: RMSEC, R2_cal, RMSECV, R2_cv, RMSEP, bias, SEP, R2, RPD, RPIQ
 
-   # as a pandas DataFrame (one row per call)
+   # as a pandas DataFrame (one row per call); needs pandas:
+   # pip install enginir[pandas]
    df = metrics_report(y_cal, y_pred_cal, as_dataframe=True)
 
 Cross-validation
