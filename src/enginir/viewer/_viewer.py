@@ -244,20 +244,6 @@ class _ColumnScrollArea(QScrollArea):
             content.setFixedWidth(viewport.width())
 
 
-class _WidthScrollArea(QScrollArea):
-    """Scrolls sideways only: the content always gets the viewport's height.
-
-    The Controls dock's rows are wide but short; a plain scroll area would let
-    the content grow taller than the dock and hide its lower rows.
-    """
-
-    def resizeEvent(self, a0: Any) -> None:  # noqa: N802 (Qt API)
-        super().resizeEvent(a0)
-        content, viewport = self.widget(), self.viewport()
-        if content is not None and viewport is not None:
-            content.setFixedHeight(viewport.height())
-
-
 class LogPanel(QWidget):
     """Scrollable read-only log viewer.  Receives loguru messages via a
     custom sink connected through a thread-safe Qt signal."""
