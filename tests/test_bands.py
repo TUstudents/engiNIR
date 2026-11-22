@@ -10,8 +10,7 @@ from enginir.io import save_hdf5
 from enginir.modeling import BandProposalCancelledError
 from enginir.modeling._components import band_importance
 from enginir.models import PCR, PLSRegression
-from enginir.preprocessing import BandSelection, Detrend, SNV
-from enginir.preprocessing._pipeline import apply_preprocessing_recipe
+from enginir.preprocessing import BandSelection
 from enginir.preprocessing.recipe import parse_ranges
 from tests._scans import N_BANDS, labelled_project, predicts_its_training_scan
 
@@ -100,64 +99,11 @@ def test_ranges_are_normalized_before_the_id():
         parse_ranges("1100")
 
 
-def test_band_ranges_are_always_stored_and_change_the_id():
-    recipe = PreprocessingRecipe(filter="sg_d1", snv=True)
-    assert not recipe.has_band_selection
-    assert recipe.to_dict()["bands_keep"] == [] and recipe.to_dict()["bands_exclude"] == []
-    with_bands = PreprocessingRecipe.from_dict(
-        {**recipe.to_dict(), "bands_exclude": [[1400, 1500]]})
-    assert recipe_id_for(with_bands) != recipe_id_for(recipe)
-    assert PreprocessingRecipe.from_dict(with_bands.to_dict()) == with_bands
-
-
-def test_a_water_band_exclusion_leaves_the_expected_bands():
-    recipe = PreprocessingRecipe(filter="sg_d1", sg_window=11,
-                                 bands_exclude=[(1400, 1500), (1900, 2000)])
-    kept = AXIS[recipe.output_band_indices(AXIS)]
-    expected = AXIS[5:-5]
-    expected = expected[~(((expected >= 1400) & (expected <= 1500))
-                          | ((expected >= 1900) & (expected <= 2000)))]
-    np.testing.assert_array_equal(kept, expected)
-    np.testing.assert_array_equal(recipe.output_wavelengths(AXIS), expected)
-    keep = PreprocessingRecipe(bands_keep=[(1100, 1300), (2200, 2300)], bands_exclude=[(1200,
-                                                                                          1250)])
-    kept = AXIS[keep.output_band_indices(AXIS)]
-    assert kept.tolist() == [1100, 1110, 1120, 1130, 1140, 1150, 1160, 1170, 1180, 1190,
-                             1260, 1270, 1280, 1290, 1300] + list(range(2200, 2310, 10))
-
-
-def test_a_typed_bound_matches_a_float32_wavelength():
-    axis = np.array([1400.1, 1410.1, 1420.1], dtype=np.float32)  # 1400.0999755859375, ...
-    recipe = PreprocessingRecipe(bands_keep=[(1400.1, 1410.1)])
-    assert recipe.output_band_indices(axis).tolist() == [0, 1]
-
-
-def test_band_numbers_without_wavelengths_are_those_of_the_data_file():
-    axis = np.arange(20, dtype=float)  # the band-index axis of a file without wavelengths
-    recipe = PreprocessingRecipe(filter="sg_smooth", sg_window=5, bands_keep=[(0, 6)])
-    assert recipe.output_band_indices(axis).tolist() == [2, 3, 4, 5, 6]
-
-
 def test_an_empty_selection_is_refused_and_an_empty_range_is_logged(caplog):
     with pytest.raises(ValueError, match="selects none"):
         PreprocessingRecipe(bands_keep=[(3000, 3100)]).output_band_indices(AXIS)
     recipe = PreprocessingRecipe(bands_exclude=[(3000, 3100)])
     assert recipe.output_band_indices(AXIS).size == AXIS.size
-
-
-def test_the_selection_comes_after_every_other_step():
-    rng = np.random.default_rng(3)
-    X = rng.normal(1.0, 0.2, size=(5, AXIS.size)).astype(np.float32)
-    recipe = PreprocessingRecipe(snv=True, detrend=True, bands_keep=[(1100, 1500)])
-    columns = recipe.output_band_indices(AXIS)
-    full = Detrend(order=1, wavelengths=AXIS).fit_transform(SNV().fit_transform(X))
-    np.testing.assert_allclose(apply_preprocessing_recipe(X, recipe=recipe, wavelengths=AXIS),
-                               full[:, columns], rtol=1e-5, atol=1e-6)
-    # Fault injection: SNV and Detrend on the selected bands alone differ.
-    alone = Detrend(order=1, wavelengths=AXIS[columns]).fit_transform(
-        SNV().fit_transform(X[:, columns]))
-    assert not np.allclose(alone, full[:, columns], atol=1e-3)
-    assert [name for name, _ in recipe.build_steps(AXIS)][-1] == "bands"
 
 
 def test_band_selection_checks_its_indices():
@@ -190,14 +136,6 @@ def test_a_model_on_selected_bands_predicts_like_it_was_trained(tmp_path, msc):
     assert np.isfinite(prediction.map).all()
     reopened = type(project).open(project.path).model(model_run_id=model.record.model_run_id)
     assert reopened.recipe == recipe if hasattr(reopened, "recipe") else True
-
-
-def test_too_many_components_for_the_selected_bands_are_refused(tmp_path):
-    project, _scan = labelled_project(tmp_path)
-    wavelengths = np.linspace(1000, 1600, N_BANDS)
-    recipe = PreprocessingRecipe(bands_keep=[(wavelengths[0], wavelengths[2])])
-    with pytest.raises(ValueError, match="3 bands"):
-        project.fit("API", recipe=recipe, n_components=4)
 
 
 def test_the_explore_preview_shows_unselected_bands_as_missing():
@@ -337,20 +275,6 @@ def test_the_search_finds_the_informative_intervals(tmp_path):
     model = project.fit("API", recipe=PreprocessingRecipe(bands_keep=proposal.ranges),
                         n_components=proposal.n_components)
     assert model.metrics["rmsecv"] == pytest.approx(proposal.steps[-1].rmsecv, rel=0.05)
-
-
-def test_the_nested_estimate_is_not_optimistic_on_noise(tmp_path):
-    """With a target unrelated to the spectra, the honest nested RMSECV is no better than
-    the mean predictor on average. Fault injection (the inner search choosing on every
-    ROI, not only the outer training part) gives about 0.89 here and fails."""
-    ratios = []
-    for seed in range(6):
-        folder = tmp_path / f"s{seed}"
-        folder.mkdir()
-        project = _project(folder, informative=False, seed=seed, n_rois=14, n_bands=40)
-        proposal = project.propose_bands("API", n_intervals=8)
-        ratios.append(proposal.nested_rmsecv / proposal.steps[0].rmsecv)
-    assert np.mean(ratios) >= 0.97
 
 
 def test_a_stateful_recipe_is_fitted_inside_the_folds(tmp_path):

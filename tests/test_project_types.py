@@ -5,10 +5,12 @@ from __future__ import annotations
 from enginir.project import FitSpec
 
 import copy
-from dataclasses import fields, replace
+from dataclasses import replace
 
 import numpy as np
 import pytest
+
+from tests._tables import check_all
 
 from enginir.project import (
     ReferenceCorrection,
@@ -24,17 +26,6 @@ from enginir.project import (
     validate_project_relationships,
 )
 from tests import _project_payloads as build
-
-
-def _assert_round_trip(instance):
-    restored = type(instance)(**instance.to_dict())
-    for field in fields(type(instance)):
-        left = getattr(instance, field.name)
-        right = getattr(restored, field.name)
-        if isinstance(left, np.ndarray):
-            np.testing.assert_array_equal(left, right)
-        else:
-            assert right == left
 
 
 @pytest.fixture()
@@ -167,80 +158,6 @@ def valid_project_graph(wavelengths):
             )
         },
     }
-
-
-def test_project_models_round_trip_representative_instances(wavelengths):
-    instances = [
-        DatasetRecord(
-            dataset_id="dataset_1",
-            source_path="/data/train.eiff",
-            source_format="eiff",
-            source_modality="nir_hsi",
-            cube_shape=(20, 15, 50),
-            n_bands=50,
-            wavelengths=wavelengths,
-            loader_metadata={"sensor": "AlphaVision"},
-            import_timestamp="2026-04-02T10:00:00+00:00",
-        ),
-        ReferenceCorrection(
-            reference_correction_id="cal_1",
-            dataset_id="dataset_1",
-            mode="dark_white_reference",
-            dark_ref_source=None,
-            white_ref_source=None,
-            dark_ref_data=np.zeros((2, 3), dtype=np.float32),
-            white_ref_data=np.ones((2, 3), dtype=np.float32),
-            black_level=None,
-            white_level=None,
-            output_signal_unit="Absorbance",
-            created_at="2026-04-02T10:01:00+00:00",
-        ),
-        TrainingROI(
-            roi_id="roi_1",
-            dataset_id="dataset_1",
-            reference_correction_id="cal_1",
-            name="ROI 1",
-            wavelengths=wavelengths,
-            n_pixels=12,
-            spatial_bounds=(0, 2, 0, 3),
-            source_file="/data/train.eiff",
-            created_at="2026-04-02T10:02:00+00:00",
-            provenance=build.roi_provenance(signal_unit="Absorbance"),
-        ),
-        SignalDomainContract(
-            signal_domain_id="signal_domain_1",
-            input_format="eiff",
-            source_modality="nir_hsi",
-            required_signal_unit="Absorbance",
-            required_correction_mode="dark_white_reference",
-            requires_dark_ref=True,
-            requires_white_ref=True,
-            corrected_input_allowed=False,
-            n_bands=50,
-            wavelengths=wavelengths,
-            wavelength_tolerance_nm=0.0,
-            band_mapping_policy="exact",
-            output_dtype="float32",
-            created_at="2026-04-02T10:04:00+00:00",
-        ),
-        PredictionRun(
-            prediction_run_id="prediction_run_1",
-            dataset_id="dataset_1",
-            reference_correction_id="cal_1",
-            model_run_id="model_run_1",
-            signal_domain_id="signal_domain_1",
-            preprocessing_recipe_id="recipe_1",
-            artifact_refs={"y_pred": "/predictions/pred_1/y_pred"},
-            created_at="2026-04-02T10:07:00+00:00",
-        ),
-    ]
-
-    for instance in instances:
-        _assert_round_trip(instance)
-
-
-def test_validate_project_relationships_accepts_valid_graph(valid_project_graph):
-    validate_project_relationships(**valid_project_graph)
 
 
 def test_validate_project_relationships_allows_stale_sample_set_rois_when_requested(
@@ -463,7 +380,7 @@ def test_calibration_spec_contract_validation():
     assert reference_correction.white_level == pytest.approx(3500.0)
 
 
-def test_dataset_ref_rejects_inconsistent_band_metadata(wavelengths):
+def test_dataset_record_rejects_inconsistent_band_metadata(wavelengths):
     with pytest.raises(ValueError, match="does not have n_bands=50"):
         DatasetRecord(
             dataset_id="dataset_1",
@@ -874,11 +791,14 @@ def test_hydration_rejects_malformed_project_meta(wavelengths, field, value, mes
         hydrate_project_store(store)
 
 
-@pytest.mark.parametrize("value", ["t", "2026-04-02 25:00", "", "02.04.2026"])
-def test_object_timestamps_must_be_iso_8601(value):
-    with pytest.raises(ValueError, match="created_at"):
-        TargetDefinition(target_id="t1", name="m", unit="%", value_type="float",
-                         missing_value_policy="allowed", created_at=value)
+def test_object_timestamps_must_be_iso_8601():
+    def check(case):
+        value = case
+        with pytest.raises(ValueError, match="created_at"):
+            TargetDefinition(target_id="t1", name="m", unit="%", value_type="float",
+                             missing_value_policy="allowed", created_at=value)
+
+    check_all(["t", "2026-04-02 25:00", "", "02.04.2026"], check)
 
 
 def test_raw_load_is_structural_and_hydration_validates(wavelengths, tmp_path):

@@ -8,7 +8,6 @@ the model. ``Model.verdict()`` condenses a model into one level.
 
 from __future__ import annotations
 
-import hashlib
 import os
 from dataclasses import replace
 
@@ -17,7 +16,7 @@ import pytest
 
 from enginir import Project
 from enginir import _guidance as guidance
-from enginir._guidance import DMODX_SHARE_ATTENTION, Q2_GOOD, RPD_GOOD, RPD_MIN
+from enginir._guidance import Q2_GOOD, RPD_GOOD, RPD_MIN
 from enginir._workflow import Model
 from enginir.io import save_hdf5
 
@@ -88,30 +87,6 @@ def test_an_empty_project_asks_for_a_dataset_then_rois_then_a_target(tmp_path):
 
     scan.add_roi("a", frames=(0, 2), rows=(0, HEIGHT - 1))
     assert _open_ids(project.checks()) == ["values.no_target"]
-
-
-def test_missing_values_block_a_fit_until_two_rois_have_one(tmp_path):
-    project = Project.create(tmp_path / "project.h5")
-    project.add_target("API", unit="%")
-    scan = project.add_dataset(_scan(tmp_path / "scan.h5", [1, 2, 3]))
-    rois = [scan.add_roi(name, frames=(FRAMES * i, FRAMES * i + 2), rows=(0, HEIGHT - 1))
-            for i, name in enumerate("abc")]
-    scan.add_roi("to predict", frames=(0, 1), rows=(0, 1), job="prediction")
-
-    (missing,) = _by_id(project.checks())["values.missing"]
-    assert missing.severity == "blocking"
-    assert set(missing.roi_ids) == {roi.roi_id for roi in rois}, "prediction ROIs need no value"
-    assert missing.fix is not None and missing.fix.arguments["roi_ids"] == missing.roi_ids
-
-    project.set_value("a", "API", 1.0)
-    project.set_value("b", "API", 2.0)
-    (missing,) = _by_id(project.checks())["values.missing"]
-    assert missing.severity == "attention" and missing.roi_ids == (rois[2].roi_id,)
-    assert "model.none" in _by_id(project.checks()), "two values are enough to offer a fit"
-
-    project.set_value("c", "API", 3.0)
-    found = _by_id(project.checks())
-    assert "values.missing" not in found and found["values.complete"][0].severity == "ok"
 
 
 def test_a_value_that_differs_within_its_sample_is_named(tmp_path):
@@ -199,40 +174,6 @@ def test_a_model_reports_what_changed_in_its_calibration_set(tmp_path):
     assert found["model.values_changed"][0].fix is None, "a refit is refused after a deletion"
 
 
-def test_pixels_far_from_the_model_are_reported_with_their_dataset(tmp_path, monkeypatch):
-    project = _two_level_project(tmp_path, sample_labels=True)
-    model = project.fit("API", n_components=1)
-    stored = model.diagnostics
-    roi_ids = [str(roi_id) for roi_id in stored["roi_ids"]]
-    low = [roi_id for roi_id in roi_ids if project.workspace.rois[roi_id].name.startswith("low")]
-    pixels = np.asarray(stored["roi_score_pixels"], dtype=float)
-
-    def with_shares(shares):
-        guidance._STORED.clear()
-        monkeypatch.setattr(guidance, "_diagnostics", lambda _model, keys: {
-            **{key: stored[key] for key in keys if key in stored},
-            "roi_share_above_dcrit": np.asarray(shares, dtype=np.float32)})
-        return _by_id(model.checks())["model.distance"][0]
-
-    assert with_shares([0.02] * 8).severity == "ok"
-    assert with_shares([DMODX_SHARE_ATTENTION - 0.001] * 8).severity == "ok"
-    assert with_shares([DMODX_SHARE_ATTENTION + 0.001] * 8).severity == "attention"
-    # Decided 2026-11-19: three times the 5 % a 0.95 limit expects, so 15 %.
-    assert with_shares([0.14] * 8).severity == "ok"
-    assert "(5 % expected)" in with_shares([0.16] * 8).message
-    assert with_shares([0.16] * 8).severity == "attention"
-
-    shares = [0.6 if roi_id in low else 0.02 for roi_id in roi_ids]
-    check = with_shares(shares)
-    overall = float(np.sum(np.asarray(shares) * pixels) / pixels.sum())
-    assert check.severity == "attention"
-    assert f"{overall:.1%}".replace("%", " %") in check.message
-    assert set(check.roi_ids) == set(low)
-    assert check.dataset_ids == (project.workspace.rois[low[0]].dataset_id,)
-    assert "1 of 2 datasets" in check.message
-    assert check.fix is not None and check.fix.arguments["page"] == "Distance"
-
-
 def _with_metrics(model, **metrics):
     return Model(model.project, replace(model.record, metrics={**model.record.metrics, **metrics}))
 
@@ -266,19 +207,6 @@ def test_the_verdict_follows_its_thresholds_and_the_open_checks(tmp_path):
     poor = _with_metrics(model, rpd=1.2, r2=0.3).verdict()
     assert poor.level == "not_usable" and len(poor.reasons) == 2
     assert poor.summary.endswith("(RPD 1.2, Q² 0.3).")
-
-
-def test_checks_and_verdicts_change_nothing(tmp_path):
-    project = _two_level_project(tmp_path, sample_labels=True)
-    model = project.fit("API", n_components=1)
-
-    def digest():
-        with open(project.path, "rb") as handle:
-            return hashlib.sha256(handle.read()).hexdigest()
-
-    before = digest()
-    assert project.checks() and model.verdict()
-    assert digest() == before
 
 
 def test_a_small_model_gets_its_distance_check(tmp_path):

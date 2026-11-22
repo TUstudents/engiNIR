@@ -18,6 +18,7 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QToolButton, QWidget
 
 from ._icons import icon
+from ._ui_helpers import wrap_tooltip
 
 
 @dataclass(frozen=True)
@@ -156,8 +157,8 @@ class WorkflowStrip(QWidget):
         """Name the open project and the model shown at the right end of the strip."""
         parts = [part for part in (project, f"Model: {model}" if model else "") if part]
         self._context.setText("   ·   ".join(parts))
-        self._context.setToolTip("The open project and the model shown in the Model step"
-                                 if parts else "")
+        self._context.setToolTip(wrap_tooltip("The open project and the model shown in the Model step"
+                                 if parts else ""))
 
     def context(self) -> str:
         """The text at the right end of the strip."""
@@ -187,4 +188,4 @@ class WorkflowStrip(QWidget):
                 tip += f" ({count} open check{'s' if count != 1 else ''}: see the Checks tab)"
             elif state == "done":
                 tip += " (done)"
-            button.setToolTip(tip)
+            button.setToolTip(wrap_tooltip(tip))

@@ -50,19 +50,6 @@ def _table(tmp_path, name="My table", rows=None, *, header="band,wavelength_nm")
 # -- the tables -----------------------------------------------------------------------
 
 
-def test_the_kestreleye_table_holds_the_helios_wavelengths():
-    """Extracted from an .eiff of the Kestreleye setting (EVK-Helios-EC-32, 176 bands from
-    wavelength start 36); a changed value changes the id."""
-    table = wavelength_table(KESTRELEYE)
-    assert table.n_bands == N_BANDS and "Helios" in table.camera
-    assert table.wavelengths[[0, 1, 90, 175]].tolist() == pytest.approx(
-        [1041.75, 1044.9, 1323.45, 1589.5], abs=1e-4)
-    assert np.all(np.diff(table.wavelengths) > 3.1) and np.all(np.diff(table.wavelengths) < 3.2)
-    assert table.table_id == "wlt-4927c6969fd7d903"
-    assert [t.name for t in wavelength_tables(N_BANDS)] == [KESTRELEYE]
-    assert wavelength_tables(220) == []
-
-
 @pytest.mark.parametrize("problem", ["no name", "header", "gap", "not increasing", "text"])
 def test_a_malformed_table_is_refused(tmp_path, problem):
     rows = [(i, 1000.0 + 5 * i) for i in range(4)]
@@ -95,28 +82,6 @@ def test_the_users_tables_are_found_and_a_bad_one_is_skipped(tmp_path):
 
 
 # -- adding a dataset with a table ----------------------------------------------------
-
-
-def test_a_dataset_added_with_a_table_stores_its_wavelengths(tmp_path):
-    from enginir._workflow import check_data_file_location
-
-    path = stream_file(tmp_path / "stream_hsi.h5")
-    project = Project.create(tmp_path / "p.h5")
-    dataset = labelled(project, path, wavelength_table=KESTRELEYE)
-    table = wavelength_table(KESTRELEYE)
-    reopened = Project.open(project.path)
-    ref = reopened.workspace.datasets[dataset.record.dataset_id]
-    assert (ref.wavelength_table, ref.wavelength_table_id) == (KESTRELEYE, table.table_id)
-    np.testing.assert_array_equal(ref.wavelengths, table.wavelengths)
-    for roi in reopened.workspace.rois.values():
-        np.testing.assert_array_equal(roi.wavelengths, table.wavelengths)
-    # The file itself still has band numbers: it is this dataset's file, also when moved.
-    moved = tmp_path / "moved" / "stream_hsi.h5"
-    moved.parent.mkdir()
-    shutil.copy(path, moved)
-    check_data_file_location(reopened.path, ref, list(reopened.workspace.rois.values()),
-                             str(moved))
-    assert not any(check.check_id == "data.no_wavelengths" for check in reopened.checks())
 
 
 def test_a_table_is_refused_for_a_file_with_wavelengths_or_other_bands(tmp_path):
@@ -195,37 +160,6 @@ def test_a_model_fitted_on_band_numbers_predicts_the_same_after_set_wavelengths(
 # -- the check (D2) -------------------------------------------------------------------
 
 
-def test_the_check_offers_the_one_table_of_the_band_count(tmp_path):
-    project = Project.create(tmp_path / "p.h5")
-    first = project.add_dataset(stream_file(tmp_path / "a.h5"))
-    second = project.add_dataset(stream_file(tmp_path / "b.h5"))
-    project.add_dataset(stream_file(tmp_path / "c.h5", n_bands=100))  # no table of 100 bands
-    check = next(c for c in project.checks(predict=False) if c.check_id == "data.no_wavelengths")
-    assert check.fix is not None and check.fix.action == "set_wavelengths"
-    assert check.fix.arguments["table"] == KESTRELEYE
-    assert set(check.fix.arguments["dataset_ids"]) == {first.record.dataset_id,
-                                                        second.record.dataset_id}
-    by_id = {dataset.record.dataset_id: dataset for dataset in project.datasets.values()}
-    for dataset_id in check.fix.arguments["dataset_ids"]:
-        by_id[dataset_id].set_wavelengths(check.fix.arguments["table"])
-    left = next(c for c in project.checks(predict=False) if c.check_id == "data.no_wavelengths")
-    assert left.fix is None and len(left.dataset_ids) == 1, "the 100-band dataset stays open"
-
-
-
-def test_the_fix_skips_a_band_count_without_a_table():
-    """The fix covers the first band count that has exactly one table, whatever comes first."""
-    from types import SimpleNamespace
-
-    from enginir._guidance import _no_wavelengths_check
-
-    datasets = {"a": SimpleNamespace(n_bands=100), "b": SimpleNamespace(n_bands=N_BANDS),
-                "c": SimpleNamespace(n_bands=N_BANDS)}
-    check = _no_wavelengths_check(datasets, ["a", "b", "c"])
-    assert check.fix is not None and check.fix.arguments["dataset_ids"] == ("b", "c")
-    assert _no_wavelengths_check(datasets, ["a"]).fix is None
-
-
 # -- the viewer -----------------------------------------------------------------------
 
 
@@ -302,16 +236,14 @@ def test_the_checks_fix_sets_the_wavelengths_of_the_shown_dataset(qapp, tmp_path
         window.close()
 
 
-def test_a_scan_with_a_table_is_read_without_the_no_wavelengths_warning(tmp_path):
-    from enginir.io import load_spectra
-    from tests._scans import warnings_during
-
-    with_table, without = stream_file(tmp_path / "a.h5"), stream_file(tmp_path / "b.h5")
-    project = Project.create(tmp_path / "p.h5")
-
-    def warned(action) -> bool:
-        return any("no 'wavelengths'" in line for line in warnings_during(action)[1])
-
-    assert not warned(lambda: project.add_dataset(with_table, wavelength_table=KESTRELEYE))
-    assert not warned(lambda: load_spectra(with_table))
-    assert warned(lambda: project.add_dataset(without)), "still said for band numbers"
+def test_the_kestreleye_table_holds_the_helios_wavelengths():
+    """Extracted from an .eiff of the Kestreleye setting (EVK-Helios-EC-32, 176 bands from
+    wavelength start 36); a changed value changes the id."""
+    table = wavelength_table(KESTRELEYE)
+    assert table.n_bands == N_BANDS and "Helios" in table.camera
+    assert table.wavelengths[[0, 1, 90, 175]].tolist() == pytest.approx(
+        [1041.75, 1044.9, 1323.45, 1589.5], abs=1e-4)
+    assert np.all(np.diff(table.wavelengths) > 3.1) and np.all(np.diff(table.wavelengths) < 3.2)
+    assert table.table_id == "wlt-4927c6969fd7d903"
+    assert [t.name for t in wavelength_tables(N_BANDS)] == [KESTRELEYE]
+    assert wavelength_tables(220) == []

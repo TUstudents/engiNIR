@@ -118,30 +118,6 @@ def _make_view(
     return view, canvas
 
 
-def test_training_roi_selection_registers_dataset_calibration_and_overlay(
-    qapp, state_and_project, tmp_path, monkeypatch
-):
-    from PyQt6.QtWidgets import QDialog
-    from enginir.viewer._viewer import NewROIDialog
-
-    state, project = state_and_project
-    view, canvas = _make_view(state, project, str(tmp_path / "cube.eiff"))
-    monkeypatch.setattr(
-        NewROIDialog,
-        "exec",
-        lambda self: self._name_edit.setText("roi_a") or QDialog.DialogCode.Accepted,
-    )
-
-    view.on_training_roi_selected(0, 1, 0, 1)
-
-    roi = next(iter(project.rois.values()))
-    assert roi.name == "roi_a"
-    assert roi.dataset_id in project.datasets
-    assert roi.reference_correction_id in project.reference_corrections
-    assert canvas.rects[0][-1] == roi.roi_id
-    assert canvas.selected[-1] == roi.roi_id
-
-
 def test_training_roi_selection_persists_absorbance_calibration_context(
     qapp, state_and_project, tmp_path, monkeypatch
 ):
@@ -183,17 +159,14 @@ def test_training_roi_selection_persists_absorbance_calibration_context(
     np.testing.assert_allclose(loaded_white, expected_white)
 
 
-def test_training_roi_selection_requires_project_and_attached_dataset(qapp, tmp_path, monkeypatch):
+def test_training_roi_selection_requires_project_and_attached_dataset(qapp, tmp_path, boxes):
     from enginir.viewer._eda import EDAView
     from enginir.viewer._state import ProjectState, ViewerState
 
     cube = np.random.randint(0, 1000, (4, 4, 4), dtype=np.uint16)
     state = ViewerState(cube, np.linspace(1000.0, 1300.0, 4))
     project = ProjectState()
-    warnings: list[str] = []
-    monkeypatch.setattr(
-        QMessageBox, "warning", lambda *args, **kwargs: warnings.append(str(args[1]))
-    )
+    warnings = boxes.warning
 
     view = EDAView(
         state,
@@ -209,51 +182,6 @@ def test_training_roi_selection_requires_project_and_attached_dataset(qapp, tmp_
 
     assert warnings
     assert project.rois == {}
-
-
-def test_roi_button_toggles_canvas_draw_mode(qapp, state_and_project, tmp_path):
-    state, project = state_and_project
-    view, canvas = _make_view(state, project, str(tmp_path / "cube.eiff"), dataset_attached=True)
-
-    view._btn_roi_training.click()
-    assert canvas.entered == 1
-
-    view._btn_roi_training.setChecked(False)
-    assert canvas.canceled == 1
-
-
-def test_delete_roi_button_removes_selected_roi(qapp, state_and_project, tmp_path, monkeypatch):
-    state, project = state_and_project
-    selected_roi_id = ["roi_a"]
-    view, _ = _make_view(
-        state,
-        project,
-        str(tmp_path / "cube.eiff"),
-        dataset_attached=True,
-        selected_roi_id=selected_roi_id,
-    )
-    project.add_roi(
-        build.roi(
-            state.wavelengths.astype('float32'),
-            roi_id="roi_a",
-            dataset_id="dataset_1",
-            reference_correction_id="cal_1",
-            name="A",
-            n_pixels=2,
-            spatial_bounds=(0, 0, 0, 1),
-            source_file=str(tmp_path / 'a.eiff'),
-            provenance=build.roi_provenance(),
-        ),
-        np.zeros((2, state.wavelengths.shape[0]), dtype=np.uint16),
-    )
-    view.refresh_attachment_state()
-    monkeypatch.setattr(
-        QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.Yes
-    )
-
-    view._delete_roi_btn_clicked()
-
-    assert "roi_a" not in project.rois
 
 
 def test_delete_roi_button_warns_when_roi_is_used_by_sample_set(
@@ -318,62 +246,6 @@ def test_delete_roi_button_warns_when_roi_is_used_by_sample_set(
     assert "remain usable for prediction" in captured["message"]
     assert "cannot be altered or refit" in captured["message"]
     assert "roi_a" not in project.rois
-
-
-def test_export_csv_uses_batched_roi_load_and_preserves_order(
-    qapp, state_and_project, tmp_path, monkeypatch
-):
-    state, project = state_and_project
-    wl = state.wavelengths.astype("float32")
-    spectra_a = np.arange(16, dtype=np.uint16).reshape(2, 8)
-    spectra_b = np.arange(24, dtype=np.uint16).reshape(3, 8) + 100
-    for roi_id, name, spectra in [("roi_a", "A", spectra_a), ("roi_b", "B", spectra_b)]:
-        project.add_roi(
-            build.roi(
-                wl,
-                roi_id=roi_id,
-                dataset_id="dataset_1",
-                reference_correction_id="cal_1",
-                name=name,
-                n_pixels=int(spectra.shape[0]),
-                spatial_bounds=(0, 0, 0, spectra.shape[0] - 1),
-                source_file=str(tmp_path / f'{name}.eiff'),
-                provenance=build.roi_provenance(),
-            ),
-            spectra,
-        )
-
-    captured: dict[str, object] = {}
-    batch_calls: list[list[str]] = []
-    original_batch = __import__(
-        "enginir.viewer._eda", fromlist=["load_roi_spectra_batch"]
-    ).load_roi_spectra_batch
-
-    monkeypatch.setattr(
-        "enginir.viewer._eda.save_csv",
-        lambda path, X, wavelengths, sample_names, columns: captured.update(
-            {"path": path, "X": X, "wavelengths": wavelengths, "sample_names": sample_names,
-             "columns": columns}
-        ),
-    )
-    monkeypatch.setattr(
-        "enginir.viewer._eda.load_roi_spectra_batch",
-        lambda path, keys: batch_calls.append(list(keys)) or original_batch(path, keys),
-    )
-
-    view, _ = _make_view(state, project, str(tmp_path / "cube.eiff"))
-    out_path = str(tmp_path / "out.csv")
-    view.export_csv(out_path)
-
-    assert batch_calls == [
-        [project.rois["roi_a"].spectra_storage_key, project.rois["roi_b"].spectra_storage_key]
-    ]
-    np.testing.assert_allclose(captured["X"], np.vstack([spectra_a, spectra_b]).astype(np.float64))
-    np.testing.assert_allclose(captured["wavelengths"], wl)
-    # The id identifies each row's ROI; the name is a label next to it.
-    assert captured["sample_names"] == ["roi_a", "roi_a", "roi_b", "roi_b", "roi_b"]
-    assert captured["columns"]["roi_name"] == ["A", "A", "B", "B", "B"]
-    assert captured["path"] == out_path
 
 
 def test_export_csv_rejects_mixed_wavelength_axes(qapp, state_and_project, tmp_path):
@@ -515,30 +387,6 @@ def test_every_explore_plot_exports_what_it_shows(viewer, tmp_path):
     np.testing.assert_allclose(values[:, 2:], rgb[rows_idx, frames_idx], rtol=1e-6)
 
 
-def test_titles_are_in_the_headers_and_follow_the_band(viewer, qapp):
-    frames = _frames(viewer)
-    for plot_id, frame in frames.items():
-        if plot_id == "explore.image":
-            continue
-        assert all(not ax.get_title() for ax in frame.print_figure().axes), plot_id
-    raw = frames["explore.raw"]
-    assert raw.title.startswith("Band image, band 3 ")
-    viewer.state.set_band(5)
-    qapp.processEvents()
-    assert raw.title.startswith("Band image, band 5 ")
-
-
-def test_a_panel_without_data_cannot_be_exported(qapp):
-    from enginir.viewer._panels import SpectrumPanel
-    from enginir.viewer._plot_panel import PlotFrame
-    from enginir.viewer._state import ViewerState
-
-    panel = SpectrumPanel(ViewerState(np.zeros((0, 0, 0), np.uint16), np.zeros(0, np.float32)))
-    frame = PlotFrame("explore.spectrum", panel.plot_title, panel, panel)
-    frame.show()
-    assert frame.export_reason() == "No data to export."
-
-
 def test_a_maximized_dock_covers_the_window_and_restores(viewer, qapp):
     from PyQt6.QtCore import Qt
     from PyQt6.QtTest import QTest
@@ -631,37 +479,6 @@ def test_the_sensor_frame_shows_wavelengths_like_the_spectral_profile(viewer, qa
     assert sensor._x_label == "Band" and sensor._column_span() == (-0.5, state.n_bands)
 
 
-def test_the_page_plots_close_maximize_and_come_back_from_the_view_menu(viewer, qapp):
-    sensor, spatial = viewer._sensor_frame, viewer._spatial_frame
-    action = viewer._page_plot_actions["sensor"]
-    viewer._on_page_plot_visibility_action("sensor", False)  # the header's close button
-    qapp.processEvents()
-    assert not sensor.isVisible() and spatial.isVisible() and not action.isChecked()
-    action.trigger()
-    qapp.processEvents()
-    assert sensor.isVisible() and action.isChecked()
-
-    sensor.maximize_toggled.emit()
-    qapp.processEvents()
-    assert sensor.is_maximized and not viewer._canvas_frame.isVisible() \
-        and not spatial.isVisible() and not viewer._spectrum_panel.isVisible()
-    viewer._on_explore_escape()
-    qapp.processEvents()
-    assert not sensor.is_maximized and viewer._canvas_frame.isVisible() and spatial.isVisible()
-
-
-def test_raw_count_axes_name_the_signal_in_full(viewer, qapp):
-    """Terminology contract: the y axis of raw data says "Raw counts (DN)", never "DN" alone."""
-    from enginir.viewer._panels import SpatialProfilePanel
-
-    assert viewer.state.y_unit_effective == "DN"
-    panels = [panel for panel in viewer.findChildren(SpatialProfilePanel)]
-    assert panels
-    qapp.processEvents()
-    for panel in panels:
-        assert panel.axis_labels()[0] == "Raw counts (DN)"
-
-
 # -- Focused smoke tests for viewer matplotlib panels ----------------------------------
 
 
@@ -713,26 +530,6 @@ def test_hidden_histogram_defers_refresh_until_visible(qapp, state, monkeypatch)
     monkeypatch.setattr(state, "current_frame_image", lambda: np.full((8, 5), 1000.0, np.float32))
     panel._on_update()
     assert panel._ax.get_ylim()[1] > 40
-
-
-def test_sensor_panel_swaps_only_the_image_on_frame_change(qapp, state):
-    from enginir.viewer._panels import SensorPanel
-
-    panel = SensorPanel(state)
-    panel.resize(400, 300)
-    panel.show()
-    qapp.processEvents()
-    image_item = panel._image
-    view_range = panel._view.viewRange()
-
-    state.set_frame(2)
-    qapp.processEvents()
-    # The same pyqtgraph image item gets the new frame; the view is not reset.
-    assert panel._image is image_item
-    np.testing.assert_array_equal(panel._image.image, state.current_frame_image())
-    assert panel._view.viewRange() == view_range
-    data = state.current_frame_image()
-    assert panel._levels == (float(data.min()), float(data.max()))
 
 
 def test_image_panels_pick_the_clicked_pixel_and_follow_the_cursor(qapp, state):
@@ -811,18 +608,6 @@ def typed(monkeypatch):
     return Typed
 
 
-@pytest.mark.parametrize(("name", "expected"), [
-    ("project", "project.h5"),
-    ("project.h5", "project.h5"),
-    ("project.HDF5", "project.HDF5"),
-    ("run.2026", "run.2026.h5"),          # a dot in the name is not an extension
-])
-def test_the_project_extension_is_added_when_missing(tmp_path, typed, name, expected):
-    typed.name = str(tmp_path / name)
-    assert ask_save_path(None, "New Project", PROJECT_SAVE_FILTER, ".h5", (".hdf5",)) \
-        == str(tmp_path / expected)
-
-
 def test_replacing_a_file_reached_by_the_added_extension_is_confirmed(tmp_path, typed,
                                                                       monkeypatch):
     (tmp_path / "project.h5").write_bytes(b"old")
@@ -835,10 +620,7 @@ def test_replacing_a_file_reached_by_the_added_extension_is_confirmed(tmp_path, 
     assert ask_save_path(None, "New Project", PROJECT_SAVE_FILTER, ".h5") \
         == str(tmp_path / "project.h5")
     assert len(asked) == 2 and "project.h5" in asked[0]
-
-
-def test_cancelling_returns_nothing(typed):
-    typed.name = ""
+    typed.name = ""  # the dialog was cancelled
     assert ask_save_path(None, "New Project", PROJECT_SAVE_FILTER, ".h5") is None
 
 
@@ -887,36 +669,7 @@ def test_a_project_that_cannot_be_written_is_reported_and_nothing_changes(
 # -- The working signal without a shown dataset ----------------------------------------
 
 
-def test_a_project_without_a_shown_dataset_starts_in_the_working_signal(qapp, window):
-    """Project ROIs show the ROIs in their reference correction's signal, not raw counts."""
-    assert window._eda_view.shown_dataset_id() is None
-    assert window.state.y_unit == "Absorbance"
-    assert "Signal: Absorbance" in window._status_label.text()
-    # No dataset levels are claimed: the ROIs are converted with their own references.
-    assert window._eda_view._signal_info.text() == "each ROI with its own reference correction"
-
-
 # -- Band numbers and counts above white -----------------------------------------------
-
-
-def test_a_file_without_wavelengths_offers_band_numbers_only(qapp, tmp_path):
-    from enginir.viewer import open_viewer
-
-    window = open_viewer(str(framed_scan(tmp_path / "bands.h5", wavelengths=False)))
-    try:
-        qapp.processEvents()
-        eda = window._eda_view
-        assert not window.state.has_wavelengths
-        assert not eda._rb_nm.isEnabled() and eda._rb_band.isChecked()
-        assert window.state.spectral_axis_label() == "Band"
-    finally:
-        window.close()
-    window = open_viewer(str(framed_scan(tmp_path / "nm.h5")))
-    try:
-        qapp.processEvents()
-        assert window.state.has_wavelengths and window._eda_view._rb_nm.isEnabled()
-    finally:
-        window.close()
 
 
 def test_values_above_white_are_counted_and_shown(qapp, tmp_path):

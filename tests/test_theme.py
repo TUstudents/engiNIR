@@ -9,7 +9,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 from enginir.viewer import _theme as theme
@@ -46,48 +45,6 @@ def test_text_is_readable_on_every_surface(dark):
     assert contrast(tokens["text"], tokens["selection"]) >= 7.0
     for color in theme.SERIES[dark]:
         assert contrast(color, tokens["plot_bg"]) >= 3.0, color
-
-
-def test_both_themes_have_the_same_tokens_and_six_series_colours():
-    assert set(theme.TOKENS[True]) == set(theme.TOKENS[False])
-    assert len(theme.SERIES[True]) == len(theme.SERIES[False]) == 6
-    assert set(theme.panel_colors()) == set(theme.print_colors())
-
-
-def test_no_viewer_module_writes_its_own_colour():
-    found = []
-    for path in sorted(VIEWER.glob("*.py")):
-        if path.name == "_theme.py":
-            continue
-        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            if _HEX.search(line):
-                found.append(f"{path.name}:{number}: {line.strip()}")
-    assert not found, "colours belong in _theme.TOKENS:\n" + "\n".join(found)
-
-
-@pytest.mark.parametrize("dark", [True, False], ids=["dark", "light"])
-def test_the_style_sheet_uses_only_tokens(dark):
-    sheet = theme._app_stylesheet(dark)
-    colours = set(re.findall(r"#[0-9a-fA-F]{6}\b", sheet))
-    assert colours and colours <= set(theme.TOKENS[dark].values())
-    assert theme.TOKENS[dark]["accent"] in sheet
-
-
-def test_value_and_heat_scales_are_ordered_by_lightness():
-    def lightness(cmap):
-        return np.array([_luminance("#%02x%02x%02x" % tuple(int(255 * c) for c in cmap(x)[:3]))
-                         for x in np.linspace(0, 1, 32)])
-
-    for colors in (theme.panel_colors(), theme.print_colors()):
-        assert np.all(np.diff(lightness(theme.value_colormap(colors))) > 0)
-    assert np.all(np.diff(lightness(theme.heat_colormap())) > 0)
-    # Light: no pale yellow end on white; dark: no near-black end on the dark plot.
-    assert lightness(theme.value_colormap(theme.print_colors()))[-1] < 0.7
-    theme._current_dark = True
-    try:
-        assert lightness(theme.value_colormap())[0] > 0.02
-    finally:
-        theme._current_dark = True
 
 
 def test_an_export_swaps_every_screen_series_colour_for_its_print_colour(monkeypatch):

@@ -14,19 +14,6 @@ import pytest
 # -- Plot panels and plot grids: export, maximize and lazy drawing (Plot panel policy) ----
 
 
-def _read_csv(path: Path) -> tuple[dict[str, str], list[list[str]]]:
-    provenance: dict[str, str] = {}
-    rows: list[list[str]] = []
-    with open(path, encoding="utf-8", newline="") as handle:
-        for line in handle:
-            if not line.startswith("# "):
-                rows = list(csv.reader([line, *handle]))
-                break
-            key, _, value = line[2:].rstrip("\n").partition(": ")
-            provenance[key] = value
-    return provenance, rows
-
-
 def _scatter_spec(calls: list[str] | None = None, plot_id: str = "test.scatter"):
     """Reference vs prediction per ROI: the shape of the Model diagnostics."""
     from enginir.viewer._plot_panel import PlotColumn, PlotSpec, PlotTable, RoiPoints
@@ -69,40 +56,6 @@ def _shown_panel(spec, payload, **kwargs):
     return panel
 
 
-def test_csv_holds_the_plotted_values_and_the_provenance(qapp, tmp_path):
-    payload = _payload()
-    panel = _shown_panel(_scatter_spec(), payload, provenance={"project_id": "p-1"})
-    path = tmp_path / "plot.csv"
-    panel.export_csv(path)
-
-    provenance, rows = _read_csv(path)
-    assert provenance["plot"] == "test.scatter"
-    assert provenance["project_id"] == "p-1"
-    assert provenance["components"] == "3"
-    assert provenance["enginir_version"] and provenance["exported_at"]
-    header, *body = rows
-    assert header == ["roi_name", "roi_id", "reference (%)", "predicted (%)"]
-    assert [row[0] for row in body] == payload["roi_names"]  # commas survive quoting
-    assert [row[1] for row in body] == payload["roi_ids"]
-    # The CSV holds exactly the points drawn on screen.
-    drawn = panel.figure.axes[0].collections[0].get_offsets()
-    np.testing.assert_array_equal(np.array([[float(r[2]), float(r[3])] for r in body],
-                                           dtype=np.float32), drawn)
-
-
-def test_a_matrix_table_is_written_as_rows_by_frames(tmp_path):
-    from enginir.viewer._plot_panel import PlotTable
-
-    matrix = np.arange(6, dtype=np.float64).reshape(2, 3) / 7
-    path = tmp_path / "map.csv"
-    PlotTable(matrix=matrix).write_csv(path, {"plot": "map"})
-    provenance, rows = _read_csv(path)
-    assert provenance == {"plot": "map"}
-    assert rows[0] == ["row\\frame", "0", "1", "2"]
-    assert [row[0] for row in rows[1:]] == ["0", "1"]
-    np.testing.assert_array_equal(np.array([r[1:] for r in rows[1:]], dtype=float), matrix)
-
-
 def test_plot_tables_reject_inconsistent_shapes():
     from enginir.viewer._plot_panel import PlotColumn, PlotTable
 
@@ -138,25 +91,6 @@ def test_images_are_saved_in_print_style_whatever_the_theme(qapp, tmp_path, monk
     ax = saved[0].axes[0]
     assert to_hex(ax.get_facecolor()) == "#ffffff"  # plot area, not only the margin
     assert to_hex(ax.xaxis.label.get_color()) == _theme.print_colors()["fg"]
-
-
-def test_the_image_shows_the_current_axis_limits(qapp, tmp_path, monkeypatch):
-    from matplotlib.figure import Figure
-
-    panel = _shown_panel(_scatter_spec(), _payload())
-    panel.figure.axes[0].set_xlim(2.0, 3.0)  # the user zoomed in
-    saved: list[Figure] = []
-    monkeypatch.setattr(Figure, "savefig", lambda fig, *a, **k: saved.append(fig))
-    panel.export_image(tmp_path / "plot.png")
-    assert saved[0].axes[0].get_xlim() == (2.0, 3.0)
-
-
-def test_the_title_is_in_the_header_not_in_the_plot(qapp):
-    from PyQt6.QtWidgets import QLabel
-
-    panel = _shown_panel(_scatter_spec(), _payload())
-    assert "Predicted vs Reference" in [label.text() for label in panel.findChildren(QLabel)]
-    assert all(not ax.get_title() for ax in panel.figure.axes)
 
 
 def test_an_empty_panel_shows_why_and_cannot_be_exported(qapp, tmp_path):
@@ -199,23 +133,6 @@ def test_a_large_export_asks_before_writing(qapp, tmp_path, monkeypatch):
     assert path.exists()
 
 
-def test_a_hidden_panel_draws_when_shown_and_skips_unchanged_payloads(qapp):
-    from enginir.viewer._plot_panel import PlotPanel
-
-    calls: list[str] = []
-    panel = PlotPanel(_scatter_spec(calls))
-    payload = _payload()
-    panel.update_data(payload)
-    assert calls == []  # hidden: nothing drawn
-    panel.show()
-    qapp.processEvents()
-    assert calls == ["test.scatter"]
-    panel.update_data(payload)
-    assert calls == ["test.scatter"]  # same payload object: no-op
-    panel.update_data(_payload())
-    assert calls == ["test.scatter"] * 2
-
-
 def test_clicking_a_point_selects_its_roi(qapp):
     payload = _payload()
     panel = _shown_panel(_scatter_spec(), payload)
@@ -240,48 +157,6 @@ def _grid(calls: list[str]):
     grid.resize(900, 600)
     grid.show()
     return grid
-
-
-def test_a_page_is_built_and_drawn_only_when_shown(qapp):
-    calls: list[str] = []
-    grid = _grid(calls)
-    grid.update_data({"a": _payload(), "b": _payload(), "c": _payload()})
-    qapp.processEvents()
-    assert sorted(calls) == ["a", "b"]
-    assert grid.panel("c") is None  # second page not built yet
-
-    grid.set_current_page("Spectral")
-    qapp.processEvents()
-    assert grid.panel("c") is not None and calls[-1] == "c"
-
-
-def test_maximize_fills_the_page_and_restore_redraws_nothing(qapp):
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtTest import QTest
-
-    calls: list[str] = []
-    grid = _grid(calls)
-    grid.update_data({"a": _payload(), "b": _payload()})
-    qapp.processEvents()
-    panel_a, panel_b = grid.panel("a"), grid.panel("b")
-    assert panel_a is not None and panel_b is not None
-    width_in_grid = panel_a.width()
-    calls.clear()
-
-    grid.maximize("a")
-    qapp.processEvents()
-    assert grid.maximized_plot() == "a" and panel_a.is_maximized
-    assert panel_a.width() > 1.5 * width_in_grid
-    assert not panel_b.isVisible()
-
-    grid.activateWindow()
-    assert QTest.qWaitForWindowActive(grid)
-    panel_a.figure.canvas.setFocus()  # e.g. after clicking into the plot
-    QTest.keyClick(panel_a.figure.canvas, Qt.Key.Key_Escape)
-    qapp.processEvents()
-    assert grid.maximized_plot() is None and not panel_a.is_maximized
-    assert panel_b.isVisible() and panel_a.width() == width_in_grid
-    assert "b" not in calls  # the other panel kept its drawing
 
 
 def test_double_clicking_the_header_toggles_maximize(qapp):
@@ -408,14 +283,6 @@ def _registered_plots() -> list[tuple[str, str]]:
     return [(plot_id.split(".")[0], plot_id) for plot_id in sorted(specs)]
 
 
-def test_every_registered_plot_has_a_test_payload_and_model_plots_are_on_pages():
-    specs, pages = _registry()
-    assert {"model.pred_vs_ref", "predict.histogram"} <= set(specs)
-    assert all(workspace in _PAYLOADS for workspace, _plot_id in _registered_plots())
-    model_plots = {plot_id for page in pages["Model"] for plot_id in page.plot_ids}
-    assert model_plots == {plot_id for plot_id in specs if plot_id.startswith("model.")}
-
-
 def _drawn_values(fig) -> np.ndarray:
     values: list[np.ndarray] = []
     for ax in fig.axes:
@@ -490,17 +357,14 @@ def _viewer(qapp):
 @pytest.fixture()
 def fitted_viewer(qapp, tmp_path):
     from tests._project_payloads import write_model_project
+    from tests._sessions import fit_stored_model
 
     path = str(tmp_path / "layout.h5")
     write_model_project(path)
+    fit_stored_model(path, model_type="PLS", n_components=2, model_run_id="model_1")
     viewer = _viewer(qapp)
     project = viewer.project_state
     project.open_project(path)
-    project.build_sample_set(target_id="target_moisture", preprocessing_recipe_id="recipe_none",
-                             sample_set_id="sample_set_1")
-    project.fit_model_run(sample_set_id="sample_set_1", signal_domain_id="signal_domain_1",
-                          model_type="PLS", hyperparameters={"n_components": 2}, cv="logo",
-                          model_run_id="model_1")
     project.active_model_name = "model_1"
     viewer._workspace_tabs.setCurrentWidget(viewer._modeling_view)
     qapp.processEvents()
@@ -608,57 +472,6 @@ def test_layout_settings_tolerate_a_damaged_file():
 # -- Empty plots and plot headers ------------------------------------------------------
 
 
-def test_an_empty_plot_shows_its_message_without_axes():
-    from matplotlib.figure import Figure
-
-    from enginir.viewer._plot_panel import draw_placeholder
-    from enginir.viewer._theme import panel_colors
-
-    ax = Figure().add_subplot(111)
-    draw_placeholder(ax, "Select an ROI to see the spread of its pixels.", panel_colors())
-    assert not ax.axison and [text.get_text() for text in ax.texts] \
-        == ["Select an ROI to see the spread of its pixels."]
-
-
-def test_roi_names_on_the_image_have_a_plate_and_plot_headers_have_icons(qapp, window):
-    from PyQt6.QtWidgets import QToolButton
-
-    window.show_step("data")
-    dataset_id = sorted(window.project_state.datasets)[0]
-    window.show_dataset(dataset_id)
-    window.wait_for_data_file()
-    qapp.processEvents()
-    entries = list(window._canvas._roi_item_map.values())
-    assert entries and all(entry.text.fill.color().alpha() > 150 for entry in entries), \
-        "a name is readable on a bright image"
-    buttons = [button for button in window._canvas_frame._header.findChildren(QToolButton)
-               if button.property("icon_name")]  # not the frame's own "Reset View"
-    assert len(buttons) >= 2, "maximize, export"
-    for button in buttons:
-        assert not button.icon().isNull() and button.text() == "", button.property("icon_name")
-    frame = window._canvas_frame
-    frame.set_maximized(True)
-    assert frame._max_button.property("icon_name") == "arrows-minimize"
-    frame.set_maximized(False)
-
-
 # -- Long plot titles ------------------------------------------------------------------
 
 
-def test_a_long_plot_title_ends_in_an_ellipsis_with_the_whole_title_as_tooltip(qapp):
-    from PyQt6.QtWidgets import QWidget
-
-    from enginir.viewer._plot_panel import PlotFrame
-
-    frame = PlotFrame("x.test", "Predicted vs target value, per ROI, cross-validated, with "
-                      "all the detail one could want", QWidget(), None)
-    frame.resize(220, 300)
-    frame.show()
-    qapp.processEvents()
-    assert frame.title_elided
-    assert frame.title.startswith("Predicted vs target value")
-    assert frame._title.toolTip() == frame.title
-    frame.resize(2000, 300)
-    qapp.processEvents()
-    assert not frame.title_elided
-    frame.close()

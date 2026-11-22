@@ -221,3 +221,36 @@ def every_stored_object_project(tmp_path):
         data_path=scan, preprocessing_recipe_id=recipe_id,
         prediction_run_id="stored-prediction", persist_artifacts=True)
     return project.path
+
+
+KERNEL_BANDS = 40
+
+
+def kernel_project(tmp_path, *, n_datasets=2, n_rois=6, frames=(3, 8), seed=0):
+    """Two scans of 6 ROIs (3 … 7 frames × 6 rows), API from 2 to 9 %, an odd pixel."""
+    rng = np.random.default_rng(seed)
+    axis = np.arange(KERNEL_BANDS)
+    peaks = [np.exp(-((axis - c) / w) ** 2) for c, w in ((8, 3), (20, 5), (31, 2.5))]
+    project = Project.create(tmp_path / "p.h5")
+    project.add_target("API", unit="%")
+    for d in range(n_datasets):
+        blocks, rois, start = [], [], 0
+        for i in range(n_rois):
+            size = frames[0] + (i * 7 + d) % (frames[1] - frames[0])
+            api = 2 + 1.3 * i + 0.4 * d
+            spectra = (2600 - 140 * api * peaks[0] - 90 * rng.uniform(0, 3) * peaks[1]
+                       - 60 * rng.uniform(0, 1) * peaks[2])
+            block = (spectra + rng.normal(0, 18, (size, 6, KERNEL_BANDS))
+                     + rng.normal(0, 30, (size, 6, 1)))
+            if i == 2 and d == 0:
+                block[1, 2] += 400 * peaks[2]  # a pixel the DModX exclusion should find
+            blocks.append(block)
+            rois.append((f"d{d}r{i}", start, start + size - 1, api))
+            start += size
+        path = tmp_path / f"scan{d}.h5"
+        save_hdf5(str(path), np.vstack(blocks).astype(np.uint16),
+                  np.linspace(1000, 1600, KERNEL_BANDS))
+        dataset = project.add_dataset(path)
+        for name, a, b, api in rois:
+            dataset.add_roi(name, frames=(a, b), rows=(0, 5), values={"API": float(api)})
+    return project

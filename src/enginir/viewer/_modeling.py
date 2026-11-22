@@ -58,7 +58,7 @@ from ._jobs import BusyStatusWidget, BackgroundWorker, start_background_job
 from ._state import ProjectState, signal_label, ViewerState
 from ._theme import secondary_text_style
 from ._ui_helpers import (CollapsibleSection, FlowLayout, recipe_text, spectral_axis_label,
-                          with_unit)
+                          with_unit, wrap_tooltip)
 from ..project._ids import now_iso
 from ..validation.outliers import LIMIT_LEVEL
 
@@ -296,7 +296,7 @@ class _SeedEdit(QLineEdit):
     def __init__(self) -> None:
         super().__init__("0")
         self.setValidator(QRegularExpressionValidator(QRegularExpression(r"\d{1,19}"), self))
-        self.setToolTip("Seed of the pixel subsample: an integer from 0 to 2⁶³ − 1")
+        self.setToolTip(wrap_tooltip("Seed of the pixel subsample: an integer from 0 to 2⁶³ − 1"))
 
     def value(self) -> int:
         """The seed; an empty field is 0. A value of 2**63 or more is left to the fit's check."""
@@ -452,9 +452,9 @@ class FitModelRunDialog(QDialog):
         self._components_spin.setValue(6)
         self._auto_check = QCheckBox("Auto")
         self._auto_check.setToolTip(
-            "Choose the number from the component curve (RMSECV (per ROI) and Q² against the "
+            wrap_tooltip("Choose the number from the component curve (RMSECV (per ROI) and Q² against the "
              "number "
-            "of components) by the rule; the curve is shown on the Components page.")
+            "of components) by the rule; the curve is shown on the Components page."))
         self._rule_combo = QComboBox()
         for label, value, tip in (
                 ("one SE (recommended)", "one_se",
@@ -476,13 +476,13 @@ class FitModelRunDialog(QDialog):
         self._guard_check = QCheckBox("Drop noise components")
         self._guard_check.setChecked(True)
         self._guard_check.setToolTip(
-            "Noise guard: at most one component more than those explaining at least 0.5 % of "
+            wrap_tooltip("Noise guard: at most one component more than those explaining at least 0.5 % of "
             "the spectra, and no trailing component that explains under 1 % of the spectra "
-            "and does not improve the prediction (Q²ₐ ≤ 0.05).")
+            "and does not improve the prediction (Q²ₐ ≤ 0.05)."))
         self._max_spin = QSpinBox()
         self._max_spin.setRange(0, 128)
         self._max_spin.setSpecialValueText("default")
-        self._max_spin.setToolTip("The largest number of components Auto tries.")
+        self._max_spin.setToolTip(wrap_tooltip("The largest number of components Auto tries."))
         form.addRow("Components:", _together(self._components_spin, self._auto_check))
         form.addRow("Auto rule:", self._rule_combo)
         form.addRow("At most:", self._max_spin)
@@ -505,9 +505,9 @@ class FitModelRunDialog(QDialog):
         self._group_by_combo.addItem("ROIs with the same Sample label", "sample")
         self._group_by_combo.addItem("ROIs with the same target value", "target")
         self._group_by_combo.setToolTip(
-            "Which ROIs a validation fold holds out together. Choose the Sample label when "
+            wrap_tooltip("Which ROIs a validation fold holds out together. Choose the Sample label when "
             "several ROIs come from one physical sample (set it in the ROI table), so that "
-            "no sample is on both sides of a fold.")
+            "no sample is on both sides of a fold."))
         form.addRow("Hold out:", self._group_by_combo)
         self._fold_warning_label = QLabel("")
         self._fold_warning_label.setObjectName("ChangedMark")
@@ -589,12 +589,12 @@ class FitModelRunDialog(QDialog):
         unit = "nm"
         self._keep_edit = QLineEdit(format_ranges(recipe.bands_keep))
         self._keep_edit.setPlaceholderText("all bands")
-        self._keep_edit.setToolTip(f"Ranges to keep, e.g. 1100-1350, 1500-2300 ({unit}; band "
-                                   "numbers for data without wavelengths). Empty: every band.")
+        self._keep_edit.setToolTip(wrap_tooltip(f"Ranges to keep, e.g. 1100-1350, 1500-2300 ({unit}; band "
+                                   "numbers for data without wavelengths). Empty: every band."))
         self._exclude_edit = QLineEdit(format_ranges(recipe.bands_exclude))
         self._exclude_edit.setPlaceholderText("none")
-        self._exclude_edit.setToolTip("Ranges to leave out, e.g. 1400-1500. Applied after "
-                                      "every other step, so normalization sees all bands.")
+        self._exclude_edit.setToolTip(wrap_tooltip("Ranges to leave out, e.g. 1400-1500. Applied after "
+                                      "every other step, so normalization sees all bands."))
         water = QToolButton()
         water.setText("Water bands")
         water.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
@@ -605,14 +605,14 @@ class FitModelRunDialog(QDialog):
                 action.triggered.connect(
                     lambda _checked=False, r=(low, high): self._add_exclude(r))
         water.setMenu(menu)
-        water.setToolTip("Common NIR water bands; added to Exclude only when chosen.")
+        water.setToolTip(wrap_tooltip("Common NIR water bands; added to Exclude only when chosen."))
         self._select_bands = QPushButton("Select on Plot...")
         self._select_bands.clicked.connect(self._select_bands_on_plot)
         self._select_bands.setEnabled(self._band_source is not None)
         self._propose_bands = QPushButton("Propose...")
         self._propose_bands.setToolTip(
-            "Propose keep ranges by forward interval PLS with nested validation, using this "
-            "dialog's target, preprocessing, model and fitting choices.")
+            wrap_tooltip("Propose keep ranges by forward interval PLS with nested validation, using this "
+            "dialog's target, preprocessing, model and fitting choices."))
         self._propose_bands.clicked.connect(self._propose_bands_clicked)
         self._propose_bands.setEnabled(self._band_proposer is not None)
         form.addRow("Keep:", self._keep_edit)
@@ -712,8 +712,8 @@ class FitModelRunDialog(QDialog):
     def _fitting_rows(self, form: QFormLayout) -> None:
         """Pixel subsample, scaling and DModX exclusion (sample-set-model-run contract §7)."""
         self._draw_check = QCheckBox("Same number from every ROI")
-        self._draw_check.setToolTip("Draw this many pixels from each ROI, so every ROI has "
-                                    "the same weight; at most the smallest ROI's pixel count.")
+        self._draw_check.setToolTip(wrap_tooltip("Draw this many pixels from each ROI, so every ROI has "
+                                    "the same weight; at most the smallest ROI's pixel count."))
         self._pixels_spin = QSpinBox()
         self._pixels_spin.setRange(1, 1_000_000)
         self._pixels_spin.setValue(50)
@@ -736,9 +736,9 @@ class FitModelRunDialog(QDialog):
 
         self._exclude_check = QCheckBox("Exclude pixels above DCrit (DModX)")
         self._exclude_check.setToolTip(
-            "Leave out pixels above the critical distance to the model, inside every "
+            wrap_tooltip("Leave out pixels above the critical distance to the model, inside every "
             "validation fold from its calibration pixels only; held-out pixels are never "
-            "excluded and ROIs are never left out.")
+            "excluded and ROIs are never left out."))
         self._level_spin = QDoubleSpinBox()
         self._level_spin.setRange(0.9, 0.999)
         self._level_spin.setDecimals(3)
@@ -750,7 +750,7 @@ class FitModelRunDialog(QDialog):
         self._share_spin.setRange(1, 50)
         self._share_spin.setValue(20)
         self._share_spin.setSuffix(" %")
-        self._share_spin.setToolTip("The largest share of an ROI's pixels left out.")
+        self._share_spin.setToolTip(wrap_tooltip("The largest share of an ROI's pixels left out."))
         self._formula_combo = QComboBox()
         self._formula_combo.addItem("Unweighted", "dmodx-1")
         self._formula_combo.addItem("Weighted by modeling power (SIMCA)", "dmodx-2")
@@ -805,7 +805,7 @@ class FitModelRunDialog(QDialog):
         # In the dock the last line says it (the ROIs the model uses, or why it cannot
         # be fitted); the count per dataset is the tooltip.
         self._readiness_label.setText(text.rsplit("\n", 1)[-1] if self._embedded else text)
-        self._readiness_label.setToolTip(text if self._embedded else "")
+        self._readiness_label.setToolTip(wrap_tooltip(text if self._embedded else ""))
         if hasattr(self, "_fold_warning_label"):
             self._fold_warning_label.setText(warning)
             self._fold_warning_label.setVisible(bool(warning) and self._fold_warning_shown)
@@ -1232,7 +1232,7 @@ class ModelingView(QWidget):
 
         self._btn_assign_target = QToolButton()
         self._btn_assign_target.setText("Target Values...")
-        self._btn_assign_target.setToolTip("Type the target values of all ROIs in the ROI table")
+        self._btn_assign_target.setToolTip(wrap_tooltip("Type the target values of all ROIs in the ROI table"))
         configure_action(self._btn_assign_target)
         self._btn_assign_target.clicked.connect(self.target_values_btn_clicked)
         action_grid.addWidget(self._btn_assign_target, 1, 1)
@@ -1245,8 +1245,8 @@ class ModelingView(QWidget):
 
         self._btn_fit_again = QToolButton()
         self._btn_fit_again.setText("Fit Again...")
-        self._btn_fit_again.setToolTip("Open the fit dialog with the selected model's settings, "
-                                       "e.g. to fit with another number of components")
+        self._btn_fit_again.setToolTip(wrap_tooltip("Open the fit dialog with the selected model's settings, "
+                                       "e.g. to fit with another number of components"))
         configure_action(self._btn_fit_again)
         self._btn_fit_again.clicked.connect(self.fit_again_btn_clicked)
         action_grid.addWidget(self._btn_fit_again, 3, 0)
@@ -1314,8 +1314,8 @@ class ModelingView(QWidget):
             self._group_box.setFlat(True)
             self._group_layout.setContentsMargins(0, 0, 0, 0)
             self._btn_fit_again.setText("Load Model Settings")
-            self._btn_fit_again.setToolTip("Show the selected model's settings again, "
-                                           "discarding the changes made here")
+            self._btn_fit_again.setToolTip(wrap_tooltip("Show the selected model's settings again, "
+                                           "discarding the changes made here"))
             self._build_fit_footer()
             self._update_fit_changed_mark()
             self._show_selected_model_settings()
@@ -2425,10 +2425,6 @@ class ModelingView(QWidget):
         self._service_status.set_idle("Service: idle")
         logger.error("{}: {}", title, message)
         QMessageBox.warning(self, title, message)
-
-    def service_status_snapshot(self) -> tuple[str, bool]:
-        """Return the current service label text and busy/progress visibility."""
-        return self._service_status.label.text(), self._service_status.progress.isVisible()
 
     def _set_busy(self, busy: bool, text: str | None = None) -> None:
         self._btn_target.setEnabled(not busy)

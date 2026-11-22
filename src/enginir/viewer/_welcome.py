@@ -31,7 +31,7 @@ from ._jobs import BusyStatusWidget, start_background_job_soon
 from ._preferences import start_folder
 from . import _recent
 from ._theme import secondary_text_style
-from ._ui_helpers import PROJECT_OPEN_FILTER, PROJECT_SAVE_FILTER, ask_save_path
+from ._ui_helpers import PROJECT_OPEN_FILTER, PROJECT_SAVE_FILTER, ask_save_path, wrap_tooltip
 
 logger = get_logger(__name__)
 
@@ -197,7 +197,7 @@ class WelcomeWindow(QMainWindow):
             item = QListWidgetItem(f"{os.path.basename(entry.path)}    "
                                    f"{_short_folder(os.path.dirname(entry.path))}")
             item.setData(Qt.ItemDataRole.UserRole, entry.path)
-            item.setToolTip(entry.path)
+            item.setToolTip(wrap_tooltip(entry.path))
             self._recent_list.addItem(item)
             _show_kind(item, entry.kind)
         self._recent_checked = False
@@ -221,7 +221,7 @@ class WelcomeWindow(QMainWindow):
             exists, kind = result.get(path, (True, None))
             if not exists:
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
-                item.setToolTip(f"{path}\n(not found)")
+                item.setToolTip(wrap_tooltip(f"{path}\n(not found)"))
             elif kind is not None and item.data(_KIND_ROLE) != kind:
                 _show_kind(item, kind)
                 _recent.set_kind(path, kind)

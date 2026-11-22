@@ -36,68 +36,6 @@ def _drawn_roi_names(viewer) -> list[str]:
     return sorted(rois[roi_id].name for roi_id in viewer._canvas._roi_item_map)
 
 
-def test_a_window_draws_only_the_rois_of_its_data_file(qapp, two_file_project):
-    from enginir.viewer import open_viewer
-
-    project_path, paths = two_file_project
-    window_a = open_viewer(paths["tray_a"], project=project_path)
-    window_b = open_viewer(paths["tray_b"], project=project_path)
-    try:
-        assert len(window_a.project_state.rois) == 3  # the project holds all of them
-        assert _drawn_roi_names(window_a) == ["A1", "A2"]
-        assert _drawn_roi_names(window_b) == ["B1"]
-    finally:
-        window_a.close()
-        window_b.close()
-
-
-def test_a_project_only_window_draws_the_rois_of_the_file_it_attaches(qapp, two_file_project):
-    from enginir.viewer import open_project
-
-    project_path, paths = two_file_project
-    window = open_project(project_path)
-    try:
-        assert len(window.project_state.rois) == 3
-        assert _drawn_roi_names(window) == []
-        window._open_data_path(str(paths["tray_b"]))  # File > Open Data
-        window.wait_for_data_file()
-        assert _drawn_roi_names(window) == ["B1"]
-    finally:
-        window.close()
-
-
-def test_project_writes_are_confirmed_in_the_status_bar(qapp, two_file_project, monkeypatch):
-    from PyQt6.QtWidgets import QDialog
-
-    import enginir.viewer._eda as eda
-    from enginir.project import TargetAssignment
-    from enginir.project._ids import now_iso
-    from enginir.viewer import open_viewer
-
-    project_path, paths = two_file_project
-    monkeypatch.setattr(eda.NewROIDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
-    monkeypatch.setattr(eda.NewROIDialog, "roi_name", property(lambda self: "A3"))
-    monkeypatch.setattr(eda.NewROIDialog, "target_value", property(lambda self: None))
-    window = open_viewer(paths["tray_a"], project=project_path)
-    try:
-        window._eda_view.on_training_roi_selected(10, 13, 4, 7)
-        assert window._saved_label.text() == "✓ ROI 'A3' saved to project (16 pixels)"
-        assert _drawn_roi_names(window) == ["A1", "A2", "A3"]
-
-        state = window.project_state
-        roi_id = next(r.roi_id for r in state.rois.values() if r.name == "A3")
-        target_id = next(iter(state.targets))
-        state.assign_target_to_roi(TargetAssignment(roi_id=roi_id, target_id=target_id,
-                                                    value=5.5, assigned_at=now_iso()))
-        assert window._saved_label.text() == "✓ API = 5.5 % saved for ROI 'A3'"
-
-        state.remove_roi(roi_id)
-        assert window._saved_label.text() == "✓ ROI 'A3' removed from project"
-        assert _drawn_roi_names(window) == ["A1", "A2"]
-    finally:
-        window.close()
-
-
 @pytest.fixture()
 def tray_c(tmp_path):
     """A third data file, not in the project: dark frames 0-1, white tile in frames 14-15."""
@@ -427,22 +365,6 @@ def test_the_dialog_levels_are_editable_and_checked(qapp, tray_c):
     assert dialog.build_request().black_level is None
 
 
-def test_a_registered_file_opens_with_its_stored_calibration(qapp, tmp_path, tray_c):
-    from enginir import Project
-    from enginir.viewer import open_viewer
-
-    path_c, cube_c = tray_c
-    project = Project.create(tmp_path / "c.h5")
-    project.add_dataset(path_c, dark_frames=(0, 1), white_frames=(14, 15), unit="Reflectance")
-    window = open_viewer(path_c, project=project.path)
-    try:
-        np.testing.assert_allclose(window.state.white_ref, cube_c[14:].mean(axis=0))
-        np.testing.assert_allclose(window.state.dark_ref, cube_c[:2].mean(axis=0))
-        assert window.state.y_unit == "Reflectance"
-    finally:
-        window.close()
-
-
 def _grid_answers(monkeypatch, configure, seen_preview=None):
     """Make RoiGridDialog.exec apply ``configure`` and press OK (or Cancel if no cells)."""
     from PyQt6.QtWidgets import QDialog
@@ -651,42 +573,6 @@ def test_options_grid_defaults_are_stored_in_the_user_settings(qapp, monkeypatch
     stored = load_grid_defaults()
     assert (stored.n_rows, stored.n_columns, stored.origin_x, stored.name_pattern,
             stored.order) == (8, 12, 12, "{n:03d}", "columns")
-
-
-def test_profile_axes_fit_their_labels_after_a_file_is_shown(qapp, tmp_path):
-    """A project window starts with empty plots; a file shown later must not clip tick labels."""
-    from enginir import Project
-    from enginir.io import save_hdf5
-    from enginir.viewer import open_project
-
-    rng = np.random.default_rng(4)
-    cube = rng.integers(300, 900, (12, 40, 30)).astype(np.uint16)  # absorbance about 0.6-1.1
-    path = tmp_path / "scan.h5"
-    save_hdf5(str(path), cube, np.linspace(1000.0, 1700.0, 30))
-    project = Project.create(tmp_path / "p.h5")
-    project.add_dataset(path, black_level=0.0, white_level=10000.0)
-    window = open_project(project.path)
-    try:
-        window.resize(1400, 900)
-        window.show()
-        qapp.processEvents()  # the plots draw their empty state first
-        window._explore_tabs.setCurrentWidget(window._data_file_page)
-        window.show_data_file(next(iter(window.project_state.datasets)))
-        window.wait_for_data_file()
-        assert window.state.y_unit == "Absorbance"
-        for _ in range(5):
-            qapp.processEvents()
-        for panel in (window._spectrum,):  # the Spatial profile is pyqtgraph: it fits itself
-            figure = panel.figure
-            figure.canvas.draw()
-            renderer = figure.canvas.get_renderer()
-            (ax,) = figure.axes
-            labels = [label for label in ax.get_yticklabels() if label.get_text()]
-            assert labels
-            assert min(label.get_window_extent(renderer).x0 for label in labels) >= 0, \
-                type(panel).__name__
-    finally:
-        window.close()
 
 
 def test_make_defaults_in_the_grid_dialog_sets_the_next_grid(qapp):

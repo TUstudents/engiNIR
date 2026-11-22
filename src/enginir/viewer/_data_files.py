@@ -57,7 +57,7 @@ from ..project import ReferenceCorrection, DatasetRecord
 from ._preferences import load as load_preferences
 from ._preferences import start_folder
 from ._theme import GUIDE_COLOR, panel_colors, secondary_text_style
-from ._ui_helpers import spectral_axis_label, style_axes
+from ._ui_helpers import spectral_axis_label, style_axes, wrap_tooltip
 
 logger = get_logger(__name__)
 
@@ -208,8 +208,8 @@ class AddDataFileDialog(QDialog):
         names = QFormLayout()
         self._name = QLineEdit()  # a new dataset: the dialog opens for unregistered files only
         self._name.setPlaceholderText(os.path.basename(path))
-        self._name.setToolTip("A short name shown instead of the file name, and {name} in "
-                              "ROI grid names (e.g. 'Layer 7'). Empty: the file name.")
+        self._name.setToolTip(wrap_tooltip("A short name shown instead of the file name, and {name} in "
+                              "ROI grid names (e.g. 'Layer 7'). Empty: the file name."))
         names.addRow("Name:", self._name)
         layout.addLayout(names)
         self._wavelengths = self._wavelength_choice(header, n_bands)
@@ -349,9 +349,6 @@ class AddDataFileDialog(QDialog):
 
     def white_source(self) -> _ReferenceSource:
         return self._white
-
-    def set_shared(self, path: str) -> None:
-        self._shared.setCurrentIndex(self._shared.findData(path))
 
     def set_levels(self, black: float, white: float) -> None:
         """Set the detector levels used without references."""
@@ -510,8 +507,8 @@ class AddDataFileDialog(QDialog):
             combo.setItemData(combo.count() - 1, table.path, Qt.ItemDataRole.ToolTipRole)
         if len(tables) == 1:
             combo.setCurrentIndex(1)
-        combo.setToolTip(f"Tables of {n_bands} bands: those of engiNIR and the CSV files in "
-                         f"{user_table_folder()}")
+        combo.setToolTip(wrap_tooltip(f"Tables of {n_bands} bands: those of engiNIR and the CSV files in "
+                         f"{user_table_folder()}"))
         return combo
 
     def build_request(self) -> DataFileRequest:

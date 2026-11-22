@@ -35,7 +35,7 @@ from PyQt6.QtWidgets import (
 
 from ._plot_panel import PlotColumn, PlotSpec, PlotTable, RoiPoints, draw_placeholder
 from ._theme import SERIES, secondary_text_style
-from ._ui_helpers import style_axes
+from ._ui_helpers import style_axes, wrap_tooltip
 
 #: "All data files" in the Predict ROIs dialog.
 ALL_FILES = "__all__"
@@ -75,7 +75,7 @@ class PredictRoisDialog(QDialog):
         for model in self._models:
             item = QListWidgetItem(model.name)
             item.setData(Qt.ItemDataRole.UserRole, model.model_run_id)
-            item.setToolTip(model.chain)
+            item.setToolTip(wrap_tooltip(model.chain))
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Checked if model.model_run_id == default_model_id
                                else Qt.CheckState.Unchecked)
@@ -160,8 +160,8 @@ class PredictMapDialog(QDialog):
         self._file_combo.currentIndexChanged.connect(self._update)
         _show_whole_items(self._file_combo)
         add = QPushButton("Add Dataset...")
-        add.setToolTip("Register a new scan with the Add Dataset dialog (its reference correction "
-                       "is chosen there, as for the calibration scans)")
+        add.setToolTip(wrap_tooltip("Register a new scan with the Add Dataset dialog (its reference correction "
+                       "is chosen there, as for the calibration scans)"))
         add.clicked.connect(self._add)
         add.setEnabled(add_data_file is not None)
         row = QHBoxLayout()

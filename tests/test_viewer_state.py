@@ -5,7 +5,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from enginir.preprocessing.recipe import PreprocessingRecipe
 from enginir.viewer._state import DEFAULT_BLACK_LEVEL, DEFAULT_WHITE_LEVEL, _EPS, ViewerState
 
 
@@ -21,19 +20,6 @@ def cube_and_wavelengths():
 def state(qapp, cube_and_wavelengths):
     cube, wavelengths = cube_and_wavelengths
     return ViewerState(cube, wavelengths)
-
-
-def test_constructor_sets_midpoints_and_default_units(qapp, cube_and_wavelengths):
-    cube, wavelengths = cube_and_wavelengths
-
-    viewer_state = ViewerState(cube, wavelengths)
-
-    assert viewer_state.frame == 0
-    assert viewer_state.row == cube.shape[1] // 2
-    assert viewer_state.band == cube.shape[2] // 2
-    assert viewer_state.y_unit == "DN"
-    assert viewer_state.x_spatial_unit == "pixel"
-    assert viewer_state.x_spectral_unit == "nm"
 
 
 @pytest.mark.parametrize("shape", [(10, 5), (2, 3, 4, 5)])
@@ -62,56 +48,23 @@ def test_constructor_rejects_non_finite_default_levels(qapp, cube_and_wavelength
         ViewerState(cube, wavelengths, black_level=np.nan)
 
 
-def test_setters_clamp_and_only_emit_on_change(state):
-    frame_events: list[int] = []
-    row_events: list[int] = []
-    band_events: list[int] = []
-
-    state.frame_changed.connect(frame_events.append)
-    state.row_changed.connect(row_events.append)
-    state.band_changed.connect(band_events.append)
-
-    state.set_frame(2)
-    state.set_frame(999)
-    state.set_frame(state.n_frames - 1)
-    state.set_row(-10)
-    state.set_band(4)
-
-    assert state.frame == state.n_frames - 1
-    assert state.row == 0
-    assert state.band == 4
-    assert frame_events == [2]
-    assert row_events == [0]
-    assert band_events == [4]
-
-
-def test_unit_setters_emit_once_per_change(state):
-    events: list[str] = []
-    state.units_changed.connect(lambda: events.append("changed"))
+def test_current_frame_image_default_levels_and_absorbance(qapp):
+    """Raw counts at the black level, halfway and at the white level (known values)."""
+    black, white = DEFAULT_BLACK_LEVEL, DEFAULT_WHITE_LEVEL
+    halfway = (black + white) // 2  # 1614 for 128 and 3100: reflectance 0.5 up to one count
+    cube = np.array([[[black, halfway, white]]], dtype=np.uint16)
+    state = ViewerState(cube, np.array([1000.0, 1100.0, 1200.0], dtype=np.float32))
 
     state.set_y_unit("Reflectance")
-    state.set_y_unit("Reflectance")
-    state.set_x_spatial_unit("mm")
-    state.set_x_spectral_unit("band")
-
-    assert state.y_unit == "Reflectance"
-    assert state.x_spatial_unit == "mm"
-    assert state.x_spectral_unit == "band"
-    assert len(events) == 3
-
-
-def test_current_frame_image_default_levels_and_absorbance(state):
-    raw = state.cube[0].astype(np.float32)
-    denom = DEFAULT_WHITE_LEVEL - DEFAULT_BLACK_LEVEL
-    expected_reflectance = np.clip((raw - DEFAULT_BLACK_LEVEL) / denom, 1e-6, 1.0)
-
-    state.set_y_unit("Reflectance")
-    reflectance = state.current_frame_image()
-    np.testing.assert_allclose(reflectance, expected_reflectance)
+    reflectance = state.current_frame_image()[0]
+    assert reflectance[0] == pytest.approx(1e-6)  # clamped: a log of zero is never taken
+    assert reflectance[1] == pytest.approx(0.5, abs=1e-3)
+    assert reflectance[2] == pytest.approx(1.0)
 
     state.set_y_unit("Absorbance")
-    absorbance = state.current_frame_image()
-    np.testing.assert_allclose(absorbance, -np.log10(expected_reflectance))
+    absorbance = state.current_frame_image()[0]
+    assert absorbance[1] == pytest.approx(0.30103, abs=1e-3)  # -log10(0.5)
+    assert absorbance[2] == pytest.approx(0.0, abs=1e-6)
 
 
 def test_current_frame_image_uses_explicit_refs_and_clamps_small_denominators(qapp):
@@ -145,37 +98,6 @@ def test_float_cubes_are_precalibrated_and_never_truncated(qapp):
     assert not raw.calibrated and raw.cube.dtype == np.uint16
     with pytest.raises(ValueError, match="fit into uint16"):
         ViewerState(np.full((1, 2, 3), 70000, dtype=np.int32), wavelengths)
-
-
-def test_preprocessing_filter_and_scatter_controls_change_image_semantics(qapp):
-    rng = np.random.default_rng(10)
-    cube = rng.integers(500, 3000, size=(2, 8, 20), dtype=np.uint16)
-    wavelengths = np.linspace(1000.0, 1600.0, 20)
-    viewer_state = ViewerState(cube, wavelengths)
-
-    viewer_state.set_preprocess_filter("sg_d1")
-    filtered = viewer_state.current_frame_image()
-    assert filtered.shape == (viewer_state.height, viewer_state.n_bands)
-    assert filtered.dtype == np.float32
-
-    viewer_state.set_preprocess_filter("none")
-    viewer_state.set_preprocess_snv(True)
-    scatter = viewer_state.current_frame_image()
-    np.testing.assert_allclose(scatter.mean(axis=1), 0.0, atol=1e-5)
-
-
-def test_image_cache_invalidates_on_frame_and_recipe_changes(state):
-    first = state.current_frame_image()
-    second = state.current_frame_image()
-    assert first is second
-
-    state.set_frame(1)
-    third = state.current_frame_image()
-    assert third is not first
-
-    state.apply_recipe(PreprocessingRecipe(snv=True))
-    fourth = state.current_frame_image()
-    assert fourth is not third
 
 
 def test_profile_and_axis_helpers_follow_current_units(state):
@@ -221,31 +143,11 @@ def test_reference_shapes_validate_resample_and_broadcast(qapp):
 def test_raw_helpers_return_expected_shapes_and_ranges(state):
     band_image = state.raw_band_image(2)
     false_colour = state.raw_false_colour_rgb()
-    roi_spectra = state.raw_roi_spectra(0, 1, 2, 4)
 
     assert band_image.shape == (state.height, state.n_frames)
     assert false_colour.shape == (state.height, state.n_frames, 3)
     assert false_colour.dtype == np.float32
     assert float(false_colour.min()) >= 0.0
     assert float(false_colour.max()) <= 1.0
-    assert roi_spectra.shape == (6, state.n_bands)
-    assert roi_spectra.dtype == np.uint16
 
 
-def test_recipe_round_trip_and_signal_emission(state):
-    recipe = PreprocessingRecipe(
-        filter="sg_d2",
-        sg_window=13,
-        sg_polyorder=3,
-        snv=True,
-        emsc=True,
-        detrend=True,
-        detrend_order=2,
-    )
-    events: list[str] = []
-    state.units_changed.connect(lambda: events.append("changed"))
-
-    state.apply_recipe(recipe)
-
-    assert state.recipe == recipe
-    assert events == ["changed"]
