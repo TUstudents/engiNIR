@@ -1528,7 +1528,7 @@ class ModelingView(QWidget):
             QMessageBox.warning(
                 self,
                 "No project open",
-                "No project open. Use Project > New or Project > Open first.",
+                "No project open. Use File > New Project or File > Open Project first.",
             )
             return
         dlg = TargetSelectionDialog(self.visible_targets(), self._selected_target_id, parent=self)
@@ -1564,7 +1564,7 @@ class ModelingView(QWidget):
             QMessageBox.warning(
                 self,
                 "No project open",
-                "No project open. Use Project > New or Project > Open first.",
+                "No project open. Use File > New Project or File > Open Project first.",
             )
             return
         self.roi_table_requested.emit()

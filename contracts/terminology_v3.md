@@ -335,7 +335,7 @@ gives each with its words elsewhere.
 : The model's diagnostics per spectrum (scores) and per band (loadings,
   regression coefficients, variable importance in projection).
 
-**Spatial image**, **False-color image**, **Band image**, **Sensor frame**, **Spatial profile**
+**Spatial image**, **False-color image**, **Sensor frame**, **Spatial profile**
 : The Explore plots: the scan in false color (frames by rows), three bands as
   red, green and blue, one band, one frame as bands by rows (never "frame"
   alone for it), and the shown band along the rows of the shown frame.

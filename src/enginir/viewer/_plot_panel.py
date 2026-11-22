@@ -319,7 +319,7 @@ class PlotFrame(QWidget):
         layout.addWidget(self._header)
         layout.addWidget(body, 1)
         title_changed = getattr(source, "title_changed", None)
-        if title_changed is not None:  # e.g. the Band image panel's band, the map's unit
+        if title_changed is not None:  # e.g. the map's unit
             title_changed.connect(self.set_title)
         self._update_export_actions()
 

@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
     QDialog,
+    QDialogButtonBox,
     QMainWindow,
     QWidget,
     QDockWidget,
@@ -40,9 +41,9 @@ from PyQt6.QtWidgets import (
     QMenu,
     QMenuBar,
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import (QAction, QActionGroup, QCloseEvent, QFontDatabase,
-                         QKeySequence, QShortcut)
+from PyQt6.QtCore import Qt, QTimer, QUrl, pyqtSignal
+from PyQt6.QtGui import (QAction, QActionGroup, QCloseEvent, QDesktopServices,
+                         QFontDatabase, QKeySequence, QShortcut)
 
 from .._checks import log_and_raise
 from .._workflow import own_reference_frames, read_header
@@ -62,7 +63,7 @@ from ._project_rois import ProjectRoisView
 from ._roi_table import RoiTableWidget
 from ._bottom_panels import ChecksPanel, ModelsPanel, verdict_mark
 from ._icons import icon
-from ._workflow_strip import WorkflowStrip
+from ._workflow_strip import STEPS, WorkflowStrip
 from . import _preferences as preferences_store
 from ._preferences import Preferences, PreferencesDialog
 from .._guidance import Check, Fix, prediction_roi_checks
@@ -87,7 +88,6 @@ from ._state import (
 from ._panels import (
     _PanelBase as _ExplorePanel,
     HistogramPanel,
-    DC3Panel,
     SensorPanel,
     SpatialProfilePanel,
     SpectrumPanel,
@@ -170,6 +170,10 @@ __all__ = [
 
 #: Where engiNIR lives, and its concept DOI (every version; README, Citation).
 GITHUB_URL = "https://github.com/TUstudents/engiNIR"
+#: The online documentation (Help > User Guide).
+USER_GUIDE_URL = "https://enginir.readthedocs.io/en/stable/"
+#: Where a problem is reported (Help > Report a Problem).
+ISSUES_URL = f"{GITHUB_URL}/issues/new"
 CONCEPT_DOI = "10.5281/zenodo.23235907"
 
 
@@ -878,7 +882,6 @@ class HSIViewer(QMainWindow):
     def _build_dock_widgets(self) -> None:
         s = self.state
         self._hist = HistogramPanel(s)
-        self._dc3 = DC3Panel(s)
         self._project_browser = ProjectBrowser(self.project_state)
         self._inspector = ProjectInspector(self.project_state)
 
@@ -898,7 +901,7 @@ class HSIViewer(QMainWindow):
             self._inspector_dock,
             Qt.Orientation.Vertical,
         )
-        # Left docks - Properties above the collapsed Histogram and Band image docks
+        # Left docks - Properties above the collapsed Histogram dock
         self._dock_frames: dict[QDockWidget, PlotFrame] = {}
         self._maximized_dock: QDockWidget | None = None
         self._hist_dock = self._plot_dock("Histogram", "HistogramDock", self._hist,
@@ -906,11 +909,7 @@ class HSIViewer(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._hist_dock)
         self.splitDockWidget(self._inspector_dock, self._hist_dock, Qt.Orientation.Vertical)
 
-        self._dc3_dock = self._plot_dock("Band image", "DC3Dock", self._dc3, "explore.raw")
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._dc3_dock)
-        self.splitDockWidget(self._hist_dock, self._dc3_dock, Qt.Orientation.Vertical)
         self._hist_dock.hide()
-        self._dc3_dock.hide()
 
         # ROI table: target values of all ROIs; available in every workspace.
         self._roi_table = RoiTableWidget(self.project_state)
@@ -931,10 +930,9 @@ class HSIViewer(QMainWindow):
         self._roi_table_dock.visibilityChanged.connect(self._schedule_bottom_dock_resize)
 
         #: Docks that show the data file at the cursor: only on Explore's Data file tab.
-        self._data_file_docks = {"histogram": self._hist_dock, "raw": self._dc3_dock}
+        self._data_file_docks = {"histogram": self._hist_dock}
         self._default_explore_plot_visibility = {
             "histogram": False,
-            "raw": False,
             "sensor": True,
             "spatial": True,
             "spectrum": True,
@@ -1076,7 +1074,6 @@ class HSIViewer(QMainWindow):
         self._eda_view = EDAView(
             self.state,
             self.project_state,
-            dc3_panel=self._dc3,
             canvas=self._canvas,
             cube_path_provider=lambda: self._cube_path,
             dataset_attached_provider=self.has_attached_dataset,
@@ -1321,8 +1318,6 @@ class HSIViewer(QMainWindow):
     def _wire_signals(self) -> None:
         s = self.state
         # Panel -> state
-        self._dc3.frame_pick.connect(s.set_frame)
-        self._dc3.row_pick.connect(s.set_row)
         self._sensor.row_pick.connect(s.set_row)
         self._sensor.band_pick.connect(s.set_band)
         self._spatial.row_pick.connect(s.set_row)
@@ -1378,6 +1373,9 @@ class HSIViewer(QMainWindow):
                                        is None else target.target_id),
             provenance=self._explore_provenance)
         self._explore_tabs.addTab(self._project_rois, "Project ROIs")
+        delete = getattr(self, "_delete_roi_action", None)
+        if delete is not None:
+            self._project_rois.mosaic.addAction(delete)
         self._project_rois.roi_selected.connect(self._on_canvas_roi_selected)
         self._project_rois.roi_opened.connect(self.open_roi)
         self._project_rois.add_rois_requested.connect(self.add_rois_on)
@@ -1861,23 +1859,11 @@ class HSIViewer(QMainWindow):
         self._menu_roi = _add_required_menu(mb, "ROI")
         self._menu_model = _add_required_menu(mb, "Model")
         self._menu_predict = _add_required_menu(mb, "Predict")
-        self._menu_options = _add_required_menu(mb, "Tools")
         self._menu_help = _add_required_menu(mb, "Help")
         self._populate_file_menu()
         self._populate_edit_menu()
         self._populate_view_menu()
         self._populate_workflow_menus()
-        preferences = _add_required_action(self._menu_options, "Preferences...")
-        preferences.setIcon(icon("settings"))
-        preferences.setShortcut("Ctrl+,")
-        preferences.triggered.connect(self.edit_preferences)
-        self._menu_options.addSeparator()
-        grid_defaults = QAction("ROI Grid Defaults...", self)
-        grid_defaults.triggered.connect(self.edit_grid_defaults)
-        self._menu_options.addAction(grid_defaults)
-        self._menu_options.addSeparator()
-        act = _add_required_action(self._menu_options, "Open Log File")
-        act.triggered.connect(self._action_log_file)
         self._populate_help_menu()
         self._default_layout_state = self.saveState()
         self._release_minimum_size()
@@ -1936,9 +1922,14 @@ class HSIViewer(QMainWindow):
         act = _add_required_action(m, "Copy")
         act.setShortcut("Ctrl+C")
         act.triggered.connect(self._copy_focused)
-        act = _add_required_action(m, "Find ROI...")
-        act.setShortcut("Ctrl+F")
-        act.triggered.connect(self._find_roi)
+        act = _add_required_action(m, "Paste")
+        act.setShortcut("Ctrl+V")
+        act.triggered.connect(self._paste_focused)
+        m.addSeparator()
+        act = _add_required_action(m, "Preferences...")
+        act.setIcon(icon("settings"))
+        act.setShortcut("Ctrl+,")
+        act.triggered.connect(self.edit_preferences)
 
     def _populate_workflow_menus(self) -> None:
         self._button_actions: list[
@@ -1948,7 +1939,8 @@ class HSIViewer(QMainWindow):
         act = _add_required_action(m, "Add Dataset...")
         act.setIcon(icon("photo-plus"))
         act.triggered.connect(lambda: self.add_data_file())
-        act = _add_required_action(m, "Name Dataset...")
+        act.setShortcut("Ctrl+D")
+        act = _add_required_action(m, "Rename Dataset...")
         act.setToolTip(wrap_tooltip("A short name for a dataset, shown instead of its file name"))
         act.triggered.connect(lambda: self.name_dataset())
         act = _add_required_action(m, "Set Wavelengths...")
@@ -1959,15 +1951,32 @@ class HSIViewer(QMainWindow):
         act.triggered.connect(self._locate_first_missing)
         m.addSeparator()
         self._menu_button_action(m, "Targets...", model._btn_target, icon_name="target")
-        self._menu_button_action(m, "Target Values...", model._btn_assign_target,
-                                 icon_name="table")
+        # Both open the ROI table. Only ROI > ROI Table holds Ctrl+T: two actions with one
+        # shortcut would be ambiguous in Qt and neither would fire; this item shows the
+        # key after a tab, which Qt draws in the shortcut column (plan menu-polish, P1).
+        act = _add_required_action(m, "Target Values...\tCtrl+T")
+        act.setIcon(icon("table"))
+        act.setToolTip(wrap_tooltip("The ROI table, where target values are typed"))
+        act.triggered.connect(lambda: model._btn_assign_target.click())
 
         m = self._menu_roi
         self._menu_button_action(m, "Add ROI", eda._btn_roi_training, icon_name="square-plus",
                                  shortcut="Ctrl+R")
         self._menu_button_action(m, "Add ROI Grid...", eda._btn_roi_grid, icon_name="grid-dots",
                                  shortcut="Ctrl+G")
-        self._menu_button_action(m, "Delete ROI", eda._btn_roi_delete, icon_name="trash")
+        act = _add_required_action(m, "ROI Grid Defaults...")
+        act.triggered.connect(self.edit_grid_defaults)
+        delete = self._menu_button_action(m, "Delete ROI", eda._btn_roi_delete,
+                                          icon_name="trash")
+        # Delete deletes the selected ROI only where ROIs are selected (the image and the
+        # mosaic), never while typing in the ROI table (plan menu-polish, R2).
+        delete.setShortcut(QKeySequence(QKeySequence.StandardKey.Delete))
+        delete.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._canvas.addAction(delete)
+        self._delete_roi_action = delete  # the mosaic gets it when it is built
+        act = _add_required_action(m, "Find ROI...")
+        act.setShortcut("Ctrl+F")
+        act.triggered.connect(self._find_roi)
         m.addSeparator()
         act = _add_required_action(m, "ROI Table")
         act.setIcon(icon("table"))
@@ -1993,7 +2002,7 @@ class HSIViewer(QMainWindow):
                                  lambda: self._prediction_view._btn_predict_rois,
                                  icon_name="wand", shortcut="F6")
         self._menu_button_action(m, "Predict Map...", lambda: self._prediction_view._btn_predict,
-                                 icon_name="map")
+                                 icon_name="map", shortcut="F7")
         self._menu_button_action(m, "Cancel Prediction",
                                  lambda: self._prediction_view._btn_cancel,
                                  icon_name="player-stop")
@@ -2222,14 +2231,33 @@ class HSIViewer(QMainWindow):
     # Preferences (plan gui-1.6, Phase 6)
     # ------------------------------------------------------------------
 
+    def menu_shortcuts(self) -> list[tuple[str, str]]:
+        """``(menu item, shortcut)`` of every menu item with a shortcut, in menu order
+        (submenus included; an item in two menus once)."""
+        found: list[tuple[str, str]] = []
+        seen: set[int] = set()
+
+        def walk(menu: QMenu, path: str) -> None:
+            for action in menu.actions():
+                sub = action.menu()
+                if sub is not None:
+                    walk(sub, f"{path} > {action.text().replace('&', '')}")
+                elif not action.shortcut().isEmpty() and id(action) not in seen:
+                    seen.add(id(action))
+                    found.append((f"{path} > {action.text().replace('&', '')}",
+                                  action.shortcut().toString()))
+
+        menu_bar = _require_qt_object(self.menuBar(), "main menu bar")
+        for top in menu_bar.actions():
+            menu = top.menu()
+            if isinstance(menu, QMenu):
+                walk(menu, top.text().replace("&", ""))
+        return found
+
     def edit_preferences(self) -> bool:
-        """Tools > Preferences; ``True`` when the user applied new preferences."""
-        shortcuts = [(action.text().replace("&", ""), action.shortcut().toString())
-                     for menu in (self._menu_file, self._menu_edit, self._menu_view,
-                                  self._menu_project, self._menu_roi, self._menu_model,
-                                  self._menu_predict, self._menu_options, self._menu_help)
-                     for action in menu.actions() if not action.shortcut().isEmpty()]
-        dialog = PreferencesDialog(self._preferences, shortcuts=shortcuts, parent=self)
+        """Edit > Preferences; ``True`` when the user applied new preferences."""
+        dialog = PreferencesDialog(self._preferences, shortcuts=self.menu_shortcuts(),
+                                   parent=self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return False
         preferences = dialog.values()
@@ -2418,30 +2446,20 @@ class HSIViewer(QMainWindow):
     def _populate_file_menu(self) -> None:
         m = self._menu_file
 
-        act = _add_required_action(m, "Open Data...")
-        act.setShortcut("Ctrl+O")
-        act.triggered.connect(self._open_data)
-
-        act = _add_required_action(m, "Add Dataset...")
-        act.setToolTip(wrap_tooltip("Add a dataset with its reference correction to the open project"))
-        act.triggered.connect(lambda: self.add_data_file())
-
-        self._menu_open_recent = _add_required_menu(m, "Open Recent")
-        self._menu_open_recent.aboutToShow.connect(self._populate_open_recent)
-
-        m.addSeparator()
-
         act = _add_required_action(m, "New Project...")
         act.setShortcut("Ctrl+N")
         act.triggered.connect(self._eda_view.new_project_btn_clicked)
 
         act = _add_required_action(m, "Open Project...")
-        act.setShortcut("Ctrl+Shift+O")
+        act.setShortcut("Ctrl+O")
         act.triggered.connect(self._eda_view.open_project_btn_clicked)
 
         act = _add_required_action(m, "Open Example Project")
         act.setToolTip(wrap_tooltip("Five synthetic tablet scans with a fitted model, created on first use"))
         act.triggered.connect(self.open_example_project)
+
+        self._menu_open_recent = _add_required_menu(m, "Open Recent")
+        self._menu_open_recent.aboutToShow.connect(self._populate_open_recent)
 
         m.addSeparator()
 
@@ -2452,10 +2470,6 @@ class HSIViewer(QMainWindow):
         act.triggered.connect(self._action_export_plots)
 
         m.addSeparator()
-
-        act = _add_required_action(m, "Close Window")
-        act.setShortcut("Ctrl+W")
-        act.triggered.connect(self.close)
 
         act = _add_required_action(m, "Quit")
         act.setShortcut("Ctrl+Q")
@@ -2477,16 +2491,6 @@ class HSIViewer(QMainWindow):
         finally:
             busy.end()
         self._open_project_btn_clicked_with_path(str(path))
-
-    def _open_data(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Open data",
-            preferences_store.start_folder("dataset"),
-            "Hyperspectral files (*.eiff *.hdr *.h5 *.hdf5 *.csv *.spa);;All files (*.*)",
-        )
-        if path:
-            self._open_data_path(path)
 
     def _open_data_path(self, path: str) -> None:
         if self.project_state.project_path is not None:
@@ -2924,7 +2928,7 @@ class HSIViewer(QMainWindow):
         return True
 
     def name_dataset(self, dataset_id: str | None = None) -> bool:
-        """Project > Name Dataset: give a dataset a short display name ("Layer 7")."""
+        """Project > Rename Dataset: give a dataset a short display name ("Layer 7")."""
         from PyQt6.QtWidgets import QInputDialog
 
         state = self.project_state
@@ -2983,7 +2987,11 @@ class HSIViewer(QMainWindow):
             return
         known = _recent.last_check()
         actions = {}
-        for entry in recent:
+        projects = [entry for entry in recent if entry.kind == "project"]
+        others = [entry for entry in recent if entry.kind != "project"]
+        for entry in [*projects, *others]:
+            if entry is (others[0] if others else None) and projects:
+                menu.addSeparator()  # recent projects above, recent data files below
             act = _add_required_action(menu, entry.path)
             act.setEnabled(known.get(entry.path, (True, None))[0])
             act.triggered.connect(lambda checked, p=entry.path: self._open_data_path(p))
@@ -3005,21 +3013,24 @@ class HSIViewer(QMainWindow):
 
     def _populate_view_menu(self) -> None:
         m = self._menu_view
-        for dock in (
-            self._project_browser_dock,
-            self._inspector_dock,
-            self._controls_dock,
-            self._log_dock,
-            self._hist_dock,
-            self._dc3_dock,
-            self._roi_table_dock,
+        for dock, text in (
+            (self._project_browser_dock, "Project"),
+            (self._inspector_dock, "Properties"),
+            (self._controls_dock, "Settings"),
+            (self._log_dock, "Log"),
+            (self._hist_dock, "Histogram"),
+            (self._roi_table_dock, "ROI Table"),
         ):
-            action = _require_qt_object(
-                dock.toggleViewAction(), f"{dock.windowTitle()} toggle action"
-            )
-            m.addAction(action)
+            m.addAction(self._dock_toggle(dock, text))
         for action in self._page_plot_actions.values():
             m.addAction(action)
+        m.addSeparator()
+        go_to = _add_required_menu(m, "Go To")
+        for number, step in enumerate(STEPS, 1):
+            act = _add_required_action(go_to, step.label)
+            act.setShortcut(f"Ctrl+{number}")
+            act.setToolTip(wrap_tooltip(step.tooltip))
+            act.triggered.connect(lambda _checked=False, key=step.key: self.show_step(key))
         m.addSeparator()
         theme_menu = _add_required_menu(m, "Theme")
         theme_group = QActionGroup(self)
@@ -3040,13 +3051,50 @@ class HSIViewer(QMainWindow):
         )
 
         m.addSeparator()
-        act = _add_required_action(m, "Reset Image View")
+        act = _add_required_action(m, "Reset View")
         act.triggered.connect(self._reset_image_view)
         act = _add_required_action(m, "Reset Layout")
         act.triggered.connect(self.reset_layout)
 
+    def _dock_toggle(self, dock: QDockWidget, text: str) -> QAction:
+        """A View item for a dock, in Title Case whatever the dock's title (plan
+        menu-polish, V1): it follows the dock's own toggle (checked, enabled)."""
+        source = _require_qt_object(dock.toggleViewAction(), f"{text} toggle action")
+        action = QAction(text, self)
+        action.setCheckable(True)
+
+        def follow() -> None:
+            action.setChecked(source.isChecked())
+            action.setEnabled(source.isEnabled())
+
+        follow()
+        source.changed.connect(follow)
+        action.triggered.connect(
+            lambda checked: source.trigger() if source.isChecked() != checked else None)
+        return action
+
+    def _paste_focused(self) -> None:
+        """Paste into the focused text or table: the ROI table pastes a column of values."""
+        widget = QApplication.focusWidget()
+        paste = getattr(widget, "paste", None)
+        if callable(paste):
+            paste()
+            return
+        if widget is not None and self._roi_table.isAncestorOf(widget):
+            self._roi_table.paste_clipboard()
+
     def _populate_help_menu(self) -> None:
         m = self._menu_help
+
+        act = _add_required_action(m, "User Guide")
+        act.setToolTip(wrap_tooltip(f"The online documentation: {USER_GUIDE_URL}"))
+        act.triggered.connect(lambda: QDesktopServices.openUrl(QUrl(USER_GUIDE_URL)))
+        act = _add_required_action(m, "Keyboard Shortcuts")
+        act.triggered.connect(self._action_shortcuts)
+        act = _add_required_action(m, "Report a Problem...")
+        act.triggered.connect(self._action_report_problem)
+
+        m.addSeparator()
 
         act = _add_required_action(m, "View Log")
         act.triggered.connect(self._action_view_log)
@@ -3058,6 +3106,43 @@ class HSIViewer(QMainWindow):
 
         act = _add_required_action(m, "About engiNIR")
         act.triggered.connect(self._action_about)
+
+    def _action_shortcuts(self) -> None:
+        """Every menu shortcut, read from the menus (so the list cannot go stale)."""
+        from ._preferences import shortcut_table
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Keyboard shortcuts")
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(shortcut_table(self.menu_shortcuts()))
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.resize(480, 520)
+        dialog.exec()
+
+    def _action_report_problem(self) -> None:
+        """Say what to attach, then open a new GitHub issue."""
+        log_file = log_file_path()
+        box = QMessageBox(self)
+        box.setWindowTitle("Report a problem")
+        attach = ("" if log_file is None else
+                  f"<br><br>Please attach the log file:<br><b>{log_file}</b>")
+        box.setText("Describe what you did and what happened in a new issue on GitHub."
+                    + attach)
+        box.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        open_button = box.addButton("Open GitHub Issue", QMessageBox.ButtonRole.AcceptRole)
+        copy_button = (None if log_file is None else
+                       box.addButton("Copy Log Path", QMessageBox.ButtonRole.ActionRole))
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is open_button:
+            QDesktopServices.openUrl(QUrl(ISSUES_URL))
+        elif copy_button is not None and clicked is copy_button:
+            clipboard = QApplication.clipboard()
+            if clipboard is not None:
+                clipboard.setText(str(log_file))
 
     def _action_view_log(self) -> None:
         self._log_dock.setVisible(True)
@@ -3280,7 +3365,6 @@ class HSIViewer(QMainWindow):
         """Restyle matplotlib/pyqtgraph surfaces that are outside Qt palette control."""
         self._canvas.restyle_theme()
         self._hist.restyle_theme()
-        self._dc3.restyle_theme()
         self._sensor.restyle_theme()
         self._spatial.restyle_theme()
         self._spectrum.restyle_theme()

@@ -218,7 +218,7 @@ This means attach validation must not live only inside one UI button handler.
 ## Mismatch validation contract
 
 Validation is per dataset. When a dataset is attached to a project window
-(at startup, by Open Data, or by switching the shown dataset), it is compared
+(at startup, from Open Recent, or by switching the shown dataset), it is compared
 with its own registration, never with the datasets of other ROIs.
 
 Comparison basis:
@@ -273,7 +273,7 @@ with its own active reference correction (`dataset-reference-correction-contract
 
 ### Adding a dataset
 
-`Add Dataset...`, and `Open Data...` in a project window, add a dataset
+`Project > Add Dataset...`, and a data file chosen in Open Recent in a project window, add a dataset
 to the project in the same window.
 
 Required behavior:
@@ -502,7 +502,7 @@ Required behavior:
 - attach the project through the shared attach-validation path
 - enforce the same mismatch policy as interactive attach
 
-### In-window `Open Data...` in a project window
+### A data file from Open Recent in a project window
 
 Required behavior, from project-only mode and from a window that already
 shows a dataset:
@@ -549,7 +549,7 @@ v3 requires regression coverage for:
   when a registered file no longer matches its `DatasetRecord`
 - `Add Dataset...` writes the dataset and its reference correction together or not
   at all
-- `Open Data...` in a project window keeps the project
+- a data file from Open Recent in a project window keeps the project
 - `Locate File...` refuses a file whose pixels differ from the stored ROI
   pixels
 - target assignments, calibration sets and fits work with every dataset

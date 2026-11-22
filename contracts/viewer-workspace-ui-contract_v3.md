@@ -178,7 +178,7 @@ v3 requires one stable high-level frame shared by all workspaces (engiNIR
 Docks keep their places: they can be resized and closed, not floated or
 moved (plan decision Q6). The window is designed for 1920 × 1080 and keeps
 every function at 1536 × 864; smaller screens use the interface scale
-(Tools > Preferences).
+(Edit > Preferences).
 
 This is a behavioral contract, not a pixel-perfect styling rule.
 
@@ -379,7 +379,7 @@ Required controls:
 - preprocessing preview controls
 - axis controls
 - ROI creation, single and as a grid (the grid dialog opens with the defaults of
-  Tools > ROI Grid Defaults... and shows the cells on the image, outside cells in red); both dialogs have a **Prediction only**
+  ROI > ROI Grid Defaults... and shows the cells on the image, outside cells in red); both dialogs have a **Prediction only**
   checkbox that sets the ROIs' `job` and remembers the last choice per dataset (user settings); prediction ROIs are marked in the ROI table (the Set
   column), the browser, the mosaic (dashed outline) and the ROI spectra
   (dashed lines, still colored by value); counts of ROIs with a value name
@@ -763,7 +763,7 @@ Verdict). The viewer shows; it judges nothing of its own.
 
 ## Preferences
 
-Tools > Preferences: Appearance (theme, interface scale, the switches for
+Edit > Preferences: Appearance (theme, interface scale, the switches for
 bringing Checks to the front and for the plot help),
 Data and paths (the folders every project and dataset file dialog starts
 in, ignored when missing; the drive mapping of stored paths shown as

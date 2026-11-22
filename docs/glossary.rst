@@ -302,9 +302,6 @@ Viewer
       Three bands shown as red, green and blue (1650, 1300 and 1050 nm when
       the wavelengths are known).
 
-   Band image
-      The image of one band, frames by rows.
-
    Sensor frame
       One :term:`frame` as the camera's sensor sees it: bands by rows, the
       spectra of every row at one moment. Not a frame range.

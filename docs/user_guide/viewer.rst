@@ -75,9 +75,14 @@ Window
 
 From top to bottom:
 
-- **Menus** hold every action: File, Edit, View, Project, ROI, Model, Predict,
-  Tools and Help. The most used have shortcuts (**F5** fits, **F6** predicts
-  ROIs, **Ctrl+T** opens the ROI table); **Tools > Preferences** lists them all.
+- **Menus** hold every action: File, Edit, View, Project, ROI, Model, Predict
+  and Help. The most used have shortcuts: **Ctrl+O** opens a project,
+  **Ctrl+D** adds a dataset, **Ctrl+1** to **Ctrl+5** go to the steps of the
+  workflow strip (also **View > Go To**), **F5** fits, **F6** predicts ROIs,
+  **F7** predicts a map, **Ctrl+T** opens the ROI table, **Delete** deletes the
+  selected ROI on the image or the mosaic. **Help > Keyboard Shortcuts** lists
+  them all; **Help > User Guide** opens this guide and **Help > Report a
+  Problem...** a new GitHub issue, with the log file to attach.
 - **The workflow strip**: Data → ROIs → Values → Model → Predict, the order
   in which a project is built. A click opens the step. Each step shows its
   state: a tick when done, or a warning with the number of open checks in a
@@ -111,7 +116,7 @@ The checks and verdicts come from :meth:`enginir.Project.checks` and
 :meth:`enginir._workflow.Model.verdict`; a script sees the same.
 
 The window is made for 1920 × 1080 and keeps everything at 1536 × 864. On a
-smaller screen choose a smaller **Interface scale** in **Tools > Preferences**.
+smaller screen choose a smaller **Interface scale** in **Edit > Preferences**.
 Docks can be resized and closed (**View** brings them back); they stay in
 their places. **View > Reset Layout** restores the default.
 
@@ -129,7 +134,7 @@ shows it). It is
 created on first use in the settings folder; the fastest way to see how
 everything works.
 
-**Preferences** (Tools > Preferences) set the theme (dark, light or follow
+**Preferences** (Edit > Preferences) set the theme (dark, light or follow
 the system), the interface scale, the plot help, the folders the project and
 dataset file dialogs start in, the defaults of the Fit and Prediction
 settings, the PNG resolution of exports, the threads of a fit and the log
@@ -142,7 +147,7 @@ not to a project: a model stores what it was fitted with.
 DOI) and the link to its GitHub repository.
 
 A project opened without a scan shows its stored objects in every
-step; drawing ROIs needs a scan. **Project > Name Dataset...** gives a
+step; drawing ROIs needs a scan. **Project > Rename Dataset...** gives a
 dataset a short name ("Layer 7") that is shown instead of its file name.
 
 Explore
@@ -161,9 +166,6 @@ cursor:
      - Dock
    * - **Histogram**
      - intensity distribution of the current frame
-     - left
-   * - **Band image**
-     - the cube at the selected band (height × frames), raw counts (DN)
      - left
    * - **Sensor Frame**
      - the current frame (rows × wavelengths, or bands), processed
@@ -213,7 +215,7 @@ To record calibration data:
 4. Name the ROI and, optionally, enter its target value.
 
 For a tray of samples, **Add ROI grid** creates them in one go. The dialog
-opens at once with the defaults from **Tools > ROI Grid Defaults** and
+opens at once with the defaults from **ROI > ROI Grid Defaults** and
 lays out equal ROIs in pixels, with x along frames and y along rows:
 
 - **Number**: columns (x) and rows (y).
@@ -225,7 +227,7 @@ lays out equal ROIs in pixels, with x along frames and y along rows:
 - **Names**: a pattern from the list (``{name}-{row}{column:02d}`` gives
   ``Layer 7-B04``; ``{n:03d}`` numbers them) or your own, and the order. The
   dialog lists the placeholders: ``{name}`` is the dataset's name (**Project >
-  Name Dataset...**), or its file name when it has none; ``{file}`` the file
+  Rename Dataset...**), or its file name when it has none; ``{file}`` the file
   name; ``{folder}`` the name of the file's folder; ``{row}``, ``{column}``
   and ``{n}`` the position. Name the datasets first when their files share a
   name (every Kestreleye scan is ``stream_hsi.h5``).
@@ -241,7 +243,7 @@ one of them cannot be stored. Each ROI records its grid position and the grid
 layout.
 
 Changes in the dialog apply to that grid only: the next grid starts from the
-Tools defaults again. Set them once for your tray holder in **Tools >
+ROI Grid Defaults again. Set them once for your tray holder in **ROI >
 ROI Grid Defaults**, or press **Make defaults** in the grid dialog to keep
 the current values for every new grid (stored in your user settings).
 
@@ -291,7 +293,7 @@ and share the rows of the scan: zooming the image zooms the other two, and
 the selected row is one line through all three. The Spectral Profile is
 below. **View > Sensor Frame**, **Spatial Profile** and **Spectral Profile**
 show or hide them; each one's header maximizes it on the page (Esc
-restores). The Histogram and Band image docks belong to the Dataset tab: on Project
+restores). The Histogram dock belongs to the Dataset tab: on Project
 ROIs they are hidden, and they come back as you left them.
 
 A project with ROIs opens on this tab. Clicking a tile selects the ROI
@@ -451,7 +453,7 @@ Predict
 Predict works on project data only: the tablets to predict are ROIs marked
 **Prediction only**, and a scan to predict is a project dataset.
 
-**Mark the tablets.** Add the tray with **File > Add Dataset...** and
+**Mark the tablets.** Add the tray with **Project > Add Dataset...** and
 choose its reference correction there, as for a calibration tray (the references of this
 session, or the detector levels). Draw the tablets with **Add ROI** or **Add
 ROI grid** and tick **Prediction only**; the choice is remembered for the
@@ -538,10 +540,10 @@ memory and reports its phase.
 Projects
 --------
 
-A project collects ROIs from any number of datasets. **File > Add Dataset...** (or **Open Data...** while a project is open) adds a file to the
+A project collects ROIs from any number of datasets. **Project > Add Dataset...** adds a file to the
 project in the same window. Its **Name** field gives the dataset a short name
 ("Layer 7"), shown instead of the file name and used by ``{name}`` in ROI grid
-names; empty, the file name is shown (**Project > Name Dataset...** changes it
+names; empty, the file name is shown (**Project > Rename Dataset...** changes it
 later). The dialog asks how the file is corrected:
 
 - **Dark and white references**, each from a file or from frames of the dataset itself, such as a white tile or shutter-closed frames at the start of
@@ -550,7 +552,7 @@ later). The dialog asks how the file is corrected:
 - **Detector calibrated with dark and white reference levels**, black and
   white, editable: for a camera that has already corrected its counts with
   its own dark and white reference (EVK cameras do). The levels stored in
-  the file, else those of **Tools > Preferences** (128 and 3100 by default,
+  the file, else those of **Edit > Preferences** (128 and 3100 by default,
   the EVK Helios white balance; 3500 before engiNIR 1.7.3). This is the
   preselected choice;
 - **Raw counts**, without references or levels (only raw counts (DN) can be
@@ -647,14 +649,14 @@ white references recorded once. From an empty project to a model:
 
 1. **Create the project.** On the welcome screen choose **Create Project...** and
    pick where the project file goes. The window opens on Explore with no dataset.
-2. **Add the first tray.** **File > Add Dataset...** opens the file and
+2. **Add the first tray.** **Project > Add Dataset...** opens the file and
    asks for its reference correction. **Detector calibrated with dark and white
-   reference levels** (the levels of Tools > Preferences) is preselected. If the tray has a white tile and shutter-closed frames,
+   reference levels** (the levels of Edit > Preferences) is preselected. If the tray has a white tile and shutter-closed frames,
    choose **Dark and white references** and pick them as frame ranges of the
    file itself, or choose the reference files. Check the mean spectra and the share
    of saturated values, then **OK**: the dataset and its reference correction are
    stored together.
-3. **Draw the samples.** Set your tray holder once in **Tools > ROI Grid
+3. **Draw the samples.** Set your tray holder once in **ROI > ROI Grid
    Defaults** (rows, columns, ROI size, spacing). **Add ROI grid** then
    shows the grid on the tray; correct the origin if the tray sits elsewhere,
    click empty positions, and **OK**. Every cell becomes an ROI named after the file and its position,

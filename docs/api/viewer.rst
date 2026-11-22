@@ -204,9 +204,6 @@ Panels
 .. autoclass:: enginir.viewer._panels.HistogramPanel
    :no-members:
 
-.. autoclass:: enginir.viewer._panels.DC3Panel
-   :no-members:
-
 .. autoclass:: enginir.viewer._panels.SensorPanel
    :no-members:
 

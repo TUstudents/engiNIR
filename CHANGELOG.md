@@ -19,6 +19,28 @@
   project with a binned dataset and refits its models from the stored ROIs,
   but refuses its data file (the shape differs) rather than read it unbinned.
 
+### Changed
+
+- **Menus tidied** (plan `plans/menu-polish.md`):
+  - File: Open Project is **Ctrl+O**; Open Data… and Add Dataset… left File
+    (**Project > Add Dataset…**, now **Ctrl+D**); Close Window is gone (Quit
+    stays); Open Recent lists projects first, then data files.
+  - Edit: **Paste** (Ctrl+V) next to Copy; **Preferences…** moved here from
+    Tools, which is gone.
+  - View: Title Case items; **Go To** the five steps with **Ctrl+1** to
+    **Ctrl+5**; "Reset View" as on the image's button.
+  - Project: **Rename Dataset…** (was Name Dataset…).
+  - ROI: **ROI Grid Defaults…** (from Tools), **Find ROI…** (from Edit), and
+    **Delete** deletes the selected ROI on the image or the mosaic.
+  - Predict: **Predict Map…** on **F7**.
+  - Help: **User Guide**, **Keyboard Shortcuts** and **Report a Problem…**;
+    the log entries of Tools moved here.
+
+### Removed
+
+- **The Band image panel** (View > Band image): it showed no more than the
+  Spatial image.
+
 ## 1.7.4 (2026-11-22)
 
 Viewer fixes and a smaller, sharper test suite. Projects, scripts and the

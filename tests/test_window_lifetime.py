@@ -56,7 +56,8 @@ def test_a_closed_window_is_deleted(qapp, project_path):
 
 
 def test_a_closed_window_releases_its_data_while_its_opener_stays_open(qapp, tmp_path):
-    """Open Data... in a window without a project opens a second window; closing it frees the cube."""
+    """A data file opened from Open Recent in a window without a project opens a second
+    window; closing it frees the cube."""
     from PyQt6 import sip
     from PyQt6.QtWidgets import QApplication
 

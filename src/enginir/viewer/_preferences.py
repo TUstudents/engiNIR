@@ -171,6 +171,26 @@ def startup_scale() -> None:
         os.environ["QT_SCALE_FACTOR"] = f"{scale:g}"
 
 
+
+def shortcut_table(shortcuts: Sequence[tuple[str, str]]) -> QTableWidget:
+    """A read-only table of ``(menu item, shortcut)`` (Preferences > Keyboard and
+    Help > Keyboard Shortcuts)."""
+    table = QTableWidget(len(shortcuts), 2)
+    table.setHorizontalHeaderLabels(["Menu item", "Shortcut"])
+    table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+    vertical = table.verticalHeader()
+    if vertical is not None:
+        vertical.setVisible(False)
+    header = table.horizontalHeader()
+    if header is not None:
+        header.setStretchLastSection(True)
+    for row, (name, keys) in enumerate(shortcuts):
+        table.setItem(row, 0, QTableWidgetItem(name))
+        table.setItem(row, 1, QTableWidgetItem(
+            QKeySequence(keys).toString(QKeySequence.SequenceFormat.NativeText)))
+    table.resizeColumnToContents(0)
+    return table
+
 class PreferencesDialog(QDialog):
     """Tools > Preferences: pages on the left, the settings of the page on the right."""
 
@@ -346,21 +366,7 @@ class PreferencesDialog(QDialog):
                          "to send with a problem report.")
 
         form = self._page("Keyboard")
-        table = QTableWidget(len(shortcuts), 2)
-        table.setHorizontalHeaderLabels(["Action", "Shortcut"])
-        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        vertical = table.verticalHeader()
-        if vertical is not None:
-            vertical.setVisible(False)
-        header = table.horizontalHeader()
-        if header is not None:
-            header.setStretchLastSection(True)
-        for row, (name, keys) in enumerate(shortcuts):
-            table.setItem(row, 0, QTableWidgetItem(name))
-            table.setItem(row, 1, QTableWidgetItem(
-                QKeySequence(keys).toString(QKeySequence.SequenceFormat.NativeText)))
-        table.resizeColumnToContents(0)
-        form.addRow(table)
+        form.addRow(shortcut_table(shortcuts))
         self.set_values(p)
 
     def _open_log(self) -> None:

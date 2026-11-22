@@ -299,7 +299,7 @@ Many samples in one dataset (a tray) may be created as a grid:
   presets or a custom pattern) and the order
 - every created ROI lies inside the image; positions marked empty may lie
   outside it
-- a new grid starts from the user's defaults (Tools > ROI Grid Defaults...,
+- a new grid starts from the user's defaults (ROI > ROI Grid Defaults...,
   kept in the user settings; built in: 5 columns x 1 row, ROI 180 x 110,
   origin 150, 64, spacing 214, 10); changes in the grid dialog apply to that
   grid only, unless the user makes them the defaults from the dialog
