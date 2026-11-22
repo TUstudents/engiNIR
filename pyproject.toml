@@ -14,7 +14,6 @@ license-files = ["LICENSE"]
 dependencies = [
     "numpy>=2.1",
     "scipy>=1.14.1",
-    "pandas>=2.2.3",
     "scikit-learn>=1.6",
     "matplotlib>=3.9.2",
     "h5py>=3.12.1",
@@ -36,7 +35,11 @@ dev = [
     "pyright==1.1.410",
     "pytest-timeout>=2.3",
     "ikpls>=6.3",
+    "pandas>=2.2.3",
 ]
+# metrics_report(..., as_dataframe=True); not installed by default, so the
+# viewer starts without it (scikit-learn imports pandas whenever it is installed).
+pandas = ["pandas>=2.2.3"]
 docs = ["sphinx", "sphinx-rtd-theme", "myst-parser"]
 
 [project.urls]

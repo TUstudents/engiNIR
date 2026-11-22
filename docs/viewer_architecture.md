@@ -317,14 +317,19 @@ paths on the UI thread (plan `plans/startup-speed-1.7.1.md`):
 - `import enginir` and `import enginir.viewer` resolve their public names on
   first use (PEP 562 `__getattr__`, with `TYPE_CHECKING` imports for the
   types). The launcher imports only its own modules, the standard library,
-  loguru and Qt before the welcome window: no scikit-learn, SciPy, pandas,
-  h5py, matplotlib or pyqtgraph (`tests/test_startup.py` checks the list in
+  loguru and Qt before the welcome window: no NumPy, scikit-learn, SciPy,
+  pandas, h5py, matplotlib or pyqtgraph (`tests/test_startup.py` checks the list in
   a subprocess). A module of the launcher path imports the heavy parts
   inside the function that needs them.
 - `_warmup.start_warmup` runs once the welcome window is painted: a job
-  imports the non-Qt stack (`BACKGROUND_MODULES`), then an idle `QTimer`
-  imports the Qt modules (`UI_MODULES`, among them `_viewer`) one per step on
-  the UI thread. A pick before the warm-up ends first waits for the
+  imports the non-Qt stack in named steps (`BACKGROUND_STEPS`: NumPy, SciPy,
+  scikit-learn, h5py, matplotlib, engiNIR), then an idle `QTimer` imports the
+  Qt modules (`UI_MODULES`, among them `_viewer`) one per step on the UI
+  thread. Each step logs its time and what it loaded ("warm-up imported scipy
+  in 0.58s (644 modules, 104 native, 61 MB native)"), so a cold start's log
+  shows whether many small files or large native ones cost the time (plan
+  `plans/cold-start.md`). pandas is not a dependency: scikit-learn imports it
+  whenever it is installed, about 290 modules more on every start. A pick before the warm-up ends first waits for the
   background imports (`_warmup.wait_for_library`, called by the launcher's
   loaders in `__main__`): two threads importing the same packages at once can
   deadlock Python's import locks (seen on Python 3.13.18 and 3.14). For the

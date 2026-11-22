@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import csv
 import os
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-import pandas as pd
 
 from enginir._checks import log_and_raise
 from enginir._logging import get_logger
@@ -71,43 +71,51 @@ def load_csv(
     """
     path = require_file(path)
     if path.suffix.lower() == ".xlsx":
-        table = pd.read_excel(path, sheet_name=sheet_name, header=wavelength_row)
+        rows = _read_xlsx(path, sheet_name)
     else:
-        table = pd.read_csv(path, header=wavelength_row)
+        rows = _read_csv(path)
+    if len(rows) <= wavelength_row:
+        log_and_raise("{} has no header row {} (it has {} rows)", path, wavelength_row, len(rows))
+    headers: list[Any] = ["" if cell is None else cell for cell in rows[wavelength_row]]
+    body = rows[wavelength_row + 1:]
+    if any(len(row) > len(headers) for row in body):
+        log_and_raise("{} has rows with more cells than its header", path)
+    columns = [[row[index] if index < len(row) else None for row in body]
+               for index in range(len(headers))]
 
-    if sample_col is None and not _is_number(table.columns[0]):
+    if sample_col is None and headers and not _is_number(headers[0]):
         sample_col = 0
     if sample_col is None:
-        sample_names = [str(index) for index in table.index]
+        sample_names = [str(index) for index in range(len(body))]
     else:
-        column: Any = sample_col
         if isinstance(sample_col, int):
-            if not 0 <= sample_col < len(table.columns):
+            if not 0 <= sample_col < len(headers):
                 log_and_raise(
                     "sample_col index {} is outside the {} columns of {}",
                     sample_col,
-                    len(table.columns),
+                    len(headers),
                     path,
                 )
-            column = table.columns[sample_col]
-        if column not in table.columns:
-            log_and_raise("sample_col {!r} is not a column of {}", column, path)
-        sample_names = [str(name) for name in table[column]]
-        table = table.drop(columns=[column])
+            position = sample_col
+        elif sample_col in headers:
+            position = headers.index(sample_col)
+        else:
+            log_and_raise("sample_col {!r} is not a column of {}", sample_col, path)
+        sample_names = _text_column(columns.pop(position))
+        del headers[position]
 
     sample_columns: dict[str, list[str]] = {}
-    while table.shape[1] and not _is_number(table.columns[0]):
-        header = str(table.columns[0])
-        sample_columns[header] = [str(value) for value in table[table.columns[0]]]
-        table = table.drop(columns=[table.columns[0]])
-    if table.shape[1] == 0:
+    while headers and not _is_number(headers[0]):
+        sample_columns[str(headers.pop(0))] = _text_column(columns.pop(0))
+    if not headers:
         log_and_raise("{} contains no spectral columns", path)
     try:
-        wavelengths = np.array([float(column) for column in table.columns])
+        wavelengths = np.array([float(header) for header in headers])
     except (TypeError, ValueError) as exc:
         log_and_raise("Header of {} contains non-numeric wavelengths", path, cause=exc)
     try:
-        X = table.to_numpy(dtype=np.float64)
+        X = np.array([[_number(cell) for cell in column] for column in columns],
+                     dtype=np.float64).T.reshape(len(body), len(headers))
     except (TypeError, ValueError) as exc:
         log_and_raise("{} contains non-numeric spectral values", path, cause=exc)
 
@@ -150,21 +158,99 @@ def save_csv(
         log_and_raise(
             "wavelengths must have shape ({},) to match X, got {}", X.shape[1], wavelengths.shape
         )
-    table = pd.DataFrame(X, columns=[str(w) for w in wavelengths])
+    text_columns: dict[str, Sequence[str]] = {}
     if sample_names is not None:
         if len(sample_names) != X.shape[0]:
             log_and_raise(
                 "sample_names has {} entries but X has {} rows", len(sample_names), X.shape[0]
             )
-        table.insert(0, "sample_id", sample_names)
-    for position, (header, values) in enumerate((columns or {}).items(),
-                                                 start=0 if sample_names is None else 1):
+        text_columns["sample_id"] = sample_names
+    for header, values in (columns or {}).items():
         if _is_number(header) or len(values) != X.shape[0]:
             log_and_raise("Column {!r} needs a non-numeric header and {} values, got {}",
                           header, X.shape[0], len(values))
-        table.insert(position, str(header), list(values))
-    table.to_csv(Path(path), index=False)
+        text_columns[str(header)] = values
+    with Path(path).open("w", encoding="utf-8", newline="") as file:
+        writer = csv.writer(file, lineterminator=os.linesep)
+        writer.writerow([*text_columns, *(str(w) for w in wavelengths)])
+        for index, row in enumerate(X):
+            writer.writerow([*(values[index] for values in text_columns.values()),
+                             *(_cell_text(value) for value in row)])
     logger.info("Saved CSV: shape {} to {}", X.shape, path)
+
+
+#: Cells read as missing (NaN), as pandas reads them.
+_MISSING = frozenset({"", "#N/A", "#N/A N/A", "#NA", "-1.#IND", "-1.#QNAN", "-NaN", "-nan",
+                      "1.#IND", "1.#QNAN", "<NA>", "N/A", "NA", "NULL", "NaN", "None", "n/a",
+                      "nan", "null"})
+
+
+def _read_csv(path: Path) -> list[list[Any]]:
+    """The rows of a CSV file as text cells; blank lines are skipped, a BOM is dropped."""
+    with path.open(encoding="utf-8-sig", newline="") as file:
+        return [row for row in csv.reader(file) if row]
+
+
+def _read_xlsx(path: Path, sheet_name: str | int) -> list[list[Any]]:
+    """The rows of one worksheet as cell values (``None`` for empty cells)."""
+    import openpyxl
+
+    workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        if isinstance(sheet_name, int):
+            if not 0 <= sheet_name < len(workbook.worksheets):
+                log_and_raise("Worksheet {} not found: {} has {} sheets", sheet_name, path,
+                              len(workbook.worksheets))
+            sheet = workbook.worksheets[sheet_name]
+        elif sheet_name in workbook.sheetnames:
+            sheet = workbook[sheet_name]
+        else:
+            log_and_raise("Worksheet named {!r} not found", sheet_name)
+        rows = [list(row) for row in sheet.iter_rows(values_only=True)]
+    finally:
+        workbook.close()
+    return rows
+
+
+def _is_missing(cell: Any) -> bool:
+    return cell is None or (isinstance(cell, str) and cell.strip() in _MISSING)
+
+
+def _number(cell: Any) -> float:
+    return np.nan if _is_missing(cell) else float(cell)
+
+
+def _text_column(cells: list[Any]) -> list[str]:
+    """Cells of a text column as pandas gave them: a column of numbers is read
+    as numbers (``"001"`` gives ``"1"``; ``"1.0"`` once a cell is missing or
+    not whole), a missing cell is ``"nan"``."""
+    present = [cell for cell in cells if not _is_missing(cell)]
+    if present and all(_is_int(cell) for cell in present) and len(present) == len(cells):
+        return [str(int(cell)) for cell in cells]
+    if present and all(_is_number(cell) for cell in present):
+        return [str(_number(cell)) for cell in cells]
+    return ["nan" if _is_missing(cell) else str(cell) for cell in cells]
+
+
+def _is_int(cell: Any) -> bool:
+    if isinstance(cell, bool):
+        return False
+    if isinstance(cell, int):
+        return True
+    if isinstance(cell, str):
+        try:
+            int(cell)
+        except ValueError:
+            return False
+        return True
+    return False
+
+
+def _cell_text(value: Any) -> str:
+    """A number as pandas writes it: shortest repr of its own dtype, NaN empty."""
+    if isinstance(value, np.floating) and np.isnan(value):
+        return ""
+    return str(value)
 
 
 def _is_number(value: object) -> bool:
