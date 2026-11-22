@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.7.5 (2026-11-22)
+
+Spatial pixel binning of a dataset and tidier menus. The format stays
+`enginir-1.7`; projects without binned datasets are unchanged.
 
 ### Added
 
