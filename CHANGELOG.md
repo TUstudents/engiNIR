@@ -15,6 +15,10 @@
   install it themselves.
 - **The launcher no longer loads NumPy** before the welcome window (264
   modules instead of 349).
+- **Fixed: Open Example Project during the warm-up** imported the library in
+  a second thread at the same time as the warm-up (seen on Windows); it now
+  waits for the warm-up like opening a project or a data file, since two
+  threads importing the same packages can deadlock.
 - **The log shows where a start's time goes:** each step of the warm-up
   (NumPy, SciPy, scikit-learn, h5py, matplotlib, engiNIR, the Qt parts) logs
   its time, its number of modules and the size of its native files; the

@@ -1,7 +1,8 @@
 # Plan: a faster cold start on Windows
 
-Status: phases 0 to 2 built on branch `cold-start` (2026-11-22); the Windows
-measurement (end of phase 2) is open.
+Status: phases 0 to 2 built on branch `cold-start` (2026-11-22); measured on a
+second Windows machine (below); a start after a reboot on the work laptop is
+open.
 
 ## The problem (log of 2026-11-22, Windows, installed with the 1.7.4 installer)
 
@@ -110,6 +111,41 @@ lines in `plans/backlog.md` item 17. From them:
 - most time in the native files (NumPy, SciPy's libraries, Qt): no packing
   helps; the answer is an antivirus exclusion of the uv folders and a local
   disk, which goes into the installation guide.
+
+## Measured on Windows (2026-11-22, a second machine, branch `cold-start`)
+
+A fresh install (`uv tool install --link-mode copy --no-cache`: files never
+read or scanned before), then two more starts. Not a start after a reboot; the
+work laptop's cold start (1.7.4) was slower again: 17.6 s before the launcher,
+31.3 s warm-up.
+
+| step | modules | native | native MB | fresh | warm |
+|---|---|---|---|---|---|
+| launcher (before the welcome window) | 269 | | | 1.53 s | 0.65 s |
+| numpy | 84 | 2 | 4 | 1.00 s | 0.06 s |
+| scipy | 627 | 104 | 67 | **12.23 s** | 0.80 s |
+| scikit-learn | 208 | 8 | 1 | 1.35 s | 0.14 s |
+| h5py | 41 | 25 | 3 | 0.56 s | 0.05 s |
+| matplotlib | 176 | 10 | 8 | 1.28 s | 0.30 s |
+| engiNIR | 251 | 46 | 7 | 2.37 s | 0.45 s |
+| pyqtgraph and the viewer | 212 | 4 | 1 | 1.22 s | 0.16 s |
+| **warm-up total** | | | | **20.1 s** | **2.0 s** |
+
+Reading: steps of mostly small files cost about 6 ms per module fresh
+(scikit-learn 1.35 s for 208, pyqtgraph 1.06 s for 179). With that rate,
+SciPy's 627 modules explain about 4 s of its 12.2 s; the other 8 s are its
+67 MB of native files (about 0.12 s per MB). Over the whole warm-up, roughly
+half the time is small files (about 1,600 modules) and half native files
+(about 90 MB, three quarters of it SciPy's).
+
+So a packed build (PyInstaller) could save at most about half; SciPy's native
+files remain, and scikit-learn imports `scipy.stats` (most of SciPy) itself.
+The rest is the antivirus and the disk.
+
+The first try of this measurement found a bug: Open Example Project, clicked
+during the warm-up, imported the library in a second thread at the same time
+(it did not call `wait_for_library`); fixed, with a test for every welcome
+pick.
 
 ## Not in this plan
 

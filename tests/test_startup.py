@@ -323,3 +323,35 @@ def test_no_job_thread_starts_while_a_window_is_built_or_shown(qapp, tmp_path, m
         assert started and early() == [], started
     finally:
         welcome.close()
+
+
+@pytest.mark.parametrize("loader", ["_load_dataset_startup", "_load_project_startup",
+                                    "create_project", "_load_example_startup"])
+def test_a_welcome_pick_waits_for_the_warmup_before_loading(loader, monkeypatch, tmp_path):
+    """Two threads importing the library at once can deadlock (2026-11-19): a pick on the
+    welcome window loads nothing until the warm-up's imports have ended. The example
+    project did not wait (found on Windows, 2026-11-22)."""
+    import threading
+
+    import enginir._example
+    import enginir.io.project_store
+    import enginir.viewer._open
+    from enginir.viewer import __main__ as launcher
+    from enginir.viewer import _recent, _warmup
+
+    called: list[str] = []
+    for module, name in ((enginir.viewer._open, "_load_dataset_startup"),
+                         (enginir.viewer._open, "_load_project_startup"),
+                         (enginir.io.project_store, "create_project"),
+                         (enginir._example, "create_example_project")):
+        monkeypatch.setattr(module, name, lambda *args, _name=name, **kwargs: called.append(_name))
+    monkeypatch.setattr(_recent, "config_dir", lambda: tmp_path)
+    monkeypatch.setattr(_warmup, "_LIBRARY_IMPORTED", threading.Event())  # a warm-up runs
+    args = () if loader == "_load_example_startup" else (str(tmp_path / "x.h5"),)
+    thread = threading.Thread(target=getattr(launcher, loader), args=args, daemon=True)
+    thread.start()
+    thread.join(0.3)
+    assert called == [], f"{loader} loaded during the warm-up: {called}"
+    _warmup._LIBRARY_IMPORTED.set()
+    thread.join(5)
+    assert called, f"{loader} did not load after the warm-up"
