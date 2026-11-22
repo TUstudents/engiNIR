@@ -100,6 +100,14 @@ def fit_summary(model_run: ModelRun, roi_names: dict[str, str],
 _MAX_KEY_CHARS = 28
 
 
+
+def binning_text(binning: int) -> str:
+    """``"2 × 2"`` for a binned dataset or model, ``"none"`` without binning."""
+    return "none" if binning == 1 else f"{binning} × {binning}"
+
+
+_binning_text = binning_text
+
 class _PropertiesLabel(QLabel):
     """The lines "Key: value" as a two-column table: keys muted, values aligned.
 
@@ -277,6 +285,7 @@ class ProjectInspector(QWidget):
                     f"Modality: {dataset.source_modality}",
                     f"Cube shape: {dataset.cube_shape}",
                     f"Bands: {dataset.n_bands}",
+                    f"Binning: {_binning_text(dataset.binning)}",
                 ]
             )
         )
@@ -394,6 +403,7 @@ class ProjectInspector(QWidget):
                     f"Requires refs: dark={signal_domain.requires_dark_ref}, white={signal_domain.requires_white_ref}",
                     f"Corrected input allowed: {signal_domain.corrected_input_allowed}",
                     f"Bands: {signal_domain.n_bands}",
+                    f"Binning: {_binning_text(signal_domain.binning)}",
                     f"Band mapping: {signal_domain.band_mapping_policy}",
                 ]
             )

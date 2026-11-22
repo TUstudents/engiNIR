@@ -145,7 +145,7 @@ Modeling view
    :members: roi_name, target_value
 
 .. autoclass:: enginir.viewer._modeling.TargetSelectionDialog
-   :members: target_name, target_unit, selected_target_id, creates_target
+   :members: target_name, target_unit, selected_target_id
 
 .. autoclass:: enginir.viewer._modeling.FitModelRunDialog
    :members: target_id, recipe, set_recipe, model_type, n_components, signal_unit, cv,

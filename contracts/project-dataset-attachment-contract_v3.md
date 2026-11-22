@@ -322,6 +322,33 @@ Required behavior:
   table has their band count, its fix opens Set Wavelengths with them and
   that table
 
+### Binned datasets
+
+A dataset may average `k × k` blocks of frames and rows of its file, k in
+`enginir.io.BINNING_FACTORS` (2, 3, 4), chosen in `Add Dataset...` (Binning)
+or `Project.add_dataset(path, binning=k)`.
+
+Required behavior:
+
+- every read of the file is binned: the header's shape, ROI pixels, the
+  shown image, Locate and the mismatch check, and prediction
+- the mean is taken on the values as stored, before any reference
+  correction; integer counts keep their dtype (the mean rounded half up), so
+  the levels, reference correction and ROI storage of raw counts apply;
+  floating data give float32 means
+- frames and rows short of a block are dropped
+- reference frames of the file are frames as stored, averaged over frames and
+  binned over the rows; reference files are binned over the rows; a dataset
+  shares references (`references_from`) only with one of the same binning
+- a file has one binning in a project, fixed when it is added: adding it
+  again with another binning is refused, and there is no change afterwards
+- a model records its training datasets' binning in its input contract; a
+  calibration set mixing binnings is refused; a file not registered is
+  binned like the model to be predicted; a registered file of another
+  binning is refused
+- the binning is stored only when above 1, so datasets and input contracts
+  without binning keep their content
+
 ### Switching the shown dataset
 
 Required behavior:

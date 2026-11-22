@@ -242,10 +242,6 @@ class _ElidedLabel(QLabel):
     def text(self) -> str:
         return self._full
 
-    @property
-    def elided(self) -> bool:
-        return super().text() != self._full
-
     def resizeEvent(self, a0: Any) -> None:  # noqa: N802 (Qt API)
         super().resizeEvent(a0)
         self._elide()
@@ -344,11 +340,6 @@ class PlotFrame(QWidget):
 
     def set_title(self, title: str) -> None:
         self._title.setText(title)
-
-    @property
-    def title_elided(self) -> bool:
-        """Whether the header is too narrow for the whole title (it ends in "…")."""
-        return self._title.elided
 
     def take_header(self) -> QWidget:
         """Remove the header from the frame, e.g. to use it as a dock title bar."""

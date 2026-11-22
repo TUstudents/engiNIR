@@ -1,4 +1,5 @@
-"""The default detector levels (a light module: the launcher's Preferences import it)."""
+"""Detector read-out settings: the default levels and the binning factors (a light
+module: the launcher's Preferences and the typed project objects import it)."""
 
 #: Black and white detector levels used when a dataset is converted to reflectance or
 #: absorbance without reference spectra: the camera has corrected its counts with its own
@@ -7,3 +8,7 @@
 #: Tools > Preferences can change both.
 DEFAULT_BLACK_LEVEL = 128
 DEFAULT_WHITE_LEVEL = 3100
+
+#: Spatial binning factors a dataset may use: ``k`` averages ``k x k`` blocks of frames
+#: and rows (``enginir.io.bin_blocks``); 1 is no binning.
+BINNING_FACTORS = (1, 2, 3, 4)

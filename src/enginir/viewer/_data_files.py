@@ -51,7 +51,7 @@ from PyQt6.QtWidgets import (
 
 from .._logging import get_logger
 from .._workflow import data_file_labels, read_frames
-from ..io import load_spectra
+from ..io import BINNING_FACTORS, load_spectra
 from ..io import is_band_numbers, user_table_folder, wavelength_tables
 from ..project import ReferenceCorrection, DatasetRecord
 from ._preferences import load as load_preferences
@@ -85,6 +85,8 @@ class DataFileRequest:
     wavelength_table: str | None = None
     #: The dataset's name ("Layer 7"; ``""``: none, its file name is shown).
     name: str | None = None
+    #: ``k`` to average ``k x k`` blocks of frames and rows on every read (1: none).
+    binning: int = 1
 
     def add_dataset_kwargs(self) -> dict[str, Any]:
         """Keyword arguments for :meth:`enginir.Project.add_dataset` (besides the path)."""
@@ -92,7 +94,7 @@ class DataFileRequest:
                 "dark_frames": self.dark_frames, "white_frames": self.white_frames,
                 "references_from": self.references_from, "black_level": self.black_level,
                 "white_level": self.white_level, "wavelength_table": self.wavelength_table,
-                "name": self.name}
+                "name": self.name, "binning": self.binning}
 
 
 def saturation_level(meta: Mapping[str, Any], dtype: np.dtype) -> float | None:
@@ -183,6 +185,7 @@ class AddDataFileDialog(QDialog):
         parent: QWidget | None = None,
         *,
         trained_with: str | None = None,
+        binning: int = 1,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Add dataset")
@@ -216,6 +219,14 @@ class AddDataFileDialog(QDialog):
         if self._wavelengths is not None:
             row = QFormLayout()
             row.addRow("Wavelengths:", self._wavelengths)
+            layout.addLayout(row)
+        self._binning = self._binning_choice(n_frames, height)
+        if self._binning is not None and self._binning.findData(binning) >= 0:
+            # Opened from Predict: the model's binning (a file is predicted binned like it).
+            self._binning.setCurrentIndex(self._binning.findData(binning))
+        if self._binning is not None:
+            row = QFormLayout()
+            row.addRow("Binning:", self._binning)
             layout.addLayout(row)
         if trained_with:
             # Opened from Predict: say what the model used, never reuse it silently
@@ -511,9 +522,27 @@ class AddDataFileDialog(QDialog):
                          f"{user_table_folder()}"))
         return combo
 
+    @staticmethod
+    def _binning_choice(n_frames: int, height: int) -> QComboBox | None:
+        """For an image cube: none, or k x k blocks of frames and rows (a file of spectra
+        has nothing to bin)."""
+        if height < 2:
+            return None
+        combo = QComboBox()
+        for k in BINNING_FACTORS:
+            if k == 1 or (n_frames >= k and height >= k):
+                combo.addItem("None" if k == 1 else f"{k} × {k}", k)
+        combo.setToolTip(wrap_tooltip(
+            "Average blocks of frames and rows on every read, before the reference "
+            "correction; ROIs, references and models use the binned pixels. Fixed for this "
+            "file in the project. Reference frames stay frames of the file as stored."))
+        return combo
+
     def build_request(self) -> DataFileRequest:
-        """The request for the current choices, with the chosen wavelength table."""
+        """The request for the current choices, with the chosen wavelength table and binning."""
         request = replace(self._reference_request(), name=self._name.text().strip())
+        if self._binning is not None:
+            request = replace(request, binning=int(self._binning.currentData()))
         table = None if self._wavelengths is None else self._wavelengths.currentData()
         return replace(request, wavelength_table=table) if table else request
 

@@ -21,7 +21,8 @@ import numpy as np
 from ._checks import log_and_raise
 from ._guidance import Check, Verdict, model_checks, model_verdict, project_checks
 from ._logging import get_logger
-from .io import file_format, load_spectra
+from .io import bin_rows, file_format, load_spectra
+from .io._binning import check_binning
 from .io import project_store as store
 # Through the package, never a submodule first: a thread importing a submodule while
 # another runs the package's __init__ deadlocks Python's import locks.
@@ -234,6 +235,7 @@ class Project:
         white_level: float | None = None,
         wavelength_table: str | os.PathLike[str] | WavelengthTable | None = None,
         name: str | None = None,
+        binning: int | None = None,
     ) -> Dataset:
         """Register a data file with its reference correction.
 
@@ -280,6 +282,14 @@ class Project:
             (a new dataset has none), ``""`` removes it. The same as
             :meth:`Dataset.set_label` afterwards; stored as ``DatasetRecord.label``
             (``@label`` in the project file, the field's name since 1.6).
+        binning:
+            Average ``k x k`` blocks of frames and rows (``k`` in
+            :data:`enginir.io.BINNING_FACTORS`) on every read of the file, before
+            any reference correction; ROIs, references and models then work on
+            the binned pixels. ``None`` keeps a registered file's binning (a new
+            one gets none). Fixed when the file is added: a file has one binning
+            in a project. Reference frames (``dark_frames``, ``white_frames``)
+            stay frames of the file as stored.
 
         Returns
         -------
@@ -294,7 +304,8 @@ class Project:
         dataset, reference_correction, new_dataset, new_reference_correction = self._resolve_dataset(
             path, dark=dark, white=white, unit=unit, dark_frames=dark_frames,
             white_frames=white_frames, references_from=references_from,
-            black_level=black_level, white_level=white_level, wavelength_table=wavelength_table)
+            black_level=black_level, white_level=white_level, wavelength_table=wavelength_table,
+            binning=binning)
         if name is not None and new_dataset:
             dataset = replace(dataset, label=str(name).strip())
         self._write_dataset(dataset, reference_correction, new_dataset, new_reference_correction)
@@ -799,7 +810,7 @@ class Project:
 
     def _resolve_dataset(self, path, *, dark, white, unit, dark_frames=None, white_frames=None,
                          references_from=None, black_level=None, white_level=None,
-                         wavelength_table=None):
+                         wavelength_table=None, binning=None):
         """Return ``(dataset, reference_correction, dataset_is_new, reference_correction_is_new)``, writing nothing."""
         ws = self.workspace
         levels_given = black_level is not None or white_level is not None
@@ -808,15 +819,25 @@ class Project:
             log_and_raise("Detector levels correct without references; do not combine "
                           "black_level/white_level with dark/white references")
         abs_path = _native_path(path)
+        registered = self._dataset_ref(abs_path)
+        if binning is None:
+            k = 1 if registered is None else registered.binning
+        else:
+            k = check_binning(binning)
+            if registered is not None and registered.binning != k:
+                log_and_raise("{} is registered with binning {}; a file has one binning in a "
+                              "project (asked for {})", abs_path, registered.binning, k)
         if wavelength_table is not None:
             hdf5_io.note_wavelength_table(abs_path)  # its band numbers are expected
-        data = read_header(abs_path)
+        data = read_header(abs_path, k)
         table = None
         if wavelength_table is not None:
             table = _table_for_file(wavelength_table, data, abs_path)
             data = data._replace(wavelengths=table.wavelengths.astype(np.float64),
                                  meta={**data.meta, "x_units": "nm"})
         dataset, new_dataset = resolve_dataset(ws.datasets, path, data, project_path=self.path)
+        if new_dataset and k > 1:
+            dataset = replace(dataset, binning=k)
         if table is not None:
             if new_dataset:
                 dataset = replace(dataset, wavelength_table=table.name,
@@ -835,10 +856,13 @@ class Project:
             if any(value is not None for value in (dark, white, dark_frames, white_frames)):
                 log_and_raise("references_from takes both references from another dataset; "
                               "do not combine it with dark, white or reference frames")
-            references = self._references_of(references_from, sensor)
+            references = self._references_of(references_from, sensor, k)
         else:
+            # Reference frames are frames of the file as stored, binned over the rows only:
+            # binned frames would mix a dark frame with the sample frames beside it.
+            raw_frames = dataset.cube_shape[0] if k == 1 else read_header(abs_path).cube_shape[0]
             references = tuple(
-                self._one_reference(abs_path, file, frames, sensor, dataset.cube_shape[0], label)
+                self._one_reference(abs_path, file, frames, sensor, raw_frames, label, k)
                 for file, frames, label in ((dark, dark_frames, "dark"),
                                             (white, white_frames, "white")))
         (dark_ref, dark_source), (white_ref, white_source) = references
@@ -855,23 +879,27 @@ class Project:
         return dataset, reference_correction, new_dataset, new_reference_correction
 
     @staticmethod
-    def _one_reference(abs_path, file, frames, sensor, n_frames, label):
-        """``(reference, source)`` of a dark or white reference from a file or this file's frames."""
+    def _one_reference(abs_path, file, frames, sensor, n_frames, label, binning=1):
+        """``(reference, source)`` of a dark or white reference from a file or this file's
+        frames (frames as stored, ``n_frames`` of them)."""
         if file is not None and frames is not None:
             log_and_raise("Give the {} reference as a file or as frames, not both", label, depth=2)
         if frames is not None:
             first, last = _frame_range(frames, n_frames, label)
             reference = read_frames(abs_path, first, last).mean(axis=0)
-            return (_reference(reference, sensor, label),
+            return (_reference(reference, sensor, label, binning),
                     f"{abs_path} frames {first}-{last}")
         if file is None:
             return None, None
-        return _reference(file, sensor, label), _source(file)
+        return _reference(file, sensor, label, binning), _source(file)
 
-    def _references_of(self, path, sensor):
+    def _references_of(self, path, sensor, binning=1):
         """The dark and white references of another registered data file, with their sources."""
         shared = self.dataset(path)
         source, reference_correction = shared.record, shared.reference_correction
+        if source.binning != binning:
+            log_and_raise("{} is binned {}, this file {}: their references do not fit",
+                          source.source_path, source.binning, binning, depth=2)
         if reference_correction.dark_ref_data is None or reference_correction.white_ref_data is None:
             log_and_raise("{} has no dark and white reference spectra to share",
                           source.source_path, depth=2)
@@ -990,7 +1018,8 @@ class Dataset:
         first, last = _index_range(frames, n_frames, "frames")
         roi, spectra, refs = make_roi(self.record, self.reference_correction, name=name,
                                       frames=(first, last), rows=rows,
-                                      pixels=read_frames(self.path, first, last), job=job)
+                                      pixels=read_frames(self.path, first, last,
+                                                         self.record.binning), job=job)
         created_at = roi.created_at
         assignments = [TargetAssignment(roi_id=roi.roi_id, target_id=target.target_id,
                                         value=float(values[target_name]), assigned_at=created_at)
@@ -1112,7 +1141,7 @@ class Dataset:
         n_frames = self.record.cube_shape[0]
         first = min(_index_range(cell.frames, n_frames, "frames")[0] for cell in cells)
         last = max(_index_range(cell.frames, n_frames, "frames")[1] for cell in cells)
-        pixels = read_frames(self.path, first, last)
+        pixels = read_frames(self.path, first, last, self.record.binning)
         built = [make_roi(self.record, self.reference_correction, name=cell.name, frames=cell.frames,
                           rows=cell.rows, pixels=pixels[cell.frames[0] - first:
                                                         cell.frames[1] - first + 1],
@@ -1134,6 +1163,7 @@ class Model:
 
     @property
     def name(self) -> str:
+        """The model's name (a mutable label)."""
         return self.project._model_name(self.record)
 
     @property
@@ -1144,11 +1174,13 @@ class Model:
 
     @property
     def target(self) -> TargetDefinition:
+        """The target the model predicts."""
         ws = self.project.workspace
         return ws.targets[ws.sample_sets[self.record.sample_set_id].target_id]
 
     @property
     def recipe(self) -> PreprocessingRecipe:
+        """The preprocessing recipe the model was fitted with."""
         ws = self.project.workspace
         return PreprocessingRecipe.from_dict(
             ws.recipes[ws.sample_sets[self.record.sample_set_id].preprocessing_recipe_id])
@@ -1422,7 +1454,8 @@ class Model:
             reference_correction = ws.reference_corrections[ws.active_reference_correction_ids[registered.dataset_id]]
         else:
             dataset, reference_correction, _new_dataset, _new_reference_correction = project._resolve_dataset(
-                path, dark=dark, white=white, unit=domain.required_signal_unit)
+                path, dark=dark, white=white, unit=domain.required_signal_unit,
+                binning=None if registered is not None else domain.binning)
         common: dict[str, Any] = dict(project_path=project.path, model_run=self.record, signal_domain=domain,
                       recipe=recipe, dataset=dataset, reference_correction=reference_correction,
                       model_registry={})
@@ -1489,6 +1522,7 @@ class Prediction:
 
     @property
     def provenance(self) -> dict[str, Any]:
+        """How the prediction was made, as recorded with the result."""
         return self.result.provenance
 
 
@@ -1510,10 +1544,12 @@ class StoredPrediction:
 
     @property
     def model(self) -> Model:
+        """The model that made the prediction."""
         return Model(self.project, self.project.workspace.model_runs[self.record.model_run_id])
 
     @property
     def dataset(self) -> Dataset:
+        """The dataset that was predicted."""
         return Dataset(self.project, self.project.workspace.datasets[self.record.dataset_id])
 
     @property
@@ -1535,29 +1571,31 @@ class StoredPrediction:
 # -- helpers -------------------------------------------------------------------
 
 
-def read_header(path: str):
+def read_header(path: str, binning: int = 1):
     """Return a file's :class:`~enginir.io.SpectralData` without its pixels where possible.
 
     EIFF, HDF5 and ENVI files are read header-only: ``cube_shape``,
     wavelengths, metadata and the pixel dtype are known, ``X`` holds no
-    frames. Other formats are read completely.
+    frames. Other formats are read completely. ``binning`` gives the binned
+    shape (:func:`enginir.io.bin_blocks`).
     """
     if file_format(path) in _HEADER_FORMATS:
-        return load_spectra(path, header_only=True)
-    return load_spectra(path)
+        return load_spectra(path, header_only=True, binning=binning)
+    return load_spectra(path, binning=binning)
 
 
-def read_frames(path: str, first: int, last: int) -> np.ndarray:
+def read_frames(path: str, first: int, last: int, binning: int = 1) -> np.ndarray:
     """Return frames ``first..last`` (inclusive) as ``(frames, height, n_bands)``.
 
     EIFF and HDF5 files read only those frames; other formats are read
     completely and sliced. Values keep the file's dtype; point-spectrum files
-    get a height of 1.
+    get a height of 1. With ``binning`` the frames are counted in binned frames
+    and the pixels are binned (:func:`enginir.io.bin_blocks`).
     """
     if file_format(path) in _FRAME_FORMATS:
-        X = load_spectra(path, frames=slice(first, last + 1)).X
+        X = load_spectra(path, frames=slice(first, last + 1), binning=binning).X
     else:
-        X = load_spectra(path).X[first:last + 1]
+        X = load_spectra(path, binning=binning).X[first:last + 1]
     X = np.asarray(X)
     return X[:, np.newaxis, :] if X.ndim == 2 else X
 
@@ -1668,7 +1706,7 @@ def _header_mismatch(dataset: DatasetRecord, abs_path: str) -> str | None:
     if not os.path.isfile(abs_path):
         return f"{abs_path} does not exist"
     try:
-        header = read_header(abs_path)
+        header = read_header(abs_path, dataset.binning)
     except (OSError, ValueError, KeyError) as exc:
         return f"{abs_path} cannot be read: {exc}"
     checks = [("format", file_format(abs_path), dataset.source_format),
@@ -1701,7 +1739,7 @@ def _data_file_mismatch(project_path: str | os.PathLike[str], dataset: DatasetRe
     first = min(roi.spatial_bounds[0] for roi in rois)
     last = max(roi.spatial_bounds[1] for roi in rois)
     try:
-        pixels = read_frames(abs_path, first, last)
+        pixels = read_frames(abs_path, first, last, dataset.binning)
     except (OSError, ValueError, KeyError) as exc:
         return f"{abs_path} cannot be read: {exc}"
     n_bands = dataset.cube_shape[2]
@@ -2160,10 +2198,19 @@ def _frame_range(frames: tuple[int, int], n_frames: int, label: str) -> tuple[in
     return first, last
 
 
-def _reference(source, sensor_shape: tuple[int, ...], label: str) -> np.ndarray:
+def _reference(source, sensor_shape: tuple[int, ...], label: str,
+               binning: int = 1) -> np.ndarray:
+    """A dark or white reference ``(rows, bands)`` for a sensor of ``sensor_shape``.
+
+    A cube is averaged over its frames. With ``binning`` the reference is read
+    per detector row and its rows are averaged like a binned dataset's
+    (:func:`enginir.io.bin_rows`).
+    """
     ref = np.asarray(source if isinstance(source, np.ndarray) else load_spectra(source).X)
     if ref.ndim == 3:
         ref = ref.mean(axis=0)
+    if binning > 1 and ref.ndim == 2:
+        ref = bin_rows(ref, binning)
     if ref.shape != tuple(sensor_shape):
         log_and_raise("The {} reference has shape {}, the sensor {}", label, ref.shape,
                       tuple(sensor_shape), depth=3)

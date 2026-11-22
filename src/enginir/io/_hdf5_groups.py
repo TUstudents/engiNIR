@@ -49,6 +49,7 @@ def _decode_text(item: Any) -> Any:
 
 
 def is_scalar_like(value: Any) -> bool:
+    """Whether ``value`` is a plain scalar (string, bytes, bool or number)."""
     return isinstance(value, (str, bytes, bool, int, float, np.generic))
 
 

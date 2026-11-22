@@ -38,6 +38,8 @@ from typing import Any
 
 from ._common import EnginirIOError
 from ._types import SpectralData
+from ._binning import (BINNING_FACTORS, bin_blocks, bin_frame_chunks, bin_rows,
+                       bin_spectral_data, binned_frames, check_binning)
 from .csv_io import load_csv, save_csv
 from .spa_io import load_spa, SPAError
 from .spc_io import load_spc, SPCError
@@ -116,13 +118,17 @@ def file_format(path: str | Path) -> str:
     return _READERS[suffix][0] if suffix in _READERS else suffix.lstrip(".")
 
 
-def load_spectra(path: str | Path, **kwargs: Any) -> SpectralData:
+def load_spectra(path: str | Path, *, binning: int = 1, **kwargs: Any) -> SpectralData:
     """Load a spectral data file, choosing the reader from the file extension.
 
     Parameters
     ----------
     path:
         Data file with one of the extensions listed in :mod:`enginir.io`.
+    binning:
+        Average ``k × k`` blocks of frames and rows of an image cube
+        (:func:`bin_blocks`); ``1`` reads the pixels as stored. ``frames=``
+        then counts binned frames.
     **kwargs:
         Passed to the format reader (e.g. ``frames=`` for EIFF and HDF5).
 
@@ -140,11 +146,20 @@ def load_spectra(path: str | Path, **kwargs: Any) -> SpectralData:
     if suffix not in _READERS:
         log_and_raise("Unsupported file extension {!r} of {}; supported: {}", suffix, path,
                       sorted(_READERS))
-    return _READERS[suffix][1](path, **kwargs)
+    k = check_binning(binning)
+    if k == 1:
+        return _READERS[suffix][1](path, **kwargs)
+    if "frames" in kwargs:
+        kwargs["frames"] = binned_frames(kwargs["frames"], k)
+    return bin_spectral_data(_READERS[suffix][1](path, **kwargs), k)
 
 
 __all__ = [
     "EnginirIOError",
+    "BINNING_FACTORS",
+    "bin_blocks",
+    "bin_frame_chunks",
+    "bin_rows",
     "file_format",
     "SpectralData",
     "load_spectra",
