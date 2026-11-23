@@ -80,3 +80,73 @@ def test_a_model_without_calibration_shares_has_no_rule(tmp_path):
         del diagnostics.attrs["roi_share_above_dcrit"]
     model = Project.open(project.path).model(model_run_id=model.record.model_run_id)
     assert unusual_rois(model.roi_prediction([project.roi("t09")])) == ()
+
+
+# -- A layout on a scan (Prediction.roi_statistics): the statistics of stored ROIs -------
+
+
+def test_a_layout_on_a_scan_gives_the_statistics_of_the_same_stored_rois(tmp_path):
+    """Per-tablet values on a production line are those of the same pixels stored as
+    prediction ROIs: one function, so a tablet has one value everywhere."""
+    from enginir import GridCell
+    from enginir.prediction import unusual_rois
+    from tests._scans import tray_project
+
+    project, _dataset, path = tray_project(tmp_path, odd="t10")
+    model = project.fit("API", n_components=2, cv=3,
+                        fit_spec={"exclusion": {"method": "dmodx", "level": 0.95}})
+    rois = [project.roi(f"t{i:02d}") for i in (8, 9, 10)]
+    layout = [GridCell(row=0, column=i, frames=roi.spatial_bounds[:2],
+                       rows=roi.spatial_bounds[2:], name=roi.name) for i, roi in enumerate(rois)]
+    stored = {project.workspace.rois[row.roi_id].name: row for row in model.predict_rois(rois).rois}
+    scan = model.predict(path)
+    on_scan = {row.roi_id: row for row in scan.roi_statistics(layout).rois}
+
+    assert set(on_scan) == set(stored) == {"t08", "t09", "t10"}
+    for name, row in on_scan.items():
+        expected = stored[name]
+        assert (row.n_pixels, row.n_removed) == (expected.n_pixels, expected.n_removed), name
+        for field in ("mean", "sd", "median", "share_above_dcrit", "share_above_t2crit"):
+            assert getattr(row, field) == pytest.approx(getattr(expected, field), rel=1e-4, nan_ok=True,
+                                                        abs=1e-6), (name, field)
+    assert unusual_rois(scan.roi_prediction(layout)) == ("t10",)
+    assert scan.roi_statistics(layout, exclude_dmodx=False).exclusion is None
+
+
+def test_a_layout_cell_outside_the_scan_or_a_repeated_name_is_refused(tray):
+    from enginir import GridCell
+
+    project, _scan, path = tray
+    prediction = project.fit("API", n_components=2, cv=3).predict(path)
+    n_frames, height = prediction.map.shape
+    inside = GridCell(row=0, column=0, frames=(2, 5), rows=(0, height - 1), name="A1")
+    with pytest.raises(ValueError, match="Cell 'B1' .* is outside the scan"):
+        prediction.roi_statistics([inside, GridCell(row=1, column=0, frames=(2, 5),
+                                                    rows=(0, height), name="B1")])
+    with pytest.raises(ValueError, match="Cell names must be unique"):
+        prediction.roi_statistics([inside, inside])
+
+
+# -- The reference correction of a prediction (Model.predict, as Project.add_dataset) -----
+
+
+def test_predict_takes_the_reference_choices_of_add_dataset(tray, tmp_path):
+    """A line chooses how each new scan is corrected: frames of the scan or detector levels
+    give the same correction as the registered scan's own (its frames are dark 120 and white
+    3400 counts); nothing given uses the defaults; levels exclude references."""
+    import shutil
+
+    project, _scan, path = tray
+    model = project.fit("API", n_components=2, cv=3)
+    registered = model.predict(path).map
+    new = shutil.copy(path, tmp_path / "new_scan.h5")
+    n = registered.shape[0]  # every frame of the scan, its 2 dark and 2 white frames too
+    by_frames = model.predict(new, dark_frames=(0, 1), white_frames=(n - 2, n - 1)).map
+    by_levels = model.predict(new, black_level=120, white_level=3400).map
+    np.testing.assert_allclose(by_frames, registered, rtol=1e-5)
+    np.testing.assert_allclose(by_levels, registered, rtol=1e-5)
+    assert not np.allclose(model.predict(new).map, registered, rtol=1e-3)
+    assert not np.allclose(model.predict(path, black_level=0, white_level=4000).map, registered,
+                           rtol=1e-3), "a registered scan with levels given is corrected anew"
+    with pytest.raises(ValueError, match="Detector levels correct without references"):
+        model.predict(new, black_level=120, dark_frames=(0, 1))

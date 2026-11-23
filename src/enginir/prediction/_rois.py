@@ -37,7 +37,7 @@ from ..project import (
     TrainingROI,
 )
 from ..validation.outliers import dmodx_limit
-from ._diagnostics import chunk_diagnostics, chunk_scores
+from ._diagnostics import chunk_diagnostics, chunk_scores, projection_of
 from ._service import _predict_chunk, _preprocess_chunk, preflight_prediction
 from ._uncertainty import DEFAULT_LEVEL, IntervalInputs, interval_inputs, mean_half_width
 
@@ -161,14 +161,8 @@ def predict_rois(
     domain = signal_domains[model_run.signal_domain_id]
     sample_set = sample_sets[model_run.sample_set_id]
     recipe = PreprocessingRecipe.from_dict(recipes[sample_set.preprocessing_recipe_id])
-    spec = model_run.fit_specification
-    training = (load_model_run_artifact_refs(project_path, model_run.model_run_id,
-                                             keys=("diagnostics",)).get("diagnostics") or {})
-    result = RoiPrediction(
-        model_run_id=model_run.model_run_id, model_name=model_name,
-        target_id=sample_set.target_id,
-        default_exclusion=(float(spec.exclusion_level) if spec.exclusion == "dmodx" else None),
-        training_share_range=_share_percentiles(training.get("roi_share_above_dcrit")))
+    training = _training_diagnostics(project_path, model_run)
+    result = _empty_prediction(model_run, model_name, sample_set.target_id, training)
     preflights: dict[tuple[str, str], Any] = {}
     for roi in rois:
         if cancelled():
@@ -216,6 +210,83 @@ def predict_rois(
     for dataset_id, warning in result.wavelength_warnings.items():
         logger.warning("Dataset '{}': {}", dataset_id, warning)
     return result
+
+
+def layout_roi_prediction(
+    *,
+    project_path: str,
+    model_run: ModelRun,
+    model_name: str,
+    target_id: str,
+    layout: Sequence[Any],
+    prediction_map: np.ndarray,
+    dmodx_map: np.ndarray | None,
+    t2_map: np.ndarray | None,
+    intervals: IntervalInputs | None,
+) -> RoiPrediction:
+    """The pixels of a predicted scan inside each cell of ``layout`` (contract, Prediction ROIs).
+
+    ``layout`` holds cells with a ``name`` and inclusive ``frames`` and ``rows``
+    ranges in the scan's pixels (:class:`enginir.GridCell`, as made by
+    :func:`enginir.roi_grid`); the maps are a scan prediction's ``(frames,
+    height)`` images. The result is the same :class:`RoiPrediction` as for
+    stored prediction ROIs, keyed by cell name, so
+    :func:`roi_prediction_statistics` and :func:`unusual_rois` apply unchanged.
+    Pixel scores are not kept by a scan prediction, so the interval of a
+    cell's mean is NaN. Nothing is predicted again or written.
+    """
+    values = np.asarray(prediction_map)
+    if values.ndim != 2:
+        log_and_raise("Statistics per cell need a prediction of one target, got a map of shape "
+                      "{}", values.shape)
+    cells = list(layout)
+    if not cells:
+        log_and_raise("The layout has no cells")
+    names = [str(cell.name) for cell in cells]
+    repeated = sorted({name for name in names if names.count(name) > 1})
+    if repeated:
+        log_and_raise("Cell names must be unique in a layout; repeated: {}", repeated)
+    n_frames, height = values.shape
+    missing = np.full(values.shape, np.nan, dtype=np.float32)
+    dmodx = missing if dmodx_map is None else np.asarray(dmodx_map, dtype=np.float32)
+    t2 = missing if t2_map is None else np.asarray(t2_map, dtype=np.float32)
+    blob = load_model_run_artifact_refs(project_path, model_run.model_run_id,
+                                        keys=("prediction_model",)).get("prediction_model")
+    projection = projection_of(blob if isinstance(blob, dict) else None)
+    result = _empty_prediction(model_run, model_name, target_id,
+                               _training_diagnostics(project_path, model_run))
+    if projection is not None:
+        result.limit_args = (int((blob or {}).get("n_train", 0)) or 1,
+                             int(projection.x_mean.size), projection.n_components)
+        result.dcrit_095, result.t2_crit_095 = projection.dcrit, projection.t2_crit
+        result.intervals = intervals
+    for cell, name in zip(cells, names):
+        f0, f1 = (int(v) for v in cell.frames)
+        r0, r1 = (int(v) for v in cell.rows)
+        if not (0 <= f0 <= f1 < n_frames and 0 <= r0 <= r1 < height):
+            log_and_raise("Cell '{}' (frames {}-{}, rows {}-{}) is outside the scan of {} frames "
+                          "x {} rows", name, f0, f1, r0, r1, n_frames, height)
+        window = (slice(f0, f1 + 1), slice(r0, r1 + 1))
+        result.pixels[name] = RoiPixels(
+            y=np.asarray(values[window], dtype=np.float32).reshape(-1),
+            dmodx=dmodx[window].reshape(-1), t2=t2[window].reshape(-1))
+    return result
+
+
+def _training_diagnostics(project_path: str, model_run: ModelRun) -> dict[str, Any]:
+    """The model's stored training diagnostics (empty when it has none)."""
+    return (load_model_run_artifact_refs(project_path, model_run.model_run_id,
+                                         keys=("diagnostics",)).get("diagnostics") or {})
+
+
+def _empty_prediction(model_run: ModelRun, model_name: str, target_id: str,
+                      training: Mapping[str, Any]) -> RoiPrediction:
+    """A :class:`RoiPrediction` with the model's exclusion and training shares, no pixels yet."""
+    spec = model_run.fit_specification
+    return RoiPrediction(
+        model_run_id=model_run.model_run_id, model_name=model_name, target_id=target_id,
+        default_exclusion=(float(spec.exclusion_level) if spec.exclusion == "dmodx" else None),
+        training_share_range=_share_percentiles(training.get("roi_share_above_dcrit")))
 
 
 def roi_prediction_statistics(

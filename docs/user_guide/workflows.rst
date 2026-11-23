@@ -82,18 +82,41 @@ predicts them from the project file alone, each ROI with its own reference corre
 statistics for another exclusion without predicting again. ``model.predict(path)``
 of a registered dataset uses the file's own reference correction.
 
-A tray of samples becomes one ROI per cell with :func:`~enginir._workflow.roi_grid`
+A tray of samples becomes one ROI per cell with :func:`~enginir.roi_grid`
 and ``dataset.add_rois``, all stored or none:
 
 .. code-block:: python
 
-   from enginir._workflow import roi_grid
+   from enginir import roi_grid
 
    # 4 x 8 wells: ROIs of 40 x 36 pixels, 10 pixels apart, the first at frame 15, row 20
    cells = roi_grid(n_rows=4, n_columns=8, size=(40, 36), origin=(15, 20),
                     spacing=(10, 10), skip=[(3, 7)],
                     name_pattern="{file}-{row}{column:02d}", file="tray1")
    tray1.add_rois(cells)
+
+**Scans that are never registered**, e.g. one layer of a print job on a
+production line, are predicted per tablet with a layout: the same cells,
+applied to the scan's prediction. The statistics are those of
+``model.predict_rois``, computed by the same function:
+
+.. code-block:: python
+
+   from enginir import roi_grid
+
+   layout = roi_grid(n_rows=4, n_columns=8, size=(40, 36), origin=(15, 20),
+                     spacing=(10, 10))
+   prediction = model.predict("layer_017/stream_hsi.h5", black_level=128, white_level=3100)
+   for row in prediction.roi_statistics(layout).rois:   # one row per cell, by name
+       print(row.roi_id, row.mean, row.sd, row.share_above_dcrit, row.n_removed)
+
+``model.predict`` takes the reference choices of ``project.add_dataset``:
+``dark``/``white`` files, ``dark_frames``/``white_frames`` of the scan, or
+``black_level``/``white_level`` (levels exclude references). A new scan that
+stores band numbers only is given the model's wavelength axis when the band
+counts match. ``prediction.roi_prediction(layout)`` returns the pixel
+predictions, for :func:`~enginir.prediction.unusual_rois` or another
+exclusion.
 
 A file that stores no wavelengths, only band numbers (a Kestreleye
 ``stream_hsi.h5``), gets them from a wavelength table:

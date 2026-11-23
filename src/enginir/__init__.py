@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 from ._logging import disable_logging, enable_logging
 
 if TYPE_CHECKING:  # the names below load on first use (PEP 562), see __getattr__
-    from ._workflow import Project
+    from ._workflow import GridCell, Project, roi_grid
     from .io import load_spectra
     from .models import LDAClassifier, PCR, PLSRegression, SIMCA
     from .preprocessing import (Detrend, EMSC, MSC, PreprocessingRecipe, SNV, SavitzkyGolay,
@@ -30,7 +30,7 @@ if TYPE_CHECKING:  # the names below load on first use (PEP 562), see __getattr_
 #: program that only needs a few (the viewer's launcher) does not load scikit-learn,
 #: SciPy, pandas or h5py before it needs them.
 _LAZY = {
-    "Project": "._workflow",
+    **{name: "._workflow" for name in ("GridCell", "Project", "roi_grid")},
     "load_spectra": ".io",
     **{name: ".models" for name in ("LDAClassifier", "PCR", "PLSRegression", "SIMCA")},
     **{name: ".preprocessing" for name in ("Detrend", "EMSC", "MSC", "PreprocessingRecipe",
@@ -60,6 +60,8 @@ __all__ = [
     "__version__",
     # Project workflow
     "Project",
+    "GridCell",
+    "roi_grid",
     "PreprocessingRecipe",
     # Logging
     "enable_logging",

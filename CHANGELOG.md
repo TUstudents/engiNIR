@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Per-tablet statistics of a scan that is not registered:**
+  `prediction.roi_statistics(layout)` and `prediction.roi_prediction(layout)`
+  apply a layout of cells (`GridCell`, e.g. from `roi_grid`) to a
+  prediction, with the statistics, DModX exclusion and outside-the-model rule
+  of `Model.predict_rois`, computed by the same function. For production
+  lines that predict every new scan (a layer of a print job) per tablet.
+- **`Model.predict` takes the reference choices of `Project.add_dataset`:**
+  `dark_frames`/`white_frames` of the scan and `black_level`/`white_level`,
+  besides `dark`/`white`; levels exclude references. A registered scan given
+  references or levels is corrected anew in memory instead of with its stored
+  correction.
+- **A new scan with band numbers only is predicted on the model's
+  wavelength axis** when the band counts match (or with
+  `wavelength_table=`), without the "no wavelengths" warning for every file.
+- `GridCell` and `roi_grid` are exported from `enginir`.
+
 ## 1.7.8 (2026-11-23)
 
 A fix release: a band selection after a Savitzky-Golay filter used the wrong
