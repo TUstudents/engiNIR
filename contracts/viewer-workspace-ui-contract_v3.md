@@ -1002,8 +1002,12 @@ Decided 2026-11-23 for engiNIR 1.7.8 (`plans/fast-start.md`, D1 and D2).
   action starts by itself when they are loaded; models and their plots are
   shown at once, and the parts that need SciPy (the ROIs' T² ellipse, the
   F-test's critical value) are added when it is loaded
+- the ROIs' spectra and the map are shown while they load; a frame whose
+  preprocessing recipe needs them is shown without the recipe and redrawn
+  with it when they are loaded
 - the UI thread never imports SciPy or scikit-learn while they load in the
-  background; any other thread that needs them waits for them
+  background; any other thread that needs them, from the start of the
+  warm-up, waits for them
 
 ## Action availability contract
 

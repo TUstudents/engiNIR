@@ -15,11 +15,14 @@ The launcher shows the welcome window without the scientific stack. Then:
 
 Two threads importing the same packages at once can deadlock Python's import locks (a
 module's lock taken before its package's in one thread, the other way round in the
-other; seen on Python 3.13.18 and 3.14, 2026-11-19). So while the modeling stage runs,
-an import of SciPy, scikit-learn or engiNIR's modeling code from any other thread
-waits until the stage has ended (:class:`_ModelingGate`); on the UI thread that wait
-is logged as a warning, since the window freezes meanwhile: every such path should go
-through :func:`when_modeling_ready`.
+other; seen on Python 3.13.18 and 3.14, 2026-11-19). So from the start of the warm-up
+until the modeling stage has ended, an import of SciPy, scikit-learn or engiNIR's
+modeling code from any other thread waits for the stage (:class:`_ModelingGate`).
+From the start, not from the stage's: a worker that began such an import before the
+stage would hold its locks while the stage loads, and the first import it waits for
+would never come (Windows log of 2026-11-23). The UI thread must not wait (the window
+freezes): every such path goes through :func:`when_modeling_ready`; one that does not
+is logged as a warning.
 
 Each step is logged with its time and what it loaded (modules, how many of them
 native, their size), so a cold start's log shows where the time goes
@@ -51,7 +54,8 @@ BACKGROUND_STEPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("h5py", ("h5py",)),
     ("matplotlib", ("matplotlib.figure", "matplotlib.backends.backend_agg")),
     ("engiNIR", ("enginir._workflow", "enginir.io", "enginir.prediction._service",
-                 "enginir.prediction._rois", "enginir._guidance")),
+                 "enginir.prediction._rois", "enginir._guidance",
+                 "enginir.modeling._roi_spectra")),
 )
 #: Window stage, imported on the UI thread, one per step, after the background job.
 UI_MODULES = (
@@ -199,14 +203,18 @@ def _loaded(name: str) -> bool:
 
 
 class _ModelingGate:
-    """While the modeling stage runs, an import of its packages from another thread
-    waits for it, so no two threads import them at once (see the module docstring).
+    """From the start of the warm-up until the modeling stage has ended, an import of its
+    packages from another thread waits for it, so no two threads import them at once (see
+    the module docstring).
 
-    Installed as ``builtins.__import__`` for the duration of the stage only.
+    Installed as ``builtins.__import__`` by :func:`_hold_modeling_imports` and removed
+    when the stage ends. Before the stage has started, the UI thread does not wait (it
+    starts the stage, so the wait would not end); nothing else imports then.
     """
 
     def __init__(self) -> None:
         self.loader_ident: int | None = None
+        self.started = False  # set on the UI thread when the stage's job is started
         self.original = builtins.__import__
 
     def _is_modeling(self, name: str) -> bool:
@@ -226,13 +234,39 @@ class _ModelingGate:
                                    if isinstance(item, str) and item != "*"]
             if any(self._is_modeling(item) and not _loaded(item) for item in wanted):
                 started = time.perf_counter()
-                if threading.current_thread() is threading.main_thread():
+                on_ui = threading.current_thread() is threading.main_thread()
+                if on_ui and not self.started:
+                    logger.warning("The UI thread imports {} before the modeling libraries "
+                                   "load", absolute)
+                    return self.original(name, globals, locals, fromlist, level)
+                if on_ui:
                     logger.warning("The UI thread imports {} while the modeling libraries "
                                    "load; it waits for them", absolute)
                 _MODELING_IMPORTED.wait(300.0)
                 logger.debug("Import of {} waited {:.3f}s for the modeling libraries",
                              absolute, time.perf_counter() - started)
         return self.original(name, globals, locals, fromlist, level)
+
+
+_GATE: _ModelingGate | None = None
+
+
+def _hold_modeling_imports() -> _ModelingGate:
+    """Install the gate (if it is not installed): modeling imports wait for the stage."""
+    global _GATE
+    if _GATE is None:
+        _GATE = _ModelingGate()
+        _MODELING_IMPORTED.clear()
+        builtins.__import__ = _GATE
+    return _GATE
+
+
+def _release_modeling_imports(gate: _ModelingGate) -> None:
+    global _GATE
+    if builtins.__import__ is gate:
+        builtins.__import__ = gate.original
+    if _GATE is gate:
+        _GATE = None
 
 
 #: Seconds after which a modeling stage that has not ended logs where every thread is.
@@ -257,7 +291,7 @@ def start_modeling_warmup(owner: QObject | None = None) -> None:
     survives the welcome window. Callbacks waiting in :func:`when_modeling_ready` run
     on the UI thread when it ends.
     """
-    if not _MODELING_IMPORTED.is_set():
+    if _GATE is not None and _GATE.started:
         return  # already running
     from PyQt6.QtWidgets import QApplication
 
@@ -266,21 +300,22 @@ def start_modeling_warmup(owner: QObject | None = None) -> None:
     owner = owner if owner is not None else QApplication.instance()
     if owner is None:
         logger.warning("No application to own the modeling warm-up; loading on use")
+        if _GATE is not None:
+            _release_modeling_imports(_GATE)
+        _MODELING_IMPORTED.set()
         return
     started = time.perf_counter()
     watchdog = threading.Timer(STALL_REPORT_AFTER, _report_stall, args=(started,))
     watchdog.daemon = True
-    gate = _ModelingGate()
-    _MODELING_IMPORTED.clear()
-    builtins.__import__ = gate
+    gate = _hold_modeling_imports()
+    gate.started = True
 
     def load() -> None:
         gate.loader_ident = threading.get_ident()
         try:
             _import_all(MODELING_STEPS, _MODELING_IMPORTED)
         finally:
-            if builtins.__import__ is gate:
-                builtins.__import__ = gate.original
+            _release_modeling_imports(gate)
 
     def ended(reason: str) -> None:
         watchdog.cancel()
@@ -303,14 +338,22 @@ def start_modeling_warmup(owner: QObject | None = None) -> None:
 
 
 def start_warmup(owner: QObject, *, on_done: Callable[[], None] | None = None) -> None:
-    """Warm up the imports; ``owner`` (the welcome window) owns the window stage's job and
-    timer. The modeling stage follows the window stage by itself.
+    """Warm up the imports. The modeling stage follows the window stage by itself; from
+    now until it has ended, modeling imports from other threads wait for it.
 
-    ``on_done`` is called on the UI thread when the window stage is imported (or at its
-    first failure, which is logged; opening a file then imports what is left).
+    The window stage's job and timer belong to the application (``owner``, the welcome
+    window, if there is none), so that the stage ends, and the modeling stage starts, even
+    when the welcome window is gone. ``on_done`` is called on the UI thread when the
+    window stage is imported (or at its first failure, which is logged; opening a file
+    then imports what is left).
     """
+    from PyQt6.QtWidgets import QApplication
+
     from ._jobs import start_background_job
 
+    app = QApplication.instance()
+    owner = app if app is not None else owner
+    _hold_modeling_imports()
     started = time.perf_counter()
     pending = list(UI_MODULES)
     timer = QTimer(owner)

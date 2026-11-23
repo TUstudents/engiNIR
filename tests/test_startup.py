@@ -381,6 +381,7 @@ def test_the_main_window_and_the_workflow_load_no_scipy_or_scikit_learn(tmp_path
     env = {**os.environ, "QT_QPA_PLATFORM": "offscreen"}
     light = ["enginir.project", "enginir._workflow", "enginir._guidance", "enginir.io",
              "enginir.prediction", "enginir.preprocessing.recipe", "enginir.modeling._stored",
+             "enginir.modeling._roi_spectra",
              "enginir.viewer._open", "enginir.viewer._viewer"]
     result = _run([sys.executable, "-c", _LIGHT, *light], env=env, timeout=60)
     modules = set(json.loads(result.stdout.strip().splitlines()[-1]))
@@ -408,11 +409,26 @@ _WINDOW_WHILE_LOADING = textwrap.dedent("""
     from PyQt6.QtWidgets import QApplication
     ensure_app()
     window = open_project(sys.argv[1])
-    for step in ("data", "rois", "values", "model", "predict"):
-        window.show_step(step)
-        for _ in range(30):
+
+    def settle(until=lambda: False, seconds=0.3):
+        end = time.perf_counter() + seconds
+        while time.perf_counter() < end and not until():
             QApplication.processEvents()
             time.sleep(0.01)
+
+    for step in ("data", "rois", "values", "model", "predict"):
+        window.show_step(step)
+        settle()
+    from enginir.viewer._project_rois import ProjectRoisView
+    window.show_step("rois")
+    (rois,) = window.findChildren(ProjectRoisView)
+    settle(lambda: bool(rois._summaries), 10)  # the ROIs' mean spectra need no SciPy
+    roi_spectra = len(rois._summaries)
+    window.show_dataset(next(iter(window.project_state.datasets)))  # the map shows it
+    settle(lambda: window.state.has_dataset, 10)
+    from enginir import PreprocessingRecipe
+    window.state.apply_recipe(PreprocessingRecipe(filter="sg_d1", snv=True, detrend=True))
+    settle()
     window.select_model(next(iter(window.project_state.model_runs)))
     from enginir.viewer._model_diagnostics import ModelDiagnosticsWidget
     for plots in window.findChildren(ModelDiagnosticsWidget):
@@ -421,7 +437,8 @@ _WINDOW_WHILE_LOADING = textwrap.dedent("""
             for _ in range(10):
                 QApplication.processEvents()
                 time.sleep(0.01)
-    print(json.dumps({"shown": window.isVisible(), "attempts": attempts}))
+    print(json.dumps({"shown": window.isVisible(), "attempts": attempts,
+                      "roi_spectra": roi_spectra, "map": window.state.has_dataset}))
     from enginir.viewer._jobs import wait_for_running_jobs
     wait_for_running_jobs(30)
 """)
@@ -429,9 +446,10 @@ _WINDOW_WHILE_LOADING = textwrap.dedent("""
 
 def test_the_main_window_works_while_the_modeling_libraries_load(tmp_path):
     """A project with a model, a calibration set and a stored prediction opens, every
-    workflow step and every page of the model's plots show, and the UI thread never imports SciPy or
-    scikit-learn meanwhile (two threads importing them at once can deadlock).
-    Worker threads may: the import gate makes them wait."""
+    workflow step and every page of the model's plots show, the ROIs' spectra are drawn,
+    and a dataset is shown on the map with a recipe; the UI thread never imports SciPy or
+    scikit-learn meanwhile (two threads importing them at once can deadlock, and the
+    window would freeze). Worker threads may: the import gate makes them wait."""
     from tests._scans import every_stored_object_project
 
     path = every_stored_object_project(tmp_path)
@@ -442,7 +460,8 @@ def test_the_main_window_works_while_the_modeling_libraries_load(tmp_path):
            "APPDATA": str(home / "AppData"), "ENGINIR_LOG_FILE": str(tmp_path / "viewer.log")}
     result = _run([sys.executable, "-c", _WINDOW_WHILE_LOADING, str(path)], env=env, timeout=90)
     outcome = json.loads(result.stdout.strip().splitlines()[-1])
-    assert outcome["shown"]
+    assert outcome["shown"] and outcome["map"]
+    assert outcome["roi_spectra"] > 0, "the ROIs' spectra waited for the modeling libraries"
     on_ui = [name for name, ui in outcome["attempts"] if ui]
     assert on_ui == [], f"the UI thread imported while the libraries load: {on_ui[:5]}"
 
@@ -477,6 +496,63 @@ def test_while_the_modeling_libraries_load_another_thread_waits_to_import_them(
     event.set()
     assert imported.wait(5), "not imported once they are loaded"
     sys.modules.pop("fake_modeling_package", None)
+
+
+def test_from_the_start_of_the_warmup_another_thread_waits_to_import_the_modeling_libraries(
+        qapp, tmp_path, monkeypatch):
+    """Not only while the modeling stage runs: a worker that began importing scikit-learn
+    before the stage started held its import locks while the stage loaded, and both waited
+    for each other (Windows log of 2026-11-23: the project's checks at its opening)."""
+    import builtins
+    import threading
+    import time
+
+    from PyQt6.QtCore import QObject
+    from PyQt6.QtWidgets import QApplication
+
+    from enginir.viewer import _warmup
+
+    (tmp_path / "fake_modeling_early.py").write_text("VALUE = 1\n", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setattr(_warmup, "_MODELING_PACKAGES",
+                        (*_warmup._MODELING_PACKAGES, "fake_modeling_early"))
+    monkeypatch.setattr(_warmup, "_MODELING_IMPORTED", threading.Event())
+    monkeypatch.setattr(_warmup, "_LIBRARY_IMPORTED", threading.Event())
+    monkeypatch.setattr(_warmup, "_GATE", None)
+    monkeypatch.setattr(builtins, "__import__", builtins.__import__)  # restored after
+    _warmup._MODELING_IMPORTED.set()
+    stage = []
+    monkeypatch.setattr(_warmup, "start_modeling_warmup", lambda: stage.append(1))
+    done = []
+    owner = QObject()
+    _warmup.start_warmup(owner, on_done=lambda: done.append(1))
+    imported = threading.Event()
+
+    def import_it() -> None:
+        import fake_modeling_early  # noqa: F401
+
+        imported.set()
+
+    thread = threading.Thread(target=import_it, daemon=True)
+    thread.start()
+    def window_stage_ended() -> bool:
+        end = time.perf_counter() + 30
+        while not done and time.perf_counter() < end:
+            QApplication.processEvents()
+            time.sleep(0.01)
+        return bool(done)
+
+    try:
+        assert not imported.wait(0.3), "imported before the modeling stage started"
+        assert window_stage_ended() and stage == [1]
+        assert not imported.is_set(), "imported before the modeling stage ended"
+    finally:
+        window_stage_ended()  # its job and timer end within the test
+        _warmup._MODELING_IMPORTED.set()
+        if _warmup._GATE is not None:
+            _warmup._release_modeling_imports(_warmup._GATE)
+    assert imported.wait(5), "not imported once the stage has ended"
+    sys.modules.pop("fake_modeling_early", None)
 
 
 _DEFERRED_LOG = textwrap.dedent("""

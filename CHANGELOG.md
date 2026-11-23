@@ -11,8 +11,9 @@
   map** clicked meanwhile are accepted: the page says "Loading the modeling
   libraries..." and the action starts by itself when they are loaded. Models
   and their plots are shown at once; the ROIs' T² ellipse and the F-test's
-  critical value follow when SciPy is loaded. If loading ever stalls, the
-  log shows where after 90 s.
+  critical value follow when SciPy is loaded. The ROIs' spectra and the map
+  are shown at once; the map draws a preprocessing recipe when the libraries
+  are loaded. If loading ever stalls, the log shows where after 90 s.
 - **The welcome window appears sooner:** before it, the launcher no longer
   loads Loguru (with `asyncio` and `multiprocessing`) or the package metadata
   (164 modules instead of about 270). Its first log messages are written right

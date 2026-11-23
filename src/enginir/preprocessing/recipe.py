@@ -293,13 +293,12 @@ class PreprocessingRecipe:
         wavelengths = np.asarray(wavelengths, dtype=np.float64)
         if wavelengths.ndim != 1:
             log_and_raise("wavelengths must be 1-D, got shape {}", wavelengths.shape)
-        from .baseline import AsLSBaseline, Detrend
-        from .derivatives import SavitzkyGolay
-        from .scatter import EMSC, MSC, SNV
-        from .selection import BandSelection
-
+        # Each step's module is imported only when the recipe uses it: they load
+        # scikit-learn (and SciPy), which an empty recipe does not need.
         steps: list[tuple[str, TransformerMixin]] = []
         if self.asls:
+            from .baseline import AsLSBaseline
+
             steps.append(("asls", AsLSBaseline(lam=self.asls_lambda, p=self.asls_p,
                                                n_iter=self.asls_iterations,
                                                direction=self.asls_direction(signal_unit))))
@@ -310,6 +309,8 @@ class PreprocessingRecipe:
                     self.sg_window,
                     wavelengths.size,
                 )
+            from .derivatives import SavitzkyGolay
+
             sg = SavitzkyGolay(
                 window_length=self.sg_window,
                 polyorder=self.sg_polyorder,
@@ -318,15 +319,22 @@ class PreprocessingRecipe:
             )
             steps.append(("sg", sg))
             wavelengths = self.output_wavelengths(wavelengths)
-        if self.snv:
-            steps.append(("snv", SNV()))
-        if self.msc:
-            steps.append(("msc", MSC()))
-        if self.emsc:
-            steps.append(("emsc", EMSC()))
+        if self.snv or self.msc or self.emsc:
+            from .scatter import EMSC, MSC, SNV
+
+            if self.snv:
+                steps.append(("snv", SNV()))
+            if self.msc:
+                steps.append(("msc", MSC()))
+            if self.emsc:
+                steps.append(("emsc", EMSC()))
         if self.detrend:
+            from .baseline import Detrend
+
             steps.append(("detrend", Detrend(order=self.detrend_order, wavelengths=wavelengths)))
         if self.has_band_selection:
+            from .selection import BandSelection
+
             steps.append(("bands", BandSelection(indices=self.selected_columns(wavelengths))))
         return steps
 

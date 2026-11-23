@@ -40,6 +40,7 @@ from .._logging import get_logger
 from ..io.project_store import as_roi_storage_array
 from ..project._data_paths import DataFileCandidate, moved_path
 from ..project._ids import now_iso
+from ._warmup import modeling_ready, when_modeling_ready
 
 logger = get_logger(__name__)
 
@@ -733,6 +734,7 @@ class ViewerState(QObject):
         white_level: float = DEFAULT_WHITE_LEVEL,
     ) -> None:
         super().__init__()
+        self._recipe_pending = False  # a frame was shown without its recipe (fast start)
         self._reset_dataset_state(
             cube,
             wavelengths,
@@ -1223,8 +1225,16 @@ class ViewerState(QObject):
         band selection leaves out are returned as NaN (missing), so band
         indices stay those of the data file.
         """
+        recipe = self.recipe
+        if recipe.describe() != "none" and not modeling_ready():
+            # The steps need SciPy and scikit-learn, which load in the background (fast
+            # start); importing them here would freeze the window until they are loaded.
+            # The frame is shown without the recipe and redrawn with it when they are.
+            when_modeling_ready(self._modeling_loaded, owner=self)
+            self._recipe_pending = True
+            return img
         n_bands = img.shape[1]
-        for _, transformer in self.recipe.build_steps(self.wavelengths,
+        for _, transformer in recipe.build_steps(self.wavelengths,
                                                       signal_unit=self.y_unit):
             img = np.asarray(transformer.fit_transform(img), dtype=_WORKING_DTYPE)
         if img.shape[1] != n_bands:
@@ -1255,10 +1265,18 @@ class ViewerState(QObject):
                 img *= -1.0
 
         # 2. Preprocessing recipe (SG filter, scatter correction, detrend)
+        self._recipe_pending = False
         img = self._apply_preprocessing(img)
+        if self._recipe_pending:  # not cached: redrawn with the recipe when it can be
+            return np.asarray(img, dtype=_WORKING_DTYPE, copy=False)
 
         self._image_cache = np.asarray(img, dtype=_WORKING_DTYPE, copy=False)
         return self._image_cache
+
+    def _modeling_loaded(self) -> None:
+        """The modeling libraries are loaded: redraw the frame with the recipe."""
+        self._image_cache = None
+        self.units_changed.emit()
 
     def raw_band_image(self, band: int) -> np.ndarray:
         """Return one raw band view as ``(height, n_frames)`` float32."""

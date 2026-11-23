@@ -354,15 +354,25 @@ paths on the UI thread:
   libraries..." until the job starts), the model's plots are drawn at once
   and redrawn when the stage ends with the two things that need SciPy (the
   ROIs' T² ellipse, the F-test's critical value), the fold warnings of the
-  readiness line follow then, and jobs (ROI spectra, band proposal) wait in
-  their thread.
+  readiness line follow then, and jobs (the band proposal, the prediction
+  checks) wait in their thread. The ROIs' mean spectra need neither library
+  (`modeling._roi_spectra`; `PreprocessingRecipe.build_steps` imports only the
+  steps a recipe uses); the map shows a frame without its recipe while they
+  load and redraws it with the recipe after (`ViewerState._apply_preprocessing`).
 - Two threads importing the same packages at once can deadlock Python's
-  import locks (seen on Python 3.13.18 and 3.14). So while the modeling stage
-  runs, `_warmup._ModelingGate` (installed as `builtins.__import__` for the
-  stage only) makes an import of SciPy, scikit-learn or any engiNIR module
+  import locks (seen on Python 3.13.18 and 3.14). So from the start of the
+  warm-up until the modeling stage has ended, `_warmup._ModelingGate`
+  (installed as `builtins.__import__` by `start_warmup`, removed when the
+  stage ends) makes an import of SciPy, scikit-learn or any engiNIR module
   that imports them when imported (`_MODELING_MODULES`, recomputed from the
   source by a test: a module left out would hold its own import lock while
-  waiting) from any other thread wait until the stage has ended. If the stage
+  waiting) from any other thread wait until the stage has ended. From the
+  start of the warm-up, not of the stage: a worker that began such an import
+  before the stage (the project's checks when it opens) held its locks while
+  the stage loaded, and both waited for each other. Before the stage starts
+  the UI thread passes (it starts the stage); the window stage's job and timer
+  belong to the application, so the stage starts even if the welcome window
+  is gone. If the stage
   has not ended after 90 s, the log gets the stack of every thread
   (`_report_stall`). On the UI
   thread it logs a warning, since the window freezes meanwhile, and a

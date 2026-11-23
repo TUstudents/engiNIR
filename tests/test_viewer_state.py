@@ -151,3 +151,35 @@ def test_raw_helpers_return_expected_shapes_and_ranges(state):
     assert float(false_colour.max()) <= 1.0
 
 
+
+
+def test_a_recipe_is_drawn_when_the_modeling_libraries_are_loaded(state, monkeypatch):
+    """Fast start: the recipe's steps need SciPy and scikit-learn, which load in the
+    background; the UI thread must not import them meanwhile (the window froze on
+    Windows). The frame is shown without the recipe, then redrawn with it."""
+    import threading
+
+    from enginir import PreprocessingRecipe
+    from enginir.viewer import _warmup
+
+    event = threading.Event()
+    monkeypatch.setattr(_warmup, "_MODELING_IMPORTED", event)
+    monkeypatch.setattr(_warmup, "_WHEN_READY", [])
+    plain = state.current_frame_image().copy()
+    built = []
+    original = PreprocessingRecipe.build_steps
+    monkeypatch.setattr(PreprocessingRecipe, "build_steps",
+                        lambda self, *a, **k: built.append(1) or original(self, *a, **k))
+    state.apply_recipe(PreprocessingRecipe(snv=True))
+    redrawn = []
+    state.units_changed.connect(lambda: redrawn.append(1))
+
+    shown = state.current_frame_image()
+    assert built == [], "the recipe's steps were built while the libraries load"
+    np.testing.assert_allclose(shown, plain)
+
+    event.set()
+    _warmup._run_waiting()
+    assert redrawn, "not redrawn when the libraries are loaded"
+    snv = state.current_frame_image()
+    np.testing.assert_allclose(snv.mean(axis=1), 0.0, atol=1e-5)

@@ -640,7 +640,7 @@ def _summaries(project_obj, unit, recipe=None):
 
 def test_the_fit_and_the_summaries_convert_identically(project):
     """The same function converts the ROIs for the fit and for the Project ROIs tab."""
-    from enginir.modeling import _service
+    from enginir.modeling import _roi_spectra, _service
 
     project_obj, _cube = project
     calls: list[str] = []
@@ -650,7 +650,7 @@ def test_the_fit_and_the_summaries_convert_identically(project):
         calls.append(kwargs["roi"].name)
         return original(*args, **kwargs)
 
-    _service.roi_to_signal_domain = spy
+    _service.roi_to_signal_domain = _roi_spectra.roi_to_signal_domain = spy
     try:
         project_obj.add_target("API", unit="%")
         project_obj.set_value("T1", "API", 1.0)
@@ -658,7 +658,7 @@ def test_the_fit_and_the_summaries_convert_identically(project):
         project_obj.fit("API", n_components=1, cv="logo")
         _summaries(project_obj, "Absorbance")
     finally:
-        _service.roi_to_signal_domain = original
+        _service.roi_to_signal_domain = _roi_spectra.roi_to_signal_domain = original
     # Each training ROI went through it once for the fit and once for the summaries.
     assert calls.count("T1") == 2 and calls.count("T2") == 2
 

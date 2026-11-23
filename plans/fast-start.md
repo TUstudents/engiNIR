@@ -193,3 +193,24 @@ shown"). Changed:
   until the 300 s timeout. The gate now covers every such module; a test
   recomputes the list from the source.
 - A stage that has not ended after 90 s logs every thread's stack.
+
+## Second Windows run (2026-11-23) and what changed
+
+Welcome window at 3.54 s, main window at 26.8 s. Then the ROIs' spectra did not
+show and choosing a dataset for the map froze the window; the stall report
+showed why:
+
+- The project's prediction checks (a worker, at the project's opening) began
+  importing scikit-learn 0.6 s before the modeling stage installed its gate.
+  The worker held scikit-learn's import lock, then waited at the gate; the
+  stage waited for that lock. The gate is now installed when the warm-up
+  starts; before the stage starts only the UI thread passes (it starts the
+  stage). The window stage's job and timer belong to the application, so the
+  stage always follows.
+- Showing a dataset ran `PreprocessingRecipe.build_steps` on the UI thread,
+  which imported every step's module even for an empty recipe, and waited at
+  the gate. It now imports only the steps a recipe uses; with a recipe, the
+  map shows the frame without it while the libraries load and redraws it after.
+- The ROIs' spectra waited for scikit-learn though they need neither library:
+  `roi_spectrum_summaries` and `roi_to_signal_domain` moved to the light
+  `modeling._roi_spectra` (same public names).
