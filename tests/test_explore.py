@@ -670,3 +670,36 @@ def test_the_reference_frames_are_not_counted_above_white(qapp, tmp_path):
         assert "clipped" not in window._eda_view._signal_info.text()
     finally:
         window.close()
+
+
+def test_a_recipe_that_does_not_fit_the_dataset_is_refused_or_explained(viewer, qapp,
+                                                                         monkeypatch):
+    """The Savitzky-Golay window goes up to the dataset's band count, and a recipe that
+    does not fit the dataset (a band selection outside its axis) draws the frame without
+    it and says why, instead of raising in every redraw."""
+    import sys
+
+    from enginir import PreprocessingRecipe
+    from enginir.viewer._eda import EDAView
+
+    errors: list[BaseException] = []
+    monkeypatch.setattr(sys, "excepthook", lambda kind, value, tb: errors.append(value))
+    (eda,) = viewer.findChildren(EDAView)
+    eda._rb_filt_sg1.click()
+    eda._spin_win.setValue(101)
+    qapp.processEvents()
+    assert eda._spin_win.value() == viewer.state.sg_window == 9  # the 9 bands
+    assert errors == []
+
+    viewer.state.apply_recipe(PreprocessingRecipe())
+    raw = viewer.state.get_spectrum(viewer.state.row).copy()
+    viewer.state.apply_recipe(PreprocessingRecipe(bands_keep=((2000.0, 2100.0),)))
+    qapp.processEvents()
+    assert errors == []
+    assert not eda._recipe_problem.isHidden()
+    assert "selects none" in eda._recipe_problem.text()
+    np.testing.assert_allclose(viewer.state.get_spectrum(viewer.state.row), raw)
+
+    viewer.state.apply_recipe(PreprocessingRecipe(snv=True))
+    qapp.processEvents()
+    assert eda._recipe_problem.isHidden() and errors == []

@@ -319,3 +319,30 @@ def test_snv_uses_the_sample_std_and_zeroes_constant_spectra():
     np.testing.assert_array_equal(out[0], 0.0)
     assert out[1].mean() == pytest.approx(0.0, abs=1e-6)
     assert out[1].std(ddof=1) == pytest.approx(1.0, rel=1e-5)
+
+
+@pytest.mark.parametrize("edges", ["drop", "interp"])
+@pytest.mark.parametrize("detrend", [False, True])
+@pytest.mark.parametrize("selection", [{"bands_keep": ((1100.0, 1300.0),)},
+                                       {"bands_exclude": ((1100.0, 1300.0),)}])
+def test_a_band_selection_after_savitzky_golay_keeps_the_bands_it_names(edges, detrend,
+                                                                         selection):
+    """The selection picks its bands from the axis after the Savitzky-Golay step: the
+    result is the recipe without the selection, at the selected wavelengths. (Until
+    1.7.7 the selection was computed on its own result and kept other bands.)"""
+    from dataclasses import replace
+
+    wavelengths = np.linspace(1000.0, 1600.0, 64)
+    X = np.random.default_rng(3).uniform(0.1, 1.0, size=(6, 64)).astype(np.float32)
+    recipe = PreprocessingRecipe(filter="sg_d1", sg_edges=edges, detrend=detrend, **selection)
+
+    def run(r):
+        Y = X
+        for _name, step in r.build_steps(wavelengths, signal_unit="Absorbance"):
+            Y = step.fit_transform(Y)
+        return Y
+
+    full = run(replace(recipe, bands_keep=(), bands_exclude=()))
+    axis = replace(recipe, bands_keep=(), bands_exclude=()).output_wavelengths(wavelengths)
+    picked = np.isin(axis, recipe.output_wavelengths(wavelengths))
+    np.testing.assert_allclose(run(recipe), full[:, picked], rtol=1e-6)

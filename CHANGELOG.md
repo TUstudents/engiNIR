@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A band selection after a Savitzky-Golay filter kept the wrong bands**
+  (since 1.4.0). The selection was computed a second time on its own result,
+  so a recipe with an SG filter and keep or exclude ranges used other bands
+  than the ones named. The stored wavelength axis, the plots and the map
+  showed the bands asked for. With Detrend as well, the fit failed ("wavelengths
+  has … values but X has … features"). Models fitted with such a recipe by an
+  earlier version must be fitted again: their predictions now use the bands
+  their recipe names, not the ones they were trained on.
+- **Explore:** the Savitzky-Golay window goes up to the shown dataset's band
+  count (it went to 101, and a longer window raised an error in every redraw).
+  A recipe that does not fit the shown dataset (a band selection outside its
+  axis) shows the frame without it and says why.
+- **Welcome window:** telling a project from a dataset in a recent file of
+  unknown kind (entries written before 1.7.1) waits for the background
+  imports, so two threads never import h5py at once.
+
 ## 1.7.7 (2026-11-23)
 
 Model and project housekeeping: rename and retire models, remove datasets,
