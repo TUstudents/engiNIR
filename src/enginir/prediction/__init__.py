@@ -6,30 +6,46 @@ performs its checks without predicting. The signal-domain checks and
 conversion it relies on live in :mod:`enginir.project`.
 """
 
-from ._rois import (
-    RoiPixels,
-    RoiPrediction,
-    RoiPredictionSummary,
-    RoiStatistics,
-    predict_rois,
-    roi_prediction_statistics,
-    unusual_rois,
-)
-from ._uncertainty import IntervalInputs, mean_half_width, pixel_half_width
-from ._service import (
-    DEFAULT_CHUNK_SIZE,
-    PredictionCancelCallback,
-    PredictionCancelledError,
-    PredictionPreflight,
-    PredictionProgressCallback,
-    PredictionProgressEvent,
-    PredictionResult,
-    build_dataset_ref_from_spectral_data,
-    spectral_axis_in_nm,
-    predict_with_model_run,
-    preflight_prediction,
-    wavelength_mismatch,
-)
+from typing import TYPE_CHECKING
+
+from .._lazy import lazy_names
+
+if TYPE_CHECKING:  # the names load on first use (PEP 562): see enginir._lazy
+    from ._rois import (
+        RoiPixels,
+        RoiPrediction,
+        RoiPredictionSummary,
+        RoiStatistics,
+        predict_rois,
+        roi_prediction_statistics,
+        unusual_rois,
+    )
+    from ._uncertainty import IntervalInputs, mean_half_width, pixel_half_width
+    from ._service import (
+        DEFAULT_CHUNK_SIZE,
+        PredictionCancelCallback,
+        PredictionCancelledError,
+        PredictionPreflight,
+        PredictionProgressCallback,
+        PredictionProgressEvent,
+        PredictionResult,
+        build_dataset_ref_from_spectral_data,
+        spectral_axis_in_nm,
+        predict_with_model_run,
+        preflight_prediction,
+        wavelength_mismatch,
+    )
+
+__getattr__, __dir__ = lazy_names(__name__, globals(), {
+    **dict.fromkeys(("RoiPixels", "RoiPrediction", "RoiPredictionSummary", "RoiStatistics",
+                     "predict_rois", "roi_prediction_statistics", "unusual_rois"), "._rois"),
+    **dict.fromkeys(("IntervalInputs", "mean_half_width", "pixel_half_width"), "._uncertainty"),
+    **dict.fromkeys(("DEFAULT_CHUNK_SIZE", "PredictionCancelCallback", "PredictionCancelledError",
+                     "PredictionPreflight", "PredictionProgressCallback", "PredictionProgressEvent",
+                     "PredictionResult", "build_dataset_ref_from_spectral_data",
+                     "spectral_axis_in_nm", "predict_with_model_run", "preflight_prediction",
+                     "wavelength_mismatch"), "._service"),
+})
 
 __all__ = [
     "IntervalInputs",

@@ -987,6 +987,23 @@ v3 performance rules for long-running actions:
 - repeated status refreshes should be coalesced rather than redrawing the same
   workspace page immediately for every signal
 
+## Start contract
+
+Decided 2026-11-23 for engiNIR 1.7.8 (`plans/fast-start.md`, D1 and D2).
+
+- the welcome window is shown before the scientific stack, the log library
+  (Loguru) and the package metadata are loaded; the launcher's messages until
+  then are kept and written to the log with their own time and place right
+  after the welcome window is shown
+- the main window is shown without SciPy and scikit-learn; they load in the
+  background while it is shown
+- fit, Predict ROIs and Predict map clicked while they load are accepted: the
+  page's service status says `Loading the modeling libraries...` and the
+  action starts by itself when they are loaded; the model's plots say the
+  same and are drawn then
+- the UI thread never imports SciPy or scikit-learn while they load in the
+  background; any other thread that needs them waits for them
+
 ## Action availability contract
 
 Each workspace must expose only actions that are valid in the current window mode.

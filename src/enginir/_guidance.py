@@ -21,7 +21,7 @@ import numpy as np
 
 from ._logging import get_logger
 from .io import is_band_numbers  # through the package (see _workflow)
-from .validation.outliers import LIMIT_LEVEL
+from ._levels import LIMIT_LEVEL
 
 if TYPE_CHECKING:
     from ._workflow import Model, Project
@@ -393,7 +393,7 @@ def _outside_rois(model: Model, roi_ids: tuple[str, ...]) -> tuple[str, ...] | N
 
 def _validation_checks(model: Model) -> list[Check]:
     """The stored fold warnings (sample-set-model-run contract §7.4) as checks."""
-    from .modeling._service import fold_warning_text
+    from .modeling._stored import fold_warning_text
 
     run = model.record
     codes = run.cv_spec.get("warnings") or ""

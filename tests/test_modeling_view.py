@@ -723,3 +723,85 @@ def test_the_fit_form_takes_only_what_changed_in_the_explore_preview(qapp, edite
     window.state.set_preprocess_filter("none")
 
 
+
+
+def _modeling_libraries_loading(monkeypatch):
+    """As while the modeling stage of the warm-up runs (plans/fast-start.md): the libraries
+    are not ready, and actions wait for them. Returns the function that ends the stage."""
+    import threading
+
+    from enginir.viewer import _warmup
+
+    event = threading.Event()
+    monkeypatch.setattr(_warmup, "_MODELING_IMPORTED", event)
+    monkeypatch.setattr(_warmup, "_WHEN_READY", [])
+
+    def loaded() -> None:
+        event.set()
+        _warmup._run_waiting()
+
+    return loaded
+
+
+def test_a_fit_clicked_while_the_modeling_libraries_load_starts_when_they_are_loaded(
+        qapp, state_and_project, monkeypatch):
+    """D2: the click is accepted; the page says it is loading; the fit starts by itself."""
+    from enginir.viewer._modeling import FitModelRunDialog, ModelingView
+    from enginir.viewer._warmup import LOADING_TEXT
+
+    state, project = state_and_project
+    _labelled_rois(state, project)
+
+    def fake_exec(self):
+        self._signal_unit_combo.setCurrentIndex(self._signal_unit_combo.findText("Reflectance"))
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(FitModelRunDialog, "exec", fake_exec)
+    captured: list[dict[str, object]] = []
+    monkeypatch.setattr("enginir.modeling.fit_model_run", _fake_fit(captured))
+    loaded = _modeling_libraries_loading(monkeypatch)
+
+    view = ModelingView(state, project)
+    view._selected_target_id = "target_1"
+    view.fit_model_btn_clicked()
+    qapp.processEvents()
+    assert view._job_thread is None and captured == [], "no fit before the libraries"
+    assert view._service_status.label.text() == LOADING_TEXT
+    loaded()
+    wait_until(qapp, lambda: "model_1" in project.model_runs)
+    assert len(captured) == 1
+
+
+def test_model_plots_wait_for_the_modeling_libraries(qapp, tmp_path, monkeypatch):
+    """Their limits need SciPy: while it loads they say so, then they are drawn."""
+    from enginir.viewer._model_diagnostics import _SPECS, ModelDiagnosticsWidget
+    from enginir.viewer._modeling import ModelingView
+    from enginir.viewer._state import ProjectState, ViewerState
+    from enginir.viewer._warmup import LOADING_TEXT
+    from tests._project_payloads import write_model_project
+    from tests._sessions import fit_stored_model
+
+    path = str(tmp_path / "diagnostics.h5")
+    write_model_project(path)
+    fit_stored_model(path, model_type="PLS", n_components=2, model_run_id="run")
+    project = ProjectState()
+    project.open_project(path)
+    view = ModelingView(ViewerState(np.zeros((4, 4, 3), np.uint16),
+                                    np.array([1000.0, 1100.0, 1200.0]), {}), project)
+    payload = view.workspace_diagnostics_payload()
+    loaded = _modeling_libraries_loading(monkeypatch)
+    widget = ModelDiagnosticsWidget()
+    widget.resize(900, 600)
+    widget.show()
+    widget.update_data(payload)
+    qapp.processEvents()
+    panel = widget.grid.panel(_SPECS[0].plot_id)
+    assert panel is not None
+
+    def shown_text() -> str:
+        return " ".join(text.get_text() for axes in panel.figure.axes for text in axes.texts)
+
+    assert LOADING_TEXT in shown_text()
+    loaded()
+    qapp.processEvents()
+    assert LOADING_TEXT not in shown_text() and panel.figure.axes[0].has_data()

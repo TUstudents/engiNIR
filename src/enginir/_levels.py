@@ -12,3 +12,7 @@ DEFAULT_WHITE_LEVEL = 3100
 #: Spatial binning factors a dataset may use: ``k`` averages ``k x k`` blocks of frames
 #: and rows (``enginir.io.bin_blocks``); 1 is no binning.
 BINNING_FACTORS = (1, 2, 3, 4)
+
+#: Confidence level of the DModX and T² limits (DCrit, T²Crit) and of the default DModX
+#: exclusion: 0.95, SIMCA's default. Re-exported by :mod:`enginir.validation.outliers`.
+LIMIT_LEVEL = 0.95

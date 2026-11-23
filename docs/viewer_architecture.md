@@ -11,7 +11,7 @@ Developer reference for the `src/enginir/viewer/` module.
 | `__init__.py` | Public API: `open_viewer()`, `open_project()`, resolved on first use (see Startup) |
 | `_open.py` | `open_viewer`, `open_project` and the startup loaders behind them |
 | `_files.py` | `_is_project_file` (h5py imported on use) |
-| `_warmup.py` | `start_warmup`: imports the library and the main window while the welcome window waits (see Startup) |
+| `_warmup.py` | `start_warmup`: imports the main window's libraries while the welcome window waits, then SciPy and scikit-learn while the main window is shown; `when_modeling_ready` and the import gate (see Startup) |
 | `_startup_clock.py` | The time since the operating system started the process, for the `Startup timing` log lines |
 | `__main__.py` | Launcher `main` of `enginir-viewer` (GUI script: no console on Windows) and `enginir-viewer-console`; without a console, its messages and a failed start go to a message box; `--install-shortcut` / `--remove-shortcut` |
 | `_windows_shell.py` | Windows Start menu and desktop shortcuts through the shell's COM interfaces with `ctypes` (no Qt, no extra package): target the windowless launcher, the engiNIR icon and the taskbar id `WINDOWS_APP_ID`, which the running viewer also sets |
@@ -316,26 +316,57 @@ paths on the UI thread:
 
 - `import enginir` and `import enginir.viewer` resolve their public names on
   first use (PEP 562 `__getattr__`, with `TYPE_CHECKING` imports for the
-  types). The launcher imports only its own modules, the standard library,
-  loguru and Qt before the welcome window: no NumPy, scikit-learn, SciPy,
-  pandas, h5py, matplotlib or pyqtgraph (`tests/test_startup.py` checks the list in
-  a subprocess). A module of the launcher path imports the heavy parts
-  inside the function that needs them.
-- `_warmup.start_warmup` runs once the welcome window is painted: a job
-  imports the non-Qt stack in named steps (`BACKGROUND_STEPS`: NumPy, SciPy,
-  scikit-learn, h5py, matplotlib, engiNIR), then an idle `QTimer` imports the
-  Qt modules (`UI_MODULES`, among them `_viewer`) one per step on the UI
-  thread. Each step logs its time and what it loaded ("warm-up imported scipy
-  in 0.58s (644 modules, 104 native, 61 MB native)"), so a cold start's log
-  shows whether many small files or large native ones cost the time (plan
-  `plans/cold-start.md`). pandas is not a dependency: scikit-learn imports it
-  whenever it is installed, about 290 modules more on every start. A pick before the warm-up ends first waits for the
-  background imports (`_warmup.wait_for_library`, called by the launcher's
-  loaders in `__main__`): two threads importing the same packages at once can
-  deadlock Python's import locks (seen on Python 3.13.18 and 3.14). For the
-  same reason, code outside `enginir.io` imports its names through the
-  package (`from ..io import is_band_numbers`), never a submodule first. `run()` waits for running jobs before the
-  interpreter exits, so a launcher closed during the warm-up exits cleanly.
+  types); so do `enginir.preprocessing`, `.validation`, `.models`,
+  `.modeling` and `.prediction` (`enginir._lazy.lazy_names`). The launcher
+  imports only its own modules, the standard library and Qt before the
+  welcome window: no NumPy, scikit-learn, SciPy, pandas, h5py, matplotlib or
+  pyqtgraph, and not Loguru (with `asyncio` and `multiprocessing`) or
+  `importlib.metadata` (`tests/test_startup.py` checks the list in a
+  subprocess). Module loggers import Loguru at their first message
+  (`_logging.get_logger`); the launcher keeps its messages
+  (`_logging.defer_logging`) and writes them with their own time, module,
+  function and line when it adds the log sink, right after the welcome window
+  is shown. `enginir.__version__` is read on first use. A module of the
+  launcher path imports the heavy parts inside the function that needs them.
+- The main window needs neither SciPy nor scikit-learn
+  (`plans/fast-start.md`): `enginir.project`, `_workflow`, `_guidance`,
+  `io`, `prediction`, `preprocessing.recipe` and the viewer's modules import
+  them where they compute (a fit, a prediction, a preprocessing pipeline, a
+  limit), and the plain facts of a stored model live in the light
+  `modeling._stored` and `modeling._sample_set`. A subprocess test checks
+  that `_viewer` loads none of them.
+- `_warmup.start_warmup` runs once the welcome window is painted, in two
+  stages. The **window stage**: a job imports the non-Qt stack in named steps
+  (`BACKGROUND_STEPS`: NumPy, h5py, matplotlib, engiNIR), then an idle
+  `QTimer` imports the Qt modules (`UI_MODULES`, among them `_viewer`) one
+  per step on the UI thread. The **modeling stage** (`MODELING_STEPS`: SciPy,
+  scikit-learn, engiNIR's fitting and preprocessing code) follows in a job
+  owned by the application, while the main window is shown. Each step logs
+  its time and what it loaded ("warm-up imported scipy in 0.58s (627 modules,
+  104 native, 67 MB native)"), and the end of the modeling stage logs
+  "modeling libraries ready". pandas is not a dependency: scikit-learn imports
+  it whenever it is installed, about 290 modules more on every start.
+- A pick on the welcome window waits for the window stage only
+  (`_warmup.wait_for_library`, called by the launcher's loaders in
+  `__main__`). What needs the modeling libraries waits for them: Fit, Predict
+  ROIs and Predict map start through `_warmup.when_modeling_ready` (the click
+  is accepted; the page's busy line says "Loading the modeling
+  libraries..." until the job starts), the model's plots show that text and
+  are drawn when the stage ends, the fold warnings of the readiness line
+  follow then, and jobs (ROI spectra, band proposal) wait in their thread.
+- Two threads importing the same packages at once can deadlock Python's
+  import locks (seen on Python 3.13.18 and 3.14). So while the modeling stage
+  runs, `_warmup._ModelingGate` (installed as `builtins.__import__` for the
+  stage only) makes an import of SciPy, scikit-learn or engiNIR's modeling
+  modules from any other thread wait until the stage has ended; on the UI
+  thread it logs a warning, since the window freezes meanwhile, and a
+  subprocess test opens a project with a model while the stage runs and
+  checks that the UI thread imports none of them. The lazy package names go
+  through `builtins.__import__` too, so the gate sees them. For the same
+  reason, code outside `enginir.io` imports its names through the package
+  (`from ..io import is_band_numbers`), never a submodule first. `run()`
+  waits for running jobs before the interpreter exits, so a launcher closed
+  during the warm-up exits cleanly.
 - The recent-files list is drawn from `recent.json` alone (path and kind);
   a job (`_recent.check`) tells which files exist, grays out the missing
   ones and stores the kind of entries written before 1.7.1. The **Open
@@ -363,9 +394,10 @@ paths on the UI thread:
   loads Qt's whole font database (0.94 s in a user's log).
 - The log states the time since the operating system started the process
   (`_startup_clock`: `GetProcessTimes` on Windows, `/proc` on Linux, `ps`
-  elsewhere) when the launcher runs, when the welcome window is shown, when
-  the warm-up ends and when the first main window is shown (`Startup
-  timing` lines at INFO).
+  elsewhere) when the launcher runs, when Qt and the theme are ready, when
+  the welcome window is built and shown, when the window stage ends, when
+  the first main window is shown and when the modeling libraries are ready
+  (`Startup timing` lines at INFO).
 - The Windows installer compiles the bytecode at install
   (`--compile-bytecode`); the `windows-install` CI job checks it.
 

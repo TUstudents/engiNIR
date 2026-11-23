@@ -7,22 +7,39 @@ describes the result as a :class:`~enginir.project.ModelRun`.
 nested validation.
 """
 
-from ._bands import BandProposal, BandProposalCancelledError, BandStep, propose_bands
-from ._service import (
-    ModelRunResult,
-    RoiSpectrumSummary,
-    SampleSetData,
-    aggregate_sample_set_predictions,
-    build_sample_set,
-    fit_model_run,
-    fold_warning_text,
-    fold_warnings,
-    plan_sample_set,
-    predicted_fold_warnings,
-    roi_spectrum_summaries,
-    roi_to_signal_domain,
-    stored_hyperparameters,
-)
+from typing import TYPE_CHECKING
+
+from .._lazy import lazy_names
+
+if TYPE_CHECKING:  # the names load on first use (PEP 562): see enginir._lazy
+    from ._bands import BandProposal, BandProposalCancelledError, BandStep, propose_bands
+    from ._service import (
+        ModelRunResult,
+        RoiSpectrumSummary,
+        SampleSetData,
+        aggregate_sample_set_predictions,
+        build_sample_set,
+        fit_model_run,
+        fold_warning_text,
+        fold_warnings,
+        plan_sample_set,
+        predicted_fold_warnings,
+        roi_spectrum_summaries,
+        roi_to_signal_domain,
+        stored_hyperparameters,
+    )
+
+__getattr__, __dir__ = lazy_names(__name__, globals(), {
+    **dict.fromkeys(("BandProposal", "BandProposalCancelledError", "BandStep",
+                     "propose_bands"), "._bands"),
+    **dict.fromkeys(("ModelRunResult", "RoiSpectrumSummary", "SampleSetData",
+                     "aggregate_sample_set_predictions", "build_sample_set", "fit_model_run",
+                     "fold_warnings", "predicted_fold_warnings",
+                     "roi_spectrum_summaries", "roi_to_signal_domain"), "._service"),
+    # light: read by the viewer before the modelling libraries are loaded
+    **dict.fromkeys(("fold_warning_text", "stored_hyperparameters"), "._stored"),
+    "plan_sample_set": "._sample_set",
+})
 
 __all__ = [
     "BandProposal",

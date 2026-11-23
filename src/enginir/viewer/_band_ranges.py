@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pyqtgraph as pg
@@ -26,10 +27,13 @@ from PyQt6.QtWidgets import (
 )
 
 from .._logging import get_logger
-from ..modeling import BandProposal
 from ..preprocessing.recipe import format_ranges
 from ._jobs import start_background_job
+from ._warmup import LOADING_TEXT, modeling_ready
 from ._theme import GUIDE_COLOR, panel_colors, secondary_text_style
+
+if TYPE_CHECKING:  # the modeling libraries load after the main window (fast start)
+    from ..modeling import BandProposal
 from ._ui_helpers import wrap_tooltip
 
 logger = get_logger(__name__)
@@ -174,7 +178,7 @@ class BandRangeDialog(QDialog):
         return tuple(sorted(pairs))
 
 
-ProposalRun = Callable[[Callable[[int, int], None], Callable[[], bool]], BandProposal]
+ProposalRun = Callable[[Callable[[int, int], None], Callable[[], bool]], "BandProposal"]
 
 
 class ProposeBandsDialog(QDialog):
@@ -227,6 +231,8 @@ class ProposeBandsDialog(QDialog):
         self._timer.timeout.connect(self._show_progress)
         self._timer.start()
         self._running = True
+        if not modeling_ready():  # the job waits for them in its thread (fast start)
+            self._status.setText(LOADING_TEXT)
         self._job = start_background_job(
             owner=self, fn=lambda: run(self._report, lambda: self._cancelled),
             on_success=self._done, on_error=self._failed, on_finished=self._finished)

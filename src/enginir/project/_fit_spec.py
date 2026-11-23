@@ -16,7 +16,7 @@ import numpy as np
 
 from .._checks import log_and_raise
 from .._logging import get_logger
-from ..validation.outliers import LIMIT_LEVEL
+from .._levels import LIMIT_LEVEL
 
 logger = get_logger(__name__)
 

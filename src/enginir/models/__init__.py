@@ -13,10 +13,22 @@ Classification
     :class:`LDAClassifier` (PCA-LDA)
 """
 
-from .pls import PLSRegression
-from .pcr import PCR
-from .ml import SVRModel, RandomForestModel, MLPModel
-from .classification import SIMCA, LDAClassifier
+from typing import TYPE_CHECKING
+
+from .._lazy import lazy_names
+
+if TYPE_CHECKING:  # the names load on first use (PEP 562): see enginir._lazy
+    from .pls import PLSRegression
+    from .pcr import PCR
+    from .ml import SVRModel, RandomForestModel, MLPModel
+    from .classification import SIMCA, LDAClassifier
+
+__getattr__, __dir__ = lazy_names(__name__, globals(), {
+    "PLSRegression": ".pls",
+    "PCR": ".pcr",
+    **dict.fromkeys(("SVRModel", "RandomForestModel", "MLPModel"), ".ml"),
+    **dict.fromkeys(("SIMCA", "LDAClassifier"), ".classification"),
+})
 
 __all__ = [
     "PLSRegression",

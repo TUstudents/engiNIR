@@ -9,7 +9,6 @@ Pixel-level metrics are kept as secondary diagnostics.
 
 from __future__ import annotations
 
-from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
@@ -56,6 +55,12 @@ from ._exclusion import DModXExclusion
 from ..project._ids import new_id, now_iso
 from ..project._models import SAMPLE_SET_SEMANTICS, software_versions
 from ._pixels import draw_pixels, roi_digest, sample_checksum
+from ._sample_set import plan_sample_set  # re-exported: light, read by the viewer
+from ._stored import (  # re-exported: light, read by the viewer
+    _model_type,
+    fold_warning_text,
+    stored_hyperparameters,
+)
 from ..validation import (
     RoundRobinGroups,
     aggregate_regression_predictions,
@@ -155,86 +160,6 @@ class _StatelessRecipePredictor:
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Predict from raw spectra: the preprocessing steps, then the estimator."""
         return self.estimator.predict(transform_preprocessing_steps(X, self.steps))
-
-
-def plan_sample_set(
-    *,
-    rois: Mapping[str, TrainingROI],
-    target_assignments: Mapping[tuple[str, str], TargetAssignment],
-    target_id: str,
-    preprocessing_recipe_id: str,
-    roi_ids: list[str] | None = None,
-    sample_set_id: str | None = None,
-    created_at: str | None = None,
-    target_name: str | None = None,
-) -> SampleSet:
-    """The sample set of the labelled ROIs of a target, without reading any spectra.
-
-    Applies the same selection rules as :func:`build_sample_set`: ROIs
-    without a value for the target are left out, and all ROIs must share
-    one wavelength axis.
-
-    Raises
-    ------
-    ValueError
-        If an ROI id is unknown or repeated, no selected ROI has a target
-        value, or the ROIs have different wavelength axes. Messages name the
-        target by ``target_name`` when it is given, else by its id.
-    """
-    target_label = target_name or target_id
-    explicit = roi_ids is not None
-    selected = ([roi_id for roi_id, roi in rois.items() if roi.job != "prediction"]
-                if roi_ids is None else [str(roi_id) for roi_id in roi_ids])
-    left_out = 0 if explicit else sum(
-        1 for roi_id, roi in rois.items()
-        if roi.job == "prediction" and (roi_id, target_id) in target_assignments)
-    if not selected:
-        if left_out:
-            log_and_raise("No calibration ROI has a value for target '{}' ({} prediction ROI(s) "
-                          "with a value left out)", target_label, left_out)
-        if not explicit and rois:
-            log_and_raise("Every ROI is a prediction ROI; a model needs calibration ROIs")
-        log_and_raise("No ROIs selected for the calibration set")
-    repeated = sorted(roi_id for roi_id, count in Counter(selected).items() if count > 1)
-    if repeated:
-        log_and_raise("ROI(s) selected more than once for the calibration set: {}", repeated)
-    labelled: list[TrainingROI] = []
-    unlabelled: list[str] = []
-    for roi_id in selected:
-        if roi_id not in rois:
-            log_and_raise("Unknown ROI '{}' selected for the calibration set", roi_id)
-        if (roi_id, target_id) in target_assignments:
-            labelled.append(rois[roi_id])
-        else:
-            unlabelled.append(roi_id)
-    if not labelled:
-        if left_out:
-            log_and_raise("No calibration ROI has a value for target '{}' ({} prediction ROI(s) "
-                          "with a value left out)", target_label, left_out)
-        log_and_raise("No selected ROI has a value for target '{}'", target_label)
-    switched = [roi.name for roi in labelled if roi.job == "prediction"]
-    if explicit and switched:  # a stored sample set keeps its ROIs (sample-set contract §1)
-        logger.warning("ROI(s) of the stored selection are now prediction ROIs and are used "
-                       "as stored: {}", switched)
-    if unlabelled:
-        logger.warning("Skipping {} ROI(s) without a value for target '{}': {}",
-                       len(unlabelled), target_id, unlabelled)
-    wavelengths = labelled[0].wavelengths
-    for roi in labelled[1:]:
-        if roi.wavelengths.shape != wavelengths.shape or not np.allclose(
-            roi.wavelengths, wavelengths, atol=1e-6, rtol=0.0
-        ):
-            log_and_raise("ROI '{}' has a different wavelength axis than ROI '{}'", roi.name,
-                          labelled[0].name)
-    return SampleSet(
-        sample_set_id=sample_set_id or new_id(),
-        roi_ids=[roi.roi_id for roi in labelled],
-        target_id=target_id,
-        preprocessing_recipe_id=preprocessing_recipe_id,
-        dataset_ids=list(dict.fromkeys(roi.dataset_id for roi in labelled)),
-        created_at=created_at or now_iso(),
-        **SAMPLE_SET_SEMANTICS,
-    )
 
 
 def build_sample_set(
@@ -857,15 +782,6 @@ def _chosen_components(spec: FitSpec, hyperparameters: dict[str, Any],
             replace(spec, components_selected=chosen, components_rule_choice=rule_choice))
 
 
-#: Plain words of the fold warnings (contract §7.4).
-_FOLD_WARNING_TEXT = {
-    "few_groups": "fewer than 7 independent samples (fold groups)",
-    "one_level_per_file": "the ROIs of one dataset share one value but are held out in "
-                          "different folds, so the model can learn the dataset; give "
-                          "them one sample label",
-}
-
-
 def fold_warnings(*, roi_ids: Any, roi_index: np.ndarray, splitter: Any, X: np.ndarray,
                   cv_groups: np.ndarray, dataset_of: Mapping[str, str],
                   value_of: Mapping[str, float], n_groups: int) -> list[str]:
@@ -935,15 +851,6 @@ def predicted_fold_warnings(*, roi_ids: Sequence[str], target_id: str,
         n_groups=n_groups)
 
 
-def fold_warning_text(codes: Any) -> list[str]:
-    """Plain words for stored or predicted fold warning codes (unknown codes as they are)."""
-    if isinstance(codes, bytes):
-        codes = codes.decode()
-    if isinstance(codes, str):
-        codes = [code for code in codes.split(",") if code]
-    return [_FOLD_WARNING_TEXT.get(str(code), str(code)) for code in codes]
-
-
 def _excluding(model: Any, spec: FitSpec, roi_index: np.ndarray) -> DModXExclusion:
     """``model`` with the DModX pixel exclusion of ``spec`` (contract §7.2)."""
     return DModXExclusion(model, roi_index=roi_index, level=spec.exclusion_level,
@@ -1008,22 +915,6 @@ def _with_default_scaling(model_type: str, hyperparameters: dict[str, Any]) -> d
 
 
 #: What a stored model without ``algorithm`` (a 1.5 model) was fitted with (contract §7).
-STORED_ALGORITHM_DEFAULTS = {"PLS": "nipals", "PCR": "svd"}
-
-
-def stored_hyperparameters(model_type: str, hyperparameters: Mapping[str, Any]) -> dict[str, Any]:
-    """A stored model's hyperparameters with its algorithm (missing reads nipals or svd).
-
-    A refit and "Fit Again" use them, so they run the algorithm the model was
-    fitted with (sample-set-model-run contract §7).
-    """
-    values = dict(hyperparameters)
-    default = STORED_ALGORITHM_DEFAULTS.get(_model_type(model_type))
-    if default is not None:
-        values.setdefault("algorithm", default)
-    return values
-
-
 def fold_groups(group_by: str, sample_set: SampleSet, rois: dict[str, TrainingROI],
                 target_assignments: dict[tuple[str, str], TargetAssignment]) -> np.ndarray:
     """Fold-group index of every ROI of ``sample_set``, in ``roi_ids`` order (contract §4.1).
@@ -1141,13 +1032,6 @@ def aggregate_sample_set_predictions(
         sample_set_data.y, y_pred, sample_set_data.groups,
         aggregation=sample_set_data.sample_set.roi_aggregation,
     )
-
-
-def _model_type(model_type: str) -> str:
-    normalized = str(model_type).strip().upper()
-    if normalized not in _ESTIMATORS:
-        log_and_raise("Unsupported model type {!r}; use 'PLS' or 'PCR'", model_type, depth=2)
-    return normalized
 
 
 def _preprocessing_state_entry(predictor: Any, recipe: PreprocessingRecipe) -> dict[str, Any]:

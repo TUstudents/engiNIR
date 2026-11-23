@@ -14,7 +14,7 @@ import os
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -28,14 +28,13 @@ from .io import project_store as store
 # another runs the package's __init__ deadlocks Python's import locks.
 from .io import WavelengthTable, is_band_numbers, wavelength_table
 from .io import hdf5_io  # through the package (see above)
-from .modeling import (
-    BandProposal,
-    fit_model_run,
-    plan_sample_set,
-    propose_bands,
-    stored_hyperparameters,
-)
-from .modeling._service import fold_groups
+# The fitting functions (scikit-learn, SciPy) are imported where a model is fitted: the
+# viewer's main window imports this module before the modelling libraries are loaded.
+from .modeling._sample_set import plan_sample_set
+from .modeling._stored import stored_hyperparameters
+
+if TYPE_CHECKING:
+    from .modeling import BandProposal
 from .prediction import (
     PredictionResult,
     build_dataset_ref_from_spectral_data,
@@ -432,6 +431,8 @@ class Project:
             target_name=target_ref.name)
         domain = resolve_signal_domain(self._training_signal_domain(sample_set),
                                        ws.signal_domains)
+        from .modeling import propose_bands
+
         return propose_bands(
             project_path=self.path, sample_set=sample_set, datasets=ws.datasets,
             reference_corrections=ws.reference_corrections, rois=ws.rois,
@@ -505,6 +506,8 @@ class Project:
             target_name=target_ref.name)
         domain = resolve_signal_domain(self._training_signal_domain(sample_set),
                                        ws.signal_domains)
+        from .modeling import fit_model_run
+
         result = fit_model_run(
             project_path=self.path, sample_set=sample_set, datasets=ws.datasets,
             reference_corrections=ws.reference_corrections, rois=ws.rois,
@@ -1386,6 +1389,8 @@ class Model:
         # The stored algorithm (a 1.5 model without one: nipals or svd), so the refit
         # reproduces the model (sample-set-model-run contract §7).
         hyperparameters = stored_hyperparameters(self.record.model_type, self.record.hyperparameters)
+        from .modeling import fit_model_run
+
         result = fit_model_run(
             project_path=project.path, sample_set=sample_set, datasets=ws.datasets,
             reference_corrections=ws.reference_corrections, rois=ws.rois,
@@ -1442,6 +1447,8 @@ class Model:
             return
         ws = self.project.workspace
         try:
+            from .modeling._service import fold_groups
+
             now = fold_groups(spec.group_by, sample_set, ws.rois, ws.target_assignments)
         except (KeyError, ValueError) as exc:
             logger.warning("Refit of '{}' keeps its stored fold groups; the current ones cannot "

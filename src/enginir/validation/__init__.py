@@ -12,30 +12,46 @@ Figures of merit
     definitions in :mod:`enginir.validation.metrics`.
 """
 
-from .cross_val import (
-    DEFAULT_GROUPED_N_SPLITS,
-    aggregate_regression_predictions,
-    RoundRobinGroups,
-    cross_validate,
-    kennard_stone,
-)
-from .components import (
-    COMPONENT_CHOICE_RULES,
-    choose_components,
-    guarded_choice,
-    noise_components,
-    structure_ceiling,
-)
-from .metrics import bias, metrics_report, r2_score, rmsec, rmsecv, rmsep, rpd, rpiq, sep
-from .outliers import (
-    LIMIT_LEVEL,
-    dmodx,
-    dmodx_limit,
-    hotelling_t2,
-    leverage_outliers,
-    modelling_power,
-    spectral_outliers,
-)
+from typing import TYPE_CHECKING
+
+from .._lazy import lazy_names
+
+if TYPE_CHECKING:  # the names load on first use (PEP 562): see enginir._lazy
+    from .cross_val import (
+        DEFAULT_GROUPED_N_SPLITS,
+        aggregate_regression_predictions,
+        RoundRobinGroups,
+        cross_validate,
+        kennard_stone,
+    )
+    from .components import (
+        COMPONENT_CHOICE_RULES,
+        choose_components,
+        guarded_choice,
+        noise_components,
+        structure_ceiling,
+    )
+    from .metrics import bias, metrics_report, r2_score, rmsec, rmsecv, rmsep, rpd, rpiq, sep
+    from .outliers import (
+        LIMIT_LEVEL,
+        dmodx,
+        dmodx_limit,
+        hotelling_t2,
+        leverage_outliers,
+        modelling_power,
+        spectral_outliers,
+    )
+
+__getattr__, __dir__ = lazy_names(__name__, globals(), {
+    **dict.fromkeys(("DEFAULT_GROUPED_N_SPLITS", "aggregate_regression_predictions",
+                     "RoundRobinGroups", "cross_validate", "kennard_stone"), ".cross_val"),
+    **dict.fromkeys(("COMPONENT_CHOICE_RULES", "choose_components", "guarded_choice",
+                     "noise_components", "structure_ceiling"), ".components"),
+    **dict.fromkeys(("bias", "metrics_report", "r2_score", "rmsec", "rmsecv", "rmsep", "rpd",
+                     "rpiq", "sep"), ".metrics"),
+    **dict.fromkeys(("LIMIT_LEVEL", "dmodx", "dmodx_limit", "hotelling_t2", "leverage_outliers",
+                     "modelling_power", "spectral_outliers"), ".outliers"),
+})
 
 __all__ = [
     "DEFAULT_GROUPED_N_SPLITS",

@@ -26,7 +26,6 @@ import time
 from collections.abc import Callable
 from typing import Any, NoReturn
 
-from .. import __version__
 from .._logging import get_logger, log_file_path
 
 logger = get_logger(__name__)
@@ -92,13 +91,41 @@ def create_project(path: str) -> Any:
     return create(path)
 
 
-def _main(argv: list[str] | None = None) -> int:
+def _start_logging() -> None:
+    """Add the log sinks and write the messages kept until now (once)."""
+    from .._logging import logging_enabled
     from ._app import enable_viewer_logging
 
+    if not logging_enabled():
+        enable_viewer_logging()
+        logger.info("Log file: {}", log_file_path())
+
+
+class _VersionAction(argparse.Action):
+    """``--version``: the version is read only when asked (``importlib.metadata`` costs
+    a cold start about 80 modules)."""
+
+    def __init__(self, option_strings: list[str], dest: str = argparse.SUPPRESS,
+                 default: str = argparse.SUPPRESS, help: str | None = None) -> None:
+        super().__init__(option_strings=option_strings, dest=dest, default=default, nargs=0,
+                         help=help)
+
+    def __call__(self, parser: argparse.ArgumentParser, namespace: argparse.Namespace,
+                 values: Any, option_string: str | None = None) -> None:
+        from .. import __version__
+
+        parser._print_message(f"engiNIR {__version__}\n", sys.stdout)
+        parser.exit()
+
+
+def _main(argv: list[str] | None = None) -> int:
+    from .._logging import defer_logging
+
     app_started = time.perf_counter()
-    enable_viewer_logging()
+    # Loguru (about 150 modules) loads after the welcome window is shown: the messages
+    # until then are kept and written with their own times (plans/fast-start.md, D1).
+    defer_logging()
     logger.info("enginir-viewer started")
-    logger.info("Log file: {}", log_file_path())
     from ._startup_clock import mark_start, since_start
 
     mark_start()  # the times below count from the process start, as the OS saw it
@@ -121,7 +148,8 @@ def _main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--dark", default=None, metavar="FILE", help="Dark-reference file")
     parser.add_argument("--white", default=None, metavar="FILE", help="White-reference file")
-    parser.add_argument("--version", action="version", version=f"engiNIR {__version__}")
+    parser.add_argument("--version", action=_VersionAction,
+                        help="show the engiNIR version and exit")
     shortcuts = parser.add_argument_group("Windows shortcuts")
     shortcuts.add_argument("--install-shortcut", action="store_true",
                            help="Add 'engiNIR Viewer' to the Start menu and exit")
@@ -135,18 +163,19 @@ def _main(argv: list[str] | None = None) -> int:
     if args.install_shortcut and args.remove_shortcut:
         parser.error("--install-shortcut and --remove-shortcut exclude each other")
     if args.install_shortcut or args.remove_shortcut:
+        _start_logging()
         return _shortcuts(install=args.install_shortcut, desktop=args.desktop)
 
     from ._app import ensure_app, run
     ensure_app()
-    logger.debug(
-        "Startup timing: QApplication ready in {:.3f}s",
-        time.perf_counter() - app_started,
-    )
+    logger.info("Startup timing: QApplication and theme ready {:.2f}s after the process "
+                "started ({:.3f}s in the launcher)", since_start(),
+                time.perf_counter() - app_started)
 
     # Open windows are kept alive by the window registry (viewer/_windows.py) until they close.
 
     if args.path is not None or args.project is not None:
+        _start_logging()
         from . import open_project, open_viewer  # lazy package names
 
         startup_label = args.project if args.path is None else args.path
@@ -183,6 +212,8 @@ def _main(argv: list[str] | None = None) -> int:
 
         welcome = WelcomeWindow()
         welcome_created_at = time.perf_counter()
+        logger.info("Startup timing: welcome window built {:.2f}s after the process started",
+                    since_start())
         selected_at: float | None = None
         _startup_job: object | None = None
         _startup_busy: ViewerBusyContext | None = None
@@ -390,6 +421,7 @@ def _main(argv: list[str] | None = None) -> int:
             "({:.3f}s in the launcher)",
             since_start(), time.perf_counter() - app_started,
         )
+        _start_logging()
         # While the user reads the welcome screen, import what opening a file needs;
         # the timer fires after the window's first paint.
         from PyQt6 import sip
@@ -459,6 +491,10 @@ def main(argv: list[str] | None = None) -> None:
     try:
         sys.exit(_main(argv))
     except Exception as exc:
+        try:  # a crash before the welcome window: the log sink is not there yet
+            _start_logging()
+        except Exception:
+            pass
         logger.exception("Launcher crashed")
         if sys.stderr is None:  # started without a console: the user would see nothing
             _message_box("engiNIR Viewer could not start",

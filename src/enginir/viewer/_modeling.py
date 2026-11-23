@@ -55,12 +55,13 @@ from ._band_ranges import (
     ProposeBandsDialog,
 )
 from ._jobs import BusyStatusWidget, BackgroundWorker, start_background_job
+from ._warmup import LOADING_TEXT, modeling_ready, when_modeling_ready
 from ._state import ProjectState, signal_label, ViewerState
 from ._theme import secondary_text_style
 from ._ui_helpers import (CollapsibleSection, FlowLayout, recipe_text, spectral_axis_label,
                           with_unit, wrap_tooltip)
 from ..project._ids import now_iso
-from ..validation.outliers import LIMIT_LEVEL
+from .._levels import LIMIT_LEVEL
 
 logger = get_logger(__name__)
 
@@ -1624,9 +1625,11 @@ class ModelingView(QWidget):
         if not rois or path is None:
             return None
         datasets, reference_corrections = dict(state.datasets), dict(state.reference_corrections)
-        from ..modeling import roi_spectrum_summaries
 
         def load() -> tuple[np.ndarray, np.ndarray]:
+            # A worker thread: waits while the modeling libraries load (fast start).
+            from ..modeling import roi_spectrum_summaries
+
             summaries, skipped = roi_spectrum_summaries(
                 str(path), rois, datasets=datasets, reference_corrections=reference_corrections,
                 signal_unit=signal_unit, recipe=recipe)
@@ -1714,8 +1717,6 @@ class ModelingView(QWidget):
         recipes = dict(self.project_state.recipes)
         recipes.setdefault(sample_set.preprocessing_recipe_id, recipe.to_dict())
 
-        from ..modeling import fit_model_run as fit_project_model_run
-
         # A fit specification, when the choices need one, also carries the
         # fold rule (cv and a fit_spec that sets the folds are not combined).
         fit_spec = dlg.fit_spec
@@ -1723,6 +1724,8 @@ class ModelingView(QWidget):
         hyperparameters = dlg.hyperparameters
 
         def job():
+            from ..modeling import fit_model_run as fit_project_model_run
+
             return fit_project_model_run(
                 project_path=project_path,
                 sample_set=sample_set,
@@ -1740,20 +1743,26 @@ class ModelingView(QWidget):
                 target_name=target_name,
             )
 
-        self._set_busy(True, "Fitting model...")
-        self._job_thread, self._job_worker, self._job_relay = start_background_job(
-            owner=self,
-            fn=job,
-            on_success=lambda model_run_result: self._on_fit_model_success(
-                model_run_result=model_run_result,
-                signal_domain=signal_domain,
-                project_path=project_path,
-                sample_set=sample_set if is_new else None,
-                recipe=recipe,
-            ),
-            on_error=lambda msg: self._on_job_error("Fit model failed", msg),
-            on_finished=self._clear_job,
-        )
+        def start() -> None:
+            self._set_busy(True, "Fitting model...")
+            self._job_thread, self._job_worker, self._job_relay = start_background_job(
+                owner=self,
+                fn=job,
+                on_success=lambda model_run_result: self._on_fit_model_success(
+                    model_run_result=model_run_result,
+                    signal_domain=signal_domain,
+                    project_path=project_path,
+                    sample_set=sample_set if is_new else None,
+                    recipe=recipe,
+                ),
+                on_error=lambda msg: self._on_job_error("Fit model failed", msg),
+                on_finished=self._clear_job,
+            )
+
+        # The click is accepted while the modeling libraries load (fast start, D2).
+        if not modeling_ready():
+            self._set_busy(True, LOADING_TEXT)
+        when_modeling_ready(start, owner=self)
 
     def _smallest_labelled_roi(self, target_id: str) -> int | None:
         """Pixel count of the smallest ROI with a value for ``target_id`` (the draw limit)."""
@@ -1906,6 +1915,11 @@ class ModelingView(QWidget):
 
     def _predicted_warnings(self, roi_ids: list[str], target_id: str, fit_spec: Any,
                             cv: Any) -> list[str]:
+        if not modeling_ready():
+            # The folds need scikit-learn: the readiness line shows them once it is loaded
+            # (fast start); the fit itself records them in any case.
+            when_modeling_ready(self._update_readiness_status, owner=self)
+            return []
         from ..modeling import predicted_fold_warnings
 
         try:

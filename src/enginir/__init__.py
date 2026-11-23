@@ -12,13 +12,13 @@ and validation tasks.
 
 from __future__ import annotations
 
-from importlib import import_module
-from importlib.metadata import PackageNotFoundError, version as _metadata_version
 from typing import TYPE_CHECKING, Any
 
+from ._lazy import lazy_names
 from ._logging import disable_logging, enable_logging
 
 if TYPE_CHECKING:  # the names below load on first use (PEP 562), see __getattr__
+    __version__: str
     from ._workflow import Project
     from .io import load_spectra
     from .models import LDAClassifier, PCR, PLSRegression, SIMCA
@@ -39,22 +39,29 @@ _LAZY = {
 }
 
 
+_lazy_getattr, _lazy_dir = lazy_names(__name__, globals(), _LAZY)
+
+
+def _read_version() -> str:
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("enginir")
+    except PackageNotFoundError:  # running from a source tree that was never installed
+        return "0+unknown"
+
+
 def __getattr__(name: str) -> Any:
-    module = _LAZY.get(name)
-    if module is None:
-        raise AttributeError(f"module 'enginir' has no attribute {name!r}")
-    value = getattr(import_module(module, __name__), name)
-    globals()[name] = value  # resolved once
-    return value
+    # The version is read on first use: importlib.metadata costs a cold start about 80
+    # modules before the viewer's welcome window (plans/fast-start.md).
+    if name == "__version__":
+        value = globals()["__version__"] = _read_version()
+        return value
+    return _lazy_getattr(name)
 
 
 def __dir__() -> list[str]:
-    return sorted({*globals(), *_LAZY})
-
-try:
-    __version__ = _metadata_version("enginir")
-except PackageNotFoundError:  # running from a source tree that was never installed
-    __version__ = "0+unknown"
+    return sorted({*_lazy_dir(), "__version__"})
 
 __all__ = [
     "__version__",

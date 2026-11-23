@@ -44,9 +44,10 @@ from ..prediction import (
 )
 from ..project import ReferenceCorrection
 from ..prediction import unusual_rois
-from ..validation.outliers import LIMIT_LEVEL
+from .._levels import LIMIT_LEVEL
 from ._predict_dialogs import ModelChoice, PredictMapDialog, PredictRoisDialog
 from ._jobs import BackgroundWorker, BusyStatusWidget, start_background_job
+from ._warmup import LOADING_TEXT, modeling_ready, when_modeling_ready
 from ._state import ProjectState
 from ._theme import (GUIDE_COLOR, SERIES, heat_colormap, panel_colors, secondary_text_style,
                      value_colormap)
@@ -1115,11 +1116,18 @@ class PredictionView(QWidget):
                             prediction.model_run_id, len(prediction.refused))
 
         self._job_project_path = project_path
-        self._set_busy(True, f"Predicting {len(rois)} ROI(s)...")
-        self._job_thread, self._job_worker, self._job_relay = start_background_job(
-            owner=self, fn=job, on_success=done,
-            on_error=lambda msg: self._on_prediction_error("ROI prediction failed", msg),
-            on_finished=self._clear_job)
+
+        def start() -> None:
+            self._set_busy(True, f"Predicting {len(rois)} ROI(s)...")
+            self._job_thread, self._job_worker, self._job_relay = start_background_job(
+                owner=self, fn=job, on_success=done,
+                on_error=lambda msg: self._on_prediction_error("ROI prediction failed", msg),
+                on_finished=self._clear_job)
+
+        # The click is accepted while the modeling libraries load (fast start, D2).
+        if not modeling_ready():
+            self._set_busy(True, LOADING_TEXT)
+        when_modeling_ready(start, owner=self)
 
     def _set_roi_predictions(self, predictions: list[RoiPrediction], *, scope: str) -> None:
         """Keep the ROI predictions of this session; the exclusion starts at the model's own."""
@@ -1428,11 +1436,18 @@ class PredictionView(QWidget):
                 self._recompute_roi_results()
 
         self._job_project_path = context.project_path
-        self._set_busy(True, "Running prediction...")
-        self._job_thread, self._job_worker, self._job_relay = start_background_job(
-            owner=self, fn=job, on_success=done,
-            on_error=lambda msg: self._on_prediction_error("Prediction failed", msg),
-            on_finished=self._clear_job)
+
+        def start() -> None:
+            self._set_busy(True, "Running prediction...")
+            self._job_thread, self._job_worker, self._job_relay = start_background_job(
+                owner=self, fn=job, on_success=done,
+                on_error=lambda msg: self._on_prediction_error("Prediction failed", msg),
+                on_finished=self._clear_job)
+
+        # The click is accepted while the modeling libraries load (fast start, D2).
+        if not modeling_ready():
+            self._set_busy(True, LOADING_TEXT)
+        when_modeling_ready(start, owner=self)
 
     def _update_status(self, _value: str | None = None) -> None:
         active_model = self.project_state.active_model_name

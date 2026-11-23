@@ -16,10 +16,11 @@ from enginir._checks import (
 )
 from enginir._logging import get_logger
 
+# Edge handling of SavitzkyGolay, defined with the recipe (a light module).
+from .recipe import SG_EDGES
+
 logger = get_logger(__name__)
 
-#: Edge handling of :class:`SavitzkyGolay`.
-SG_EDGES = ("interp", "drop")
 
 
 class SavitzkyGolay(TransformerMixin, EnginirEstimator):

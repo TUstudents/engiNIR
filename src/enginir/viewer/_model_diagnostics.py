@@ -17,13 +17,13 @@ from typing import Any
 
 import numpy as np
 from matplotlib.figure import Figure
-from scipy.stats import f as f_distribution
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from ..validation import bias, r2_score, rmsecv
-from ..validation.outliers import LIMIT_LEVEL
+from .._levels import LIMIT_LEVEL
 from ._plot_grid import PlotGrid, PlotPage, PlotSlot
+from ._warmup import LOADING_TEXT, modeling_ready, when_modeling_ready
 from ._plot_help import MODEL_PLOT_HELP
 from ._plot_panel import PlotColumn, PlotSpec, PlotTable, RoiPoints, draw_placeholder
 from ._plot_registry import PLOT_SPECS, WORKSPACE_PAGES, register_pages, register_plot
@@ -338,6 +338,8 @@ def roi_t2_ellipse(scores: np.ndarray, level: float, n_points: int = 200
     variances, axes = np.linalg.eigh(np.cov(finite, rowvar=False))
     if not np.all(np.isfinite(variances)) or variances.min() <= 1e-12 * max(variances.max(), 0):
         return None
+    from scipy.stats import f as f_distribution
+
     limit = 2.0 * (n - 1) / (n - 2) * float(f_distribution.ppf(level, 2, n - 2))
     angle = np.linspace(0.0, 2.0 * np.pi, n_points)
     circle = np.stack([np.cos(angle), np.sin(angle)])
@@ -1068,6 +1070,7 @@ class ModelDiagnosticsWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.grid)
+        self._pending: tuple[Any, str, Mapping[str, Any] | None] | None = None
         self.clear()
 
     def update_data(
@@ -1079,14 +1082,28 @@ class ModelDiagnosticsWidget(QWidget):
     ) -> None:
         """Show the diagnostics of one model run; ``None`` shows ``empty_reason``.
 
-        A new run opens the `Fit` page. The same payload object is a no-op.
+        A new run opens the `Fit` page. The same payload object is a no-op. While the
+        modeling libraries load (fast start), the plots say so and fill in when they are
+        loaded: their limits need SciPy.
         """
+        if payload is not None and not modeling_ready():
+            self._pending = (payload, empty_reason, provenance)
+            self._payload = None
+            self.grid.update_data({}, empty_reason=LOADING_TEXT, provenance=provenance)
+            when_modeling_ready(self._show_pending, owner=self)
+            return
+        self._pending = None
         if payload is not None and payload is not self._payload:
             self.grid.set_current_page(self.grid.page_names[0])
         self._payload = payload
         payloads = {} if payload is None else {spec.plot_id: payload for spec in _SPECS}
         self.grid.update_data(payloads, empty_reason=empty_reason or _EMPTY,
                               provenance=provenance)
+
+    def _show_pending(self) -> None:
+        if self._pending is not None:
+            payload, empty_reason, provenance = self._pending
+            self.update_data(payload, empty_reason=empty_reason, provenance=provenance)
 
     def clear(self, *, empty_reason: str = "") -> None:
         """Show the empty state on every plot."""

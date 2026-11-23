@@ -10,23 +10,27 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, fields
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from sklearn.base import TransformerMixin
 
 from enginir._checks import check_choice, check_integer, check_real, log_and_raise
 from enginir._logging import get_logger
 
-from .baseline import AsLSBaseline, Detrend
-from .derivatives import SG_EDGES, SavitzkyGolay
-from .scatter import EMSC, MSC, SNV
-from .selection import BandSelection
+if TYPE_CHECKING:
+    from sklearn.base import TransformerMixin
+
+# The transformers (scikit-learn estimators, so SciPy) are imported where a pipeline is
+# built: the recipe's fields, checks and texts are read by the viewer's main window
+# before the modelling libraries are loaded.
 
 logger = get_logger(__name__)
 
 #: Savitzky-Golay filter modes and the derivative order each one computes.
 SG_FILTERS: dict[str, int] = {"sg_smooth": 0, "sg_d1": 1, "sg_d2": 2}
+#: How the Savitzky-Golay step treats the edges: interpolate a polynomial, or drop the
+#: ``window // 2`` bands at each end.
+SG_EDGES = ("interp", "drop")
 _FILTERS = ("none", *SG_FILTERS)
 _BOOLEAN_FIELDS = ("snv", "msc", "emsc", "detrend", "asls")
 _ASLS_FIELDS = ("asls_lambda", "asls_p", "asls_iterations")
@@ -289,6 +293,11 @@ class PreprocessingRecipe:
         wavelengths = np.asarray(wavelengths, dtype=np.float64)
         if wavelengths.ndim != 1:
             log_and_raise("wavelengths must be 1-D, got shape {}", wavelengths.shape)
+        from .baseline import AsLSBaseline, Detrend
+        from .derivatives import SavitzkyGolay
+        from .scatter import EMSC, MSC, SNV
+        from .selection import BandSelection
+
         steps: list[tuple[str, TransformerMixin]] = []
         if self.asls:
             steps.append(("asls", AsLSBaseline(lam=self.asls_lambda, p=self.asls_p,

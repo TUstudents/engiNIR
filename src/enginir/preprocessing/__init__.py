@@ -19,11 +19,24 @@ Serializable pipelines
     prediction.
 """
 
-from .baseline import AsLSBaseline, Detrend, Smoother
-from .derivatives import SavitzkyGolay
-from .recipe import PreprocessingRecipe
-from .scatter import EMSC, MSC, SNV
-from .selection import BandSelection
+from typing import TYPE_CHECKING
+
+from .._lazy import lazy_names
+
+if TYPE_CHECKING:  # the names load on first use (PEP 562): see enginir._lazy
+    from .baseline import AsLSBaseline, Detrend, Smoother
+    from .derivatives import SavitzkyGolay
+    from .recipe import PreprocessingRecipe
+    from .scatter import EMSC, MSC, SNV
+    from .selection import BandSelection
+
+__getattr__, __dir__ = lazy_names(__name__, globals(), {
+    **dict.fromkeys(("AsLSBaseline", "Detrend", "Smoother"), ".baseline"),
+    "SavitzkyGolay": ".derivatives",
+    "PreprocessingRecipe": ".recipe",
+    **dict.fromkeys(("EMSC", "MSC", "SNV"), ".scatter"),
+    "BandSelection": ".selection",
+})
 
 __all__ = [
     "AsLSBaseline",

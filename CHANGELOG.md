@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **The main window opens without waiting for SciPy and scikit-learn.**
+  They are the largest part of a start (on a cold Windows start, SciPy alone
+  took 16 s of 41 s before the main window). They now load in the background
+  while the main window is shown. **Fit**, **Predict ROIs** and **Predict
+  map** clicked meanwhile are accepted: the page says "Loading the modeling
+  libraries..." and the action starts by itself when they are loaded; the
+  model's plots are drawn then too.
+- **The welcome window appears sooner:** before it, the launcher no longer
+  loads Loguru (with `asyncio` and `multiprocessing`) or the package metadata
+  (164 modules instead of about 270). Its first log messages are written right
+  after the welcome window is shown, with the time they were logged.
+- `enginir.preprocessing`, `enginir.validation`, `enginir.models`,
+  `enginir.modeling` and `enginir.prediction` load their names on first use,
+  as `enginir` does; the names and imports are unchanged. engiNIR's loggers
+  import Loguru at their first message.
+- The log shows when Qt and the theme are ready, when the welcome window is
+  built, and when the modeling libraries are ready.
+
 ## 1.7.7 (2026-11-23)
 
 Model and project housekeeping: rename and retire models, remove datasets,

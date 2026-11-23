@@ -14,11 +14,10 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
-from scipy.stats import f, t
 
 from .._checks import log_and_raise
 from .._logging import get_logger
-from ..validation.outliers import LIMIT_LEVEL
+from .._levels import LIMIT_LEVEL
 
 logger = get_logger(__name__)
 
@@ -58,6 +57,8 @@ class IntervalInputs:
         dof = self.n_rois - self.n_components - 1
         if dof < 1:
             return None
+        from scipy.stats import t
+
         return float(t.ppf(1.0 - (1.0 - level) / 2.0, dof))
 
 
@@ -91,6 +92,8 @@ def roi_score_statistics(roi_scores: np.ndarray | None,
     if np.linalg.matrix_rank(cov) < a:
         logger.warning("The calibration ROI scores have rank below {} components; mean intervals "
                        "use the pseudo-inverse of their covariance", a)
+    from scipy.stats import f
+
     return RoiScoreStatistics(
         mean=scores.mean(axis=0), cov_inv=np.linalg.pinv(cov), n_rois=r,
         t2_crit=float(a * (r - 1) / (r - a) * f.ppf(LIMIT_LEVEL, a, r - a)))

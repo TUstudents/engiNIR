@@ -34,6 +34,10 @@ _LAZY = {
 
 
 def __getattr__(name: str) -> Any:
+    if name.startswith("_") and name not in _LAZY:
+        # A private submodule (``from enginir.viewer import _warmup``): Python imports it
+        # after this refusal, without loading ``_open`` and the library with it.
+        raise AttributeError(f"module 'enginir.viewer' has no attribute {name!r}")
     module = _LAZY.get(name, "._open")
     try:
         value = getattr(import_module(module, __name__), name)

@@ -10,17 +10,20 @@ and EMSC) so that saved models replay exactly the training-time preprocessing.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from sklearn.pipeline import Pipeline
 
 from enginir._checks import as_float_matrix, as_float_vector, check_choice, check_integer
 from enginir._checks import log_and_raise
 from enginir._logging import get_logger
 
 from .recipe import PreprocessingRecipe
-from .scatter import EMSC, MSC
+
+if TYPE_CHECKING:  # scikit-learn and the transformers load where a pipeline is built
+    from sklearn.pipeline import Pipeline
+
+    from .scatter import EMSC, MSC
 
 logger = get_logger(__name__)
 _WORKING_DTYPE = np.float32
@@ -38,6 +41,8 @@ def make_model_pipeline(
     The estimator is the final step, named ``"model"``. ``signal_unit`` is
     passed to :meth:`PreprocessingRecipe.build_steps` (required with AsLS).
     """
+    from sklearn.pipeline import Pipeline
+
     return Pipeline([*recipe.build_steps(wavelengths, signal_unit=signal_unit),
                      ("model", estimator)])
 
@@ -159,11 +164,15 @@ def restore_fitted_preprocessing_steps(
 
 
 def _restore_msc(state: Mapping[str, Any]) -> MSC:
+    from .scatter import MSC
+
     reference = as_float_vector(state.get("reference"), "persisted MSC reference")
     return MSC(reference=reference).fit(reference[np.newaxis, :])
 
 
 def _restore_emsc(state: Mapping[str, Any]) -> EMSC:
+    from .scatter import EMSC
+
     reference = as_float_vector(state.get("reference"), "persisted EMSC reference")
     interferences = state.get("interferences")
     emsc = EMSC(

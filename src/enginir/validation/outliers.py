@@ -11,17 +11,16 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-from scipy.stats import beta, chi2, f
 
+# LIMIT_LEVEL, the significance level of the DModX and T² limits (SIMCA's 0.95; DCrit,
+# T²Crit), lives in the light module _levels, so that importing it loads no SciPy.
+from enginir._levels import LIMIT_LEVEL
 from enginir._checks import as_float_matrix, check_real, log_and_raise
 from enginir._logging import get_logger
 
 logger = get_logger(__name__)
 _EPS = 1e-10
 
-#: Significance level of the DModX and T² limits: SIMCA's default 0.95 (DCrit, T²Crit;
-#: sample-set-model-run contract §7.2, prediction-runtime contract).
-LIMIT_LEVEL = 0.95
 
 
 def _as_float64_matrix(value: Any, name: str) -> np.ndarray:
@@ -148,9 +147,13 @@ def hotelling_t2(
     covariance = np.atleast_2d(np.cov(reference, rowvar=False))
     t2 = np.einsum("ij,ij->i", centred @ np.linalg.pinv(covariance), centred)
     if is_calibration:
+        from scipy.stats import beta
+
         quantile = beta.ppf(1.0 - alpha, n_components / 2.0, (n - n_components - 1) / 2.0)
         t2_crit = (n - 1) ** 2 / n * quantile
     else:
+        from scipy.stats import f
+
         quantile = f.ppf(1.0 - alpha, n_components, n - n_components)
         t2_crit = n_components * (n - 1) * (n + 1) / (n * (n - n_components)) * quantile
     return t2, float(t2_crit), t2 > t2_crit
@@ -212,6 +215,8 @@ def spectral_outliers(
     else:
         g = q_var / (2.0 * q_mean)
         h = 2.0 * q_mean**2 / q_var
+        from scipy.stats import chi2
+
         q_crit = float(g * chi2.ppf(1.0 - alpha, h))
     return q, q_crit, q > q_crit
 
@@ -346,6 +351,8 @@ def dmodx_limit(n_samples: int, n_variables: int, n_components: int, level: floa
     corr = n / (n - a0 - a)
     df_obs = (m + np.sqrt(k - df_mod) - a) / corr if k > df_mod else (m - a) / corr
     df_obs = max(df_obs, 1.0)
+    from scipy.stats import f
+
     return float(np.sqrt(f.ppf(level, df_obs, df_mod)))
 
 

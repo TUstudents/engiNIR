@@ -598,3 +598,32 @@ def test_an_roi_with_some_pixels_above_dcrit_inside_the_model_is_not_ringed(qapp
     rows = {row["roi_id"]: row for row in view.roi_results_payload()["roi_rows"]}
     assert rows["inside"]["share_above_dcrit"] == pytest.approx(0.1)
     assert (rows["inside"]["unusual"], rows["outside"]["unusual"]) == (False, True)
+
+
+def test_predict_rois_clicked_while_the_modeling_libraries_load_runs_when_they_are_loaded(
+        qapp, fitted_tray, monkeypatch):
+    """D2 of plans/fast-start.md: the click is accepted, the page says it is loading, and
+    the prediction starts by itself once the libraries are there."""
+    import threading
+
+    from enginir.viewer import _prediction, _warmup
+    from enginir.viewer._predict_dialogs import PredictRoisDialog
+    from enginir.viewer._prediction import PredictionView
+
+    _project, _model, state, _path = fitted_tray
+    monkeypatch.setattr(PredictRoisDialog, "exec", lambda self: self.DialogCode.Accepted)
+    calls: list[str] = []
+    real = _prediction.predict_rois
+    monkeypatch.setattr(_prediction, "predict_rois",
+                        lambda **kw: calls.append(kw["model_name"]) or real(**kw))
+    loaded = threading.Event()
+    monkeypatch.setattr(_warmup, "_MODELING_IMPORTED", loaded)
+    monkeypatch.setattr(_warmup, "_WHEN_READY", [])
+    view = PredictionView(state)
+    view.predict_rois_clicked()
+    qapp.processEvents()
+    assert calls == [] and view._service_status.label.text() == _warmup.LOADING_TEXT
+    loaded.set()
+    _warmup._run_waiting()
+    wait_until(qapp, lambda: len(view._roi_predictions) == 1, timeout=30)
+    assert len(calls) == 1

@@ -12,7 +12,7 @@ from PyQt6.QtCore import QEvent, QObject, Qt, QTimer
 from PyQt6.QtGui import QGuiApplication, QIcon
 from PyQt6.QtWidgets import QApplication, QComboBox, QDialog, QWidget
 
-from .._logging import enable_logging, get_logger, logging_enabled
+from .._logging import enable_logging, get_logger, logging_deferred, logging_enabled
 from ._theme import apply_qt_theme, load_preference, theme_applied
 from ._windows_shell import WINDOWS_APP_ID
 
@@ -214,13 +214,15 @@ def enable_viewer_logging() -> None:
 def ensure_app() -> QApplication:
     """Return the existing QApplication or create one.
 
-    Also enables viewer logging (see :func:`enable_viewer_logging`). Safe to
-    call multiple times; returns the singleton. The theme is applied only when
-    the application does not have it yet in the saved mode, because applying
-    it restyles every open widget.
+    Also enables viewer logging (see :func:`enable_viewer_logging`), unless the
+    launcher keeps its messages until the welcome window is shown
+    (:func:`enginir._logging.defer_logging`). Safe to call multiple times; returns
+    the singleton. The theme is applied only when the application does not have it
+    yet in the saved mode, because applying it restyles every open widget.
     """
     global _app
-    enable_viewer_logging()
+    if not logging_deferred():
+        enable_viewer_logging()
     existing = QApplication.instance()
     if isinstance(existing, QApplication):
         if existing.windowIcon().isNull():

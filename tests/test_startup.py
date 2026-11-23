@@ -12,16 +12,21 @@ import textwrap
 import pytest
 
 #: Not loaded before the welcome window is shown: the scientific stack and the parts of
-#: engiNIR that need it. Each would cost seconds on a cold Windows start.
+#: engiNIR that need it, Loguru (with asyncio and multiprocessing) and importlib.metadata
+#: (plans/fast-start.md, phase 1). Each would cost time on a cold Windows start.
 HEAVY = ("numpy", "sklearn", "scipy", "pandas", "h5py", "matplotlib", "pyqtgraph",
          "enginir._workflow", "enginir.io", "enginir.project", "enginir.models",
-         "enginir.modeling", "enginir.prediction", "enginir.validation", "enginir.viewer._viewer")
+         "enginir.modeling", "enginir.prediction", "enginir.validation", "enginir.viewer._viewer",
+         "loguru", "asyncio", "multiprocessing", "importlib.metadata")
+#: Not loaded for the main window: SciPy and scikit-learn load after it is shown.
+MODELING = ("scipy", "sklearn")
 
 _LAUNCHER = textwrap.dedent("""
     import json, sys
     import enginir.viewer.__main__
-    from enginir.viewer._app import enable_viewer_logging, ensure_app
-    enable_viewer_logging()
+    from enginir._logging import defer_logging
+    from enginir.viewer._app import ensure_app
+    defer_logging()  # as the launcher: the log sink is added after the welcome window
     ensure_app()
     from enginir.viewer._welcome import WelcomeWindow
     from PyQt6.QtWidgets import QApplication
@@ -112,7 +117,8 @@ _WARM_THEN_OPEN = textwrap.dedent("""
     done = []
     start_warmup(window, on_done=lambda: done.append(True))
     wait = sys.argv[2] == "wait"
-    while wait and not done:
+    from enginir.viewer._warmup import modeling_ready
+    while wait and not (done and modeling_ready()):
         QApplication.processEvents()
         time.sleep(0.005)
     before = set(sys.modules)
@@ -144,7 +150,8 @@ def _open_after_warmup(tmp_path, mode):
 
 
 def test_after_the_warmup_opening_a_project_imports_nothing_heavy(tmp_path):
-    """The warm-up has loaded the library and the main window before the first pick."""
+    """The warm-up (both stages) has loaded the library and the main window before the
+    first pick."""
     outcome = _open_after_warmup(tmp_path, "wait")
     assert outcome["done"] and outcome["opened"] == "HSIViewer"
     heavy = [name for name in outcome["new"] if name.split(".")[0] in
@@ -210,7 +217,7 @@ _LAUNCH_UNTIL_WARM = textwrap.dedent("""
 
     def close_when_warm():
         text = open(log, encoding="utf-8").read() if os.path.exists(log) else ""
-        if "warm-up done" in text or "warm-up stopped" in text:
+        if "modeling libraries ready" in text or "stopped" in text:
             QApplication.closeAllWindows()
 
     timer = QTimer()
@@ -236,16 +243,19 @@ def test_the_log_shows_the_start_from_the_process_start(tmp_path):
                             capture_output=True, text=True, timeout=110)
     assert result.returncode == 0, result.stderr[-2000:]
     text = log.read_text(encoding="utf-8")
-    for line in ("the launcher ran", "welcome window shown", "warm-up done"):
+    for line in ("the launcher ran", "welcome window shown", "warm-up done",
+                 "modeling libraries ready"):
         found = [entry for entry in text.splitlines() if line in entry]
         assert found and "after the process started" in found[0], (line, text[-3000:])
     # Where a cold start's time goes: one line per warm-up step, with what it loaded.
-    from enginir.viewer._warmup import BACKGROUND_STEPS, UI_MODULES
+    from enginir.viewer._warmup import BACKGROUND_STEPS, MODELING_STEPS, UI_MODULES
 
-    imported = re.findall(r"warm-up imported (\S+) in [\d.]+s \((\d+) modules, (\d+) native",
+    imported = re.findall(r"warm-up imported (.+?) in [\d.]+s \((\d+) modules, (\d+) native",
                           text)
     assert [step for step, _, _ in imported] == [step for step, _ in BACKGROUND_STEPS] + list(
-        UI_MODULES), text[-3000:]
+        UI_MODULES) + [step for step, _ in MODELING_STEPS], text[-3000:]
+    # The main window's stage ends before SciPy loads (plans/fast-start.md).
+    assert text.index("warm-up done") < text.index("warm-up imported scipy"), text[-3000:]
     assert dict((step, int(n)) for step, n, _ in imported)["scipy"] > 100
 
 
@@ -355,3 +365,140 @@ def test_a_welcome_pick_waits_for_the_warmup_before_loading(loader, monkeypatch,
     _warmup._LIBRARY_IMPORTED.set()
     thread.join(5)
     assert called, f"{loader} did not load after the warm-up"
+
+
+_LIGHT = textwrap.dedent("""
+    import json, sys
+    for name in sys.argv[1:]:
+        __import__(name)
+    print(json.dumps(sorted(sys.modules)))
+""")
+
+
+def test_the_main_window_and_the_workflow_load_no_scipy_or_scikit_learn(tmp_path):
+    """SciPy and scikit-learn load after the main window is shown (plans/fast-start.md):
+    nothing the window or the project workflow imports pulls them in."""
+    env = {**os.environ, "QT_QPA_PLATFORM": "offscreen"}
+    light = ["enginir.project", "enginir._workflow", "enginir._guidance", "enginir.io",
+             "enginir.prediction", "enginir.preprocessing.recipe", "enginir.modeling._stored",
+             "enginir.viewer._open", "enginir.viewer._viewer"]
+    result = _run([sys.executable, "-c", _LIGHT, *light], env=env, timeout=60)
+    modules = set(json.loads(result.stdout.strip().splitlines()[-1]))
+    assert "enginir.viewer._viewer" in modules
+    loaded = sorted(name for name in modules if name.split(".")[0] in MODELING)
+    assert loaded == [], f"loaded with the main window: {loaded[:10]}"
+
+
+_WINDOW_WHILE_LOADING = textwrap.dedent("""
+    import json, sys, threading, time
+    main = threading.main_thread()
+    attempts = []
+
+    class Watch:  # records where SciPy or scikit-learn would be imported, and refuses
+        def find_spec(self, name, path=None, target=None):
+            if name.split(".")[0] in ("scipy", "sklearn"):
+                attempts.append([name, threading.current_thread() is main])
+                raise ModuleNotFoundError(f"not yet: {name}")
+
+    sys.meta_path.insert(0, Watch())
+    from enginir.viewer import _warmup
+    _warmup._MODELING_IMPORTED.clear()  # the modeling stage runs
+    from enginir.viewer._app import ensure_app
+    from enginir.viewer import open_project
+    from PyQt6.QtWidgets import QApplication
+    ensure_app()
+    window = open_project(sys.argv[1])
+    for step in ("data", "rois", "values", "model", "predict"):
+        window.show_step(step)
+        for _ in range(30):
+            QApplication.processEvents()
+            time.sleep(0.01)
+    window.select_model(next(iter(window.project_state.model_runs)))
+    for _ in range(30):
+        QApplication.processEvents()
+        time.sleep(0.01)
+    print(json.dumps({"shown": window.isVisible(), "attempts": attempts}))
+    from enginir.viewer._jobs import wait_for_running_jobs
+    wait_for_running_jobs(30)
+""")
+
+
+def test_the_main_window_works_while_the_modeling_libraries_load(tmp_path):
+    """A project with a model, a calibration set and a stored prediction opens, every
+    workflow step and the model's page show, and the UI thread never imports SciPy or
+    scikit-learn meanwhile (two threads importing them at once can deadlock).
+    Worker threads may: the import gate makes them wait."""
+    from tests._scans import every_stored_object_project
+
+    path = every_stored_object_project(tmp_path)
+    home = tmp_path / "home"
+    home.mkdir()
+    env = {**os.environ, "QT_QPA_PLATFORM": "offscreen", "HOME": str(home),
+           "USERPROFILE": str(home), "XDG_CONFIG_HOME": str(home / ".config"),
+           "APPDATA": str(home / "AppData"), "ENGINIR_LOG_FILE": str(tmp_path / "viewer.log")}
+    result = _run([sys.executable, "-c", _WINDOW_WHILE_LOADING, str(path)], env=env, timeout=90)
+    outcome = json.loads(result.stdout.strip().splitlines()[-1])
+    assert outcome["shown"]
+    on_ui = [name for name, ui in outcome["attempts"] if ui]
+    assert on_ui == [], f"the UI thread imported while the libraries load: {on_ui[:5]}"
+
+
+def test_while_the_modeling_libraries_load_another_thread_waits_to_import_them(
+        tmp_path, monkeypatch):
+    """The gate: an import of a modeling package from a thread other than the loader's
+    waits until the stage has ended."""
+    import builtins
+    import threading
+
+    from enginir.viewer import _warmup
+
+    (tmp_path / "fake_modeling_package.py").write_text("VALUE = 1\n", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setattr(_warmup, "_MODELING_PACKAGES",
+                        (*_warmup._MODELING_PACKAGES, "fake_modeling_package"))
+    event = threading.Event()
+    monkeypatch.setattr(_warmup, "_MODELING_IMPORTED", event)
+    gate = _warmup._ModelingGate()
+    monkeypatch.setattr(builtins, "__import__", gate)
+    imported = threading.Event()
+
+    def import_it() -> None:
+        import fake_modeling_package  # noqa: F401
+
+        imported.set()
+
+    thread = threading.Thread(target=import_it, daemon=True)
+    thread.start()
+    assert not imported.wait(0.3), "imported while the modeling libraries load"
+    event.set()
+    assert imported.wait(5), "not imported once they are loaded"
+    sys.modules.pop("fake_modeling_package", None)
+
+
+_DEFERRED_LOG = textwrap.dedent("""
+    import sys, time
+    from enginir._logging import defer_logging, enable_logging
+    defer_logging()
+    from enginir.viewer import _startup_clock  # an engiNIR module that logs
+    _startup_clock.logger.info("kept until the sink exists")
+    assert "loguru" not in sys.modules, "Loguru imported before the welcome window"
+    time.sleep(1.2)
+    enable_logging("ERROR", file=sys.argv[1])
+    print("ok")
+""")
+
+
+def test_messages_before_the_log_sink_keep_their_time_and_place(tmp_path):
+    """D1: the launcher's first messages are kept without Loguru and written with the
+    sink, with their own time, module, function and line."""
+    log = tmp_path / "viewer.log"
+    result = _run([sys.executable, "-c", _DEFERRED_LOG, str(log)], timeout=60)
+    assert result.stdout.strip().endswith("ok"), result.stderr[-2000:]
+    (line,) = [entry for entry in log.read_text(encoding="utf-8").splitlines()
+               if "kept until the sink exists" in entry]
+    assert "enginir.viewer._startup_clock:<module>:6" in line, line
+    import datetime
+
+    stamp = datetime.datetime.strptime(line[:23], "%Y-%m-%d %H:%M:%S.%f")
+    written = datetime.datetime.fromtimestamp(log.stat().st_mtime)
+    assert (written - stamp).total_seconds() > 1.0, "the time it was logged, not written"

@@ -14,7 +14,11 @@ of uncaught exceptions). Scripts and notebooks can do the same::
     enginir.enable_logging("INFO", file="analysis.log")
 
 Modules obtain their logger with ``logger = get_logger(__name__)`` and use
-Loguru's ``{}`` placeholders.
+Loguru's ``{}`` placeholders. Loguru itself (with ``asyncio`` and
+``multiprocessing``, about 150 modules) is imported at the first message, not
+with engiNIR: the viewer's welcome window is shown before it
+(``plans/fast-start.md``). The launcher keeps its first messages until then
+(:func:`defer_logging`); :func:`enable_logging` writes them.
 """
 
 from __future__ import annotations
@@ -23,19 +27,20 @@ import os
 import sys
 import tempfile
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from loguru import logger
-
 __all__ = [
     "add_log_sink",
     "default_log_files",
+    "defer_logging",
     "disable_logging",
     "enable_logging",
     "get_logger",
     "log_file_path",
+    "logging_deferred",
     "logging_enabled",
     "remove_log_sink",
 ]
@@ -49,8 +54,20 @@ _STDERR_FORMAT = (
 )
 _FILE_FORMAT = "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<7} | {name}:{function}:{line} | {message}"
 
-# Library code must never log at import time without opt-in.
-logger.disable(_PACKAGE)
+_LOGURU: Any = None
+
+
+def _loguru() -> Any:
+    """Loguru's logger, imported at first use; engiNIR is muted in it until
+    :func:`enable_logging` (library code must never log without opt-in)."""
+    global _LOGURU
+    if _LOGURU is None:
+        from loguru import logger as loguru_logger
+
+        if not _state.sink_ids:
+            loguru_logger.disable(_PACKAGE)
+        _LOGURU = loguru_logger
+    return _LOGURU
 
 
 @dataclass
@@ -77,12 +94,89 @@ def _is_enginir_console_record(record: Any) -> bool:
     return _is_enginir_record(record) and not record["extra"].get("uncaught", False)
 
 
+#: Messages kept by :func:`defer_logging` until :func:`enable_logging`: (module, method,
+#: function, line, time, message, args, kwargs, exception info).
+_DEFERRED: list[tuple[Any, ...]] | None = None
+_DEFERRABLE = frozenset({"trace", "debug", "info", "success", "warning", "error",
+                         "critical", "exception"})
+
+
+class _ModuleLogger:
+    """A module's logger: Loguru's, with records attributed to the module, imported at
+    the first message (see the module docstring)."""
+
+    def __init__(self, name: str) -> None:
+        self._name = name
+        self._logger: Any = None
+
+    def _resolve(self) -> Any:
+        if self._logger is None:
+            name = self._name
+            self._logger = _loguru().patch(lambda record: record.update(name=name))
+        return self._logger
+
+    def __getattr__(self, attribute: str) -> Any:
+        if _DEFERRED is not None and attribute in _DEFERRABLE:
+            return lambda message, *args, **kwargs: _defer(self._name, attribute, message,
+                                                           args, kwargs)
+        return getattr(self._resolve(), attribute)
+
+
+def _defer(name: str, method: str, message: Any, args: Any, kwargs: Any) -> None:
+    caller = sys._getframe(2)  # the module's code (this function, then the lambda)
+    exception = sys.exc_info() if method == "exception" else None
+    if _DEFERRED is not None:
+        _DEFERRED.append((name, method, caller.f_code.co_name, caller.f_lineno, time.time(),
+                          message, args, kwargs, exception))
+
+
+def defer_logging() -> None:
+    """Keep engiNIR's messages (without importing Loguru) until :func:`enable_logging`,
+    which writes them with their own time, module, function and line. For the viewer's
+    launcher, which shows its welcome window first."""
+    global _DEFERRED
+    if _DEFERRED is None and not _state.sink_ids:
+        _DEFERRED = []
+
+
+def logging_deferred() -> bool:
+    """``True`` while :func:`defer_logging` keeps messages for :func:`enable_logging`."""
+    return _DEFERRED is not None
+
+
+def _write_deferred() -> None:
+    global _DEFERRED
+    kept, _DEFERRED = _DEFERRED, None
+    if not kept:
+        return
+    from datetime import datetime
+
+    try:  # Loguru's own datetime formats "{time:...}"; private, so only if it is there
+        from loguru._datetime import datetime as loguru_datetime
+    except ImportError:
+        loguru_datetime = None
+    zone = datetime.now().astimezone().tzinfo
+    for name, method, function, line, when, message, args, kwargs, exception in kept:
+        def patch(record: Any, name: str = name, function: str = function, line: int = line,
+                  when: float = when) -> None:
+            record.update(name=name, function=function, line=line)
+            if loguru_datetime is not None:
+                record["time"] = loguru_datetime.fromtimestamp(when, tz=zone)
+
+        logger = _loguru().patch(patch)
+        if exception is not None:
+            logger.opt(exception=exception).error(message, *args, **kwargs)
+        else:
+            getattr(logger, method)(message, *args, **kwargs)
+
+
 def get_logger(name: str) -> Any:
     """Return the Loguru logger with records attributed to module ``name``.
 
-    Call once per module as ``logger = get_logger(__name__)``.
+    Call once per module as ``logger = get_logger(__name__)``. Loguru is imported at
+    the first message.
     """
-    return logger.patch(lambda record: record.update(name=name))
+    return _ModuleLogger(name)
 
 
 def default_log_files() -> list[Path]:
@@ -146,11 +240,11 @@ def enable_logging(
     """
     disable_logging()
     try:
-        logger.enable(_PACKAGE)
+        _loguru().enable(_PACKAGE)
         _reroute_default_handler()
         if sys.stderr is not None:  # None in a process without a console (pythonw)
             _state.sink_ids.append(
-                logger.add(
+                _loguru().add(
                     sys.stderr,
                     level=level,
                     format=_STDERR_FORMAT,
@@ -169,13 +263,14 @@ def enable_logging(
     except BaseException:
         disable_logging()
         raise
+    _write_deferred()
     return _state.log_file
 
 
 def disable_logging() -> None:
     """Undo :func:`enable_logging`: remove its sinks and hooks and mute engiNIR again."""
     for sink_id in _state.sink_ids:
-        logger.remove(sink_id)
+        _loguru().remove(sink_id)
     _state.sink_ids.clear()
     _state.log_file = None
     if _state.previous_hooks is not None:
@@ -187,7 +282,7 @@ def disable_logging() -> None:
         if threading.excepthook is own_thread_hook:
             threading.excepthook = previous_thread_hook
         _state.previous_hooks = None
-    logger.disable(_PACKAGE)
+    _loguru().disable(_PACKAGE)
 
 
 def logging_enabled() -> bool:
@@ -202,12 +297,12 @@ def log_file_path() -> Path | None:
 
 def add_log_sink(*args: Any, **kwargs: Any) -> int:
     """Add a sink to the Loguru logger (passed to :meth:`loguru.logger.add`) and return its id."""
-    return logger.add(*args, **kwargs)
+    return _loguru().add(*args, **kwargs)
 
 
 def remove_log_sink(sink_id: int) -> None:
     """Remove a sink added with :func:`add_log_sink`."""
-    logger.remove(sink_id)
+    _loguru().remove(sink_id)
 
 
 def _reroute_default_handler() -> None:
@@ -215,17 +310,17 @@ def _reroute_default_handler() -> None:
         return
     _state.default_handler_rerouted = True
     try:
-        logger.remove(0)
+        _loguru().remove(0)
     except ValueError:
         return  # The application already configured Loguru itself.
     if sys.stderr is not None:
-        logger.add(sys.stderr, filter=lambda record: not _is_enginir_record(record))
+        _loguru().add(sys.stderr, filter=lambda record: not _is_enginir_record(record))
 
 
 def _add_file_sink(path: Path, level: str) -> bool:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        sink_id = logger.add(
+        sink_id = _loguru().add(
             str(path),
             level=level,
             format=_FILE_FORMAT,
@@ -236,7 +331,7 @@ def _add_file_sink(path: Path, level: str) -> bool:
             diagnose=False,
         )
     except OSError as exc:
-        logger.warning("Cannot write the log file {}: {}", path, exc)
+        _loguru().warning("Cannot write the log file {}: {}", path, exc)
         return False
     _state.sink_ids.append(sink_id)
     _state.log_file = path
@@ -246,7 +341,7 @@ def _add_file_sink(path: Path, level: str) -> bool:
 def _install_exception_hooks() -> None:
     previous_hook, previous_thread_hook = sys.excepthook, threading.excepthook
     _state.previous_hooks = (previous_hook, previous_thread_hook)
-    uncaught_logger = logger.bind(uncaught=True)
+    uncaught_logger = _loguru().bind(uncaught=True)
 
     def log_uncaught(exc_type: Any, exc: Any, traceback: Any) -> None:
         if not issubclass(exc_type, KeyboardInterrupt):
@@ -266,3 +361,9 @@ def _install_exception_hooks() -> None:
     sys.excepthook = log_uncaught
     threading.excepthook = log_uncaught_in_thread
     _state.own_hooks = (log_uncaught, log_uncaught_in_thread)
+
+
+# A program that uses Loguru already: mute engiNIR in it now, as before Loguru was
+# imported on first use (its own configuration may come before engiNIR's first message).
+if "loguru" in sys.modules:
+    _loguru()

@@ -48,7 +48,6 @@ from PyQt6.QtWidgets import (
 from .._checks import log_and_raise
 from .._logging import get_logger
 from ..io.project_store import load_roi_band_images
-from ..modeling import roi_spectrum_summaries
 from ..project import TrainingROI
 from ._jobs import start_background_job
 from ._plot_grid import PlotPage, PlotPageWidget, PlotSlot
@@ -1075,6 +1074,9 @@ class ProjectRoisView(QWidget):
         self._spectra_stale = False
 
         def compute() -> Any:
+            # A worker thread: waits while the modelling libraries load (fast start).
+            from ..modeling import roi_spectrum_summaries
+
             return roi_spectrum_summaries(path, rois, datasets=datasets,
                                           reference_corrections=reference_corrections, signal_unit=unit,
                                           recipe=recipe)
