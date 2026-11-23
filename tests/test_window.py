@@ -200,6 +200,28 @@ def test_the_models_panel_shows_each_model_with_the_library_verdict(qapp, layers
         window.close()
 
 
+def test_a_retired_model_leaves_the_models_panel_and_predict_for_retired_models(qapp, layers):
+    """D5: a retired model is under "Retired models" in the Project tree, not in the Models
+    panel or Predict's choices (it predicts nothing)."""
+    window = _open(qapp, layers)
+    try:
+        run = _fit(qapp, window)
+        window.project_state.retire_model(run.model_run_id, "superseded")
+        qapp.processEvents()
+        window._refresh_models_panel(window.project_state.project)
+        assert window._models_panel.model_ids() == []
+        assert window._prediction_view._model_choices() == []
+        browser = window._project_browser
+        section = browser._sections["retired_models"]
+        assert [section.child(i).data(0, Qt.ItemDataRole.UserRole)["id"]
+                for i in range(section.childCount())] == [run.model_run_id]
+        models = browser._sections["model_runs"]
+        assert all(models.child(i).data(0, Qt.ItemDataRole.UserRole).get("kind") != "model_run"
+                   for i in range(models.childCount()))
+    finally:
+        window.close()
+
+
 def test_the_example_project_is_created_once_and_opens_with_a_model(qapp, tmp_path,
                                                                      monkeypatch):
     from enginir._example import create_example_project
@@ -634,11 +656,12 @@ def test_a_model_shows_its_calibration_set_and_input_contract_beneath_it(qapp, t
     browser.refresh()
 
     shown = [browser.topLevelItem(i).text(0) for i in range(browser.topLevelItemCount())]
-    assert shown[0] == "Datasets (1)" and shown[-2:] == ["Models (1)", "Predictions"], \
+    assert shown[0] == "Datasets (1)" and shown[-3:] == ["Models (1)", "Retired models",
+                                                         "Predictions"], \
         "a section counts its objects; an empty one has no count"
     sections = [text.split(" (")[0] for text in shown]
     assert sections == ["Datasets", "Reference corrections", "ROIs", "Targets", "Target values",
-                        "Models", "Predictions"]
+                        "Models", "Retired models", "Predictions"]
     assert not browser.topLevelItem(0).icon(0).isNull()
     models = browser.topLevelItem(sections.index("Models"))
     assert models.childCount() == 1, "nothing left over: the set and the contract are used"

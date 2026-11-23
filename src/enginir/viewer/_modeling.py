@@ -1519,6 +1519,11 @@ class ModelingView(QWidget):
     def selected_target_id(self) -> str | None:
         return self._selected_target_id
 
+    @property
+    def selected_model_run_id(self) -> str | None:
+        """The model selected on the Model page, or ``None``."""
+        return self._selected_model_run_id
+
     @selected_target_id.setter
     def selected_target_id(self, value: str | None) -> None:
         self._selected_target_id = None if value is None else str(value)

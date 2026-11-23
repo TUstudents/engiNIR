@@ -1949,6 +1949,10 @@ class HSIViewer(QMainWindow):
         act = _add_required_action(m, "Locate Moved Datasets...")
         act.setToolTip(wrap_tooltip("Find the files of datasets that are not at their stored place"))
         act.triggered.connect(self._locate_first_missing)
+        act = _add_required_action(m, "Remove Dataset...")
+        act.setToolTip(wrap_tooltip("Remove a dataset without ROIs from the project; the file "
+                                    "is not touched"))
+        act.triggered.connect(lambda: self.remove_dataset())
         m.addSeparator()
         self._menu_button_action(m, "Targets...", model._btn_target, icon_name="target")
         # Both open the ROI table. Only ROI > ROI Table holds Ctrl+T: two actions with one
@@ -1996,6 +2000,13 @@ class HSIViewer(QMainWindow):
         act.triggered.connect(lambda: self._with_fit_form("_propose_bands_clicked"))
         act = _add_required_action(m, "Select Bands on Plot...")
         act.triggered.connect(lambda: self._with_fit_form("_select_bands_on_plot"))
+        m.addSeparator()
+        act = _add_required_action(m, "Rename Model...")
+        act.triggered.connect(lambda: self.rename_model())
+        act = _add_required_action(m, "Retire Model...")
+        act.setToolTip(wrap_tooltip("Keep the model as a record that predicts no more; its "
+                                    "per-pixel diagnostics are deleted"))
+        act.triggered.connect(lambda: self.retire_model())
 
         m = self._menu_predict
         self._menu_button_action(m, "Predict ROIs...",
@@ -2330,6 +2341,8 @@ class HSIViewer(QMainWindow):
 
         rows = []
         for run in self.project_state.model_runs.values():
+            if run.retired_at:  # in the Project tree's Retired models, not here
+                continue
             model = Model(project, run)
             try:
                 verdict = model.verdict()
@@ -2468,6 +2481,12 @@ class HSIViewer(QMainWindow):
         act = _add_required_action(m, "Export Plots...")
         act.setToolTip(wrap_tooltip("Save every plot of the current workspace as PNG and CSV"))
         act.triggered.connect(self._action_export_plots)
+
+        m.addSeparator()
+        act = _add_required_action(m, "Compact Project...")
+        act.setToolTip(wrap_tooltip("Give back the space of retired models' diagnostics and "
+                                    "removed datasets and ROIs: the project file shrinks"))
+        act.triggered.connect(lambda: self.compact_project())
 
         m.addSeparator()
 
@@ -2925,6 +2944,112 @@ class HSIViewer(QMainWindow):
             QMessageBox.critical(self, "Cannot set wavelengths", str(exc))
             return False
         self.use_registered_axis()
+        return True
+
+    def _choose_model(self, title: str) -> str | None:
+        """The model to act on: the one selected on the Model page, else asked for."""
+        state = self.project_state
+        runs = [run for run in state.model_runs.values() if not run.retired_at]
+        if not runs:
+            QMessageBox.information(self, title, "The project has no model.")
+            return None
+        from PyQt6.QtWidgets import QInputDialog
+
+        labels = [run.name or run.model_run_id for run in runs]
+        ids = [run.model_run_id for run in runs]
+        selected = self._modeling_view.selected_model_run_id
+        current = ids.index(selected) if selected in ids else 0
+        label, ok = QInputDialog.getItem(self, title, "Model:", labels, current, False)
+        return ids[labels.index(label)] if ok else None
+
+    def rename_model(self, model_run_id: str | None = None) -> bool:
+        """Model > Rename Model: give a model another name (the model is its id)."""
+        from PyQt6.QtWidgets import QInputDialog
+
+        model_run_id = model_run_id or self._choose_model("Rename model")
+        if model_run_id is None:
+            return False
+        run = self.project_state.model_runs[model_run_id]
+        name, ok = QInputDialog.getText(self, "Rename model", "New name:", text=run.name or "")
+        if not ok:
+            return False
+        try:
+            self.project_state.rename_model(model_run_id, name)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Cannot rename model", str(exc))
+            return False
+        return True
+
+    def retire_model(self, model_run_id: str | None = None) -> bool:
+        """Model > Retire Model: the model stays as a record but predicts no more (D1-D5)."""
+        from PyQt6.QtWidgets import QInputDialog
+
+        model_run_id = model_run_id or self._choose_model("Retire model")
+        if model_run_id is None:
+            return False
+        name = self.project_state.model_runs[model_run_id].name or model_run_id
+        reason, ok = QInputDialog.getText(
+            self, "Retire model",
+            f"Retire '{name}'?\n\nIt stays in the project with its metrics and predictive "
+            "core, under Retired models, but predicts no more. Its per-pixel diagnostics "
+            "(scores, T², DModX of every calibration pixel) are deleted. This cannot be "
+            "undone; refitting gives the same model again as a new model.\n\n"
+            "Reason (optional):")
+        if not ok:
+            return False
+        try:
+            self.project_state.retire_model(model_run_id, reason)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Cannot retire model", str(exc))
+            return False
+        return True
+
+    def compact_project(self) -> bool:
+        """File > Compact Project: rewrite the project file without its free space."""
+        if self.project_state.project_path is None:
+            QMessageBox.information(self, "Compact project", "No project is open.")
+            return False
+        try:
+            before, after = self.project_state.compact_project()
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Cannot compact project", str(exc))
+            return False
+        QMessageBox.information(self, "Compact project",
+                                f"The project file is {after / 1e6:.1f} MB (was "
+                                f"{before / 1e6:.1f} MB).")
+        return True
+
+    def remove_dataset(self, dataset_id: str | None = None) -> bool:
+        """Project > Remove Dataset: remove a dataset without ROIs; the file stays on disk."""
+        from PyQt6.QtWidgets import QInputDialog
+
+        state = self.project_state
+        if not state.datasets:
+            QMessageBox.information(self, "Remove dataset", "The project has no dataset.")
+            return False
+        if dataset_id is None:
+            choices = list(state.datasets)
+            labels = [state.data_file_label(d) for d in choices]
+            shown = self._eda_view.shown_dataset_id()
+            current = choices.index(shown) if shown in choices else 0
+            label, ok = QInputDialog.getItem(self, "Remove dataset", "Dataset:", labels,
+                                             current, False)
+            if not ok:
+                return False
+            dataset_id = choices[labels.index(label)]
+        path = state.datasets[dataset_id].source_path
+        answer = QMessageBox.question(
+            self, "Remove dataset",
+            f"Remove {state.data_file_label(dataset_id)} ({path}) and its reference "
+            "corrections from the project?\n\nThe file is not touched; it can be added "
+            "again.")
+        if answer != QMessageBox.StandardButton.Yes:
+            return False
+        try:
+            state.remove_dataset(dataset_id)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Cannot remove dataset", str(exc))
+            return False
         return True
 
     def name_dataset(self, dataset_id: str | None = None) -> bool:

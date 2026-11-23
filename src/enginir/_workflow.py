@@ -159,9 +159,17 @@ class Project:
 
     @property
     def models(self) -> dict[str, Model]:
-        """Models by name; an error if names repeat (``workspace.model_runs`` is by id)."""
-        runs = _by_name(self.workspace.model_runs.values(), "model", "model_run_id",
-                        key=self._model_name)
+        """Active models by name; an error if names repeat (``workspace.model_runs`` is by
+        id). Retired models are in :attr:`retired_models`."""
+        runs = _by_name([run for run in self.workspace.model_runs.values() if not run.retired_at],
+                        "model", "model_run_id", key=self._model_name)
+        return {name: Model(self, run) for name, run in runs.items()}
+
+    @property
+    def retired_models(self) -> dict[str, Model]:
+        """Retired models by name (see :meth:`Model.retire`)."""
+        runs = _by_name([run for run in self.workspace.model_runs.values() if run.retired_at],
+                        "model", "model_run_id", key=self._model_name)
         return {name: Model(self, run) for name, run in runs.items()}
 
     @property
@@ -673,6 +681,48 @@ class Project:
             prediction, artifact_refs={key: value for key, value in prediction.artifact_refs.items()
                                        if key not in ("y_pred", "spatial_map")})
 
+    def compact(self) -> tuple[int, int]:
+        """Rewrite the project file without the space freed by deletions; return the
+        sizes before and after.
+
+        Retiring a model, removing a dataset or deleting ROIs frees space inside
+        the file, which HDF5 only reuses; compacting gives it back. The content is
+        unchanged (every group, array and attribute copied as stored).
+        """
+        return store.compact_project(self.path)
+
+    def remove_dataset(self, dataset_id: str) -> None:
+        """Remove a dataset that nothing refers to, with its reference corrections.
+
+        The data file on disk is never touched; the file can be added again,
+        e.g. with other references or another binning. Refused, naming them,
+        while ROIs, calibration sets or stored predictions refer to the
+        dataset, so no model's record loses data. Nothing is written when it
+        is refused.
+        """
+        ws = self.workspace
+        dataset = _with_id(ws.datasets, dataset_id, "dataset")
+        rois = sorted(roi.name for roi in ws.rois.values() if roi.dataset_id == dataset_id)
+        sets = sorted(sample_set_id for sample_set_id, sample_set in ws.sample_sets.items()
+                      if dataset_id in sample_set.dataset_ids)
+        predictions = sorted(run_id for run_id, run in ws.predictions.items()
+                             if run.dataset_id == dataset_id)
+        if rois or sets or predictions:
+            reasons = [f"its ROIs {', '.join(rois)}" if rois else "",
+                       f"calibration set(s) {', '.join(sets)}" if sets else "",
+                       f"stored prediction(s) {', '.join(predictions)}" if predictions else ""]
+            log_and_raise("Dataset {} is not removed: {} refer to it", dataset.source_path,
+                          "; ".join(reason for reason in reasons if reason))
+        store.remove_dataset(self.path, dataset_id)
+        ws.datasets.pop(dataset_id)
+        ws.active_reference_correction_ids.pop(dataset_id, None)
+        for correction_id in [correction_id for correction_id, correction
+                              in ws.reference_corrections.items()
+                              if correction.dataset_id == dataset_id]:
+            del ws.reference_corrections[correction_id]
+        logger.info("Removed dataset '{}' ({}) from {}; the file is unchanged",
+                    dataset_id, dataset.source_path, self.path)
+
     def remove_roi(self, roi_id: str) -> list[str]:
         """Delete an ROI and its reference values; return the sample sets still listing it.
 
@@ -1166,6 +1216,60 @@ class Model:
         """The model's name (a mutable label)."""
         return self.project._model_name(self.record)
 
+    def rename(self, name: str) -> Model:
+        """Give the model another name (a mutable label; the model is its id).
+
+        The name must not be empty or another model's name.
+        """
+        project, ws = self.project, self.project.workspace
+        name = str(name).strip()
+        others = [run for run in ws.model_runs.values()
+                  if run.model_run_id != self.record.model_run_id]
+        project._require_new_name(others, name, "model", key=project._model_name)
+        store.save_model_run_name(project.path, self.record.model_run_id, name)
+        self.record = replace(self.record, name=name)
+        ws.model_runs[self.record.model_run_id] = self.record
+        return self
+
+    @property
+    def retired(self) -> bool:
+        """Whether the model is retired (:meth:`retire`)."""
+        return bool(self.record.retired_at)
+
+    def retire(self, reason: str = "") -> Model:
+        """Retire the model: it stays in the project as a record but predicts no more.
+
+        The model, its calibration set, input contract, recipe, metrics and
+        predictive core stay; its per-pixel diagnostics (the scores, T² and
+        DModX of every calibration pixel, most of a model's size) are deleted.
+        A retired model stays retired: :meth:`refit` gives the same model again,
+        with its diagnostics, as a new model. ``reason`` is optional; it is
+        stored with the date and the engiNIR version. The file shrinks only
+        with :meth:`Project.compact`.
+        """
+        from . import __version__
+
+        project, ws = self.project, self.project.workspace
+        if self.retired:
+            log_and_raise("Model '{}' is already retired ({})", self.name,
+                          self.record.retired_at)
+        retired_at, reason = now_iso(), str(reason).strip()
+        store.retire_model_run(project.path, self.record.model_run_id, retired_at=retired_at,
+                               reason=reason, enginir_version=__version__)
+        self.record = replace(self.record, retired_at=retired_at, retired_reason=reason,
+                              retired_enginir=__version__)
+        ws.model_runs[self.record.model_run_id] = self.record
+        logger.info("Model '{}' ({}) retired{}", self.name, self.record.model_run_id,
+                    f": {reason}" if reason else "")
+        return self
+
+    def _require_active(self, action: str) -> None:
+        if self.retired:
+            log_and_raise("Model '{}' is retired ({}{}); it does not {}. Refit it for a new "
+                          "model", self.name, self.record.retired_at,
+                          f": {self.record.retired_reason}" if self.record.retired_reason
+                          else "", action, depth=2)
+
     @property
     def metrics(self) -> dict[str, Any]:
         """Figures of merit: ROI-level ``rmsecv``, ``r2``, ``bias``, ``rpd``, ``rpiq``,
@@ -1405,6 +1509,7 @@ class Model:
 
     def roi_prediction(self, rois: Sequence[str | TrainingROI] | None = None) -> RoiPrediction:
         """The pixel predictions of the prediction ROIs (see :meth:`predict_rois`)."""
+        self._require_active("predict")
         ws = self.project.workspace
         chosen = ([roi for roi in ws.rois.values() if roi.job == "prediction"] if rois is None
                   else [self.project._roi_of(roi) for roi in rois])
@@ -1435,6 +1540,7 @@ class Model:
             The prediction map and vector, the DModXPS and T²PS maps with
             their 0.95 limits and summary, and the provenance.
         """
+        self._require_active("predict")
         project, ws = self.project, self.project.workspace
         domain = ws.signal_domains[self.record.signal_domain_id]
         recipe_id = ws.sample_sets[self.record.sample_set_id].preprocessing_recipe_id

@@ -149,6 +149,20 @@ DOI) and the link to its GitHub repository.
 A project opened without a scan shows its stored objects in every
 step; drawing ROIs needs a scan. **Project > Rename Dataset...** gives a
 dataset a short name ("Layer 7") that is shown instead of its file name.
+**Project > Remove Dataset...** removes a dataset without ROIs, with its
+reference corrections; the file on disk is not touched and can be added
+again, e.g. with another binning. A dataset that ROIs, a calibration set or
+a stored prediction refer to is not removed; the message names them.
+
+**Model > Rename Model...** renames a model. **Model > Retire Model...**
+keeps a model as a record that predicts no more, with an optional reason: it
+moves to **Retired models** in the Project tree (Properties shows the date,
+the reason and what was kept), leaves the Models panel and Predict's
+choices, and loses its per-pixel diagnostics, most of its size. It cannot be
+undone; refitting it gives the same model again as a new model. The project
+file shrinks only with **File > Compact Project...**, which rewrites it
+without the space that retired models, removed datasets and deleted ROIs
+left.
 
 Explore
 -------

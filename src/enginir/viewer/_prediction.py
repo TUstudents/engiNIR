@@ -1020,6 +1020,8 @@ class PredictionView(QWidget):
         state = self.project_state
         choices = []
         for model_run_id, run in state.model_runs.items():
+            if run.retired_at:  # a retired model predicts nothing
+                continue
             name = run.name or f"{run.model_type} model"
             sample_set = state.sample_sets.get(run.sample_set_id)
             domain = state.signal_domains.get(run.signal_domain_id)

@@ -885,6 +885,10 @@ class ModelRun(SerializableModel):
         The versions the model was fitted with: ``enginir``, ``numpy``,
         ``scipy``, ``scikit-learn`` (:func:`software_versions`); required in a
         project file, the running versions by default.
+    retired_at, retired_reason, retired_enginir : str or None
+        When the model was retired (ISO 8601), why (may be empty) and the
+        engiNIR version that retired it; ``None`` while it is active, and then
+        not stored, so an active model keeps its content.
     """
 
     model_run_id: str
@@ -899,9 +903,22 @@ class ModelRun(SerializableModel):
     name: str | None = None
     fit_spec: dict[str, Any] | None = None
     software: dict[str, Any] | None = None
+    retired_at: str | None = None
+    retired_reason: str | None = None
+    retired_enginir: str | None = None
 
     def __post_init__(self) -> None:
         self.model_run_id = _text(self.model_run_id, "model_run_id")
+        if self.retired_at is None:
+            if self.retired_reason is not None or self.retired_enginir is not None:
+                log_and_raise("Model '{}' has retirement details without retired_at",
+                              self.model_run_id)
+        else:
+            self.retired_at = _timestamp(self.retired_at, "retired_at")
+            self.retired_reason = _text(self.retired_reason or "", "retired_reason",
+                                        required=False)
+            self.retired_enginir = _text(self.retired_enginir or "", "retired_enginir",
+                                         required=False)
         # In memory a new model is fitted by the running software; a stored model
         # must carry its own (project-schema contract, Core and display data).
         self.software = check_software(software_versions() if self.software is None

@@ -20,7 +20,7 @@ from ._ui_helpers import with_unit, wrap_tooltip
 _SECTION_ICONS = {"datasets": "database", "reference_corrections": "adjustments-horizontal",
                   "rois": "grid-dots", "targets": "target",
                   "target_assignments": "list-details", "model_runs": "chart-dots",
-                  "predictions": "map"}
+                  "retired_models": "clipboard-list", "predictions": "map"}
 
 __all__ = ["ProjectBrowser"]
 
@@ -30,7 +30,8 @@ class ProjectBrowser(QTreeWidget):
 
     Each model shows its calibration set and its input contract beneath it
     (terminology contract); calibration sets and input contracts that no
-    model uses follow the models, marked "(no model)".
+    model uses follow the models, marked "(no model)". Retired models have
+    their own section (``retired_models``), with the reason in the tooltip.
     """
 
     _SECTION_ORDER = [
@@ -40,6 +41,7 @@ class ProjectBrowser(QTreeWidget):
         ("targets", "Targets"),
         ("target_assignments", "Target values"),
         ("model_runs", "Models"),
+        ("retired_models", "Retired models"),
         ("predictions", "Predictions"),
     ]
     _KIND_TO_SECTION = {
@@ -129,7 +131,9 @@ class ProjectBrowser(QTreeWidget):
         counts = {"datasets": len(state.datasets), "reference_corrections": len(state.reference_corrections),
                   "rois": len(state.rois), "targets": len(state.targets),
                   "target_assignments": len(state.target_assignments),
-                  "model_runs": len(state.model_runs), "predictions": len(state.predictions)}
+                  "model_runs": sum(1 for run in state.model_runs.values() if not run.retired_at),
+                  "retired_models": sum(1 for run in state.model_runs.values() if run.retired_at),
+                  "predictions": len(state.predictions)}
         for key, label in self._SECTION_ORDER:
             section = self._sections[key]
             section.setText(0, f"{label} ({counts[key]})" if counts[key] else label)
@@ -178,6 +182,8 @@ class ProjectBrowser(QTreeWidget):
         if section_key is None:
             return None
         pending = [self._sections[section_key]]
+        if kind == "model_run":  # a model is under Models or under Retired models
+            pending.append(self._sections["retired_models"])
         while pending:  # depth first: a model's calibration set and input contract are nested
             parent = pending.pop(0)
             for index in range(parent.childCount()):
@@ -307,12 +313,20 @@ class ProjectBrowser(QTreeWidget):
         state = self.project_state
         used_sets: set[str] = set()
         used_domains: set[str] = set()
+        retired_section = self._sections["retired_models"]
         for model_run_id, model_run in sorted(state.model_runs.items(),
                                               key=lambda pair: str(pair[1].created_at)):
             name = model_run.name or model_run.model_type
             item = QTreeWidgetItem([name])
-            item.setToolTip(0, wrap_tooltip(_with_id("Model", model_run_id)))
             item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "model_run", "id": model_run_id})
+            if model_run.retired_at:
+                reason = model_run.retired_reason or "no reason given"
+                item.setToolTip(0, wrap_tooltip(
+                    f"{_with_id('Model', model_run_id)}. Retired {model_run.retired_at[:10]}: "
+                    f"{reason}"))
+                retired_section.addChild(item)
+                continue
+            item.setToolTip(0, wrap_tooltip(_with_id("Model", model_run_id)))
             if model_run.sample_set_id in state.sample_sets:
                 item.addChild(self._sample_set_item(model_run.sample_set_id))
                 used_sets.add(model_run.sample_set_id)

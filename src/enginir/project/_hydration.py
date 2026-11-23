@@ -29,6 +29,8 @@ logger = get_logger(__name__)
 _Model = TypeVar("_Model")
 _PROJECT_META_FIELDS = ("project_id", "FileSchemaVersion", "FileCreator", "FileWriter",
                         "created_at", "updated_at")
+#: Stored only on a retired model (engiNIR 1.7.7); absent on an active one.
+_RETIREMENT_FIELDS = ("retired_at", "retired_reason", "retired_enginir")
 _MODEL_DISPLAY_FIELDS = ("cv_spec", "metrics")
 #: Display data of a dataset: tolerated when missing or malformed (schema contract).
 _DATASET_DISPLAY_FIELDS = ("relative_path", "label", "wavelength_table", "wavelength_table_id")
@@ -161,7 +163,7 @@ def hydrate_project_store(
     # cv_spec and metrics are display data: tolerated when missing
     # (project-schema contract, Core and display data).
     model_runs = _build_all(ModelRun, "model_runs", "model_run_id", store,
-                            optional=("name",) + _MODEL_DISPLAY_FIELDS)
+                            optional=("name",) + _MODEL_DISPLAY_FIELDS + _RETIREMENT_FIELDS)
     predictions = _build_all(PredictionRun, "predictions", "prediction_run_id", store)
 
     _check_executable_models(model_runs, sample_sets, recipes)
@@ -326,7 +328,7 @@ _WRITE_OPTIONS: dict[str, dict[str, Any]] = {
                    "optional": (*_DATASET_DISPLAY_FIELDS, "binning")},
     "ReferenceCorrection": {"optional": _REFERENCE_FIELDS},
     "TrainingROI": {"ignored": {"spectra", "reference_spectra"}, "optional": ("sample",)},
-    "ModelRun": {"optional": ("name",)},
+    "ModelRun": {"optional": ("name", *_RETIREMENT_FIELDS)},
     "SignalDomainContract": {"optional": ("binning",)},
 }
 

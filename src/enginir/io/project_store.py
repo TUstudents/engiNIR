@@ -578,6 +578,84 @@ def save_dataset_label(path: PathLike, dataset_id: str, label: str) -> None:
     logger.info("Dataset '{}' named '{}' in {}", dataset_id, label, path)
 
 
+def save_model_run_name(path: PathLike, model_run_id: str, name: str) -> None:
+    """Rename a stored model run; a name is a mutable label, not identity (§5)."""
+    with _open_project(path, writable=True) as f:
+        group = f["model_runs"].get(model_run_id)
+        if not isinstance(group, h5py.Group):
+            log_and_raise("Unknown model '{}' in {}", model_run_id, path, error=KeyError)
+        group.attrs["name"] = str(name)
+    logger.info("Model '{}' renamed to '{}' in {}", model_run_id, name, path)
+
+
+#: The per-pixel arrays of a model's diagnostics, one row per calibration pixel; retiring
+#: a model removes them (project-schema contract §5, Retired models). Named, never found
+#: by their length: a model with as many bands as pixels must keep its coefficients.
+PER_PIXEL_DIAGNOSTICS = ("x_scores_", "scores_", "t2", "dmodx")
+
+
+def retire_model_run(path: PathLike, model_run_id: str, *, retired_at: str, reason: str,
+                     enginir_version: str) -> int:
+    """Retire a model in one write: record when, why and by which engiNIR, and delete its
+    per-pixel diagnostics (:data:`PER_PIXEL_DIAGNOSTICS`); return the bytes they held.
+
+    Its predictive core, metrics and the other diagnostics stay. The file does not
+    shrink until :func:`compact_project`; HDF5 reuses the space for later writes.
+    """
+    with _open_project(path, writable=True) as f:
+        group = f["model_runs"].get(model_run_id)
+        if not isinstance(group, h5py.Group):
+            log_and_raise("Unknown model '{}' in {}", model_run_id, path, error=KeyError)
+        if "retired_at" in group.attrs:
+            log_and_raise("Model '{}' is already retired ({})", model_run_id,
+                          group.attrs["retired_at"])
+        freed = 0
+        diagnostics = group.get("artifact_refs/diagnostics")
+        if isinstance(diagnostics, h5py.Group):
+            for name in PER_PIXEL_DIAGNOSTICS:
+                member = diagnostics.get(name)
+                if isinstance(member, h5py.Dataset):
+                    freed += int(member.id.get_storage_size())
+                    del diagnostics[name]
+                elif name in diagnostics.attrs:
+                    freed += int(np.asarray(diagnostics.attrs[name]).nbytes)
+                    del diagnostics.attrs[name]
+        group.attrs["retired_at"] = retired_at
+        group.attrs["retired_reason"] = str(reason)
+        group.attrs["retired_enginir"] = str(enginir_version)
+    logger.info("Retired model '{}' in {} ({} bytes of per-pixel diagnostics freed){}",
+                model_run_id, path, freed, f": {reason}" if reason else "")
+    return freed
+
+
+def compact_project(path: PathLike) -> tuple[int, int]:
+    """Rewrite a project without its free space; return its size before and after.
+
+    HDF5 never shrinks a file when data are deleted (a retired model's diagnostics,
+    removed datasets or ROIs); the space is only reused. Every group, array and
+    attribute is copied as stored (same values, dtypes and compression) into a new
+    file beside it, which is checked and then replaces the project in one rename.
+    The project is unchanged if anything fails.
+    """
+    source = Path(path)
+    temporary = source.with_name(source.name + ".compacting")
+    before = source.stat().st_size
+    try:
+        with _open_project(source) as f, h5py.File(temporary, "w") as copy:
+            copy.attrs.update(dict(f.attrs))
+            for name in f:
+                f.copy(f[name], copy, name=name)
+        with _open_project(temporary):  # the copy is a project in the current format
+            pass
+        os.replace(temporary, source)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    after = source.stat().st_size
+    logger.info("Compacted {}: {} -> {} bytes", source, before, after)
+    return before, after
+
+
 def remove_target_assignment(path: PathLike, target_id: str, roi_id: str) -> None:
     """Delete the value of one target for one ROI; the ROI is then unlabeled for it.
 
@@ -590,6 +668,20 @@ def remove_target_assignment(path: PathLike, target_id: str, roi_id: str) -> Non
         del assignments[roi_id]
     logger.info("Removed target assignment target='{}' roi='{}' from {}", target_id, roi_id,
                 path)
+
+
+def remove_dataset(path: PathLike, dataset_id: str) -> None:
+    """Delete a dataset and its reference corrections in one write; the data file stays.
+
+    The caller checks that nothing refers to it (:meth:`enginir.Project.remove_dataset`).
+    """
+    with _open_project(path, writable=True) as f:
+        datasets = f["datasets"]
+        if dataset_id not in datasets:
+            log_and_raise("Dataset '{}' not found in project {}", dataset_id, path,
+                          error=KeyError)
+        del datasets[dataset_id]
+    logger.info("Removed dataset '{}' and its reference corrections from {}", dataset_id, path)
 
 
 def remove_roi_from_project(path: PathLike, roi_id: str) -> None:

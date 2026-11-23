@@ -196,9 +196,14 @@ Required object groups (engiNIR 1.6), each with its count:
 - `ROIs`
 - `Targets`
 - `Target values`
-- `Models`: each model shows its calibration set and its input contract
+- `Models`: each active model shows its calibration set and its input contract
   beneath it; calibration sets and input contracts that no model uses
   follow the models, marked "(no model)"
+- `Retired models` (engiNIR 1.7.7): the retired models, the reason and date in
+  the tooltip; Properties shows the date, the engiNIR version, the reason and
+  what was kept. A retired model is not in the Models panel or in Predict's
+  choices; selected, the Model page shows its metrics and per-band plots (its
+  per-pixel plots are empty)
 - `Predictions`: the predictions stored by the low-level writers (the viewer
   stores none; Result handling of `prediction-runtime-contract_v3.md`)
 
@@ -218,6 +223,15 @@ Minimum required behavior:
   ("tablets_1.h5: dark/white references", "…: detector levels 128 / 3100");
   items are sorted by name, ROIs by dataset and then name in natural order
   ("T2" before "T10") (decided 2026-11-16)
+
+Model > **Rename Model…** and **Retire Model…** (the model selected on the
+Model page preselected; Retire asks for an optional reason and says what is
+removed and that it cannot be undone), Project > **Remove Dataset…** (a
+confirmation names the file; refusals name what refers to the dataset) and
+File > **Compact Project…** (shows the sizes before and after) act through the
+library (`sample-set-model-run-contract_v3.md` §6.1,
+`project-dataset-attachment-contract_v3.md` Removing a dataset,
+`project-schema-contract_v3.md` §5; engiNIR 1.7.7).
 
 Forbidden behavior:
 

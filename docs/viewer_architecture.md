@@ -35,7 +35,7 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_band_ranges.py` | `BandRangeDialog` (drag keep/exclude ranges on the mean spectrum of the target's ROIs, loaded in a job, with the selected model's VIP or coefficients as a guide) and `ProposeBandsDialog` (runs `Project.propose_bands` in a job, progress through a polled counter, cancel flag) |
 | `_prediction.py` | `PredictionView` (Predict ROIs and Predict map jobs, the ROI predictions of the session and their statistics for the current DModXPS exclusion, recalculated without predicting again) and `PredictionMapWidget` (color scale from the calibration range or user limits, ROI outlines, excluded pixels grayed, the Prediction interval layer of the 95 % pixel prediction intervals) |
 | `_predict_dialogs.py` | `PredictRoisDialog`, `PredictMapDialog` (models by name, the chain read-only, refusal with the reason), the `predict.roi_results` plot spec |
-| `_browser.py` | Read-only workspace object tree |
+| `_browser.py` | Read-only workspace object tree; retired models in their own section (`retired_models`) |
 | `_inspector.py` | Selection-driven metadata display; `fit_summary` describes how a model was fitted, with its stored algorithm (`stored_hyperparameters`: missing reads nipals or svd) (reads the stored exclusion arrays on demand) |
 | `_jobs.py` | `BackgroundWorker`, `_CallbackRelay`, `start_background_job`, `BusyStatusWidget` |
 | `_loading.py` | Shared wait-cursor/status/progress helpers for startup and open flows |
