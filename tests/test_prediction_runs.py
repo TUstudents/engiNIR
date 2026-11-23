@@ -39,7 +39,7 @@ from tests._project_payloads import write_model_project, write_prediction_cube
 from tests import _project_payloads as build
 
 
-def _fit_phase6_model(project_path: str) -> CoreSession:
+def _fit_model(project_path: str) -> CoreSession:
     state = CoreSession()
     state.open_project(project_path)
     sample_set = state.build_sample_set(
@@ -83,7 +83,7 @@ def test_prediction_dataset_source_path_accepts_equivalent_slash_styles(tmp_path
     assert resolved is dataset and not is_new
 
 
-def _fit_phase6_model_with_recipe(
+def _fit_model_with_recipe(
     project_path: str, *, recipe_id: str, model_run_id: str
 ) -> CoreSession:
     state = CoreSession()
@@ -105,9 +105,9 @@ def _fit_phase6_model_with_recipe(
 
 
 def test_predict_dataset_reuses_dataset_local_calibration_defaults_after_reopen(tmp_path):
-    project_path = str(tmp_path / "phase6_predict_defaults.h5")
+    project_path = str(tmp_path / "predict_defaults.h5")
     write_model_project(project_path)
-    state = _fit_phase6_model(project_path)
+    state = _fit_model(project_path)
 
     wavelengths = np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
     pred_path = str(tmp_path / "prediction_defaults.h5")
@@ -159,9 +159,9 @@ def test_predict_dataset_reuses_dataset_local_calibration_defaults_after_reopen(
 
 
 def test_reopened_prediction_run_lazily_loads_spatial_map_and_preserves_model_linkage(tmp_path):
-    project_path = str(tmp_path / "phase6_prediction_reopen_lazy.h5")
+    project_path = str(tmp_path / "prediction_reopen_lazy.h5")
     write_model_project(project_path)
-    state = _fit_phase6_model(project_path)
+    state = _fit_model(project_path)
     del state
     # Low-level persistence (a script's explicit request); the viewer never stores predictions.
     run = PredictionRun(
@@ -196,9 +196,9 @@ def test_reopened_prediction_run_lazily_loads_spatial_map_and_preserves_model_li
 
 
 def test_predict_dataset_requires_explicit_calibration_when_defaults_absent(tmp_path):
-    project_path = str(tmp_path / "phase6_predict_no_defaults.h5")
+    project_path = str(tmp_path / "predict_no_defaults.h5")
     write_model_project(project_path)
-    state = _fit_phase6_model(project_path)
+    state = _fit_model(project_path)
 
     pred_path = str(tmp_path / "prediction_no_defaults.h5")
     write_prediction_cube(
@@ -214,9 +214,9 @@ def test_predict_dataset_requires_explicit_calibration_when_defaults_absent(tmp_
 
 
 def test_predict_dataset_allows_different_wavelength_metadata(tmp_path):
-    project_path = str(tmp_path / "phase6_predict_different_wavelengths.h5")
+    project_path = str(tmp_path / "predict_different_wavelengths.h5")
     write_model_project(project_path)
-    state = _fit_phase6_model(project_path)
+    state = _fit_model(project_path)
 
     pred_path = str(tmp_path / "prediction_different_wavelengths.h5")
     write_prediction_cube(
@@ -252,9 +252,9 @@ def _msc_prediction_calibration(reference_correction_id: str) -> ReferenceCorrec
 
 
 def test_reopened_stateful_preprocessing_replays_persisted_training_state(tmp_path):
-    project_path = str(tmp_path / "phase6_predict_reopened_msc.h5")
+    project_path = str(tmp_path / "predict_reopened_msc.h5")
     write_model_project(project_path)
-    fitted = _fit_phase6_model_with_recipe(
+    fitted = _fit_model_with_recipe(
         project_path, recipe_id="recipe_msc", model_run_id="model_run_msc"
     )
 
@@ -297,9 +297,9 @@ def test_reopened_stateful_preprocessing_replays_persisted_training_state(tmp_pa
 def test_a_model_without_its_msc_state_is_refused_when_the_project_is_read(tmp_path):
     # The MSC/EMSC state is core (project-schema contract, Core and display
     # data): the reader refuses the project, before any prediction.
-    project_path = str(tmp_path / "phase6_missing_msc_state.h5")
+    project_path = str(tmp_path / "missing_msc_state.h5")
     write_model_project(project_path)
-    _fit_phase6_model_with_recipe(
+    _fit_model_with_recipe(
         project_path, recipe_id="recipe_msc", model_run_id="model_run_msc"
     )
     with h5py.File(project_path, "a") as handle:
@@ -316,9 +316,9 @@ def test_a_model_without_its_msc_state_is_refused_when_the_project_is_read(tmp_p
 def test_reopened_stateful_preprocessing_rejects_malformed_training_state(
     tmp_path, damage, match
 ):
-    project_path = str(tmp_path / "phase6_predict_missing_msc_state.h5")
+    project_path = str(tmp_path / "predict_missing_msc_state.h5")
     write_model_project(project_path)
-    _fit_phase6_model_with_recipe(
+    _fit_model_with_recipe(
         project_path, recipe_id="recipe_msc", model_run_id="model_run_msc"
     )
     state_path = "model_runs/model_run_msc/artifact_refs/prediction_model/preprocessing_state"
@@ -352,9 +352,9 @@ def test_reopened_stateful_preprocessing_rejects_malformed_training_state(
 
 
 def test_predict_dataset_ignores_changed_wavelength_metadata_for_existing_dataset(tmp_path):
-    project_path = str(tmp_path / "phase6_predict_changed_wavelength_metadata.h5")
+    project_path = str(tmp_path / "predict_changed_wavelength_metadata.h5")
     write_model_project(project_path)
-    state = _fit_phase6_model(project_path)
+    state = _fit_model(project_path)
 
     pred_path = str(tmp_path / "prediction_stale.h5")
     write_prediction_cube(
@@ -397,7 +397,7 @@ def test_hdf5_prediction_reuses_source_and_artifact_file_handles(tmp_path):
     project_path = str(tmp_path / "prediction_handle_reuse_project.h5")
     source_path = str(tmp_path / "prediction_handle_reuse_source.h5")
     write_model_project(project_path)
-    state = _fit_phase6_model(project_path)
+    state = _fit_model(project_path)
     context = state.build_prediction_job_context(model_run_id="model_run_1")
     save_hdf5(
         source_path,
@@ -452,9 +452,9 @@ def test_hdf5_prediction_reuses_source_and_artifact_file_handles(tmp_path):
 
 
 def test_predict_with_model_run_cancels_between_chunks_and_discards_artifacts(tmp_path):
-    project_path = str(tmp_path / "phase6_predict_cancel.h5")
+    project_path = str(tmp_path / "predict_cancel.h5")
     write_model_project(project_path)
-    state = _fit_phase6_model(project_path)
+    state = _fit_model(project_path)
     context = state.build_prediction_job_context(model_run_id="model_run_1")
     spectral_data = SpectralData(
         X=np.ones((2, 2, 3), dtype=np.float32) * 10.0,
@@ -510,9 +510,9 @@ def test_predict_with_model_run_cancels_between_chunks_and_discards_artifacts(tm
 def test_predict_with_model_run_rejects_bare_predictor_when_recipe_would_be_skipped(
     tmp_path
 ):
-    project_path = str(tmp_path / "phase6_predict_bare_estimator.h5")
+    project_path = str(tmp_path / "predict_bare_estimator.h5")
     write_model_project(project_path)
-    state = _fit_phase6_model(project_path)
+    state = _fit_model(project_path)
     context = state.build_prediction_job_context(model_run_id="model_run_1")
     spectral_data = SpectralData(
         X=np.ones((2, 2, 3), dtype=np.float32),
@@ -639,7 +639,7 @@ def _scalar_reflectance_calibration(dataset_id: str) -> ReferenceCorrection:
 def _second_review_setup(tmp_path, name: str, X: np.ndarray, **calibration_kwargs):
     project_path = str(tmp_path / f"{name}.h5")
     write_model_project(project_path)
-    state = _fit_phase6_model(project_path)
+    state = _fit_model(project_path)
     context = state.build_prediction_job_context(model_run_id="model_run_1")
     spectral_data = SpectralData(X=X, wavelengths=np.array([1000.0, 1100.0, 1200.0]),
                                  meta={"source_modality": "nir_hsi"})
@@ -812,7 +812,7 @@ def test_image_files_stream_into_the_same_prediction_as_in_memory_data(tmp_path,
 
     project_path = str(tmp_path / "stream.h5")
     write_model_project(project_path)
-    context = _fit_phase6_model(project_path).build_prediction_job_context(
+    context = _fit_model(project_path).build_prediction_job_context(
         model_run_id="model_run_1")
     wavelengths = np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
     cube = np.random.default_rng(3).integers(10, 190, size=(7, 3, 3)).astype(np.uint16)
@@ -978,7 +978,7 @@ def test_calibrations_normalize_the_case_of_enum_values():
 def test_training_and_prediction_use_identical_signal_conversion(tmp_path):
     project_path = str(tmp_path / "identity.h5")
     write_model_project(project_path)
-    state = _fit_phase6_model(project_path)
+    state = _fit_model(project_path)
     context = state.build_prediction_job_context(model_run_id="model_run_1")
     roi = next(iter(state.rois.values()))
     raw = roi.load_spectra(project_path)

@@ -203,7 +203,7 @@ __all__ = [
 class FlowLayout(QLayout):
     """A row of widgets that wraps onto further lines when the width runs out.
 
-    For the setting rows of the Fit settings dock (plan gui-1.6, Phase 4): one
+    For the setting rows of the Fit settings dock: one
     line in a wide window, two or three in the narrow dock.
     """
 

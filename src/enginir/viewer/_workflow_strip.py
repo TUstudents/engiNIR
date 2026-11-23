@@ -1,4 +1,4 @@
-"""The workflow strip: Data → ROIs → Values → Model → Predict (plan gui-1.6).
+"""The workflow strip: Data → ROIs → Values → Model → Predict.
 
 One button per step of the workflow, under the menu bar, with an arrow
 between the steps: they are done in this order. A click opens the step's

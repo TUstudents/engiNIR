@@ -3,8 +3,8 @@
 ## Status
 
 - Version: `v3`
-- Status: settled with the user term by term (2026-11-11,
-  `plans/terminology.md`), reviewed independently; applied in engiNIR 1.5.0
+- Status: settled with the user term by term (2026-11-11), reviewed
+  independently; applied in engiNIR 1.5.0
 - Scope: the words engiNIR shows to people: viewer text, documentation,
   contracts, log and error messages, exported plot and table labels. API
   identifiers, stored keys, CSV metadata keys and file names keep their
@@ -361,8 +361,7 @@ for:
 | `raw_dn` (signal unit) | Raw counts (DN) |
 | `pixel_*` metric keys | Metrics per pixel |
 
-Renamed in 1.7.0 (format `enginir-1.7`; plan
-`plans/format-1.7-reference-correction.md`): every stored and public name
+Renamed in 1.7.0 (format `enginir-1.7`): every stored and public name
 of the reference correction (`CalibrationSpec` → `ReferenceCorrection`,
 `calibration_id` → `reference_correction_id`, `/calibrations/` →
 `/reference_corrections/`, `calibration_refs` → `reference_spectra`,

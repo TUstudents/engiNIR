@@ -92,7 +92,7 @@ v3 requires exactly three explicit user-visible workspaces:
 2. `Model`
 3. `Predict`
 
-Required implementation form (engiNIR 1.6, plan `plans/gui-1.6.md`):
+Required implementation form (engiNIR 1.6):
 
 - the **workflow strip** under the menu bar: the steps `Data`, `ROIs`,
   `Values`, `Model`, `Predict`, with an arrow between them (they are done
@@ -274,7 +274,7 @@ Required UI behavior:
 
 ## Window lifetime
 
-Decided 2026-11-18 (plan `plans/window-lifetime.md`):
+Decided 2026-11-18:
 
 - a window that the user closes is deleted; it keeps no data (cube,
   references, caches) after the deletion

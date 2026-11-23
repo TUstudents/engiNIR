@@ -462,9 +462,9 @@ Required UI behavior:
 reasons and the checks behind it (`headless-workflow-contract_v3.md`,
 Guidance). The viewer shows the verdict; it does not compute one.
 
-The thresholds were accepted by the user (2026-11-16, plan
-`plans/gui-1.6.md`, Q3). They apply to the cross-validated figures of merit
-per ROI: RPD (SD of the values / RMSECV) and Q² (`r2`).
+The thresholds were accepted by the user (2026-11-16). They apply to the
+cross-validated figures of merit per ROI: RPD (SD of the values / RMSECV) and
+Q² (`r2`).
 
 | Level | Rule |
 |---|---|

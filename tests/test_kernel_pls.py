@@ -11,7 +11,7 @@ from enginir.models._gram import GramStats, blas_thread_count, gram_condition
 from tests._scans import kernel_project as _project
 
 
-# -- Fits on statistics equal the pipeline path (plan ``plans/kernel-pls.md``, Phase 2) ----
+# -- Fits on statistics equal the pipeline path ----
 
 
 N_BANDS = 40
@@ -135,7 +135,7 @@ def test_a_pcr_run_stores_the_algorithm_its_guard_chose(tmp_path, monkeypatch, l
     assert model.refit().record.hyperparameters["algorithm"] == stored
 
 
-# -- The kernel engine (plan ``plans/kernel-pls.md``, Phases 1 and 3b) -----------------
+# -- The kernel engine -----------------
 
 
 _ATTRIBUTES = ("coef_", "intercept_", "x_mean_", "x_std_", "y_mean_", "y_std_", "x_weights_",

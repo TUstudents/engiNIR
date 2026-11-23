@@ -148,7 +148,7 @@ def test_raw_counts_are_shown_in_dn_and_skipped_rois_are_explained(trays, tmp_pa
     _summaries, skipped = roi_spectrum_summaries(project.path, list(ws.rois.values()),
                                                  datasets=ws.datasets,
                                                  reference_corrections=ws.reference_corrections, signal_unit="DN")
-    assert skipped == {project.roi("F1").roi_id: "precalibrated data has no raw counts"}
+    assert skipped == {project.roi("F1").roi_id: "already corrected data has no raw counts"}
 
 
 def test_a_new_value_relabels_the_tile_without_laying_out_again(qapp, trays, monkeypatch):
@@ -209,7 +209,7 @@ def test_data_file_docks_and_the_roi_table_follow_the_explore_tab(qapp, trays):
             window._project_rois._file_filter.findData(a_id))
         assert window._roi_table._file_filter.currentData() == a_id, "follows the tab's filter"
 
-        # Dataset: its plots; the table stays a tab of the bottom panel (plan gui-1.6).
+        # Dataset: its plots; the table stays a tab of the bottom panel.
         tabs.setCurrentWidget(window._data_file_page)
         qapp.processEvents()
         assert not table.isHidden() and all(plot.isVisible() for plot in plots)

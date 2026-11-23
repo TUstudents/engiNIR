@@ -1,4 +1,4 @@
-"""Start menu and desktop shortcuts for the viewer on Windows (plan windows-1.5.2).
+"""Start menu and desktop shortcuts for the viewer on Windows.
 
 ``enginir-viewer --install-shortcut`` writes an "engiNIR Viewer" shortcut
 (``.lnk``) to the Start menu (with ``--desktop`` also to the desktop):
@@ -31,7 +31,7 @@ def _fail(message: str, *args: Any, error: type[Exception] = OSError,
           cause: BaseException | None = None) -> NoReturn:
     """``log_and_raise`` for this module, imported on use: the launcher imports
     this module for :data:`WINDOWS_APP_ID`, and ``enginir._checks`` brings NumPy,
-    which a cold start must not load before the welcome window (D2)."""
+    which a cold start must not load before the welcome window."""
     from .._checks import log_and_raise
 
     log_and_raise(message, *args, error=error, cause=cause, depth=2)

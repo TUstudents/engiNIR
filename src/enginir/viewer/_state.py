@@ -664,7 +664,7 @@ class ViewerState(QObject):
     ----------
     cube:
         Hyperspectral image cube, shape ``(n_frames, height, n_bands)``:
-        integer raw counts (kept as uint16) or a floating precalibrated
+        integer raw counts (kept as uint16) or a floating already corrected
         signal (kept as float32, see :attr:`calibrated`).
     wavelengths:
         Wavelength axis in nm, shape ``(n_bands,)``.
@@ -776,7 +776,7 @@ class ViewerState(QObject):
             log_and_raise("black_level and white_level must be finite")
 
         # The dtype decides how the values are interpreted, as for stored ROI spectra:
-        # floating cubes hold a precalibrated signal (float32), integer cubes raw counts
+        # floating cubes hold an already corrected signal (float32), integer cubes raw counts
         # (uint16). Floats are never truncated to integers.
         self.cube = as_roi_storage_array(cube_arr)
         self.wavelengths = wavelengths_arr
@@ -1079,9 +1079,9 @@ class ViewerState(QObject):
 
     @property
     def calibrated(self) -> bool:
-        """Whether the cube holds a precalibrated signal (a floating-point cube).
+        """Whether the cube holds an already corrected signal (a floating-point cube).
 
-        Precalibrated cubes are persisted with ``already_corrected``
+        Already corrected cubes are persisted with ``already_corrected``
         reference corrections; integer cubes are raw detector counts.
         """
         return self.cube.dtype.kind == "f"
@@ -1133,7 +1133,7 @@ class ViewerState(QObject):
         The conversion matches :func:`enginir.project.transform_spectra_to_signal_domain`
         for the reference_correction the viewer persists with an ROI:
 
-        1. Precalibrated (floating) cubes are used as they are.
+        1. Already corrected (floating) cubes are used as they are.
         2. Raw counts with dark/white reference spectra: ``(raw - d) / (w - d)``.
         3. Raw counts with the scalar black/white levels.
 
@@ -1314,8 +1314,7 @@ def look_up_data_files(project: Project, dataset_ids: list[str]) -> list[str]:
     """Look up the data files of ``dataset_ids`` (in a background job; file access).
 
     The answers stay in ``project`` for the session; the caller then passes the ids to
-    :meth:`ProjectState.data_files_looked_up` on the UI thread (plan
-    startup-speed-1.7.1, D5).
+    :meth:`ProjectState.data_files_looked_up` on the UI thread.
     """
     for dataset_id in dataset_ids:
         if dataset_id in project.workspace.datasets:

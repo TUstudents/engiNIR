@@ -1,6 +1,6 @@
 """The SIMCA reference project: synthetic blends whose models are also built in SIMCA 18.
 
-Plan ``plans/fit-specification.md``, Phase R. :func:`build` writes a
+For the SIMCA parity checks. :func:`build` writes a
 push-broom cube of raw counts with dark and white references, an engiNIR
 project with one ROI per blend (fixed ROI ids; the pixel subsample depends
 only on the seed and each ROI's spectra), and :func:`tables` gives the absorbance tables that are

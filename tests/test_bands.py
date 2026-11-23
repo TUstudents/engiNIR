@@ -364,7 +364,7 @@ def test_the_viewer_proposes_through_the_project_and_fills_the_fit_dialog(tmp_pa
 ], ids=["pls-auto", "pls-snv-fixed", "pcr-auto"])
 def test_the_proposal_on_statistics_equals_the_pipeline(tmp_path, monkeypatch, model, recipe,
                                                         kwargs):
-    """Plan kernel-pls, Phase 3: same ranges, steps and component counts; RMSECVs to 1e-5
+    """Same ranges, steps and component counts; RMSECVs to 1e-5
     (the pipeline predicts held-out pixels in float32, the statistics path ROI means). The
     SVD reference gets float64 spectra: scikit-learn's PCA computes float32 in float32."""
     import time

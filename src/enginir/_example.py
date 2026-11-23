@@ -1,4 +1,4 @@
-"""The example project: synthetic tablet scans with a finished model (plan gui-1.6, Q1).
+"""The example project: synthetic tablet scans with a finished model.
 
 Generated on first use, so nothing is downloaded and the package stays
 small: five push-broom scans of five tablets each. Each of the four

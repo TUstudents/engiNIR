@@ -1,4 +1,4 @@
-"""The bottom panels of the main window: Checks and Models (plan gui-1.6, Phases 3 and 5).
+"""The bottom panels of the main window: Checks and Models.
 
 Both only show what the library computes: the checks are
 :meth:`enginir.Project.checks`, the verdicts :meth:`Model.verdict`; neither

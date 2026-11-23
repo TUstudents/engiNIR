@@ -33,7 +33,7 @@ logger = get_logger(__name__)
 
 
 # The opening code and the library load when the user picks something (the loaders
-# run in background jobs), not before the welcome screen is shown (D2); each first
+# run in background jobs), not before the welcome screen is shown; each first
 # waits for the warm-up's imports, so two threads never import the library at once.
 def _load_dataset_startup(*args: Any, **kwargs: Any) -> Any:
     from ._warmup import wait_for_library
@@ -101,7 +101,7 @@ def _main(argv: list[str] | None = None) -> int:
     logger.info("Log file: {}", log_file_path())
     from ._startup_clock import mark_start, since_start
 
-    mark_start()  # the times below count from the process start, as the OS saw it (D7)
+    mark_start()  # the times below count from the process start, as the OS saw it
 
     parser = _Parser(
         prog="enginir-viewer",
@@ -147,7 +147,7 @@ def _main(argv: list[str] | None = None) -> int:
     # Open windows are kept alive by the window registry (viewer/_windows.py) until they close.
 
     if args.path is not None or args.project is not None:
-        from . import open_project, open_viewer  # lazy package names (D2)
+        from . import open_project, open_viewer  # lazy package names
 
         startup_label = args.project if args.path is None else args.path
         logger.info("Opening startup target: {}", startup_label)
@@ -390,7 +390,7 @@ def _main(argv: list[str] | None = None) -> int:
             "({:.3f}s in the launcher)",
             since_start(), time.perf_counter() - app_started,
         )
-        # While the user reads the welcome screen, import what opening a file needs (D3);
+        # While the user reads the welcome screen, import what opening a file needs;
         # the timer fires after the window's first paint.
         from PyQt6 import sip
         from PyQt6.QtCore import QTimer

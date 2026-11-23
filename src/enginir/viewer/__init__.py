@@ -25,7 +25,7 @@ if TYPE_CHECKING:  # the names below load on first use (PEP 562), see __getattr_
     from ._state import ProjectState, ViewerState
 
 #: Name -> the module it lives in. Importing ``enginir.viewer`` (or a light module of it,
-#: such as the launcher's) loads none of them (plan startup-speed-1.7.1, D2).
+#: such as the launcher's) loads none of them.
 _LAZY = {
     "ensure_app": "._app", "run": "._app",
     "ProjectState": "._state", "ViewerState": "._state",

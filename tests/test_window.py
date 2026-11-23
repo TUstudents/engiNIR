@@ -12,7 +12,7 @@ from tests._qt import wait_until
 from tests._scans import framed_scan
 
 
-# -- The main window of engiNIR 1.6 (plan gui-1.6, Phases 3–5) -------------------------
+# -- The main window of engiNIR 1.6 -------------------------
 
 
 N_BANDS, HEIGHT, FRAMES = 12, 4, 3
@@ -140,7 +140,7 @@ def test_the_fit_settings_dock_fits_without_a_dialog_and_marks_changes(qapp, lay
     window = _open(qapp, layers)
     try:
         model_view = window._modeling_view
-        assert model_view.fit_form is None, "built when the Model step is first shown (D8)"
+        assert model_view.fit_form is None, "built when the Model step is first shown"
         window.show_step("model")
         form = model_view.fit_form
         assert form is not None and form.embedded and form.isVisibleTo(window)
@@ -743,7 +743,7 @@ def test_a_refresh_does_not_bring_a_known_check_to_the_front_again(qapp, window)
     assert window._roi_table_in_front(), "the known prediction check raised the Checks tab"
 
 
-# -- The Model and Predict pages on first use (plan startup-speed-1.7.1, D8) -----------
+# -- The Model and Predict pages on first use -----------
 
 
 def _example_window(qapp, tmp_path):

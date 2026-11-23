@@ -2013,7 +2013,7 @@ def make_reference_correction(
 ) -> ReferenceCorrection:
     """Build the reference correction of ``dataset`` by the contract rules.
 
-    ``unit="DN"`` keeps raw counts; precalibrated (floating-point) data are
+    ``unit="DN"`` keeps raw counts; already corrected (floating-point) data are
     imported as they are; otherwise counts are calibrated with the dark and
     white reference spectra ``(height, n_bands)`` or, without them, with
     ``black_level``/``white_level`` (default :data:`DEFAULT_BLACK_LEVEL` and

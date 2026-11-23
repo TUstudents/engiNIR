@@ -1,8 +1,7 @@
 # SIMCA reference project
 
 Small synthetic data whose models are built both in engiNIR and in Sartorius
-SIMCA 18, so that tests can compare the numbers (plan
-`plans/fit-specification.md`, Phase R).
+SIMCA 18, so that tests can compare the numbers.
 
 ## The data
 
@@ -71,7 +70,7 @@ SIMCA asks once whether to trust the script. The Python console (Developer
 folder for the comparison. The folder is git-ignored: SIMCA's output is
 used for verification only and is not committed. The findings (which
 SIMCA 18.1 results engiNIR reproduces, and the formulas) are in
-`plans/fit-specification.md`, Phase R.
+`contracts/sample-set-model-run-contract_v3.md`, §7.2 and §7.4.
 
 Cross-validation groups cannot be set from Python, so the script imports the
 pixel table interleaved (row *k* from group *k* mod 7): SIMCA's default

@@ -10,7 +10,7 @@ The SIMCA 18 reference project (tables, export scripts); see its README.
 ## `enginir_1_5/`
 
 A project in format `enginir-1.5`, the format before the reference
-correction was renamed (`plans/format-1.7-reference-correction.md`, D8):
+correction was renamed:
 
 - `project.h5` holds two datasets: one with dark and white references from
   files, whose ROIs store reference spectra, and one already corrected

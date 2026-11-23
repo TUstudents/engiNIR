@@ -33,6 +33,27 @@ def _file_digest(path) -> str:
     return hashlib.sha256(open(path, "rb").read()).hexdigest()
 
 
+@pytest.mark.parametrize("model_type", ["PLS", "PCR"])
+def test_on_the_training_scan_the_statistics_are_the_training_ones(tmp_path, model_type):
+    """T²PS equals the training T²; DModXPS is the training DModX without its factor v."""
+    project, scan = labelled_project(tmp_path)
+    model = project.fit("API", model=model_type, recipe=PreprocessingRecipe(snv=True),
+                        n_components=2)
+    prediction = model.predict(scan.path)
+    diagnostics = model.diagnostics
+    n, a = len(diagnostics["t2"]), model.record.hyperparameters["n_components"]
+    v = np.sqrt(n / (n - a - 1))
+    # the ROIs tile the scan frame by frame, in the order of the map
+    np.testing.assert_allclose(prediction.t2_map.reshape(-1), diagnostics["t2"], rtol=1e-4)
+    np.testing.assert_allclose(prediction.dmodx_map.reshape(-1), diagnostics["dmodx"] / v,
+                               rtol=1e-4)
+    limits = prediction.diagnostics
+    assert limits["t2_crit_095"] == pytest.approx(diagnostics["t2_crit_095"])
+    assert limits["dcrit_095"] == pytest.approx(diagnostics["dcrit_095"])
+    assert limits["n_pixels"] == n
+    assert prediction.map.shape == prediction.dmodx_map.shape == prediction.t2_map.shape
+
+
 def test_chunked_diagnostics_equal_one_chunk(tmp_path, monkeypatch):
     project, scan = labelled_project(tmp_path)
     model = project.fit("API", recipe=PreprocessingRecipe(snv=True), n_components=2)

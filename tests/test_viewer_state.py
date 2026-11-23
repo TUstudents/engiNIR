@@ -82,8 +82,8 @@ def test_current_frame_image_uses_explicit_refs_and_clamps_small_denominators(qa
     np.testing.assert_allclose(image, expected)
 
 
-def test_float_cubes_are_precalibrated_and_never_truncated(qapp):
-    """A float cube is a precalibrated signal; casting it to uint16 zeroed reflectance."""
+def test_float_cubes_are_already_corrected_and_never_truncated(qapp):
+    """A float cube is an already corrected signal; casting it to uint16 zeroed reflectance."""
     cube = np.array([[[0.2, 0.4, 0.8], [0.1, 0.5, 1.2]]], dtype=np.float64)
     wavelengths = np.linspace(1000.0, 1200.0, 3)
     viewer_state = ViewerState(cube, wavelengths)

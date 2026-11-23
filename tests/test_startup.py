@@ -1,4 +1,4 @@
-"""A fast start: what the launcher loads before the welcome window (plan startup-speed-1.7.1)."""
+"""A fast start: what the launcher loads before the welcome window."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import textwrap
 
 import pytest
 
-#: Not loaded before the welcome window is shown (D2): the scientific stack and the parts of
+#: Not loaded before the welcome window is shown: the scientific stack and the parts of
 #: engiNIR that need it. Each would cost seconds on a cold Windows start.
 HEAVY = ("numpy", "sklearn", "scipy", "pandas", "h5py", "matplotlib", "pyqtgraph",
          "enginir._workflow", "enginir.io", "enginir.project", "enginir.models",
@@ -144,7 +144,7 @@ def _open_after_warmup(tmp_path, mode):
 
 
 def test_after_the_warmup_opening_a_project_imports_nothing_heavy(tmp_path):
-    """D3: the warm-up has loaded the library and the main window before the first pick."""
+    """The warm-up has loaded the library and the main window before the first pick."""
     outcome = _open_after_warmup(tmp_path, "wait")
     assert outcome["done"] and outcome["opened"] == "HSIViewer"
     heavy = [name for name in outcome["new"] if name.split(".")[0] in
@@ -188,7 +188,7 @@ def test_closing_during_the_warmup_exits_cleanly(tmp_path):
 
 
 def test_the_process_age_counts_from_the_process_start(tmp_path):
-    """D7: the age comes from the operating system, so it includes the time before Python
+    """The age comes from the operating system, so it includes the time before Python
     reached engiNIR (here a sleep before the import)."""
     script = ("import time; time.sleep(2.2)\n"
               "import enginir; enginir.enable_logging('WARNING')\n"
@@ -224,7 +224,7 @@ _LAUNCH_UNTIL_WARM = textwrap.dedent("""
 
 @pytest.mark.timeout(120)
 def test_the_log_shows_the_start_from_the_process_start(tmp_path):
-    """D7: the log states when the launcher ran, the welcome window was shown and the
+    """The log states when the launcher ran, the welcome window was shown and the
     warm-up ended, each counted from the process start."""
     home = tmp_path / "home"
     home.mkdir()

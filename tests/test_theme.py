@@ -1,4 +1,4 @@
-"""The viewer theme (plan gui-1.6, Phase 2): one token table, readable in both themes.
+"""The viewer theme: one token table, readable in both themes.
 
 Every colour of the viewer comes from ``enginir.viewer._theme``; text keeps
 WCAG AA contrast on every surface; exports take the print colours.

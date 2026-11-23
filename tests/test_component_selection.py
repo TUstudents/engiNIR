@@ -135,7 +135,7 @@ def test_a_selected_number_that_differs_from_the_model_is_refused_on_reading(tmp
         Project.open(project.path)
 
 
-# -- autofit beyond the 1.3 rules (contract §7.4, plan component-diagnostics-and-autofit) ----
+# -- autofit beyond the 1.3 rules (contract §7.4) ----
 
 
 def test_the_lookahead_keeps_a_failing_component_before_a_passing_one():

@@ -1,4 +1,4 @@
-"""Projects with ROIs from several data files (multi-file plan, attachment contract)."""
+"""Projects with ROIs from several data files (attachment contract)."""
 
 from __future__ import annotations
 
@@ -618,7 +618,7 @@ def test_the_grid_names_rois_after_the_datasets_name(qapp, two_file_project, mon
         window.close()
 
 
-# -- Add ROI and Add ROI Grid from anywhere (plan roi-workflow, R3) -----------------------
+# -- Add ROI and Add ROI Grid from anywhere -----------------------
 
 
 def _project_rois_window(qapp, project_path):

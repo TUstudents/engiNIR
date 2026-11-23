@@ -973,8 +973,7 @@ Resolved for v3:
 ### 3. Compatibility policy
 
 Decided for engiNIR 1.5 (2026-11-12): the reader is not backward
-compatible. Decided for engiNIR 1.7 (2026-11-18, plan
-`plans/format-1.7-reference-correction.md`): one conversion from the
+compatible. Decided for engiNIR 1.7 (2026-11-18): one conversion from the
 previous format.
 
 - engiNIR 1.7 reads and writes only the format `enginir-1.7`
@@ -1012,7 +1011,7 @@ renames:
 | input contract `@calibrated_input_allowed` | `@corrected_input_allowed` |
 | mode value `precalibrated_import` (reference correction `@mode`, input contract `@required_correction_mode`) | `already_corrected` |
 
-The limits change level (decided 2026-11-19, plan `plans/simca-levels-rc3.md`):
+The limits change level (decided 2026-11-19):
 `enginir-1.7` uses SIMCA's 0.95 level. The conversion adds `dcrit_095` and
 `t2_crit_095` to every model's `prediction_model` and `diagnostics`,
 computed from its `n_train`, band count and components with the fit's

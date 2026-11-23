@@ -634,7 +634,7 @@ class SignalDomainContract(SerializableModel):
         Whether prediction data need dark/white reference context; only
         allowed for ``"dark_white_reference"``.
     corrected_input_allowed : bool
-        Whether precalibrated input may be used.
+        Whether already corrected input may be used.
     n_bands : int
         Number of bands.
     wavelengths : numpy.ndarray of float32, shape (n_bands,)
@@ -727,8 +727,8 @@ class SignalDomainContract(SerializableModel):
         Follows the writer rules of the dataset-reference-correction contract: the
         dataset's format, modality, bands and wavelengths; the reference correction's
         mode; dark/white references required when the reference correction has any
-        reference context; precalibrated input allowed exactly when the
-        training data were precalibrated; an ``"exact"`` band mapping, a
+        reference context; already corrected input allowed exactly when the
+        training data were already corrected; an ``"exact"`` band mapping, a
         wavelength tolerance of 0 and ``float32`` output.
         """
         from ._ids import new_id, now_iso

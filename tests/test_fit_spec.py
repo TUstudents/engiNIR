@@ -110,7 +110,7 @@ def test_the_fit_draws_the_pixels_of_the_simca_reference_table(tmp_path):
         model_type="PLS", hyperparameters={"n_components": 1},
         fit_spec=model.record.fit_specification)
     ids, rois, _y, _X = ref.read_table(ref.DATA_DIR / "pixels.csv")
-    data = result.sample_set_data  # the raw spectra stay in the project file (kernel-pls D7)
+    data = result.sample_set_data  # the raw spectra stay in the project file
     assert data.pixel_indices is not None
     for name in reference.names:
         drawn = reference.raw[name][data.pixel_indices[ref.roi_id(name)]]

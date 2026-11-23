@@ -871,7 +871,7 @@ def test_a_project_of_an_earlier_format_is_refused_as_a_project_not_read_as_data
             read(old)
 
 
-def test_roi_spectra_preserve_float32_for_precalibrated_sources(project_path, wavelengths):
+def test_roi_spectra_preserve_float32_for_already_corrected_sources(project_path, wavelengths):
     create_project(project_path)
     _seed_dataset_context(project_path, wavelengths)
     n_bands = len(wavelengths)

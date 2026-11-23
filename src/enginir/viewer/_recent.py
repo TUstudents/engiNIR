@@ -25,7 +25,7 @@ __all__ = ["RecentEntry", "config_dir", "load", "entries", "add", "remove", "set
 
 #: What a recent path is: "project" or "dataset" (None: not known yet, e.g. an entry
 #: written before 1.7.1). Stored with the entry, so the list is drawn without opening the
-#: file (plan startup-speed-1.7.1, D4).
+#: file.
 KINDS = ("project", "dataset")
 
 

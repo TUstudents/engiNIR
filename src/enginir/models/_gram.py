@@ -1,4 +1,4 @@
-"""Fits on sufficient statistics: kernel PLS and PCA from XᵀX (plan ``plans/kernel-pls.md``).
+"""Fits on sufficient statistics: kernel PLS and PCA from XᵀX.
 
 A calibration set has many more pixels than bands. One pass over the rows
 builds, per block of rows, the sums n, Σx, XᵀX, Σy, YᵀY and XᵀY; every fit,

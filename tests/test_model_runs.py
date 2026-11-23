@@ -139,7 +139,7 @@ def _create_model_project(path: str, *, seed_rois: bool = True) -> None:
 
 
 def test_a_fit_converts_each_roi_with_its_own_stored_reference_snapshot(tmp_path):
-    project_path = str(tmp_path / "phase5_model_run_roi_refs.h5")
+    project_path = str(tmp_path / "model_run_roi_refs.h5")
     _create_model_project(project_path, seed_rois=False)
     wavelengths = np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
     full_dark = np.array(
@@ -296,7 +296,7 @@ def test_msc_emsc_fitted_state_round_trips_without_refitting_prediction_data():
 
 
 def test_fit_model_run_preprocesses_stateless_recipe_once_before_cv(tmp_path, monkeypatch):
-    project_path = str(tmp_path / "phase5_model_run_stateless_cv.h5")
+    project_path = str(tmp_path / "model_run_stateless_cv.h5")
     _create_model_project(project_path)
     save_preprocessing_recipe(
         project_path,
@@ -360,7 +360,7 @@ def test_fit_model_run_preprocesses_stateless_recipe_once_before_cv(tmp_path, mo
     )
 
     # Once per pixel, before the cross-validation: ROI by ROI, right after the conversion,
-    # so the folds never preprocess (plans/kernel-pls.md, D7).
+    # so the folds never preprocess.
     assert [call.shape for call in preprocess_calls] == [(2, sample_set_data.X.shape[1])] * 2
 
 
@@ -442,7 +442,7 @@ def test_fit_refuses_a_stored_sample_set_whose_roi_lost_its_target_value(tmp_pat
 # -- Tests for the v3 sample-set builder -----------------------------------------------
 
 
-def _create_phase5_project(path: str, *, mismatch_second_roi: bool = False) -> None:
+def _create_two_roi_project(path: str, *, mismatch_second_roi: bool = False) -> None:
     wavelengths = np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
     second_wavelengths = (
         np.array([1000.0, 1150.0, 1200.0], dtype=np.float32) if mismatch_second_roi else wavelengths
@@ -555,8 +555,8 @@ def _create_phase5_project(path: str, *, mismatch_second_roi: bool = False) -> N
 
 
 def test_build_sample_set_rejects_incompatible_wavelength_axes(tmp_path):
-    project_path = str(tmp_path / "phase5_sample_set_mismatch.h5")
-    _create_phase5_project(project_path, mismatch_second_roi=True)
+    project_path = str(tmp_path / "sample_set_mismatch.h5")
+    _create_two_roi_project(project_path, mismatch_second_roi=True)
 
     state = CoreSession()
     state.open_project(project_path)
@@ -572,8 +572,8 @@ def test_build_sample_set_rejects_incompatible_wavelength_axes(tmp_path):
 
 
 def test_build_sample_set_rejects_repeated_rois(tmp_path):
-    project_path = str(tmp_path / "phase5_sample_set_repeated.h5")
-    _create_phase5_project(project_path)
+    project_path = str(tmp_path / "sample_set_repeated.h5")
+    _create_two_roi_project(project_path)
     state = CoreSession()
     state.open_project(project_path)
 
@@ -589,8 +589,8 @@ def test_build_sample_set_rejects_repeated_rois(tmp_path):
 
 
 def test_build_sample_set_needs_at_least_one_labelled_roi(tmp_path):
-    project_path = str(tmp_path / "phase5_sample_set_empty.h5")
-    _create_phase5_project(project_path)
+    project_path = str(tmp_path / "sample_set_empty.h5")
+    _create_two_roi_project(project_path)
     state = CoreSession()
     state.open_project(project_path)
     common = {"project_path": project_path, "rois": state.rois,
@@ -677,7 +677,7 @@ def test_the_viewer_shows_missing_roi_scores_as_not_available():
 
 
 def test_fit_model_run_uses_roi_aggregated_primary_metrics(tmp_path, monkeypatch):
-    project_path = str(tmp_path / "phase5_model_run_aggregated.h5")
+    project_path = str(tmp_path / "model_run_aggregated.h5")
     _create_model_project(project_path)
 
     state = CoreSession()
