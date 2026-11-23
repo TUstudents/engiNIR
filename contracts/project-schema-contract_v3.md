@@ -354,6 +354,35 @@ Explicit exceptions, each already governed by its own contract rule:
   wavelengths; engiNIR 1.7.2)
 - `TargetAssignment` removal: deleting the assignment of a `(roi_id,
   target_id)` pair returns it to "no value" (`roi-target-contract_v3.md`)
+- **retiring a model** (decided 2026-11-22, engiNIR 1.7.7; direction ICH Q14:
+  a model is a record and is never removed) is the one change of a stored
+  model's content. `Model.retire(reason)` sets `retired_at`, `retired_reason`
+  (may be empty) and `retired_enginir` and, in the same write, deletes the
+  model's per-pixel diagnostics: the training scores (`x_scores_` for PLS,
+  `scores_` for PCR), `t2` and `dmodx` of every calibration pixel under
+  `artifact_refs/diagnostics`, named, never chosen by their length. The
+  predictive core (`prediction_model`), the metrics, the per-band and per-ROI
+  diagnostics, the cross-validation outputs, the exclusion record, the
+  calibration set, the input contract and the recipe stay. A retired model
+  stays retired (no reactivation); it is not listed with the active models,
+  predicts nothing (`Model.predict`, `predict_rois` refuse it) and is not
+  checked; `refit` gives the same model again as a new model. The fields are
+  absent on an active model, so active models keep their content.
+  The format stays `enginir-1.7` (decided 2026-11-23): engiNIR 1.7.6 and
+  older ignore the three fields with a logged warning ("Ignoring unknown
+  field(s)") and treat a retired model as active, so they list it and predict
+  with it. Retirement is enforced from engiNIR 1.7.7 on
+- **removing a dataset** (decided 2026-11-22, engiNIR 1.7.7):
+  `Project.remove_dataset` deletes a dataset and its reference corrections in
+  one write, only when no ROI, calibration set or stored prediction refers to
+  it (refused naming them; nothing is written). The data file is never
+  touched; the file can be added again, e.g. with other references or another
+  binning (a dataset's binning still never changes)
+- **compacting** (decided 2026-11-23, engiNIR 1.7.7): HDF5 does not shrink a
+  file when data are deleted. `Project.compact` copies every group, array and
+  attribute as stored into a new file beside the project, checks that it opens
+  in the current format and replaces the project in one rename; the content is
+  unchanged. Nothing changes if it fails
 
 ## Required object relationships
 
@@ -606,6 +635,9 @@ project.h5
 |   +-- metrics
 |   +-- fitted artifacts
 |   +-- @created_at
+|   +-- @retired_at          stored only on a retired model (ISO 8601), with
+|   +-- @retired_reason      the reason ("" when none was given) and
+|   +-- @retired_enginir     the engiNIR version that retired it
 |
 +-- /predictions/{prediction_run_id}/
     +-- @dataset_id

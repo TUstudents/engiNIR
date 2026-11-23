@@ -253,7 +253,22 @@ differing metrics are reported in the log:
    again = project.model(model_run_id=model.record.model_run_id).refit()
    again.metrics["rmsecv"] == model.metrics["rmsecv"]   # True for unchanged data
 
-``project.rois``, ``project.targets`` and ``project.models`` are keyed by
+A model is renamed with ``model.rename("Tablets v2")`` and retired with
+``model.retire("superseded by v3")``: a retired model stays in the project as
+a record (``project.retired_models``), with its metrics and predictive core,
+but predicts nothing and loses its per-pixel diagnostics; ``refit()`` gives it
+again as a new model. ``project.remove_dataset(dataset_id)`` removes a dataset
+that no ROI, calibration set or stored prediction refers to (the data file is
+not touched), and ``project.compact()`` rewrites the project file without the
+space such deletions leave (HDF5 never shrinks a file by itself):
+
+.. code-block:: python
+
+   old = project.models["PLS 2 LV, SNV"]
+   old.retire("superseded by the 3-LV model")
+   before, after = project.compact()   # file sizes in bytes
+
+``project.rois``, ``project.targets`` and ``project.models`` (active models) are keyed by
 name and refuse repeated names; ``project.workspace`` holds every collection
 keyed by id. Functions that create objects by name (``add_roi``,
 ``add_rois``, ``add_target``, ``fit(name=...)``) refuse a name that exists, so

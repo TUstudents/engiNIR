@@ -427,6 +427,23 @@ A stored model can be fitted again on exactly what it was fitted on:
   when its metrics differ, the warning names every version that differs
   (e.g. "fitted with scikit-learn 1.7.2, refitted with 1.8.0")
 - the refit is stored as a new model of the same calibration set and input contract; the original run is never changed
+- a retired model can be refitted: the refit is a new, active model with its
+  diagnostics; the retired model stays retired
+
+### 6.1 Renaming and retiring a model
+
+Decided 2026-11-22 (engiNIR 1.7.7):
+
+- `Model.rename(name)` changes the model's name, a mutable label; an empty name
+  or another model's name (active or retired) is refused, nothing written
+- `Model.retire(reason="")` keeps the model as a record that predicts no more
+  (project-schema contract §5, the retiring exception): its per-pixel
+  diagnostics are deleted, its predictive core, metrics and every object it
+  refers to stay; the reason is optional and stored with the date and the
+  engiNIR version. A retired model stays retired
+- `Project.models` lists the active models, `Project.retired_models` the
+  retired ones; `Project.model(...)` finds either. A retired model is not
+  checked (`Project.checks`) and has no verdict in the Models panel
 
 ## 7. Fit specification
 

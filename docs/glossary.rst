@@ -179,6 +179,13 @@ Modeling
    Model
       One fitted model with its id, never overwritten. API: ``ModelRun``.
 
+   Retired model
+      A model kept in the project as a record that predicts no more (Model >
+      Retire Model…). Its metrics and predictive core stay; its per-pixel
+      diagnostics (the scores, T² and DModX of every calibration pixel) are
+      deleted. A retired model stays retired; refitting it gives a new model.
+      API: ``Model.retire``, ``Project.retired_models``, ``retired_at``.
+
    Input contract
       What a dataset must provide for a model to predict it: input format,
       signal unit and the reference correction it requires. The wavelength

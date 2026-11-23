@@ -503,6 +503,45 @@ class ProjectState(QObject):
         self._written()
         self.sample_sets_changed.emit()
 
+    def remove_dataset(self, dataset_id: str) -> None:
+        """Remove a dataset nothing refers to (see :meth:`enginir.Project.remove_dataset`)."""
+        project = self._require_project("remove_dataset")
+        path = self.datasets[dataset_id].source_path if dataset_id in self.datasets else dataset_id
+        project.remove_dataset(dataset_id)
+        self._written()
+        self.datasets_changed.emit()
+        self.reference_corrections_changed.emit()
+        self.saved.emit(f"Dataset removed: {os.path.basename(path)} (the file is unchanged)")
+
+    def retire_model(self, model_run_id: str, reason: str = "") -> None:
+        """Retire a model (see :meth:`enginir._workflow.Model.retire`)."""
+        from .._workflow import Model
+
+        project = self._require_project("retire_model")
+        model = Model(project, project.workspace.model_runs[model_run_id]).retire(reason)
+        self.model_registry.pop(model_run_id, None)
+        if self.active_model_name == model_run_id:
+            self.active_model_name = None
+        self._written()
+        self.model_runs_changed.emit()
+        self.saved.emit(f"Model '{model.name}' retired")
+
+    def compact_project(self) -> tuple[int, int]:
+        """Rewrite the project file without its free space (:meth:`enginir.Project.compact`)."""
+        sizes = self._require_project("compact_project").compact()
+        self.saved.emit(f"Project compacted to {sizes[1] / 1e6:.1f} MB")
+        return sizes
+
+    def rename_model(self, model_run_id: str, name: str) -> None:
+        """Give a model another name (see :meth:`enginir._workflow.Model.rename`)."""
+        from .._workflow import Model
+
+        project = self._require_project("rename_model")
+        Model(project, project.workspace.model_runs[model_run_id]).rename(name)
+        self._written()
+        self.model_runs_changed.emit()
+        self.saved.emit(f"Model renamed to '{name.strip()}'")
+
     def register_model_run(self, model_run: ModelRun) -> None:
         """Persist a model run."""
         self._require_project("register_model_run").save_model_run(model_run)

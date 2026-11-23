@@ -469,8 +469,19 @@ grouped and validated by ROI, then reported at ROI level using mean aggregation.
 │   ├── diagnostics/
 │   ├── cv_outputs/
 │   └── exclusion/          empty arrays without DModX exclusion
-└── @created_at
+├── @created_at
+├── @retired_at             only on a retired model (engiNIR 1.7.7): when,
+├── @retired_reason         why ("" when none was given)
+└── @retired_enginir        and by which engiNIR version
 ```
+
+Retiring a model (``Model.retire``) deletes its per-pixel diagnostics
+(``artifact_refs/diagnostics/x_scores_`` or ``scores_``, ``t2``, ``dmodx``)
+in the same write; everything else stays. The format stays ``enginir-1.7``:
+engiNIR 1.7.6 and older ignore the ``retired_*`` attributes with a logged
+warning and treat a retired model as active. HDF5 does not shrink a file when
+data are deleted: ``Project.compact`` (File > Compact Project…) rewrites the
+project without the free space, with the same content.
 
 Models are not merely fitted numeric arrays. They persist enough references
 and semantics to interpret the artifacts through the calibration set, input contract, recipe, target, and datasets.

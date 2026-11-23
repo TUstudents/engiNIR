@@ -414,10 +414,16 @@ class ProjectInspector(QWidget):
         if model_run is None:
             self.show_default()
             return
-        self.title_label.setText("Model")
+        self.title_label.setText("Retired model" if model_run.retired_at else "Model")
+        retired = ([f"Retired: {model_run.retired_at} (engiNIR {model_run.retired_enginir})",
+                    f"Reason: {model_run.retired_reason or 'none given'}",
+                    "Kept: the predictive core and the metrics; the per-pixel diagnostics "
+                    "were deleted. Refit for a new model."]
+                   if model_run.retired_at else [])
         self.body_label.setText(
             "\n".join(
                 [
+                    *retired,
                     f"ID: {model_run.model_run_id}",
                     f"Type: {model_run.model_type}",
                     f"Calibration set: {model_run.sample_set_id}",

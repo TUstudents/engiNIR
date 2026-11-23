@@ -358,6 +358,20 @@ Required behavior:
 - the image shows only the ROIs of the shown dataset
 - loading runs off the UI thread with visible progress
 
+### Removing a dataset
+
+Decided 2026-11-22 (engiNIR 1.7.7):
+
+- `Project.remove_dataset` (viewer: Project > Remove Dataset…, after a
+  confirmation naming the file) removes a dataset and its reference
+  corrections when no ROI, calibration set or stored prediction refers to it;
+  otherwise it is refused, naming them, and nothing is written
+- the data file on disk is never touched. It can be added again as a new
+  dataset, e.g. with other references or another binning (a dataset's
+  binning never changes)
+- a removed dataset that is shown stays on screen as a file that is not in
+  the project
+
 ### Missing and moved files
 
 A dataset whose data file is not found is a normal state, not an error.

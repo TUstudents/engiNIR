@@ -309,6 +309,12 @@ gives each with its words elsewhere.
 : The detector's response with the shutter closed and on a white tile, per
   row and band; R = (x − dark) / (white − dark).
 
+**Retired model** (engiNIR 1.7.7)
+: A model kept as a record that predicts no more; its per-pixel diagnostics
+  are deleted (project-schema contract §5). The model itself is never called
+  "deleted", "archived" or "deactivated": it is never removed and never
+  active again.
+
 **Detector levels**
 : A black and a white level (default 128 and 3100 counts; 3500 before engiNIR 1.7.3) that convert raw
   counts to reflectance without references.

@@ -1,7 +1,8 @@
 # Plan: menu polish
 
 Status: decided (user, 2026-11-22). Phases 1 to 3 built on branch
-`menu-polish`; phases 4 to 6 not built.
+`menu-polish` (in 1.7.5); phases 4 to 6 on branch `model-lifecycle`
+(2026-11-23, for 1.7.7).
 
 ## View (decided)
 
@@ -226,3 +227,16 @@ the library and the contracts; they can go in the same release or the next.
   the menus (`HSIViewer.menu_shortcuts`).
 - Test: `test_every_menu_shortcut_is_unique_and_go_to_opens_each_step`
   (fails with a duplicate Ctrl+T).
+
+## Built (phases 4 to 6, 2026-11-23, for 1.7.7)
+
+- Rename Model, Remove Dataset and Retire Model as decided (D1–D5, P3).
+- Found while building: HDF5 does not shrink a file when the per-pixel
+  diagnostics are deleted. Decided (user, 2026-11-23): retiring frees the
+  space inside the file, and **File > Compact Project…** (`Project.compact`)
+  rewrites the file without it, for retired models, removed datasets and
+  deleted ROIs alike.
+- Removing a stored object was not new after all (deleting ROIs already
+  removed them); the schema contract now lists dataset removal, retiring
+  and compacting as its exceptions.
+

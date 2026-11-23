@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Model > Retire Model…** (`Model.retire(reason)`): a model is kept as a
+  record that predicts no more (direction ICH Q14: a model is never removed).
+  Its metrics and predictive core stay; its per-pixel diagnostics (the scores,
+  T² and DModX of every calibration pixel, most of a model's size) are
+  deleted. The optional reason is stored with the date and the engiNIR
+  version. Retired models are listed under **Retired models** in the Project
+  tree (`project.retired_models`), not in the Models panel or Predict's
+  choices; a retired model stays retired, and refitting gives it again as a
+  new model. Only retired models store the new fields; active models and the
+  format `enginir-1.7` are unchanged. engiNIR 1.7.6 and older ignore the
+  fields (with a warning in the log, "Ignoring unknown field(s)") and treat a
+  retired model as active: open a project with retired models in 1.7.7 or
+  newer.
+- **Model > Rename Model…** (`Model.rename(name)`).
+- **Project > Remove Dataset…** (`project.remove_dataset(dataset_id)`): removes
+  a dataset that no ROI, calibration set or stored prediction refers to, with
+  its reference corrections; the data file is not touched and can be added
+  again, e.g. with another binning.
+- **File > Compact Project…** (`project.compact()`): HDF5 never shrinks a file
+  when data are deleted; compacting rewrites the project without the space
+  that retired models, removed datasets and deleted ROIs left, with the same
+  content.
+
 ## 1.7.6 (2026-11-22)
 
 A faster cold start on Windows and a fix for opening the example project while
