@@ -187,9 +187,9 @@ class WelcomeWindow(QMainWindow):
         """Recent files by name, with the folder after it (the whole path in the tooltip).
 
         Drawn from the recent-files list alone: no recent path is touched on the UI
-        thread, since it may be on a slow or unreachable network drive (plan
-        startup-speed-1.7.1, D4). A background job then checks which files exist,
-        grays out the missing ones and learns the kind of entries that have none.
+        thread, since it may be on a slow or unreachable network drive. A background job
+        then checks which files exist, grays out the missing ones and learns the kind of
+        entries that have none.
         """
         self._recent_list.clear()
         recent = _recent.entries()

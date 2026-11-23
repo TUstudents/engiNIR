@@ -414,7 +414,7 @@ class AddDataFileDialog(QDialog):
         """Plot the file and what the chosen reference correction uses; ``False`` if a reference is invalid.
 
         The file's mean spectrum is always shown in counts (or in its own
-        values when precalibrated), with the mean dark and white references,
+        values when already corrected), with the mean dark and white references,
         the other data file's references, or the detector levels.
         """
         colors = panel_colors()
@@ -505,7 +505,7 @@ class AddDataFileDialog(QDialog):
     def _wavelength_choice(self, header: Any, n_bands: int) -> QComboBox | None:
         """For a file that stores no wavelengths: band numbers or a table of its band count.
 
-        The only table of that band count is preselected (plan wavelength-tables, D2);
+        The only table of that band count is preselected;
         ``None`` for a file with its own wavelengths.
         """
         if header.meta.get("x_units") != "band_index" and not is_band_numbers(header.wavelengths):
@@ -560,7 +560,7 @@ class SetWavelengthsDialog(QDialog):
     Lists the datasets whose axis is band numbers (checked: ``preselected``,
     else all) and the tables of their band counts; :attr:`choice` is
     ``(table name, dataset ids of its band count)`` after OK. Their ROIs get
-    the wavelengths too (plan wavelength-tables, D1).
+    the wavelengths too.
     """
 
     def __init__(self, datasets: Mapping[str, DatasetRecord], labels: Mapping[str, str], *,

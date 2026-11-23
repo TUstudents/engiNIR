@@ -778,7 +778,7 @@ def has_prediction_run(path: PathLike, prediction_run_id: str) -> bool:
 def load_roi_spectra(path: PathLike, hdf5_key: str) -> np.ndarray:
     """Return the ROI spectra stored at ``hdf5_key`` (e.g. ``"/rois/{id}/spectra"``).
 
-    Raw spectra are returned as uint16, precalibrated spectra as float32.
+    Raw spectra are returned as uint16, already corrected spectra as float32.
     """
     return load_roi_spectra_batch(path, [hdf5_key])[hdf5_key]
 

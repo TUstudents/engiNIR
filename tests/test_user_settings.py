@@ -11,7 +11,7 @@ import pytest
 from enginir.viewer import _preferences as prefs
 
 
-# -- Tools > Preferences (plan gui-1.6, Phase 6): stored per user, never in a project ----
+# -- Tools > Preferences: stored per user, never in a project ----
 
 
 def test_preferences_round_trip_and_tolerate_a_damaged_file():
@@ -80,7 +80,7 @@ def test_the_window_applies_preferences(qapp, tmp_path, monkeypatch):
     project.add_dataset(tmp_path / "scan.h5")
     window = open_project(project.path)
     try:
-        # The Fit settings and the Predict page get the defaults when first shown (D8).
+        # The Fit settings and the Predict page get the defaults when first shown.
         window.show_step("model")
         form = window._modeling_view.fit_form
         assert form is not None and form._components_spin.value() == 3

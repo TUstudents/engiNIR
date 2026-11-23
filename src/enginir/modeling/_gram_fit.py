@@ -1,4 +1,4 @@
-"""The fit of a model run on sufficient statistics (plan ``plans/kernel-pls.md``, Phase 2).
+"""The fit of a model run on sufficient statistics.
 
 For a recipe without MSC or EMSC and a ``kernel`` (PLS) or ``gram`` (PCR)
 model, :func:`enginir.modeling.fit_model_run` builds one

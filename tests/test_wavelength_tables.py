@@ -1,4 +1,4 @@
-"""Wavelength tables for files without wavelengths (plan wavelength-tables, D1-D3)."""
+"""Wavelength tables for files without wavelengths."""
 
 from __future__ import annotations
 
@@ -104,7 +104,7 @@ def test_a_registered_band_number_dataset_gets_a_table_only_through_set_waveleng
         project.add_dataset(path, wavelength_table=KESTRELEYE)
 
 
-# -- Set Wavelengths (D1) -------------------------------------------------------------
+# -- Set Wavelengths -------------------------------------------------------------
 
 
 def test_set_wavelengths_changes_the_dataset_and_its_rois_and_keeps_the_pixels(tmp_path):
@@ -142,7 +142,7 @@ def test_set_wavelengths_is_refused_for_wavelengths_and_other_band_counts(tmp_pa
 
 
 def test_a_model_fitted_on_band_numbers_predicts_the_same_after_set_wavelengths(tmp_path):
-    """Prediction builds its steps from the model's own axis (D1)."""
+    """Prediction builds its steps from the model's own axis."""
     path = stream_file(tmp_path / "stream_hsi.h5")
     project = Project.create(tmp_path / "p.h5")
     dataset = labelled(project, path)
@@ -157,7 +157,7 @@ def test_a_model_fitted_on_band_numbers_predicts_the_same_after_set_wavelengths(
     assert contract.wavelengths[0] == pytest.approx(1041.75)
 
 
-# -- the check (D2) -------------------------------------------------------------------
+# -- the check -------------------------------------------------------------------
 
 
 # -- the viewer -----------------------------------------------------------------------
@@ -170,7 +170,7 @@ def test_the_add_dataset_dialog_preselects_the_one_table(qapp, tmp_path):
     path = stream_file(tmp_path / "stream_hsi.h5")
     dialog = AddDataFileDialog(path, read_header(path), {}, {})
     combo = dialog._wavelengths
-    assert combo is not None and combo.currentData() == KESTRELEYE, "preselected (D2)"
+    assert combo is not None and combo.currentData() == KESTRELEYE, "preselected"
     assert dialog.build_request().add_dataset_kwargs()["wavelength_table"] == KESTRELEYE
     combo.setCurrentIndex(0)
     assert dialog.build_request().wavelength_table is None, "band numbers stay possible"

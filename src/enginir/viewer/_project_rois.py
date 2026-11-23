@@ -855,8 +855,7 @@ class ProjectRoisView(QWidget):
     #: The data file filter of this tab changed.
     data_file_filter_changed = pyqtSignal()
     #: Add ROI or Add ROI Grid pressed here: ``(action, dataset_id or None)``, the
-    #: dataset of the filter (``None``: all datasets, the window asks; plan
-    #: roi-workflow, R3).
+    #: dataset of the filter (``None``: all datasets, the window asks).
     add_rois_requested = pyqtSignal(str, object)
 
     def __init__(self, state: ViewerState, project_state: ProjectState,

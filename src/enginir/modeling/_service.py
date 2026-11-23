@@ -339,8 +339,7 @@ def _training_data(
     pixels, signal domain and fold groups. With a stateless ``recipe``, every
     ROI is converted and preprocessed in turn into one float32 matrix
     (``X_signal`` then holds the preprocessed spectra), and the raw matrix is
-    released afterwards: ``data.X`` keeps its rows but no columns (plan
-    ``plans/kernel-pls.md``, D7).
+    released afterwards: ``data.X`` keeps its rows but no columns.
     """
     spec, requested = resolve_fit_spec(cv, fit_spec)
     if sample_set.preprocessing_recipe_id not in recipes:
@@ -525,8 +524,8 @@ def fit_model_run(
             moments = stats.moments()
         hyperparameters["algorithm"] = _pcr_algorithm(moments, a_max,
                                                       str(hyperparameters["x_scaling"]))
-    # Fits on statistics: a recipe fitted per pixel and a kernel or gram model (plan
-    # kernel-pls, Phase 2); MSC/EMSC and NIPALS/SVD take the pipeline path.
+    # Fits on statistics: a recipe fitted per pixel and a kernel or gram model;
+    # MSC/EMSC and NIPALS/SVD take the pipeline path.
     on_statistics = (not recipe.requires_fitting
                      and hyperparameters.get("algorithm") in ("kernel", "gram"))
     lowest = int(hyperparameters["n_components"]) if spec.components_rule == "fixed" else 1
@@ -634,7 +633,7 @@ def fit_model_run(
     fit_metrics, training, projection, scores = training_diagnostics(
         predictor if recipe.requires_fitting else estimator, X_cv, data.y, kept, roi_index,
         y_divisor=y_divisor, with_scores=True)
-    if on_statistics:  # the stored training scores: the pass computed them (D7)
+    if on_statistics:  # the stored training scores: the pass computed them
         setattr(estimator, "x_scores_" if isinstance(estimator, PLSRegression) else "scores_",
                 scores[kept])
     # Per-ROI shares follow cv_outputs/roi_ids (they are computed in roi_ids_present order).
@@ -1290,7 +1289,7 @@ def roi_spectrum_summaries(
 def _signal_unit_unavailable(reference_correction: ReferenceCorrection, unit: str) -> str:
     """Why ROIs with ``reference_correction`` cannot be shown in ``unit`` ("" if they can)."""
     if reference_correction.mode == "already_corrected":
-        return "" if unit != "DN" else "precalibrated data has no raw counts"
+        return "" if unit != "DN" else "already corrected data has no raw counts"
     if reference_correction.mode == "raw_dn" and unit != "DN":
         return f"raw counts without references cannot give {unit}"
     return ""

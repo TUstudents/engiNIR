@@ -1,4 +1,4 @@
-"""The SIMCA reference tables are what engiNIR fits on (plan fit-specification, Phase R)."""
+"""The SIMCA reference tables are what engiNIR fits on."""
 
 from __future__ import annotations
 

@@ -54,7 +54,7 @@ def is_scalar_like(value: Any) -> bool:
 
 
 #: Compression of the arrays a project file stores: Blosc with Zstandard, level 5, byte
-#: shuffle (plan release-1.7.3, D2, D3). Arrays written before keep theirs (gzip); a
+#: shuffle. Arrays written before keep theirs (gzip); a
 #: reader decodes both. Not part of the format.
 PROJECT_COMPRESSION = "blosc"
 

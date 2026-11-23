@@ -161,7 +161,7 @@ def test_the_viewer_tells_repeated_file_names_apart(qapp, tmp_path):
         project.add_dataset(path).add_roi(name, frames=(0, 1), rows=(0, 1), values={"API": 1.0})
     window = open_viewer(paths[1], project=project.path)
     try:
-        # The files are looked up in the background; the list says so until then (D5).
+        # The files are looked up in the background; the list says so until then.
         wait_until(qapp, lambda: not window.project_state.data_files_unknown())
         combo = window._data_file_combo
         items = {combo.itemText(i): combo.itemData(i, 3) for i in range(combo.count())
@@ -386,7 +386,7 @@ def test_a_dataset_label_is_stored_shown_and_tolerated_when_missing(tmp_path):
 
 def test_opening_a_project_never_looks_for_data_files_on_the_ui_thread(qapp, tmp_path,
                                                                        monkeypatch):
-    """D5 (plan startup-speed-1.7.1): a slow drive delays only the background lookup.
+    """A slow drive delays only the background lookup.
 
     The window opens with the files "checking…"; the selector, the checks and the last
     shown file follow when the lookup has answered, and nothing looks again.

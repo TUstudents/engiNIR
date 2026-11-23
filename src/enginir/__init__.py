@@ -28,7 +28,7 @@ if TYPE_CHECKING:  # the names below load on first use (PEP 562), see __getattr_
 
 #: Public name -> the module it lives in. ``import enginir`` imports none of them, so a
 #: program that only needs a few (the viewer's launcher) does not load scikit-learn,
-#: SciPy, pandas or h5py before it needs them (plan startup-speed-1.7.1, D2).
+#: SciPy, pandas or h5py before it needs them.
 _LAZY = {
     "Project": "._workflow",
     "load_spectra": ".io",

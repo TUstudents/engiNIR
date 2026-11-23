@@ -312,7 +312,7 @@ frame, signal unit, or preprocessing parameters.
 ### Startup
 
 The start does little before the first window and nothing against data
-paths on the UI thread (plan `plans/startup-speed-1.7.1.md`):
+paths on the UI thread:
 
 - `import enginir` and `import enginir.viewer` resolve their public names on
   first use (PEP 562 `__getattr__`, with `TYPE_CHECKING` imports for the
@@ -381,7 +381,7 @@ paths on the UI thread (plan `plans/startup-speed-1.7.1.md`):
 ### Window lifetime
 
 A window that closes is deleted (viewer-workspace-ui contract, Window
-lifetime; plan `plans/window-lifetime.md`):
+lifetime):
 
 - `HSIViewer` and `WelcomeWindow` set `WA_DeleteOnClose`: Qt deletes a closed
   window at a safe point of the event loop, never in the middle of a paint.

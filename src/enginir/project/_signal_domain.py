@@ -230,7 +230,7 @@ def viewable_signal_units(reference_correction: ReferenceCorrection | None) -> t
     Raw counts are always stored, so ``DN`` shows them as they are;
     reflectance and absorbance are computed from them with the reference correction's
     references or detector levels at any time. ``raw_dn`` has neither, so it
-    gives counts only. Precalibrated data hold no counts.
+    gives counts only. Already corrected data hold no counts.
     ``None`` (no reference correction yet) allows all three.
     """
     if reference_correction is None or reference_correction.mode == "dark_white_reference":
@@ -371,7 +371,7 @@ def _clip_reflectance(out: np.ndarray, reference_correction: ReferenceCorrection
 
 def _reflectance_to_absorbance(reflectance: np.ndarray, reference_correction: ReferenceCorrection,
                                stats: ReferenceCorrectionStats) -> None:
-    # Clipped dark/white reflectance is already >= REFLECTANCE_MIN; precalibrated
+    # Clipped dark/white reflectance is already >= REFLECTANCE_MIN; already corrected
     # reflectance may not be, and log10 needs a positive floor.
     n_low = int(np.count_nonzero(reflectance < REFLECTANCE_MIN))
     if n_low:

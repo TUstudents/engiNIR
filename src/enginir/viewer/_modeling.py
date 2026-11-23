@@ -846,7 +846,7 @@ class FitModelRunDialog(QDialog):
         self._fold_warning_label.setVisible(shown and bool(self._fold_warning_label.text()))
 
     def embed(self) -> None:
-        """Turn the dialog into the Fit settings panel of the main window (plan gui-1.6, Q2).
+        """Turn the dialog into the Fit settings panel of the main window.
 
         No window frame and no OK/Cancel: the dock's Fit Model button runs the
         fit with these settings. Bands and Fitting start folded (their headers
@@ -1275,14 +1275,14 @@ class ModelingView(QWidget):
 
         return box
 
-    # -- Fit settings panel (plan gui-1.6, Phase 4, Q2) ----------------------------------
+    # -- Fit settings panel ----------------------------------
 
     def embed_fit_settings(self, prepare: Callable[[FitModelRunDialog], None] | None = None
                            ) -> FitModelRunDialog:
         """Show the fit settings in this view instead of a dialog; returns the form.
 
-        The main window calls this once, when the Model step is first shown
-        (plan startup-speed-1.7.1, D8): from then on Fit Model fits with what
+        The main window calls this once, when the Model step is first shown:
+        from then on Fit Model fits with what
         the form shows, the form shows the settings of the selected model
         until they are edited, and the preprocessing follows the Explore
         preview. Target and calibration set are in the form, so the status
@@ -1391,7 +1391,7 @@ class ModelingView(QWidget):
                                        None if current is None else current.target_id)
 
     def _follow_explore_preview(self, *_args: Any) -> None:
-        """The form takes what changed in the Explore preview, and only that (plan gui-1.6).
+        """The form takes what changed in the Explore preview, and only that.
 
         A model's settings shown in the form stay when the preview changes in
         something else: opening a dataset switches the preview's signal unit,

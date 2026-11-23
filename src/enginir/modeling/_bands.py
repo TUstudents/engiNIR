@@ -228,7 +228,7 @@ def _curve_values_roi(predicted: np.ndarray, y_roi: np.ndarray
 
 @dataclass
 class _StatsSearch:
-    """:class:`_Search` on sufficient statistics (plan kernel-pls, Phase 3).
+    """:class:`_Search` on sufficient statistics.
 
     A candidate is a column selection of the block sums; held-out ROIs are
     predicted from their mean spectra. No pass over the pixels.
@@ -376,7 +376,7 @@ def propose_bands(
     recipe = (None if stored_recipe is None else
               replace(PreprocessingRecipe.from_dict(stored_recipe), bands_keep=(),
                       bands_exclude=()))
-    # On statistics (plan kernel-pls, Phase 3): a recipe without MSC/EMSC and a kernel or
+    # On statistics: a recipe without MSC/EMSC and a kernel or
     # gram model; PCR's "auto" fits gram here (the proposal stores nothing).
     on_statistics = (recipe is not None and not recipe.requires_fitting
                      and params.get("algorithm") in ("kernel", "gram", "auto"))

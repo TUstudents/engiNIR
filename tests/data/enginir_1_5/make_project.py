@@ -6,8 +6,7 @@ Builds ``project.h5`` and the data files it references in ``/tmp/enginir-1.5``
 and copies them next to this script,
 and ``expected_map.npy``: the prediction of ``scan.h5`` by the project's
 model. The migration tests of format ``enginir-1.7`` convert this project and
-check that the converted model predicts the same map
-(``plans/format-1.7-reference-correction.md``, D8). The files are committed;
+check that the converted model predicts the same map. The files are committed;
 this script uses the names of format ``enginir-1.5`` and does not run with
 1.7 or later. Nothing here is packaged (the sdist and the wheel hold only
 ``src/enginir``).

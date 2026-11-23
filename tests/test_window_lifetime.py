@@ -1,8 +1,7 @@
 """Viewer windows are deleted when they close (viewer-workspace-ui contract, Window lifetime).
 
 A closed window is deleted by Qt at a safe point of the event loop, keeps no
-data, receives no project refresh, and nothing calls it afterwards
-(plan ``plans/window-lifetime.md``).
+data, receives no project refresh, and nothing calls it afterwards.
 """
 
 from __future__ import annotations

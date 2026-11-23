@@ -70,7 +70,7 @@ class EDAView(QWidget):
     #: Show the ROI table (target values of all ROIs).
     roi_table_requested = pyqtSignal()
     #: Add ROI or Add ROI Grid was pressed with no dataset shown ("add_roi" or
-    #: "add_roi_grid"): the window shows one, then starts it (plan roi-workflow, R3).
+    #: "add_roi_grid"): the window shows one, then starts it.
     dataset_needed = pyqtSignal(str)
 
     def __init__(
@@ -94,7 +94,7 @@ class EDAView(QWidget):
         self._current_target_provider = current_target_provider
         self._selected_roi_id_provider = selected_roi_id_provider
 
-        # One column of groups for the Settings dock (plan gui-1.6, Phase 4).
+        # One column of groups for the Settings dock.
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
@@ -494,7 +494,7 @@ class EDAView(QWidget):
         project_open = self.project_state.project_path is not None
         dataset_attached = self._dataset_attached_provider()
         selected_roi_id = self._selected_roi_id_provider()
-        # Also without a shown image: pressing them shows a dataset first (R3).
+        # Also without a shown image: pressing them shows a dataset first.
         self._btn_roi_training.setEnabled(project_open)
         self._btn_roi_grid.setEnabled(project_open)
         self._btn_roi_delete.setEnabled(project_open and selected_roi_id is not None)
@@ -570,7 +570,7 @@ class EDAView(QWidget):
             QMessageBox.warning(self, "No project", "Open a project to add ROIs.")
             return
         if not self._dataset_attached_provider():
-            self.dataset_needed.emit("add_roi_grid")  # the window shows one first (R3)
+            self.dataset_needed.emit("add_roi_grid")  # the window shows one first
             return
         cube_path = self._cube_path_provider() or ""
         n_frames, height = (int(n) for n in self.state.cube.shape[:2])

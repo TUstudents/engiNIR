@@ -87,7 +87,7 @@ def _calibration(
 
 WL = np.array([1000.0, 1100.0, 1200.0], dtype=np.float32)
 REFS = {"dark_ref_data": np.zeros(3, np.float32), "white_ref_data": np.ones(3, np.float32)}
-PRECALIBRATED = {"mode": "already_corrected", "output_signal_unit": "Absorbance"}
+ALREADY_CORRECTED = {"mode": "already_corrected", "output_signal_unit": "Absorbance"}
 NO_REFS = {"requires_dark_ref": False, "requires_white_ref": False}
 
 
@@ -117,8 +117,8 @@ def test_signal_domain_compatibility():
         ({"source_format": "eiff"}, REFS, {"input_format": "hdf5"}, "source_format"),
         ({"source_modality": "swir_line_scan"}, REFS, {}, "source_modality"),
         ({"wavelengths": WL[:2]}, {}, {}, "n_bands"),
-        ({}, PRECALIBRATED, {"corrected_input_allowed": True, **NO_REFS}, None),
-        ({}, PRECALIBRATED, {"corrected_input_allowed": False}, "required_correction_mode"),
+        ({}, ALREADY_CORRECTED, {"corrected_input_allowed": True, **NO_REFS}, None),
+        ({}, ALREADY_CORRECTED, {"corrected_input_allowed": False}, "required_correction_mode"),
     ], check)
 
 
@@ -162,7 +162,7 @@ def test_compatibility_rejects_references_that_do_not_fit_the_dataset():
                                           signal_domain=_signal_domain(wavelengths=wavelengths))
 
 
-def test_precalibrated_reflectance_floor_is_counted():
+def test_already_corrected_reflectance_floor_is_counted():
     wavelengths = np.linspace(1000.0, 1100.0, 4)
     reference_correction = _calibration(mode="already_corrected", output_signal_unit="Reflectance")
     stats = ReferenceCorrectionStats()

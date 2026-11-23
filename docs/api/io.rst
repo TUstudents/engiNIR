@@ -18,6 +18,16 @@ SpectralData
 .. autoclass:: enginir.io.SpectralData
    :no-members:
 
+file_format
+~~~~~~~~~~~
+
+.. autofunction:: enginir.io.file_format
+
+EnginirIOError
+~~~~~~~~~~~~~~
+
+.. autoexception:: enginir.io.EnginirIOError
+
 CSV / Excel
 -----------
 
@@ -167,6 +177,11 @@ Creating and loading
 .. autofunction:: enginir.io.project_store.create_project
 
 .. autofunction:: enginir.io.project_store.load_project_store
+
+FILE_SCHEMA_VERSION
+~~~~~~~~~~~~~~~~~~~
+
+.. autodata:: enginir.io.FILE_SCHEMA_VERSION
 
 Converting projects of engiNIR 1.5 and 1.6
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -1,4 +1,4 @@
-"""Checks and verdicts (headless-workflow contract, Guidance; plan gui-1.6, Phase 1).
+"""Checks and verdicts (headless-workflow contract, Guidance).
 
 ``Project.checks()`` must find what a reviewer found by hand on a real
 project: missing files, values that differ within a sample, an optimistic

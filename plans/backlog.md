@@ -1,6 +1,7 @@
 # Backlog
 
-Status: open points left after the review of every plan (2026-11-22). Not
+Status: open points left after the review of every plan (2026-11-22;
+updated 2026-11-23). Not
 planned; each item gets its decisions before work starts. Pixel binning has
 its own plan (`plans/pixel-binning.md`) and the 2.0 items are in
 `plans/v2.0.md`. The plans of finished work were deleted; `git log` has them
@@ -26,34 +27,13 @@ its own plan (`plans/pixel-binning.md`) and the 2.0 items are in
    "dark and white reference").
 8. **Packaging:** a signed Windows installer, opening `.h5` by double-click,
    a Linux `.desktop` entry.
-9. **Kestreleye wavelength-table import** (the 176-band table is extracted;
-   the import feature is not built).
 
 ## Housekeeping
 
-10. **Dead code:** `_WidthScrollArea` in `viewer/_viewer.py`, and
-    `title_elided` with `_ElidedLabel.elided` in `viewer/_plot_panel.py`.
-    The one-line test accessors (`row_checks`, `fix_button`, ...) were kept on
-    purpose and stay.
-11. **`contracts/coverage.md`:** seven cited private names no longer exist
-    (`_atomic_replacement_group`, `_touch_project_updated_at`,
-    `_validate_v3_sample_set`, `_preview_geometry`, `_place_roi_table`,
-    `_require_new_or_unchanged`, `validate_project_relationships.
-    _validate_mapping_keys`); the header says "audited 2026-11-18, 1.7".
-    Likely successors: `replacement_group`, `_open_project`,
-    `_check_sample_set`, `_preview_step`, `_sync_roi_table`. A full re-audit
-    against 1.7.1 to 1.7.4 is not done.
-12. **`docs/api/io.rst`:** `EnginirIOError`, `file_format` and
-    `FILE_SCHEMA_VERSION` are exported but undocumented (add after the
-    binning work lands in that file).
-13. **Citations of deleted plans:** about 38 source comments, and some
-    contracts, docs and CHANGELOG lines, cite `plans/*.md` files that no
-    longer exist. Reword them to the contract or drop the citation; until
-    then they point to history in git.
-14. **Stale names:** "precalibrated" in nine comments and docstrings (the
-    stored value is `already_corrected`); `save_dataset_ref` in 17 places; 36
-    test names and ids with `phase5` or `phase6`.
-15. **Tests:**
+9. **`save_dataset_ref`** (23 places) names a `DatasetRecord`, not a
+   "dataset ref"; it is public API (`enginir.io`, user guide), so a rename
+   needs an alias and a deprecation, not a cleanup.
+10. **Tests:**
     - five near-twin project builders remain;
     - mutation survivors worth a test: `_exclusion` residual helpers and
       budget comparisons, `_components` adjusted R² and RMSEE denominators,
@@ -65,15 +45,33 @@ its own plan (`plans/pixel-binning.md`) and the 2.0 items are in
 
 ## Needs a real machine
 
-16. **Windows novice walkthrough:** one-line install, Start menu, taskbar pin
+11. **Windows novice walkthrough:** one-line install, Start menu, taskbar pin
     and icon, update, uninstall.
-17. **Windows startup measurement:** cold and warm, with the `Startup timing`
+12. **Windows startup measurement:** cold and warm, with the `Startup timing`
     log lines (per warm-up step since `plans/cold-start.md`). First result
     (2026-11-22, 1.7.4): warm 0.8 s to the welcome window, warm-up 3.7 s;
     cold 19.3 s and 31.3 s. Per step on a second machine, fresh install:
     `plans/cold-start.md` (SciPy 12 of 20 s; half small files, half native).
     A start after a reboot on the work laptop is not recorded yet.
-18. **Rare flakiness, not reproduced since:** a hang in garbage collection, a
+13. **Rare flakiness, not reproduced since:** a hang in garbage collection, a
     hang of the two-window tests, a Qt `commitData` warning when editing the
     ROI table, a stall of the full run. A fault in any later CI run reopens
     `G37`.
+
+## Done since the review
+
+- **Kestreleye wavelength tables** (was 9): built in 1.7.2 (Add Dataset's
+  Wavelengths, Set Wavelengths, `wavelength_table=`); the item was stale.
+- **Dead code** (was 10): removed before 1.7.5.
+- **`contracts/coverage.md`** (was 11): every cited name checked against
+  1.7.6 (2026-11-23); seven replaced by their successors. A cited test,
+  `test_on_the_training_scan_the_statistics_are_the_training_ones`, had been
+  deleted with the test reduction although it alone pinned T²PS = T² and
+  DModXPS = DModX / v on the training scan; restored.
+- **`docs/api/io.rst`** (was 12): `file_format`, `EnginirIOError` and
+  `FILE_SCHEMA_VERSION` documented.
+- **Citations of deleted plans** (was 13): dropped from code, tests, docs and
+  contracts (dates and versions kept); the CHANGELOG keeps them as history.
+- **Stale names** (was 14): "precalibrated" is "already corrected" (the
+  migration keeps the old stored value's name); the `phase5`/`phase6` test
+  helpers and file names are renamed.

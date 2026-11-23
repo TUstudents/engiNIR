@@ -1,9 +1,8 @@
 """Load the library and the viewer while the welcome screen waits for the user.
 
-The launcher shows the welcome window without the scientific stack (plan
-startup-speed-1.7.1, D2). While the user reads it, the warm-up imports what
-opening a file needs (D3), so the first project or data file opens without
-that wait:
+The launcher shows the welcome window without the scientific stack. While the user reads
+it, the warm-up imports what opening a file needs, so the first project or data
+file opens without that wait:
 
 1. a background job imports the non-Qt stack: the workflow (scikit-learn,
    SciPy), the readers (h5py) and matplotlib's core;

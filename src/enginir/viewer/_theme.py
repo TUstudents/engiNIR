@@ -45,7 +45,7 @@ _THEME_MODE_PROPERTY = "_enginir_theme_dark"
 _PREFERENCE_FILE = "theme.json"
 _current_dark = True
 
-#: The colour tokens of both themes (plan gui-1.6, theme). Every widget and
+#: The colour tokens of both themes. Every widget and
 #: plot colour of the viewer comes from here; no other viewer module writes a
 #: colour literal (``tests/test_theme.py``). The accent is the orange of the
 #: program icon; warm colours belong to the program and to check states, the
@@ -254,7 +254,7 @@ def value_colormap(colors: Mapping[str, str] | None = None) -> Any:
     For the plot colours ``colors`` (screen or print, by their ``mode``); the
     current theme by default.
     """
-    import numpy as np  # not at module level: the launcher imports this module (D2)
+    import numpy as np  # not at module level: the launcher imports this module
     from matplotlib import colormaps
     from matplotlib.colors import ListedColormap
 
@@ -322,7 +322,7 @@ def _image(name: str) -> str:
 def _app_stylesheet(dark: bool) -> str:
     """The style sheet of the whole application, generated from :data:`TOKENS`.
 
-    Desktop proportions (plan gui-1.6, D1): square corners (3 px on controls),
+    Desktop proportions: square corners (3 px on controls),
     controls 22–24 px high, dock and table headers on the header colour, the
     current tab marked by an accent line.
     """

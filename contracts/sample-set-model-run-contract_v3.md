@@ -495,7 +495,7 @@ Centering and scaling are learnt from the calibration pixels of each fold, like
 every other fitted step; standard deviations use N − 1.
 
 The numerical algorithm is a model setting too, stored in `hyperparameters`
-as `algorithm` (plan `plans/kernel-pls.md`, decided 2026-11-13):
+as `algorithm` (decided 2026-11-13):
 
 - PLS: `kernel` (improved kernel PLS on the cross-product matrix XᵀX,
   Dayal and MacGregor 1997) or `nipals` (scikit-learn's NIPALS). New fits
@@ -612,7 +612,7 @@ residuals in scaled units:
 - N − A₀ − A must be at least 1, otherwise exclusion blocks the fit
 
 The help calls *v* only "a correction factor slightly larger than one"; the
-SIMCA 18.1 reference exports (plan `fit-specification.md`, Phase R) confirm
+SIMCA 18.1 reference exports confirm
 the value above, and DModX, DCrit and absolute DCrit (normalized DCrit × s₀)
 match them to float32 precision. Residuals are not weighted by the modeling
 power in `dmodx-1`, the default: weighting turns down the bands the model
@@ -678,11 +678,10 @@ pixel predictions, ȳ the mean target value, *SS* = Σᵣ (yᵣ − ȳ)²):
   pixels after preprocessing
 
 Every fold is refitted with all *a* components, so Q² is stricter than
-SIMCA's component-wise cross-validation (plan `fit-specification.md`,
-Phase R), and Q²(cum) is not 1 − Πₐ (1 − Q²ₐ) as in SIMCA: both are kept as
-defined above. Guards: SE(*a*) = 0 when RMSECV (per ROI)(*a*) < 10⁻¹⁰; Q²ₐ is NaN when
-RSS(*a* − 1) < 10⁻¹⁰, and Q²(cum), R²Y(cum) are NaN when *SS* < 10⁻¹⁰, each
-with a logged warning.
+SIMCA's component-wise cross-validation, and Q²(cum) is not 1 − Πₐ (1 − Q²ₐ) as
+in SIMCA: both are kept as defined above. Guards: SE(*a*) = 0 when RMSECV (per
+ROI)(*a*) < 10⁻¹⁰; Q²ₐ is NaN when RSS(*a* − 1) < 10⁻¹⁰, and Q²(cum), R²Y(cum)
+are NaN when *SS* < 10⁻¹⁰, each with a logged warning.
 
 Rules (`components/rule`), each choosing a number from 1 to *A*max:
 

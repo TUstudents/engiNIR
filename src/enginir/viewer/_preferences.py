@@ -1,4 +1,4 @@
-"""Preferences of the viewer (plan gui-1.6, Phase 6): Tools > Preferences.
+"""Preferences of the viewer: Tools > Preferences.
 
 Stored per user in ``preferences.json`` next to the other viewer settings
 (``config_dir()``), never in a project: a project must not depend on one

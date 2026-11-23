@@ -1,4 +1,4 @@
-"""Project files store their arrays with Blosc (plan release-1.7.3, D2, D3, D8)."""
+"""Project files store their arrays with Blosc."""
 
 from __future__ import annotations
 

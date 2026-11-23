@@ -100,14 +100,14 @@ _QtObject = TypeVar("_QtObject")
 _COMPACT_LEFT_DOCK_WIDTH = 260
 _CONTROLS_DOCK_TARGET_HEIGHT = 230
 #: Width of the Settings dock and height of the bottom panel per screen-size
-#: class (plan gui-1.6, D4): "full" from 1800 px wide, "compact" below.
+#: class: "full" from 1800 px wide, "compact" below.
 _SETTINGS_DOCK_WIDTH = {"full": 340, "compact": 304}
 _BOTTOM_PANEL_HEIGHT = {"full": 200, "compact": 160}
 #: The share of the window's height the bottom panel takes while the ROI table is its
 #: front tab: a table of all ROIs needs more rows than a list of checks.
 _ROI_TABLE_HEIGHT_SHARE = 0.42
 _FULL_WIDTH = 1800
-#: Settings dock title per workspace (plan gui-1.6, the window).
+#: Settings dock title per workspace.
 _SETTINGS_TITLES = ("View settings", "Fit settings", "Prediction settings")
 _SPECTRUM_PANEL_HEIGHT = 220
 _UNLIMITED_HEIGHT = 16777215  # QWIDGETSIZE_MAX
@@ -325,7 +325,7 @@ class HSIViewer(QMainWindow):
         Optional white-reference cube or image.  Same convention as *dark*.
     """
 
-    #: The checks and verdicts were recomputed (plan gui-1.6, guidance).
+    #: The checks and verdicts were recomputed.
     checks_refreshed = pyqtSignal()
 
     def __init__(
@@ -791,7 +791,7 @@ class HSIViewer(QMainWindow):
         self._predict_workspace_splitter.setStretchFactor(1, 1)
         self._predict_workspace_splitter.setSizes([900, 300])
         # Before the first prediction of the session the page invites one instead of
-        # showing empty axes (plan gui-1.6, empty states).
+        # showing empty axes.
         self._predict_page_stack = QStackedWidget()
         self._predict_empty = self._empty_state(
             "wand", "Predict your samples",
@@ -1066,7 +1066,7 @@ class HSIViewer(QMainWindow):
     def _build_controls_panel(self) -> None:
         # The Model page's view holds the current target (Explore and the ROI table use
         # it), so it exists from the start; its Fit settings form and the Predict page
-        # are built when first shown (plan startup-speed-1.7.1, D8).
+        # are built when first shown.
         self._modeling_view = ModelingView(self.state, self.project_state, parent=self)
         self._prediction_page: PredictionView | None = None
         #: The Predict tab's widget: a placeholder until the page is built, then the page.
@@ -1084,7 +1084,7 @@ class HSIViewer(QMainWindow):
 
 
         # The workspaces: Explore, Model, Predict. The workflow strip switches
-        # them, so the tab bar is hidden (plan gui-1.6, Phase 3).
+        # them, so the tab bar is hidden.
         self._workspace_tabs = QTabWidget()
         self._workspace_tabs.setObjectName("WorkspaceTabs")
         self._workspace_tabs.addTab(self._eda_view, "Explore")
@@ -1126,7 +1126,7 @@ class HSIViewer(QMainWindow):
 
     @property
     def _prediction_view(self) -> PredictionView:
-        """The Predict page, built on first use (plan startup-speed-1.7.1, D8)."""
+        """The Predict page, built on first use."""
         page = self._prediction_page
         return self._build_prediction_page() if page is None else page
 
@@ -1158,7 +1158,7 @@ class HSIViewer(QMainWindow):
         return page
 
     def _ensure_fit_settings(self) -> None:
-        """Build the Model page's Fit settings form, once (plan startup-speed-1.7.1, D8)."""
+        """Build the Model page's Fit settings form, once."""
         view = self._modeling_view
         if view.fit_form is not None:
             return
@@ -1184,7 +1184,7 @@ class HSIViewer(QMainWindow):
                 self._workspace_tabs.currentWidget() is self._modeling_view)
 
     def _build_log_panel(self) -> None:
-        """The bottom panel: Checks, ROI table, Models and Log as tabs (plan gui-1.6)."""
+        """The bottom panel: Checks, ROI table, Models and Log as tabs."""
         self._log_panel = LogPanel()
         self._log_dock = QDockWidget("Log", self)
         self._log_dock.setObjectName("LogDock")
@@ -1226,7 +1226,7 @@ class HSIViewer(QMainWindow):
         """Send engiNIR's messages of ``level`` and above to the Log panel.
 
         The level of Tools > Preferences (default INFO), so the panel never shows
-        DEBUG lines at INFO; a change applies at once (plan release-1.7.3, D5).
+        DEBUG lines at INFO; a change applies at once.
         """
         self._teardown_log_sink()
         self._log_sink_level = level
@@ -1361,7 +1361,7 @@ class HSIViewer(QMainWindow):
         self.project_state.project_loaded.connect(self._refresh_data_file_choices)
         self.project_state.datasets_changed.connect(self._refresh_data_file_choices)
         self.project_state.data_files_checked.connect(self._refresh_data_file_choices)
-        # The data files are looked up in the background (plan startup-speed-1.7.1, D5).
+        # The data files are looked up in the background.
         self.project_state.project_loaded.connect(self._look_up_data_files)
         self.project_state.datasets_changed.connect(self._look_up_data_files)
         self._project_browser.itemDoubleClicked.connect(self._on_browser_item_activated)
@@ -1424,7 +1424,7 @@ class HSIViewer(QMainWindow):
             self._show_last_data_file()
 
     def _look_up_data_files(self) -> None:
-        """Look up the data files not looked up yet, in a background job (D5)."""
+        """Look up the data files not looked up yet, in a background job."""
         state = self.project_state
         project, unknown = state.project, state.data_files_unknown()
         if project is None or not unknown or getattr(self, "_data_file_lookup", False):
@@ -1851,7 +1851,7 @@ class HSIViewer(QMainWindow):
 
     def _build_menu_bar(self) -> None:
         mb = _require_qt_object(self.menuBar(), "main menu bar")
-        # Every action of the viewer is a menu item (plan gui-1.6, D2: no toolbar).
+        # Every action of the viewer is a menu item (no toolbar).
         self._menu_file = _add_required_menu(mb, "File")
         self._menu_edit = _add_required_menu(mb, "Edit")
         self._menu_view = _add_required_menu(mb, "View")
@@ -1880,7 +1880,7 @@ class HSIViewer(QMainWindow):
         self._update_status_strip()
 
     # ------------------------------------------------------------------
-    # Menus of the workflow (plan gui-1.6, the window)
+    # Menus of the workflow
     # ------------------------------------------------------------------
 
     def _menu_button_action(self, menu: QMenu, text: str,
@@ -2061,7 +2061,7 @@ class HSIViewer(QMainWindow):
         self.locate_data_file(missing[0])
 
     # ------------------------------------------------------------------
-    # Workflow strip and checks (plan gui-1.6, Phases 3 and 5)
+    # Workflow strip and checks
     # ------------------------------------------------------------------
 
     def _build_workflow_strip(self) -> None:
@@ -2156,7 +2156,7 @@ class HSIViewer(QMainWindow):
             self._checks_dock.setWindowTitle("Checks")
             return
         try:
-            # The file check only once the background lookup has answered (D5): looking up
+            # The file check only once the background lookup has answered: looking up
             # here would wait for every data file's drive on the UI thread.
             checks = project.checks(files=not self.project_state.data_files_unknown(),
                                     predict=False)
@@ -2228,7 +2228,7 @@ class HSIViewer(QMainWindow):
         self.checks_refreshed.emit()
 
     # ------------------------------------------------------------------
-    # Preferences (plan gui-1.6, Phase 6)
+    # Preferences
     # ------------------------------------------------------------------
 
     def menu_shortcuts(self) -> list[tuple[str, str]]:
@@ -2567,7 +2567,7 @@ class HSIViewer(QMainWindow):
         Shows the Data file tab and a dataset first when none is shown, or when
         ``dataset_id`` is another one: ``dataset_id``, else the last shown, else
         the only one, else the one the user picks; with none, Add Dataset. Then
-        starts drawing or opens the grid dialog (plan roi-workflow, R3).
+        starts drawing or opens the grid dialog.
         """
         if action not in ("add_roi", "add_roi_grid"):
             log_and_raise("Unknown ROI action {!r}", action, error=ValueError)
@@ -2973,8 +2973,7 @@ class HSIViewer(QMainWindow):
         """The recent files, drawn from the list alone (no file access on the UI thread).
 
         A file the last background check found missing is grayed out; each opening of
-        the menu checks again in the background and updates the entries still shown
-        (plan startup-speed-1.7.1, D4).
+        the menu checks again in the background and updates the entries still shown.
         """
         from . import _recent
 

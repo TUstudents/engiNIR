@@ -1,4 +1,4 @@
-"""The viewer on Windows (plan windows-1.5.2, Phase 3): shortcuts and the launcher without a console.
+"""The viewer on Windows: shortcuts and the launcher without a console.
 
 Shortcut tests write into a temporary folder, never the user's Start menu.
 """

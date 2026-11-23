@@ -90,7 +90,7 @@ class GridGeometryForm(QWidget):
         grid.addWidget(self._extent, 5, 0, 1, 3)
         grid.addWidget(QLabel("Names:"), 6, 0)
         grid.addWidget(self._pattern, 6, 1, 1, 2)
-        self._placeholders = QLabel(PLACEHOLDERS)  # listed, not only in a tooltip (R2)
+        self._placeholders = QLabel(PLACEHOLDERS)  # listed, not only in a tooltip
         self._placeholders.setWordWrap(True)
         self._placeholders.setStyleSheet(secondary_text_style())
         grid.addWidget(self._placeholders, 7, 1, 1, 2)

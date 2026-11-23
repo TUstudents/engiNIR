@@ -1,9 +1,8 @@
 """The time since the operating system started this process, for the startup log lines.
 
 A user's log then shows the whole start, including the time before Python ran
-any of engiNIR (a cold start, an antivirus scan, a busy machine; plan
-startup-speed-1.7.1, D7). Standard library only: the launcher imports this
-before anything else.
+any of engiNIR (a cold start, an antivirus scan, a busy machine). Standard library only:
+the launcher imports this before anything else.
 """
 
 from __future__ import annotations
