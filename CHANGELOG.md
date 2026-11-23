@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.7.7 (2026-11-23)
+
+Model and project housekeeping: rename and retire models, remove datasets,
+compact a project. The format stays `enginir-1.7`; only retired models store
+new fields (see Retire Model below for older engiNIR versions).
 
 ### Added
 
@@ -26,6 +30,12 @@
   when data are deleted; compacting rewrites the project without the space
   that retired models, removed datasets and deleted ROIs left, with the same
   content.
+
+### Documentation
+
+- The API reference lists `file_format`, `EnginirIOError` and
+  `FILE_SCHEMA_VERSION`; messages and docs say "already corrected" instead of
+  "precalibrated" for floating-point data (stored projects are unchanged).
 
 ## 1.7.6 (2026-11-22)
 
