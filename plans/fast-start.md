@@ -176,3 +176,20 @@ As planned, with these findings on the way:
 - `from enginir.viewer import _warmup` loaded `_open`: the viewer package sent
   every unknown name there. Private submodules now import directly.
 - Before the welcome window (Linux, counted): 164 modules instead of about 270.
+
+## First Windows measurement (2026-11-23, cold) and what changed
+
+Welcome window at 2.99 s (was 5.71 s), main window at 24.3 s (was 41.4 s).
+SciPy then took 21 s in the background; scikit-learn had not finished when
+the user looked at the model, whose plots waited for both ("models are never
+shown"). Changed:
+
+- The model's plots are drawn at once; only the ROIs' T² ellipse and the
+  F-test's critical value need SciPy and are added when it is loaded.
+- The gate covered only the modules the stage names. A thread importing
+  another module that imports scikit-learn (`modeling._components`,
+  `_exclusion`, `_gram_fit`, `models.*`, `_estimator`) would hold that
+  module's lock while waiting, and the stage could wait for it: a deadlock
+  until the 300 s timeout. The gate now covers every such module; a test
+  recomputes the list from the source.
+- A stage that has not ended after 90 s logs every thread's stack.

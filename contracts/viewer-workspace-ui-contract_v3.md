@@ -999,8 +999,9 @@ Decided 2026-11-23 for engiNIR 1.7.8 (`plans/fast-start.md`, D1 and D2).
   background while it is shown
 - fit, Predict ROIs and Predict map clicked while they load are accepted: the
   page's service status says `Loading the modeling libraries...` and the
-  action starts by itself when they are loaded; the model's plots say the
-  same and are drawn then
+  action starts by itself when they are loaded; models and their plots are
+  shown at once, and the parts that need SciPy (the ROIs' T² ellipse, the
+  F-test's critical value) are added when it is loaded
 - the UI thread never imports SciPy or scikit-learn while they load in the
   background; any other thread that needs them waits for them
 

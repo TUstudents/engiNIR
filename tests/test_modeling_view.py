@@ -772,12 +772,13 @@ def test_a_fit_clicked_while_the_modeling_libraries_load_starts_when_they_are_lo
     assert len(captured) == 1
 
 
-def test_model_plots_wait_for_the_modeling_libraries(qapp, tmp_path, monkeypatch):
-    """Their limits need SciPy: while it loads they say so, then they are drawn."""
-    from enginir.viewer._model_diagnostics import _SPECS, ModelDiagnosticsWidget
+def test_model_plots_are_drawn_at_once_and_get_their_scipy_limits_when_it_is_loaded(
+        qapp, tmp_path, monkeypatch):
+    """A model is shown while the modeling libraries load (a user saw none for over 40 s
+    on a cold Windows start): only the ROIs' T² ellipse, which needs SciPy, follows."""
+    from enginir.viewer._model_diagnostics import ModelDiagnosticsWidget
     from enginir.viewer._modeling import ModelingView
     from enginir.viewer._state import ProjectState, ViewerState
-    from enginir.viewer._warmup import LOADING_TEXT
     from tests._project_payloads import write_model_project
     from tests._sessions import fit_stored_model
 
@@ -795,13 +796,15 @@ def test_model_plots_wait_for_the_modeling_libraries(qapp, tmp_path, monkeypatch
     widget.show()
     widget.update_data(payload)
     qapp.processEvents()
-    panel = widget.grid.panel(_SPECS[0].plot_id)
-    assert panel is not None
+    first = widget.grid.panel("model.pred_vs_ref")
+    scores = widget.grid.panel("model.scores")
+    assert first is not None and scores is not None
 
-    def shown_text() -> str:
-        return " ".join(text.get_text() for axes in panel.figure.axes for text in axes.texts)
+    def labels() -> list[str]:
+        return [line.get_label() for axes in scores.figure.axes for line in axes.lines]
 
-    assert LOADING_TEXT in shown_text()
+    assert first.figure.axes and first.figure.axes[0].has_data(), "drawn while loading"
+    assert labels() and not [label for label in labels() if "ROIs" in label]
     loaded()
     qapp.processEvents()
-    assert LOADING_TEXT not in shown_text() and panel.figure.axes[0].has_data()
+    assert [label for label in labels() if "T² 95 % ROIs" in label], labels()

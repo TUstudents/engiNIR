@@ -9,8 +9,10 @@
   took 16 s of 41 s before the main window). They now load in the background
   while the main window is shown. **Fit**, **Predict ROIs** and **Predict
   map** clicked meanwhile are accepted: the page says "Loading the modeling
-  libraries..." and the action starts by itself when they are loaded; the
-  model's plots are drawn then too.
+  libraries..." and the action starts by itself when they are loaded. Models
+  and their plots are shown at once; the ROIs' T² ellipse and the F-test's
+  critical value follow when SciPy is loaded. If loading ever stalls, the
+  log shows where after 90 s.
 - **The welcome window appears sooner:** before it, the launcher no longer
   loads Loguru (with `asyncio` and `multiprocessing`) or the package metadata
   (164 modules instead of about 270). Its first log messages are written right

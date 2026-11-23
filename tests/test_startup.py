@@ -414,9 +414,13 @@ _WINDOW_WHILE_LOADING = textwrap.dedent("""
             QApplication.processEvents()
             time.sleep(0.01)
     window.select_model(next(iter(window.project_state.model_runs)))
-    for _ in range(30):
-        QApplication.processEvents()
-        time.sleep(0.01)
+    from enginir.viewer._model_diagnostics import ModelDiagnosticsWidget
+    for plots in window.findChildren(ModelDiagnosticsWidget):
+        for page in plots.grid.page_names:  # every page of the model's plots is drawn
+            plots.grid.set_current_page(page)
+            for _ in range(10):
+                QApplication.processEvents()
+                time.sleep(0.01)
     print(json.dumps({"shown": window.isVisible(), "attempts": attempts}))
     from enginir.viewer._jobs import wait_for_running_jobs
     wait_for_running_jobs(30)
@@ -425,7 +429,7 @@ _WINDOW_WHILE_LOADING = textwrap.dedent("""
 
 def test_the_main_window_works_while_the_modeling_libraries_load(tmp_path):
     """A project with a model, a calibration set and a stored prediction opens, every
-    workflow step and the model's page show, and the UI thread never imports SciPy or
+    workflow step and every page of the model's plots show, and the UI thread never imports SciPy or
     scikit-learn meanwhile (two threads importing them at once can deadlock).
     Worker threads may: the import gate makes them wait."""
     from tests._scans import every_stored_object_project
@@ -502,3 +506,57 @@ def test_messages_before_the_log_sink_keep_their_time_and_place(tmp_path):
     stamp = datetime.datetime.strptime(line[:23], "%Y-%m-%d %H:%M:%S.%f")
     written = datetime.datetime.fromtimestamp(log.stat().st_mtime)
     assert (written - stamp).total_seconds() > 1.0, "the time it was logged, not written"
+
+
+def test_the_import_gate_knows_every_module_that_loads_scipy_or_scikit_learn():
+    """Every engiNIR module that imports SciPy or scikit-learn when it is imported (itself
+    or through another engiNIR module) waits at the gate while they load; one missing
+    would hold its own import lock while waiting, and the loader could wait for it."""
+    import ast
+    import importlib.util
+    from pathlib import Path
+
+    import enginir
+    from enginir.viewer._warmup import _MODELING_MODULES
+
+    root = Path(enginir.__file__).parent
+    imports: dict[str, set[str]] = {}
+    for path in sorted(root.rglob("*.py")):
+        parts = path.with_suffix("").relative_to(root.parent).parts
+        module = ".".join(parts).removesuffix(".__init__")
+        package = module if path.name == "__init__.py" else module.rsplit(".", 1)[0]
+        targets: set[str] = set()
+        for node in ast.parse(path.read_text(encoding="utf-8")).body:  # import time only
+            if isinstance(node, ast.Import):
+                targets |= {alias.name for alias in node.names}
+            elif isinstance(node, ast.ImportFrom):
+                base = (importlib.util.resolve_name("." * node.level + (node.module or ""),
+                                                    package) if node.level else node.module)
+                targets |= {base or "", *(f"{base}.{alias.name}" for alias in node.names)}
+        imports[module] = targets
+    heavy = {module for module, targets in imports.items()
+             if any(target.split(".")[0] in MODELING for target in targets)}
+    while extra := {module for module, targets in imports.items()
+                    if module not in heavy and targets & heavy}:
+        heavy |= extra
+    assert heavy <= _MODELING_MODULES, sorted(heavy - _MODELING_MODULES)
+
+
+def test_a_stalled_modeling_stage_logs_where_every_thread_is(monkeypatch):
+    """If loading the modeling libraries hangs (seen once on a cold Windows start), the
+    log shows where, so the next report can tell."""
+    import threading
+
+    from enginir.viewer import _warmup
+
+    stuck = threading.Event()
+    worker = threading.Thread(target=stuck.wait, name="stuck-loader", daemon=True)
+    worker.start()
+    warnings: list[str] = []
+    monkeypatch.setattr(_warmup.logger, "warning",
+                        lambda message, *args: warnings.append(message.format(*args)))
+    _warmup._report_stall(0.0)
+    stuck.set()
+    (text,) = warnings
+    block = text[text.index("Thread stuck-loader:"):]
+    assert "in wait" in block.split("Thread ", 2)[1], block[:800]

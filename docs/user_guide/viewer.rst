@@ -27,8 +27,9 @@ project opens without that wait. The modeling libraries (SciPy and
 scikit-learn, the largest part of a start) load afterwards, while the main
 window is already shown. **Fit**, **Predict ROIs** and **Predict map**
 clicked in that time are accepted: the page says "Loading the modeling
-libraries..." and the action starts by itself when they are loaded; the
-model's plots are drawn then too.
+libraries..." and the action starts by itself when they are loaded. Models
+and their plots are shown at once; the ROIs' T² ellipse and the F-test's
+critical value, which need SciPy, are added when it is loaded.
 
 On Windows, ``enginir-viewer`` starts without a console window; its
 messages (``--help``, ``--version``, errors at start) appear in a message

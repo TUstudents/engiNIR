@@ -74,11 +74,22 @@ MODELING_STEPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "enginir.modeling._service", "enginir.modeling._bands")),
 )
 
-#: Imports that wait while the modeling stage runs (top-level packages, and engiNIR's
-#: modules that import them at the top).
+#: Imports that wait while the modeling stage runs: the top-level packages, and every
+#: engiNIR module that imports them when it is imported. All of them, not only the ones
+#: the stage names: a thread that imported one of the others would hold that module's
+#: import lock while it waits, and the stage would wait for that lock (a deadlock until
+#: the timeout). ``tests/test_startup.py`` recomputes the list from the source.
 _MODELING_PACKAGES = ("scipy", "sklearn", "joblib", "threadpoolctl")
-_MODELING_MODULES = frozenset(name for _step, names in MODELING_STEPS for name in names
-                               if name.startswith("enginir."))
+_MODELING_MODULES = frozenset({
+    "enginir._estimator",
+    "enginir.modeling._bands", "enginir.modeling._components", "enginir.modeling._exclusion",
+    "enginir.modeling._gram_fit", "enginir.modeling._service",
+    "enginir.models.classification", "enginir.models.ml", "enginir.models.pcr",
+    "enginir.models.pls",
+    "enginir.preprocessing.baseline", "enginir.preprocessing.derivatives",
+    "enginir.preprocessing.scatter", "enginir.preprocessing.selection",
+    "enginir.validation.cross_val",
+})
 
 
 def _timed_import(step: str, names: tuple[str, ...]) -> None:
@@ -224,6 +235,21 @@ class _ModelingGate:
         return self.original(name, globals, locals, fromlist, level)
 
 
+#: Seconds after which a modeling stage that has not ended logs where every thread is.
+STALL_REPORT_AFTER = 90.0
+
+
+def _report_stall(started: float) -> None:
+    """Log the stack of every thread: the modeling stage has not ended in time."""
+    import traceback
+
+    names = {thread.ident: thread.name for thread in threading.enumerate()}
+    stacks = "\n".join(f"Thread {names.get(ident, ident)}:\n" + "".join(
+        traceback.format_stack(frame)) for ident, frame in sys._current_frames().items())
+    logger.warning("The modeling libraries have not loaded after {:.0f}s; the threads are "
+                   "at:\n{}", time.perf_counter() - started, stacks)
+
+
 def start_modeling_warmup(owner: QObject | None = None) -> None:
     """Load the modeling libraries in the background (the modeling stage).
 
@@ -242,6 +268,8 @@ def start_modeling_warmup(owner: QObject | None = None) -> None:
         logger.warning("No application to own the modeling warm-up; loading on use")
         return
     started = time.perf_counter()
+    watchdog = threading.Timer(STALL_REPORT_AFTER, _report_stall, args=(started,))
+    watchdog.daemon = True
     gate = _ModelingGate()
     _MODELING_IMPORTED.clear()
     builtins.__import__ = gate
@@ -255,6 +283,7 @@ def start_modeling_warmup(owner: QObject | None = None) -> None:
                 builtins.__import__ = gate.original
 
     def ended(reason: str) -> None:
+        watchdog.cancel()
         from ._startup_clock import since_start
 
         logger.info("Startup timing: modeling libraries {} {:.2f}s after the process "
@@ -270,6 +299,7 @@ def start_modeling_warmup(owner: QObject | None = None) -> None:
     # so the first statement of ``load`` imports nothing.
     start_background_job(owner=owner, fn=load, on_success=lambda _result: ended("ready"),
                          on_error=failed, on_finished=lambda: None)
+    watchdog.start()
 
 
 def start_warmup(owner: QObject, *, on_done: Callable[[], None] | None = None) -> None:
