@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.7.8 (2026-11-23)
+
+A fix release: a band selection after a Savitzky-Golay filter used the wrong
+bands. Models fitted with such a recipe by 1.4.0 to 1.7.7 must be fitted
+again. The project format stays `enginir-1.7`.
 
 ### Fixed
 
