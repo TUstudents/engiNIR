@@ -231,3 +231,29 @@ def test_open_recent_never_touches_a_recent_file_on_the_ui_thread(window, qapp, 
         assert threads and threading.main_thread().name not in threads, threads
     finally:
         release.set()
+
+
+def test_the_project_check_of_a_recent_file_waits_for_the_warmups_imports(tmp_path,
+                                                                           monkeypatch):
+    """A recent entry of unknown kind (written before 1.7.1) is opened with h5py to tell a
+    project from a dataset. While the warm-up imports h5py in the background, that check
+    waits: two threads importing one package at once can deadlock."""
+    import threading
+
+    from enginir.io.project_store import create_project
+    from enginir.viewer import _recent, _warmup
+
+    path = tmp_path / "old.h5"
+    create_project(path)
+    imports = threading.Event()  # the warm-up's background imports run
+    monkeypatch.setattr(_warmup, "_LIBRARY_IMPORTED", imports)
+    result: dict = {}
+    entry = _recent.RecentEntry(str(path), None)
+    checker = threading.Thread(target=lambda: result.update(_recent.check([entry])),
+                               daemon=True)
+    checker.start()
+    checker.join(0.3)
+    assert result == {}, "checked while the warm-up imports"
+    imports.set()
+    checker.join(5)
+    assert result == {str(path): (True, "project")}

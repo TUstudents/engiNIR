@@ -176,10 +176,33 @@ class EDAView(QWidget):
         self._spin_pol.setEnabled(False)
         layout.addWidget(self._spin_pol, 2, 3)
 
+        # Shown when the recipe does not fit the shown dataset (the frame is then drawn
+        # without it): a band selection outside its axis, for example.
+        self._recipe_problem = QLabel()
+        self._recipe_problem.setWordWrap(True)
+        self._recipe_problem.setVisible(False)
+        layout.addWidget(self._recipe_problem, 3, 0, 1, 4)
+
         self._filt_bg.buttonClicked.connect(self._on_filter_changed)
         self._spin_win.valueChanged.connect(self.state.set_sg_window)
         self._spin_pol.valueChanged.connect(self.state.set_sg_polyorder)
+        self.state.units_changed.connect(self._sync_recipe_limits)
+        self.state.frame_changed.connect(self._sync_recipe_limits)
+        self._sync_recipe_limits()
         return box
+
+    def _sync_recipe_limits(self, *_args: Any) -> None:
+        """Offer Savitzky-Golay windows up to the shown dataset's band count, and say why
+        the frame is drawn without the recipe if it does not fit the dataset."""
+        n_bands = self.state.n_bands if self.state.has_dataset else 0
+        largest = 101 if n_bands < 3 else max(3, min(101, n_bands if n_bands % 2 else n_bands - 1))
+        if self._spin_win.maximum() != largest:
+            self._spin_win.setMaximum(largest)  # a larger value comes down to it
+        if self.state.has_dataset:
+            self.state.current_frame_image()  # cached; sets recipe_problem for this recipe
+        problem = self.state.recipe_problem if self.state.has_dataset else ""
+        self._recipe_problem.setText(f"⚠ Shown without preprocessing: {problem}" if problem else "")
+        self._recipe_problem.setVisible(bool(problem))
 
     def _normalisation_group(self) -> QGroupBox:
         box = QGroupBox("Scatter correction")

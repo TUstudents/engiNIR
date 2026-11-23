@@ -733,6 +733,8 @@ class ViewerState(QObject):
         white_level: float = DEFAULT_WHITE_LEVEL,
     ) -> None:
         super().__init__()
+        #: Why the frame is shown without the preprocessing recipe ("" when it is not).
+        self.recipe_problem = ""
         self._reset_dataset_state(
             cube,
             wavelengths,
@@ -1254,8 +1256,14 @@ class ViewerState(QObject):
                 np.log10(img, out=img)
                 img *= -1.0
 
-        # 2. Preprocessing recipe (SG filter, scatter correction, detrend)
-        img = self._apply_preprocessing(img)
+        # 2. Preprocessing recipe (SG filter, scatter correction, detrend). A recipe that
+        # does not fit this dataset (a window longer than its bands, a band selection
+        # outside its axis) leaves the frame without it and says why.
+        try:
+            img = self._apply_preprocessing(img)
+            self.recipe_problem = ""
+        except ValueError as exc:
+            self.recipe_problem = str(exc)
 
         self._image_cache = np.asarray(img, dtype=_WORKING_DTYPE, copy=False)
         return self._image_cache

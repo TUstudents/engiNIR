@@ -16,6 +16,12 @@ def _is_project_file(path: str | Path | None) -> bool:
     candidate = Path(path)
     if candidate.suffix.lower() not in {".h5", ".hdf5"} or not candidate.exists():
         return False
+    # The warm-up may be importing h5py in the background: two threads importing the same
+    # package at once can deadlock (the recent-files check is a job; a double click on
+    # the welcome window runs here on the UI thread).
+    from ._warmup import wait_for_library
+
+    wait_for_library()
     try:
         import h5py  # h5py alone: enginir.io (pandas and every reader) is not needed here
 

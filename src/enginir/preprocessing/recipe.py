@@ -308,7 +308,9 @@ class PreprocessingRecipe:
                 edges=self.sg_edges,
             )
             steps.append(("sg", sg))
-            wavelengths = self.output_wavelengths(wavelengths)
+            # The axis the next steps see: after the Savitzky-Golay step, before the
+            # band selection (output_wavelengths would apply the selection twice).
+            wavelengths = self._trimmed(wavelengths)
         if self.snv:
             steps.append(("snv", SNV()))
         if self.msc:

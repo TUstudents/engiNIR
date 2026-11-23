@@ -210,6 +210,9 @@ The controls set what the panels show:
   window and polynomial order. As in SIMCA, the first and last half-window
   bands have no full window and are left out: they are blank in the spectrum
   and the sensor frame, and the model uses the remaining bands.
+  The window goes up to the dataset's band count. If the preprocessing
+  does not fit the shown dataset (a band range outside its wavelengths, for
+  example), the frame is shown without it and the panel says why.
 - **Scatter correction**: SNV, MSC, EMSC and detrending, combinable.
 - **Axis**: wavelength or band index; pixels or millimeters.
 
