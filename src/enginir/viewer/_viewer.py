@@ -419,9 +419,9 @@ class HSIViewer(QMainWindow):
 
     def _build_canvas(self) -> None:
         """Create the named central image view with a reset control."""
-        from ._canvas import FalseColourCanvas
+        from ._canvas import FalseColorCanvas
 
-        self._canvas = FalseColourCanvas()
+        self._canvas = FalseColorCanvas()
         self._spectrum = SpectrumPanel(self.state)
         self._data_file_page = QWidget()
         central_layout = QVBoxLayout(self._data_file_page)

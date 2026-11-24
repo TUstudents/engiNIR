@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from .._checks import log_and_raise
 from .._logging import get_logger
 from ..prediction import (
     PredictionProgressEvent,
@@ -463,6 +464,62 @@ class PredictionMapWidget(QWidget):
         self._layer_combo.setVisible(True)
         self._last_payload = payload
         self._rendered_layer = self.layer
+
+    def show_maps(self, prediction: np.ndarray, *, dmodx: np.ndarray | None = None,
+                  t2: np.ndarray | None = None, unit: str = "", dcrit: float | None = None,
+                  t2crit: float | None = None,
+                  color_range: tuple[float, float] | None = None) -> None:
+        """Show maps given as arrays, e.g. read back from a caller's own records.
+
+        Parameters
+        ----------
+        prediction:
+            The predictions as an image ``(frames, rows)``, as
+            :attr:`enginir.Prediction.map` (with a last axis for several outputs).
+        dmodx, t2:
+            DModXPS and T²PS as images of the same frames and rows
+            (``Prediction.dmodx_map``, ``t2_map``); a layer without its map
+            shows why.
+        unit:
+            The target's unit, shown with the Prediction layer.
+        dcrit, t2crit:
+            The 0.95 limits (``Prediction.diagnostics["dcrit_095"]``,
+            ``["t2_crit_095"]``); pixels above them are marked.
+        color_range:
+            ``(low, high)`` of the color scale of the Prediction layer, e.g. the
+            calibration range, so that maps of several scans compare; values
+            outside get their own colors. ``None`` scales to the map.
+        """
+        from ..io.project_store import _preview_step
+
+        values = np.asarray(prediction, dtype=np.float32)
+        if values.ndim < 2:
+            log_and_raise("show_maps needs a prediction image (frames, rows), got shape {}",
+                          values.shape)
+        full = (int(values.shape[0]), int(values.shape[1]))
+        step = _preview_step(full, _MAP_PREVIEW_PIXELS)
+        layers: dict[str, np.ndarray] = {}
+        diagnostics: dict[str, Any] = {}
+        for name, layer_values, crit in (("DModXPS", dmodx, dcrit), ("T²PS", t2, t2crit)):
+            if layer_values is None:
+                continue
+            layer_values = np.asarray(layer_values, dtype=np.float32)
+            if layer_values.shape != full:
+                log_and_raise("The {} map has shape {}, the prediction {}", name,
+                              layer_values.shape, full)
+            layers[name] = np.ascontiguousarray(layer_values[::step, ::step])
+            if crit is not None and np.isfinite(crit):
+                key, count, share, _label = _LAYER_LIMITS[name]
+                finite = layer_values[np.isfinite(layer_values)]
+                n_above = int(np.count_nonzero(finite > crit))
+                diagnostics.update({key: float(crit), count: n_above,
+                                    share: n_above / finite.size if finite.size else 0.0})
+        self.update_data({
+            "spatial_map": np.ascontiguousarray(values[::step, ::step, ...]),
+            "layers": layers, "diagnostics": diagnostics, "interval": None,
+            "target_unit": unit, "map_step": step, "full_map_shape": full,
+            "colour_range": None if color_range is None else tuple(map(float, color_range)),
+        })
 
     def clear(self, *, empty_reason: str = "") -> None:
         """Show an empty prediction-map placeholder."""

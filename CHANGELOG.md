@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.8.1 (2026-11-24)
+
+The viewer's widgets for other applications: a status window on a production
+line can show a scan with its layout and the prediction maps of each layer
+exactly as the viewer does. All additions; the format stays `enginir-1.7`.
+
+### Added
+
+- **`enginir.false_color_image(path)`:** the false-color image the viewer
+  shows for a scan (bands nearest 1650, 1300 and 1050 nm, 2-98 % stretch),
+  read in blocks of frames from the file opened read-only; `bands=` for a
+  file without wavelengths. Qt-free.
+- **Public widgets in `enginir.viewer`**, covered by semantic versioning:
+  - `apply_theme(app, dark=None)`, `theme_tokens()`, `value_colormap()`,
+    `heat_colormap()`: the viewer's look. An explicit mode does not change
+    the viewer user's saved choice.
+  - `PredictionMapWidget.show_maps(prediction, dmodx=, t2=, unit=, dcrit=,
+    t2crit=, color_range=)`: maps given as arrays (e.g. read back from an
+    application's own records), with the layer selector, the 0.95 limit
+    overlay and the counts above the limits of the Predict workspace.
+  - `FalseColorCanvas.show_cells(cells, colors=, labels=)`,
+    `clear_cells()`, `cell_at(frame, row)` and the `cell_hovered` signal:
+    layout cells (`GridCell`) on the scan, colored per cell. The ROI grid
+    dialog's preview draws its cells the same way.
+
 ## 1.8.0 (2026-11-24)
 
 Inline prediction of new scans, as a chemometric engine for production lines

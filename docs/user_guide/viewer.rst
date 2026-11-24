@@ -715,4 +715,33 @@ The viewer state can be driven from code:
    viewer.state.set_preprocess_snv(True)
    viewer.export_csv("rois.csv")
 
+Another application (a status window on a production line, say) can show
+predictions as the viewer does, with the viewer's own widgets and look:
+
+.. code-block:: python
+
+   from enginir import false_color_image, roi_grid
+   from enginir.viewer import (FalseColorCanvas, PredictionMapWidget, apply_theme,
+                               ensure_app)
+
+   app = ensure_app()
+   apply_theme(app)                          # before creating widgets; the user's saved mode
+
+   canvas = FalseColorCanvas()              # the scan, as in Explore, with a layout on it
+   canvas.set_image(false_color_image("layer_017/stream_hsi.h5", bands=(150, 80, 20)))
+   canvas.show_cells(layout, colors={"A01": "#d62728"})
+   canvas.cell_hovered.connect(print)        # the cell under the cursor, "" outside
+
+   maps = PredictionMapWidget()              # Prediction, DModXPS and T²PS, as in Predict
+   maps.show_maps(prediction.map, dmodx=prediction.dmodx_map, t2=prediction.t2_map,
+                  unit="%", dcrit=prediction.diagnostics["dcrit_095"],
+                  t2crit=prediction.diagnostics["t2_crit_095"], color_range=(80, 120))
+
+``show_maps`` takes plain arrays, so maps read back from the application's
+own records show the same way. ``maps.header_widgets()`` are the layer
+selector and the pan, zoom and reset buttons, for the application to place
+above the map. These names follow semantic versioning
+(:doc:`/api/viewer`, Widgets for other applications); the rest of the
+viewer's classes may change in any release.
+
 See :doc:`logging` for log output in scripts and notebooks.

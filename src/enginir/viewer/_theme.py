@@ -183,8 +183,12 @@ def theme_applied(app: QApplication, *, dark: bool) -> bool:
             and bool(app.property(_THEME_MODE_PROPERTY)) == dark)
 
 
-def apply_qt_theme(app: QApplication, *, dark: bool = True) -> QApplication:
-    """Apply the shared compact Fusion theme to the current application."""
+def apply_qt_theme(app: QApplication, *, dark: bool = True,
+                   remember: bool = True) -> QApplication:
+    """Apply the shared compact Fusion theme to the current application.
+
+    ``remember`` saves ``dark`` as the user's preference (the viewer's theme toggle).
+    """
     global _current_dark
     app.setStyle("Fusion")
     # Before the palette: widgets that redraw their icons and colours on the palette
@@ -194,9 +198,27 @@ def apply_qt_theme(app: QApplication, *, dark: bool = True) -> QApplication:
     app.setStyleSheet(_app_stylesheet(dark))
     app.setProperty(_THEME_PROPERTY, True)
     app.setProperty(_THEME_MODE_PROPERTY, dark)
-    _save_preference(dark)
+    if remember:
+        _save_preference(dark)
     logger.info("Applied {} viewer theme", "dark" if dark else "light")
     return app
+
+
+def apply_theme(app: QApplication, *, dark: bool | None = None) -> QApplication:
+    """Give ``app`` the viewer's look: the Fusion style, palette and style sheet.
+
+    ``dark=None`` uses the viewer user's saved choice (dark when there is none);
+    ``True`` or ``False`` sets the mode without changing that choice. Apply
+    the theme before creating engiNIR widgets: they read its colors when they
+    are made.
+    """
+    return apply_qt_theme(app, dark=load_preference() if dark is None else dark,
+                          remember=False)
+
+
+def theme_tokens() -> dict[str, str]:
+    """The color tokens of the current theme, by role (e.g. ``accent``, ``error``), as hex."""
+    return tokens()
 
 
 def is_dark() -> bool:

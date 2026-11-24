@@ -22,7 +22,7 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_bottom_panels.py` | `ChecksPanel` (the library's checks with fix buttons) and `ModelsPanel` (models with figures of merit and the library's verdict), tabs of the bottom panel |
 | `_preferences.py` | `Preferences` (stored per user in `preferences.json`, never in a project), `PreferencesDialog` (Edit > Preferences: Appearance, Data and paths, Fitting defaults, Prediction defaults, Plots and export, Performance, Logging, Keyboard); the interface scale (`QT_SCALE_FACTOR`) and BLAS threads act through the environment |
 | `_state.py` | `ViewerState` (UI) + `ProjectState` (Qt adapter over `enginir.Project`) |
-| `_canvas.py` | `FalseColourCanvas` (pyqtgraph image surface, crosshair, ROI draw/selection) |
+| `_canvas.py` | `FalseColorCanvas` (pyqtgraph image surface, crosshair, ROI draw/selection, layout cells with `show_cells`; public) |
 | `_panels.py` | Explore plots: Histogram and Spectrum (matplotlib); Sensor Frame (pyqtgraph `_ImagePanel`); Spatial Profile (pyqtgraph, upright) |
 | `_viewer.py` | `HSIViewer(QMainWindow)`: menus (every action; no toolbar), the workflow strip, Project and Properties on the left, the Settings dock on the right (the workspace controls; the Model workspace's fit settings are the embedded fit form), the bottom panel (Checks, ROI table, Models, Log as tabs), status strip, workspace host; `run_fix` runs the fix a check offers |
 | `_welcome.py` | Launcher window with recent files list (drawn without file access; checked in a job) and startup routing |
@@ -33,7 +33,7 @@ Developer reference for the `src/enginir/viewer/` module.
 | `_modeling.py` | `ModelingView` — target, target values (ROI table) and the Fit settings: `FitModelRunDialog`, embedded in the Settings dock (`embed_fit_settings`), not opened as a dialog: foldable parts Data, Preprocessing, Bands, Model, Validation, Fitting (components or Auto with a rule; pixel subsample, scaling, DModX exclusion → `FitSpec` and hyperparameters), the selected model's settings until they are edited, and the actions (`take_fit_footer`: changed line, Load Model Settings, Fit Model) placed under the scrolling settings by the window. Load Model Settings presets the form from a stored run; the preset recipe's AsLS fields and `sg_edges` are kept, as the form has no controls for them, and so is the stored algorithm, which the form adds to its hyperparameters for the same model type. The Bands part (keep/exclude text, water-band menu, Select on Plot, Propose) feeds the recipe and the Explore preview (`ViewerState.bands_keep/bands_exclude`); `workspace_summary` gives the Fit summary (with the signal and preprocessing and the dataset count); `_component_payload` adds curve, loadings, CoeffCS, VIP, selectivity ratio, mean spectrum and calibration distances to the diagnostics payload; `_roi_score_payload` passes the ROI scores the fit stored (`diagnostics/roi_scores`) and never rebuilds them from pixel counts. `_app`'s dialog centring skips the embedded form (it centres windows only) |
 | `_model_diagnostics.py` | Model workspace diagnostics surface (Spectral page: coefficients, CoeffCS, loadings, VIP, VIP sorted, selectivity ratio; lines over wavelength break at band-selection gaps) |
 | `_band_ranges.py` | `BandRangeDialog` (drag keep/exclude ranges on the mean spectrum of the target's ROIs, loaded in a job, with the selected model's VIP or coefficients as a guide) and `ProposeBandsDialog` (runs `Project.propose_bands` in a job, progress through a polled counter, cancel flag) |
-| `_prediction.py` | `PredictionView` (Predict ROIs and Predict map jobs, the ROI predictions of the session and their statistics for the current DModXPS exclusion, recalculated without predicting again) and `PredictionMapWidget` (color scale from the calibration range or user limits, ROI outlines, excluded pixels grayed, the Prediction interval layer of the 95 % pixel prediction intervals) |
+| `_prediction.py` | `PredictionView` (Predict ROIs and Predict map jobs, the ROI predictions of the session and their statistics for the current DModXPS exclusion, recalculated without predicting again) and `PredictionMapWidget` (color scale from the calibration range or user limits, ROI outlines, excluded pixels grayed, the Prediction interval layer of the 95 % pixel prediction intervals; public, with `show_maps` for plain arrays) |
 | `_predict_dialogs.py` | `PredictRoisDialog`, `PredictMapDialog` (models by name, the chain read-only, refusal with the reason), the `predict.roi_results` plot spec |
 | `_browser.py` | Read-only workspace object tree; retired models in their own section (`retired_models`) |
 | `_inspector.py` | Selection-driven metadata display; `fit_summary` describes how a model was fitted, with its stored algorithm (`stored_hyperparameters`: missing reads nipals or svd) (reads the stored exclusion arrays on demand) |
@@ -162,8 +162,8 @@ SpectrumPanel.band_pick → ViewerState.set_band
 
 **Canvas → State:**
 ```
-FalseColourCanvas.clicked → HSIViewer._on_canvas_click → ViewerState.set_frame + set_row
-FalseColourCanvas.roi_selected → ProjectBrowser.select_payload
+FalseColorCanvas.clicked → HSIViewer._on_canvas_click → ViewerState.set_frame + set_row
+FalseColorCanvas.roi_selected → ProjectBrowser.select_payload
 ```
 
 **State → UI:**
@@ -264,6 +264,30 @@ Consumers:
 - `_inspector.py:show_item()` dispatches via an explicit handler map
 - `_viewer.py:_on_project_browser_selection_changed()` routes to canvas, modeling view, prediction view
 - `_canvas.py:select_roi()` highlights the ROI overlay
+
+---
+
+## Public widgets
+
+`enginir.viewer` exports a few widgets for other Qt applications (viewer
+contract, Public widgets): `apply_theme`, `theme_tokens`, `value_colormap`,
+`heat_colormap` (`_theme.py`), `PredictionMapWidget` (`_prediction.py`) and
+`FalseColorCanvas` (`_canvas.py`). Only the members listed in
+`docs/api/viewer.rst` are public; the viewer's own entry points
+(`update_data`, ROI drawing, `set_grid_preview`) stay internal.
+
+- `PredictionMapWidget.show_maps` builds the same payload as the Predict
+  workspace (`_map_previews`) from plain arrays, so both render through
+  `update_data`.
+- `FalseColorCanvas.show_cells` and the grid dialog's preview
+  (`set_grid_preview`) draw cells with one helper (`_draw_cell`); hover
+  reports the cell under the cursor (`cell_hovered`), pixel `(f, r)`
+  covering `[f, f + 1) x [r, r + 1)` as the outlines do.
+- `apply_theme` sets the mode without saving it as the user's choice
+  (`apply_qt_theme(..., remember=False)`); the viewer's theme toggle saves it.
+- The image comes from `enginir.false_color_image` (`_false_color.py`,
+  Qt-free); `ViewerState.raw_false_colour_rgb` uses the same stretch
+  (`stretch_rgb`), so a scan looks the same in both.
 
 ---
 
@@ -426,7 +450,7 @@ first workspace built this way:
 - a `PlotGrid` lays out the panels on pages (`PlotPage`/`PlotSlot`)
 
 Plots that update their artists in place (the Explore panels in
-`_panels.py` and the pyqtgraph `FalseColourCanvas`) are not specs. They
+`_panels.py` and the pyqtgraph `FalseColorCanvas`) are not specs. They
 implement `PlotSource` (`plot_table()`, `print_figure()`) and are shown in a
 `PlotFrame`:
 

@@ -929,6 +929,34 @@ A new plot is added as a plot-panel definition. It must provide:
 
 A test that iterates over all registered plots verifies this.
 
+## Public widgets
+
+Decided 2026-11-24 (plan `plans/print-widgets.md`): other Qt applications,
+such as a status window on a production line, show scans, layouts and
+predictions with the viewer's widgets, so a tablet looks and reads the same
+in the viewer and on the line.
+
+- `enginir.viewer` exports `apply_theme`, `theme_tokens`, `value_colormap`,
+  `heat_colormap`, `PredictionMapWidget` and `FalseColorCanvas`; `enginir`
+  exports `false_color_image` (Qt-free). These names and the members listed
+  in the API reference follow semantic versioning; every other viewer name is
+  internal.
+- `apply_theme(app, dark=None)` uses the user's saved mode; an explicit mode
+  is applied without changing the saved choice.
+- `PredictionMapWidget.show_maps` shows maps given as arrays (prediction,
+  DModXPS, T²PS, their 0.95 limits, the unit and a color range) exactly as the
+  Predict workspace shows a prediction: the same layers, limit overlay and
+  counts above the limits, through the same rendering.
+- `FalseColorCanvas.show_cells` outlines layout cells (`GridCell`) in the
+  image's pixels, optionally colored per cell; `cell_hovered` names the cell
+  under the cursor (`""` outside every cell). The ROI grid dialog's preview
+  draws its cells with the same function.
+- `false_color_image(path)` is the image the Explore workspace shows for the
+  scan (the same bands and stretch), read in blocks of frames from the file
+  opened read-only; a file without wavelengths needs its three `bands`.
+- Layouts are not project objects: an application keeps the `roi_grid`
+  parameters of its layout itself and shifts it by changing `origin`.
+
 ## Long-running service contract
 
 The following actions are long-running service actions in v3:

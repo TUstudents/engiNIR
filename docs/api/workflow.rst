@@ -104,6 +104,8 @@ in the viewer follow the same rules.
 
 .. autofunction:: enginir.read_frames
 
+.. autofunction:: enginir.false_color_image
+
 .. autofunction:: enginir.roi_grid
 
 .. autoclass:: enginir.GridCell

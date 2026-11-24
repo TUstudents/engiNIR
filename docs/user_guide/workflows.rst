@@ -135,6 +135,11 @@ the prediction map's pixels:
 
 ``model.id`` is the model's stable id; its name is a label that can change.
 
+To check a layout by eye, :func:`~enginir.false_color_image` gives the
+viewer's false-color image of a scan (three raw bands, read in blocks of
+frames; ``bands=`` for a file without wavelengths), on which the viewer's
+canvas draws the cells (:doc:`viewer`, From Python).
+
 A file that stores no wavelengths, only band numbers (a Kestreleye
 ``stream_hsi.h5``), gets them from a wavelength table:
 

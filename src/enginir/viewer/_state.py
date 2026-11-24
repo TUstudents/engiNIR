@@ -1286,20 +1286,14 @@ class ViewerState(QObject):
         if not self.has_dataset:
             return np.zeros((0, 0, 3), dtype=np.float32)
 
+        from .._false_color import stretch_rgb
+
         band_indices = [
             int(np.argmin(np.abs(self.wavelengths - red_nm))),
             int(np.argmin(np.abs(self.wavelengths - green_nm))),
             int(np.argmin(np.abs(self.wavelengths - blue_nm))),
         ]
-        raw_rgb = (
-            np.take(self.cube, band_indices, axis=2)
-            .transpose(1, 0, 2)
-            .astype(np.float32, copy=False)
-        )
-        percentiles = np.percentile(raw_rgb, [2, 98], axis=(0, 1))
-        lo = percentiles[0]
-        scale = np.maximum(percentiles[1] - percentiles[0], 1.0)
-        return np.clip((raw_rgb - lo) / scale, 0.0, 1.0).astype(np.float32, copy=False)
+        return stretch_rgb(np.take(self.cube, band_indices, axis=2).transpose(1, 0, 2))
 
     def _normalized_roi_bounds(
         self,

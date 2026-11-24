@@ -12,6 +12,51 @@ own; :func:`open_viewer` also detects a project file). :func:`ensure_app`
 and :func:`run` start Qt from a script. The user guide (:doc:`/user_guide/viewer`)
 describes the workspaces.
 
+Widgets for other applications
+------------------------------
+
+These names let another Qt application (e.g. a status window on a
+production line) show scans, layouts and predictions with the viewer's
+widgets and look. They follow semantic versioning: they change only in a
+major release. Every other class on this page is internal and may change in
+any release. Apply the theme before creating the widgets.
+
+.. autofunction:: enginir.viewer.apply_theme
+.. autofunction:: enginir.viewer.theme_tokens
+.. autofunction:: enginir.viewer.value_colormap
+.. autofunction:: enginir.viewer.heat_colormap
+
+.. autoclass:: enginir.viewer.PredictionMapWidget
+   :no-members:
+
+.. automethod:: enginir.viewer.PredictionMapWidget.show_maps
+.. automethod:: enginir.viewer.PredictionMapWidget.clear
+.. autoattribute:: enginir.viewer.PredictionMapWidget.hovered
+.. autoproperty:: enginir.viewer.PredictionMapWidget.layer
+.. automethod:: enginir.viewer.PredictionMapWidget.set_layer
+.. automethod:: enginir.viewer.PredictionMapWidget.header_widgets
+.. automethod:: enginir.viewer.PredictionMapWidget.reset_view
+
+.. autodata:: enginir.viewer._prediction.MAP_LAYERS
+
+.. autoclass:: enginir.viewer.FalseColorCanvas
+   :no-members:
+
+.. automethod:: enginir.viewer.FalseColorCanvas.set_image
+.. automethod:: enginir.viewer.FalseColorCanvas.clear_image
+.. automethod:: enginir.viewer.FalseColorCanvas.reset_view
+.. automethod:: enginir.viewer.FalseColorCanvas.show_cells
+.. automethod:: enginir.viewer.FalseColorCanvas.clear_cells
+.. automethod:: enginir.viewer.FalseColorCanvas.cell_at
+.. autoattribute:: enginir.viewer.FalseColorCanvas.cell_hovered
+
+The images of :class:`FalseColorCanvas` come from
+:func:`enginir.false_color_image`, or any ``(rows, frames, 3)`` float array
+in [0, 1].
+
+The viewer's building blocks
+----------------------------
+
 The classes below are the viewer's building blocks, documented for
 developers. ``HSIViewer`` is the main window; the Explore, Model and Predict
 workspaces are ``EDAView``, ``ModelingView`` and ``PredictionView``. All of
@@ -224,10 +269,8 @@ Workspace surfaces
 
 .. autofunction:: enginir.viewer._model_diagnostics.roi_t2_ellipse
 
-.. autoclass:: enginir.viewer._prediction.PredictionMapWidget
-   :members: layer, set_layer, update_data
-
-.. autodata:: enginir.viewer._prediction.MAP_LAYERS
+``PredictionMapWidget`` (above) draws the Predict workspace's map; the
+workspace passes it a payload (``update_data``).
 
 .. autodata:: enginir.viewer._prediction.INTERVAL_LEVEL
 

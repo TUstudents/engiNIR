@@ -1,4 +1,4 @@
-"""The spatial image canvas (``enginir.viewer._canvas.FalseColourCanvas``)."""
+"""The spatial image canvas (``enginir.viewer._canvas.FalseColorCanvas``)."""
 
 from __future__ import annotations
 
@@ -7,13 +7,13 @@ import pytest
 from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtGui import QKeyEvent
 
-from enginir.viewer._canvas import FalseColourCanvas
+from enginir.viewer._canvas import FalseColorCanvas
 from enginir.viewer._theme import tokens
 
 
 @pytest.fixture()
 def canvas(qapp):
-    canvas = FalseColourCanvas()
+    canvas = FalseColorCanvas()
     canvas.set_image(np.random.default_rng(0).random((10, 20, 3)).astype(np.float32))
     return canvas
 
@@ -85,9 +85,9 @@ def test_roi_overlays_are_tracked_selected_hit_and_cleared(canvas):
 def test_an_image_opens_fitted_as_reset_view_fits_it(qapp):
     """Shown while its view is small (a page not laid out yet), an image used to get
     pyqtgraph's size-dependent padding (up to 10 %); Reset View uses 2 %."""
-    from enginir.viewer._canvas import FalseColourCanvas
+    from enginir.viewer._canvas import FalseColorCanvas
 
-    canvas = FalseColourCanvas()
+    canvas = FalseColorCanvas()
     canvas.resize(60, 60)
     canvas.show()
     qapp.processEvents()
