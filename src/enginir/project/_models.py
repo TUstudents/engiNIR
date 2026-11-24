@@ -236,7 +236,7 @@ class DatasetRecord(SerializableModel):
         ``k`` when the dataset averages ``k x k`` blocks of frames and rows of
         its file (:data:`enginir.io.BINNING_FACTORS`), else 1. Every read of the
         file bins it; ``cube_shape`` and the references are binned. Content,
-        never changed; stored only when above 1 (engiNIR 1.8).
+        never changed; stored only when above 1 (engiNIR 1.7.5).
     """
 
     dataset_id: str
@@ -650,7 +650,7 @@ class SignalDomainContract(SerializableModel):
     binning : int
         The binning of the training datasets (:attr:`DatasetRecord.binning`);
         a scan is binned the same way to be predicted. Stored only when above 1
-        (engiNIR 1.8).
+        (engiNIR 1.7.5).
     """
 
     signal_domain_id: str

@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## 1.8.0 (2026-11-24)
+
+Inline prediction of new scans, as a chemometric engine for production lines
+(e.g. every printed layer of a tablet batch, per tablet): per-tablet
+statistics of a layout on a scan that is never registered, the reference
+choices of `add_dataset` in `Model.predict`, the model's wavelength axis for
+band-number files, a check of a file before predicting it, and a public
+surface for reading models and scans. The format stays `enginir-1.7`; nothing
+needs refitting.
 
 ### Added
 

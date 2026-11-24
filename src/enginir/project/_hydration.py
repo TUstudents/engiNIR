@@ -237,7 +237,7 @@ def _dataset_ref(location: str, payload: dict[str, Any], dataset_id: str) -> Dat
                        "are ignored", location, display["wavelength_table"],
                        display["wavelength_table_id"])
         display["wavelength_table"] = display["wavelength_table_id"] = ""
-    # binning is stored only when a dataset has one (engiNIR 1.8): absent means none
+    # binning is stored only when a dataset has one (engiNIR 1.7.5): absent means none
     return _build(DatasetRecord, location, {**payload, **display,
                                             "binning": payload.get("binning", 1)},
                   {"dataset_id": dataset_id}, ignored={"reference_corrections", "active_reference_correction_id"})

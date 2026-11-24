@@ -1,8 +1,8 @@
 # Plan: library support for inline prediction (engiNIR-PRINT)
 
-Status: pieces 1 to 3 built on branch `print-support` (2026-11-23); piece 4
+Status: pieces 1 to 3 and 5 in engiNIR 1.8.0 (2026-11-24); piece 4
 waits for the status window's design in engiNIR-PRINT. The application itself is
-engiNIR-PRINT, a separate repository (`../engiNIR-PRINT/design/architecture.md`);
+engiNIR-PRINT, a separate repository (not public);
 this plan is only what engiNIR adds for it. The rule for the split: what the
 viewer or a script would need too belongs in engiNIR; what makes sense only for
 printing belongs in engiNIR-PRINT.
