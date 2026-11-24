@@ -1,7 +1,7 @@
 # Plan: library support for inline prediction (engiNIR-PRINT)
 
-Status: pieces 1 to 3 and 5 in engiNIR 1.8.0 (2026-11-24); piece 4
-waits for the status window's design in engiNIR-PRINT. The application itself is
+Status: pieces 1 to 3 and 5 in engiNIR 1.8.0 (2026-11-24); piece 4 in
+engiNIR 1.8.1 (2026-11-24, `plans/print-widgets.md`). The application itself is
 engiNIR-PRINT, a separate repository (not public);
 this plan is only what engiNIR adds for it. The rule for the split: what the
 viewer or a script would need too belongs in engiNIR; what makes sense only for
@@ -58,8 +58,9 @@ them for a layout on a file that is never registered.
 The status window reuses viewer parts, which are private today
 (`PredictionMapWidget`, plot panels, theme, colour maps). Make a short list
 public and documented in `enginir.viewer` (API docs, viewer contract), so an
-engiNIR release cannot break engiNIR-PRINT silently. The list follows from the
-window's design in engiNIR-PRINT.
+engiNIR release cannot break engiNIR-PRINT silently. Done in 1.8.1: the theme,
+`PredictionMapWidget.show_maps`, `FalseColorCanvas.show_cells` and
+`enginir.false_color_image` (`plans/print-widgets.md`).
 
 ## 5. The public reading surface (added 2026-11-24)
 

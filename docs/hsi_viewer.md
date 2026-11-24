@@ -17,7 +17,7 @@ enginir.viewer
 ├── _welcome.py      WelcomeWindow — launcher screen for dataset/project startup
 ├── _recent.py       load/save recent files list (pure I/O, no Qt)
 ├── _loading.py      shared wait-cursor, status, progress, and startup-job helpers
-├── _canvas.py       FalseColourCanvas (pyqtgraph ImageItem + crosshair + ROI overlays)
+├── _canvas.py       FalseColorCanvas (pyqtgraph ImageItem + crosshair + ROI overlays)
 ├── _state.py        ViewerState(QObject), ProjectState
 ├── _eda.py          EDAView — dataset, calibration, project, and ROI controls
 ├── _modeling.py     ModelingView — target, sample-set, and model-fit workflows
@@ -503,7 +503,7 @@ between batches.
 lays out equal ROIs by number, size, origin and spacing with
 `enginir._workflow.roi_grid`, starting from **Tools > ROI Grid Defaults**
 (`_grid_settings.GridDefaults`, user settings) every time.
-It previews them on the canvas (`FalseColourCanvas.set_grid_preview`) and
+It previews them on the canvas (`FalseColorCanvas.set_grid_preview`) and
 stores them through `ProjectState.add_rois` → `Project.save_rois`, all or none.
 
 A project may hold ROIs from several datasets. The canvas draws only the

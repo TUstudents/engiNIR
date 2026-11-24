@@ -1,4 +1,4 @@
-"""FalseColourCanvas — pyqtgraph-based central image widget.
+"""FalseColorCanvas — pyqtgraph-based central image widget.
 
 Wraps a pyqtgraph ``ImageItem`` in a plot with visible axes.
 Provides pan/zoom, crosshair overlay, ROI interaction, and click-to-navigate.
@@ -9,7 +9,7 @@ current view (image, ROIs, crosshair) with matplotlib in the print colors.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -34,7 +34,7 @@ from ._ui_helpers import style_axes
 # Use numpy (row, col) axis convention for ImageItem data.
 pg.setConfigOption("imageAxisOrder", "row-major")
 
-__all__ = ["FalseColourCanvas"]
+__all__ = ["FalseColorCanvas"]
 logger = get_logger(__name__)
 
 
@@ -46,7 +46,7 @@ class _RoiOverlay:
     label: str
 
 
-class FalseColourCanvas(QWidget):
+class FalseColorCanvas(QWidget):
     """Central image widget showing a false-colour RGB composite.
 
     Signals
@@ -61,6 +61,8 @@ class FalseColourCanvas(QWidget):
     roi_draw_canceled = pyqtSignal()
     roi_selected = pyqtSignal(str)
     roi_selection_cleared = pyqtSignal()
+    #: The name of the cell (:meth:`show_cells`) under the cursor; ``""`` when none.
+    cell_hovered = pyqtSignal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -104,6 +106,9 @@ class FalseColourCanvas(QWidget):
         self._roi_draw_start: tuple[int, int] | None = None
         self._roi_preview_item: pg.RectROI | None = None
         self._grid_preview_items: list[Any] = []
+        self._cell_items: list[Any] = []
+        self._cell_bounds: list[tuple[str, int, int, int, int]] = []
+        self._hovered_cell = ""
         self._ignore_next_click = False
         self._selected_roi_id: str | None = None
 
@@ -119,6 +124,7 @@ class FalseColourCanvas(QWidget):
             log_and_raise("PyQtGraph scene unavailable for false-color canvas", error=RuntimeError)
         self._scene = scene
         self._scene.sigMouseClicked.connect(self._on_click)
+        self._scene.sigMouseMoved.connect(self._on_mouse_moved)
         self._scene.installEventFilter(self)
 
     # ------------------------------------------------------------------
@@ -137,7 +143,7 @@ class FalseColourCanvas(QWidget):
             self.clear_image()
             return
         if rgb_arr.ndim != 3 or rgb_arr.shape[2] != 3:
-            log_and_raise("FalseColourCanvas.set_image expects RGB shape (height, width, 3), "
+            log_and_raise("FalseColorCanvas.set_image expects RGB shape (height, width, 3), "
                           "got {}", rgb_arr.shape)
         self._rgb = np.clip(rgb_arr, 0.0, 1.0)
         img = (self._rgb * 255).astype(np.uint8)
@@ -231,6 +237,45 @@ class FalseColourCanvas(QWidget):
                 label=label,
             )
 
+    def show_cells(self, cells: Sequence[Any], *, colors: Mapping[str, str] | None = None,
+                   labels: bool = True) -> None:
+        """Outline the cells of a layout on the image, replacing those shown before.
+
+        Parameters
+        ----------
+        cells:
+            :class:`enginir.GridCell` (or anything with ``name``, inclusive
+            ``frames`` and ``rows``), in the image's pixels.
+        colors:
+            A color (``"#rrggbb"`` or a Qt color name) per cell name, e.g. a
+            verdict per tablet; cells without one get the theme's cell color.
+        labels:
+            Write each cell's name at its top-left corner.
+        """
+        self.clear_cells()
+        default = series_colors()[1]
+        for cell in cells:
+            color = (colors or {}).get(cell.name, default)
+            self._cell_items.extend(
+                self._draw_cell(cell, color, Qt.PenStyle.SolidLine, label=labels))
+            (f0, f1), (r0, r1) = cell.frames, cell.rows
+            self._cell_bounds.append((str(cell.name), int(f0), int(f1), int(r0), int(r1)))
+
+    def clear_cells(self) -> None:
+        """Remove the cells of :meth:`show_cells`."""
+        for item in self._cell_items:
+            self._plot.removeItem(item)
+        self._cell_items = []
+        self._cell_bounds = []
+        self._set_hovered_cell("")
+
+    def cell_at(self, frame: int, row: int) -> str:
+        """The name of the shown cell holding pixel (``frame``, ``row``), ``""`` for none."""
+        for name, f0, f1, r0, r1 in self._cell_bounds:
+            if f0 <= frame <= f1 and r0 <= row <= r1:
+                return name
+        return ""
+
     def set_grid_preview(self, cells: Sequence[Any], skipped: Sequence[Any],
                          outside: Sequence[Any] = ()) -> None:
         """Show planned ROI grid cells (with their names), empty cells (grey, dashed) and
@@ -241,19 +286,26 @@ class FalseColourCanvas(QWidget):
                                      for c in cells),
                                    *((c, t["guide"], Qt.PenStyle.DashLine) for c in skipped),
                                    *((c, t["error"], Qt.PenStyle.SolidLine) for c in outside)]:
-            (f0, f1), (r0, r1) = cell.frames, cell.rows
-            rect = QGraphicsRectItem(f0, r0, f1 - f0 + 1, r1 - r0 + 1)
-            pen = pg.mkPen(color=color, width=1.2, style=style)
-            pen.setCosmetic(True)
-            rect.setPen(pen)
-            self._plot.addItem(rect)
-            self._grid_preview_items.append(rect)
-            if style == Qt.PenStyle.SolidLine:
-                text = pg.TextItem(text=cell.name, color=color, anchor=(0, 0),
-                                   fill=self._label_fill())
-                text.setPos(f0, r0)
-                self._plot.addItem(text)
-                self._grid_preview_items.append(text)
+            self._grid_preview_items.extend(
+                self._draw_cell(cell, color, style, label=style == Qt.PenStyle.SolidLine))
+
+    def _draw_cell(self, cell: Any, color: str, style: Qt.PenStyle, *,
+                   label: bool) -> list[Any]:
+        """Add one cell's outline (and name) to the plot; returns the added items."""
+        (f0, f1), (r0, r1) = cell.frames, cell.rows
+        rect = QGraphicsRectItem(f0, r0, f1 - f0 + 1, r1 - r0 + 1)
+        pen = pg.mkPen(color=color, width=1.2, style=style)
+        pen.setCosmetic(True)
+        rect.setPen(pen)
+        self._plot.addItem(rect)
+        items: list[Any] = [rect]
+        if label:
+            text = pg.TextItem(text=cell.name, color=color, anchor=(0, 0),
+                               fill=self._label_fill())
+            text.setPos(f0, r0)
+            self._plot.addItem(text)
+            items.append(text)
+        return items
 
     def clear_grid_preview(self) -> None:
         for item in self._grid_preview_items:
@@ -424,6 +476,21 @@ class FalseColourCanvas(QWidget):
             self.select_roi(None)
             self.roi_selection_cleared.emit()
         self.clicked.emit(frame, row)
+
+    def _on_mouse_moved(self, pos: Any) -> None:
+        if not self._cell_bounds:
+            return
+        name = ""
+        if self._image_shape is not None and self._view.sceneBoundingRect().contains(pos):
+            point = self._view.mapSceneToView(pos)
+            # Pixel (f, r) covers [f, f + 1) x [r, r + 1), as the cell outlines do.
+            name = self.cell_at(int(np.floor(point.x())), int(np.floor(point.y())))
+        self._set_hovered_cell(name)
+
+    def _set_hovered_cell(self, name: str) -> None:
+        if name != self._hovered_cell:
+            self._hovered_cell = name
+            self.cell_hovered.emit(name)
 
     def _scene_pos_to_image(self, pos) -> tuple[int, int] | None:
         if self._image_shape is None:

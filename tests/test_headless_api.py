@@ -16,6 +16,7 @@ import enginir.prediction
 import enginir.preprocessing
 import enginir.models
 import enginir.validation
+from enginir import false_color_image  # noqa: F401 (its module must stay Qt-free)
 
 qt_modules = sorted(name for name in sys.modules if name.startswith("PyQt"))
 if qt_modules:

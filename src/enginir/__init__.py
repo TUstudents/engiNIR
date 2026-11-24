@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 from ._logging import disable_logging, enable_logging
 
 if TYPE_CHECKING:  # the names below load on first use (PEP 562), see __getattr__
+    from ._false_color import false_color_image
     from ._workflow import GridCell, Project, read_frames, read_header, roi_grid
     from .io import load_spectra
     from .models import LDAClassifier, PCR, PLSRegression, SIMCA
@@ -32,6 +33,7 @@ if TYPE_CHECKING:  # the names below load on first use (PEP 562), see __getattr_
 _LAZY = {
     **{name: "._workflow" for name in ("GridCell", "Project", "read_frames",
                                          "read_header", "roi_grid")},
+    "false_color_image": "._false_color",
     "load_spectra": ".io",
     **{name: ".models" for name in ("LDAClassifier", "PCR", "PLSRegression", "SIMCA")},
     **{name: ".preprocessing" for name in ("Detrend", "EMSC", "MSC", "PreprocessingRecipe",
@@ -65,6 +67,7 @@ __all__ = [
     "roi_grid",
     "read_header",
     "read_frames",
+    "false_color_image",
     "PreprocessingRecipe",
     # Logging
     "enable_logging",
