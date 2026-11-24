@@ -150,3 +150,40 @@ def test_predict_takes_the_reference_choices_of_add_dataset(tray, tmp_path):
                            rtol=1e-3), "a registered scan with levels given is corrected anew"
     with pytest.raises(ValueError, match="Detector levels correct without references"):
         model.predict(new, black_level=120, dark_frames=(0, 1))
+
+
+def test_check_file_gives_the_refusal_of_predict_without_predicting(tray, tmp_path, monkeypatch):
+    """A line's job template is checked before scans arrive: check_file says what predict
+    would refuse (the same words; the in-memory dataset's id is new each time), and accepts
+    what predict accepts, without predicting."""
+    import re
+    import shutil
+
+    import enginir._workflow as workflow
+
+    project, _scan, path = tray
+    model = project.fit("API", n_components=2, cv=3)
+    new = str(shutil.copy(path, tmp_path / "new_scan.h5"))
+    other = str(tmp_path / "other_bands.h5")
+    save_hdf5(other, np.full((6, HEIGHT, N_BANDS - 4), 2000, dtype=np.uint16),
+              np.linspace(1000, 1600, N_BANDS - 4))
+    def without_ids(text):
+        return re.sub(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "<id>", text)
+
+    refused = [(other, {}), (new, {"black_level": 120, "dark_frames": (0, 1)}),
+               (new, {"dark_frames": (0, 999)}), (str(tmp_path / "missing.h5"), {})]
+    for file, choice in refused:
+        with pytest.raises((ValueError, OSError)) as raised:
+            model.predict(file, **choice)
+        reason = model.check_file(file, **choice)
+        assert reason is not None and without_ids(reason) == without_ids(str(raised.value)), \
+            (file, choice, reason)
+
+    def no_prediction(**_kwargs):
+        raise AssertionError("check_file predicted the file")
+
+    monkeypatch.setattr(workflow, "predict_with_model_run", no_prediction)
+    assert model.check_file(new, black_level=120, white_level=3400) is None
+    assert model.check_file(path) is None
+    model.retire("replaced")
+    assert "is retired" in (model.check_file(new) or "")

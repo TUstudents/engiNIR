@@ -118,6 +118,23 @@ counts match. ``prediction.roi_prediction(layout)`` returns the pixel
 predictions, for :func:`~enginir.prediction.unusual_rois` or another
 exclusion.
 
+A setup is checked before the scans arrive: ``model.check_file(path, ...)``
+takes the parameters of ``model.predict`` and returns why the file would be
+refused, or ``None``, reading the file's header but not its pixels. The
+layout is drawn on the scan read with the model's binning, so its cells are
+the prediction map's pixels:
+
+.. code-block:: python
+
+   from enginir import read_frames, read_header
+
+   problem = model.check_file("layer_001/stream_hsi.h5", black_level=128, white_level=3100)
+   k = model.input_contract.binning        # band count, axis, unit, binning of the model
+   header = read_header("layer_001/stream_hsi.h5", binning=k)
+   image = read_frames("layer_001/stream_hsi.h5", 0, header.cube_shape[0] - 1, binning=k)
+
+``model.id`` is the model's stable id; its name is a label that can change.
+
 A file that stores no wavelengths, only band numbers (a Kestreleye
 ``stream_hsi.h5``), gets them from a wavelength table:
 

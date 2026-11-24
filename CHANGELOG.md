@@ -18,7 +18,15 @@
 - **A new scan with band numbers only is predicted on the model's
   wavelength axis** when the band counts match (or with
   `wavelength_table=`), without the "no wavelengths" warning for every file.
-- `GridCell` and `roi_grid` are exported from `enginir`.
+- **`Model.check_file(path, ...)`** says why `Model.predict` would refuse a
+  file with the same reference choices (its message), or `None`, reading the
+  header but not the pixels: for checking a setup before scans arrive.
+- **`Model.id`** (the stable model run id) and **`Model.input_contract`** (a
+  copy: band count, wavelength axis, signal unit, reference correction mode,
+  binning).
+- `GridCell`, `roi_grid`, `read_header` and `read_frames` are exported from
+  `enginir`; a layout is drawn on a scan read with the model's binning.
+- The package declares its type hints (`py.typed`).
 
 ## 1.7.8 (2026-11-23)
 

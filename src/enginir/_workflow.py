@@ -26,7 +26,7 @@ from .io._binning import check_binning
 from .io import project_store as store
 # Through the package, never a submodule first: a thread importing a submodule while
 # another runs the package's __init__ deadlocks Python's import locks.
-from .io import WavelengthTable, is_band_numbers, wavelength_table
+from .io import SpectralData, WavelengthTable, is_band_numbers, wavelength_table
 from .io import hdf5_io  # through the package (see above)
 from .modeling import (
     BandProposal,
@@ -1225,6 +1225,22 @@ class Model:
         """The model's name (a mutable label)."""
         return self.project._model_name(self.record)
 
+    @property
+    def id(self) -> str:
+        """The model's stable id (``model_run_id``): its identity, unlike the name."""
+        return self.record.model_run_id
+
+    @property
+    def input_contract(self) -> SignalDomainContract:
+        """What a data file must give the model: band count, wavelength axis,
+        signal unit, reference correction mode and binning (a copy).
+
+        A layout on a scan of a binned model is in binned pixels
+        (``input_contract.binning``).
+        """
+        domain = self.project.workspace.signal_domains[self.record.signal_domain_id]
+        return replace(domain, wavelengths=np.array(domain.wavelengths, copy=True))
+
     def rename(self, name: str) -> Model:
         """Give the model another name (a mutable label; the model is its id).
 
@@ -1568,6 +1584,55 @@ class Model:
             their 0.95 limits and summary, and the provenance.
         """
         self._require_active("predict")
+        common, recipe_id = self._prediction_inputs(
+            path, dark=dark, white=white, dark_frames=dark_frames, white_frames=white_frames,
+            black_level=black_level, white_level=white_level, wavelength_table=wavelength_table)
+        result: PredictionResult = predict_with_model_run(
+            # The file the caller named (a registered dataset may be found there, e.g. at Z:).
+            **common, data_path=_native_path(path), preprocessing_recipe_id=recipe_id,
+            checksum=checksum)
+        return Prediction(self, result)
+
+    def check_file(self, path: str | os.PathLike[str], *,
+                   dark: str | os.PathLike[str] | np.ndarray | None = None,
+                   white: str | os.PathLike[str] | np.ndarray | None = None,
+                   dark_frames: tuple[int, int] | None = None,
+                   white_frames: tuple[int, int] | None = None,
+                   black_level: float | None = None,
+                   white_level: float | None = None,
+                   wavelength_table: str | os.PathLike[str] | WavelengthTable | None = None,
+                   ) -> str | None:
+        """Why :meth:`predict` would refuse this file with these choices, or ``None``.
+
+        The same resolution and compatibility check as :meth:`predict`, with
+        the same parameters, but nothing is predicted: the file's header (and
+        reference frames, if named) is read, not its pixels. For checking a
+        setup before scans arrive, e.g. a production line's job template.
+        A retired model refuses every file.
+
+        Returns
+        -------
+        str or None
+            The refusal as :meth:`predict` would raise it, or ``None`` when
+            the file would be predicted.
+        """
+        try:
+            self._require_active("predict")
+            self._prediction_inputs(
+                path, dark=dark, white=white, dark_frames=dark_frames,
+                white_frames=white_frames, black_level=black_level, white_level=white_level,
+                wavelength_table=wavelength_table)
+        except (ValueError, OSError) as exc:
+            # ValueError covers the refusals (SignalDomainCompatibilityError among them);
+            # OSError a missing or unreadable file. Both are logged where they arise.
+            return str(exc)
+        logger.info("File {} can be predicted with model '{}'", _native_path(path), self.name)
+        return None
+
+    def _prediction_inputs(self, path: str | os.PathLike[str], *, dark, white, dark_frames,
+                           white_frames, black_level, white_level,
+                           wavelength_table) -> tuple[dict[str, Any], str]:
+        """Resolve ``path`` and its reference correction for this model and run the preflight."""
         project, ws = self.project, self.project.workspace
         domain = ws.signal_domains[self.record.signal_domain_id]
         recipe_id = ws.sample_sets[self.record.sample_set_id].preprocessing_recipe_id
@@ -1601,11 +1666,7 @@ class Model:
                       recipe=recipe, dataset=dataset, reference_correction=reference_correction,
                       model_registry={})
         preflight_prediction(**common)
-        result: PredictionResult = predict_with_model_run(
-            # The file the caller named (a registered dataset may be found there, e.g. at Z:).
-            **common, data_path=_native_path(path), preprocessing_recipe_id=recipe_id,
-            checksum=checksum)
-        return Prediction(self, result)
+        return common, recipe_id
 
 
 class Prediction:
@@ -1762,7 +1823,7 @@ class StoredPrediction:
 # -- helpers -------------------------------------------------------------------
 
 
-def read_header(path: str, binning: int = 1):
+def read_header(path: str | os.PathLike[str], binning: int = 1) -> SpectralData:
     """Return a file's :class:`~enginir.io.SpectralData` without its pixels where possible.
 
     EIFF, HDF5 and ENVI files are read header-only: ``cube_shape``,
@@ -1770,12 +1831,14 @@ def read_header(path: str, binning: int = 1):
     frames. Other formats are read completely. ``binning`` gives the binned
     shape (:func:`enginir.io.bin_blocks`).
     """
+    path = os.fspath(path)
     if file_format(path) in _HEADER_FORMATS:
         return load_spectra(path, header_only=True, binning=binning)
     return load_spectra(path, binning=binning)
 
 
-def read_frames(path: str, first: int, last: int, binning: int = 1) -> np.ndarray:
+def read_frames(path: str | os.PathLike[str], first: int, last: int,
+                binning: int = 1) -> np.ndarray:
     """Return frames ``first..last`` (inclusive) as ``(frames, height, n_bands)``.
 
     EIFF and HDF5 files read only those frames; other formats are read
@@ -1783,6 +1846,7 @@ def read_frames(path: str, first: int, last: int, binning: int = 1) -> np.ndarra
     get a height of 1. With ``binning`` the frames are counted in binned frames
     and the pixels are binned (:func:`enginir.io.bin_blocks`).
     """
+    path = os.fspath(path)
     if file_format(path) in _FRAME_FORMATS:
         X = load_spectra(path, frames=slice(first, last + 1), binning=binning).X
     else:

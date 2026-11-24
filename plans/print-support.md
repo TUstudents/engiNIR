@@ -61,6 +61,13 @@ public and documented in `enginir.viewer` (API docs, viewer contract), so an
 engiNIR release cannot break engiNIR-PRINT silently. The list follows from the
 window's design in engiNIR-PRINT.
 
+## 5. The public reading surface (added 2026-11-24)
+
+engiNIR-PRINT uses public names only (an AST check there). Added:
+`Model.check_file` (the refusal of `predict` without predicting, for checking
+a job template), `Model.id`, `Model.input_contract` (a copy; the binning a
+layout is drawn in), `enginir.read_header`/`read_frames`, and `py.typed`.
+
 ## Later (not in this plan)
 
 - Tablet detection on a scan (image segmentation), as an alternative to a

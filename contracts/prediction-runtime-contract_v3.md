@@ -571,6 +571,17 @@ correction has. Keyed by cell name; no values, so no residuals or RMSEP; the
 interval of a cell's mean is NaN (a scan prediction keeps no pixel scores).
 A cell outside the scan or a repeated name is refused.
 
+**Checking a file before predicting it** (decided 2026-11-24): `Model.check_file`
+takes the parameters of `Model.predict` and returns the refusal `predict`
+would raise (its message), or `None`. It resolves the file and its reference
+correction and runs the same preflight, reading the header and named
+reference frames, never the pixels, and writes nothing; a retired model
+refuses every file. The public reading surface of a model and a scan is
+`Model.id` (the model run id), `Model.input_contract` (a copy of the input
+contract: band count, axis, unit, correction mode, binning),
+`enginir.read_header` and `enginir.read_frames` (with the model's binning, a
+scan's pixels are the prediction map's pixels, so a layout is drawn on them).
+
 A prediction of ROIs writes one log entry: the project file, the models
 (id and name), the ROI ids, the exclusion and its level, and the summary
 (*n*, RMSEP (per ROI) and bias where available). The per-ROI results are in memory
@@ -739,6 +750,11 @@ Runtime tests must cover:
   band count) without the "no wavelengths" warning, as with the table given
 - the statistics of a layout's cells on a scan equal those of ROIs stored with
   the same pixels; a cell outside the scan or a repeated name is refused
+- `check_file` returns `predict`'s refusal for another band count, levels with
+  references, reference frames outside the scan, a missing file and a retired
+  model, and `None` for an accepted file, without predicting; a scan read with
+  the model's binning has the prediction map's shape and the binned pixels;
+  the input contract given out is a copy
 - the data file is streamed chunk by chunk from every entry point (the viewer
   does not load it first); the header of a new EIFF, HDF5 or ENVI file is read
   without its pixels
