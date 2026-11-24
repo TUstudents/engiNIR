@@ -26,7 +26,7 @@ from .io._binning import check_binning
 from .io import project_store as store
 # Through the package, never a submodule first: a thread importing a submodule while
 # another runs the package's __init__ deadlocks Python's import locks.
-from .io import WavelengthTable, is_band_numbers, wavelength_table
+from .io import SpectralData, WavelengthTable, is_band_numbers, wavelength_table
 from .io import hdf5_io  # through the package (see above)
 from .modeling import (
     BandProposal,
@@ -860,8 +860,13 @@ class Project:
 
     def _resolve_dataset(self, path, *, dark, white, unit, dark_frames=None, white_frames=None,
                          references_from=None, black_level=None, white_level=None,
-                         wavelength_table=None, binning=None):
-        """Return ``(dataset, reference_correction, dataset_is_new, reference_correction_is_new)``, writing nothing."""
+                         wavelength_table=None, binning=None, model_axis=None):
+        """Return ``(dataset, reference_correction, dataset_is_new, reference_correction_is_new)``, writing nothing.
+
+        ``model_axis`` (a :class:`~enginir.io.WavelengthTable` of a model's axis): a file
+        that stores band numbers only gets it when no ``wavelength_table`` is given and
+        the band counts match.
+        """
         ws = self.workspace
         levels_given = black_level is not None or white_level is not None
         if levels_given and any(value is not None for value in (
@@ -877,12 +882,16 @@ class Project:
             if registered is not None and registered.binning != k:
                 log_and_raise("{} is registered with binning {}; a file has one binning in a "
                               "project (asked for {})", abs_path, registered.binning, k)
-        if wavelength_table is not None:
+        if wavelength_table is not None or model_axis is not None:
             hdf5_io.note_wavelength_table(abs_path)  # its band numbers are expected
         data = read_header(abs_path, k)
         table = None
         if wavelength_table is not None:
             table = _table_for_file(wavelength_table, data, abs_path)
+        elif model_axis is not None and registered is None and _stores_band_numbers(data) \
+                and int(data.cube_shape[-1]) == model_axis.n_bands:
+            table = model_axis
+        if table is not None:
             data = data._replace(wavelengths=table.wavelengths.astype(np.float64),
                                  meta={**data.meta, "x_units": "nm"})
         dataset, new_dataset = resolve_dataset(ws.datasets, path, data, project_path=self.path)
@@ -1216,6 +1225,22 @@ class Model:
         """The model's name (a mutable label)."""
         return self.project._model_name(self.record)
 
+    @property
+    def id(self) -> str:
+        """The model's stable id (``model_run_id``): its identity, unlike the name."""
+        return self.record.model_run_id
+
+    @property
+    def input_contract(self) -> SignalDomainContract:
+        """What a data file must give the model: band count, wavelength axis,
+        signal unit, reference correction mode and binning (a copy).
+
+        A layout on a scan of a binned model is in binned pixels
+        (``input_contract.binning``).
+        """
+        domain = self.project.workspace.signal_domains[self.record.signal_domain_id]
+        return replace(domain, wavelengths=np.array(domain.wavelengths, copy=True))
+
     def rename(self, name: str) -> Model:
         """Give the model another name (a mutable label; the model is its id).
 
@@ -1523,16 +1548,34 @@ class Model:
     def predict(self, path: str | os.PathLike[str], *,
                 dark: str | os.PathLike[str] | np.ndarray | None = None,
                 white: str | os.PathLike[str] | np.ndarray | None = None,
+                dark_frames: tuple[int, int] | None = None,
+                white_frames: tuple[int, int] | None = None,
+                black_level: float | None = None,
+                white_level: float | None = None,
+                wavelength_table: str | os.PathLike[str] | WavelengthTable | None = None,
                 checksum: bool = False) -> Prediction:
         """Predict the target for every spectrum of a data file, in memory.
 
         The file and its reference correction are resolved as by
         :meth:`Project.add_dataset`, in the model's signal unit, but nothing
         is written to the project: a registered file reuses its stored
-        reference correction, a new file gets one in memory. Compatibility with the
-        model is checked before the data are read. The prediction is logged
-        once (model, data file with size and modification time, summary);
-        ``checksum=True`` adds the SHA-256 of the data file.
+        reference correction unless references or levels are given, a new
+        file gets one in memory. Compatibility with the model is checked
+        before the data are read. The prediction is logged once (model, data
+        file with size and modification time, summary); ``checksum=True``
+        adds the SHA-256 of the data file.
+
+        Parameters
+        ----------
+        dark, white, dark_frames, white_frames, black_level, white_level:
+            The reference correction, as for :meth:`Project.add_dataset`:
+            reference files or arrays, reference frames of this file (frames
+            as stored), or detector levels (which exclude references).
+            Without any, the file's own levels or engiNIR's defaults.
+        wavelength_table:
+            For a new file that stores band numbers only, as for
+            :meth:`Project.add_dataset`. Without one, such a file gets the
+            model's own wavelength axis when the band counts match (logged).
 
         Returns
         -------
@@ -1541,6 +1584,55 @@ class Model:
             their 0.95 limits and summary, and the provenance.
         """
         self._require_active("predict")
+        common, recipe_id = self._prediction_inputs(
+            path, dark=dark, white=white, dark_frames=dark_frames, white_frames=white_frames,
+            black_level=black_level, white_level=white_level, wavelength_table=wavelength_table)
+        result: PredictionResult = predict_with_model_run(
+            # The file the caller named (a registered dataset may be found there, e.g. at Z:).
+            **common, data_path=_native_path(path), preprocessing_recipe_id=recipe_id,
+            checksum=checksum)
+        return Prediction(self, result)
+
+    def check_file(self, path: str | os.PathLike[str], *,
+                   dark: str | os.PathLike[str] | np.ndarray | None = None,
+                   white: str | os.PathLike[str] | np.ndarray | None = None,
+                   dark_frames: tuple[int, int] | None = None,
+                   white_frames: tuple[int, int] | None = None,
+                   black_level: float | None = None,
+                   white_level: float | None = None,
+                   wavelength_table: str | os.PathLike[str] | WavelengthTable | None = None,
+                   ) -> str | None:
+        """Why :meth:`predict` would refuse this file with these choices, or ``None``.
+
+        The same resolution and compatibility check as :meth:`predict`, with
+        the same parameters, but nothing is predicted: the file's header (and
+        reference frames, if named) is read, not its pixels. For checking a
+        setup before scans arrive, e.g. a production line's job template.
+        A retired model refuses every file.
+
+        Returns
+        -------
+        str or None
+            The refusal as :meth:`predict` would raise it, or ``None`` when
+            the file would be predicted.
+        """
+        try:
+            self._require_active("predict")
+            self._prediction_inputs(
+                path, dark=dark, white=white, dark_frames=dark_frames,
+                white_frames=white_frames, black_level=black_level, white_level=white_level,
+                wavelength_table=wavelength_table)
+        except (ValueError, OSError) as exc:
+            # ValueError covers the refusals (SignalDomainCompatibilityError among them);
+            # OSError a missing or unreadable file. Both are logged where they arise.
+            return str(exc)
+        logger.info("File {} can be predicted with model '{}'", _native_path(path), self.name)
+        return None
+
+    def _prediction_inputs(self, path: str | os.PathLike[str], *, dark, white, dark_frames,
+                           white_frames, black_level, white_level,
+                           wavelength_table) -> tuple[dict[str, Any], str]:
+        """Resolve ``path`` and its reference correction for this model and run the preflight."""
         project, ws = self.project, self.project.workspace
         domain = ws.signal_domains[self.record.signal_domain_id]
         recipe_id = ws.sample_sets[self.record.sample_set_id].preprocessing_recipe_id
@@ -1553,24 +1645,28 @@ class Model:
             if mismatch is not None:
                 log_and_raise("Not predicted: {}; add the file again under another path, or "
                               "locate the dataset's own file", mismatch)
-        if registered is not None and dark is None and white is None:
+        references = dict(dark=dark, white=white, dark_frames=dark_frames,
+                          white_frames=white_frames, black_level=black_level,
+                          white_level=white_level)
+        if registered is not None and wavelength_table is None \
+                and all(value is None for value in references.values()):
             # A registered file is predicted with its own active reference correction, the one its
             # ROIs were recorded with (not a new one from the detector levels).
             dataset = registered
             reference_correction = ws.reference_corrections[ws.active_reference_correction_ids[registered.dataset_id]]
         else:
+            axis = np.asarray(domain.wavelengths, dtype=np.float32)
+            model_axis = None if registered is not None or is_band_numbers(axis) else \
+                WavelengthTable(name=f"axis of model '{self.name}'", wavelengths=axis)
             dataset, reference_correction, _new_dataset, _new_reference_correction = project._resolve_dataset(
-                path, dark=dark, white=white, unit=domain.required_signal_unit,
+                path, **references, unit=domain.required_signal_unit,
+                wavelength_table=wavelength_table, model_axis=model_axis,
                 binning=None if registered is not None else domain.binning)
         common: dict[str, Any] = dict(project_path=project.path, model_run=self.record, signal_domain=domain,
                       recipe=recipe, dataset=dataset, reference_correction=reference_correction,
                       model_registry={})
         preflight_prediction(**common)
-        result: PredictionResult = predict_with_model_run(
-            # The file the caller named (a registered dataset may be found there, e.g. at Z:).
-            **common, data_path=_native_path(path), preprocessing_recipe_id=recipe_id,
-            checksum=checksum)
-        return Prediction(self, result)
+        return common, recipe_id
 
 
 class Prediction:
@@ -1631,6 +1727,56 @@ class Prediction:
         """How the prediction was made, as recorded with the result."""
         return self.result.provenance
 
+    def roi_prediction(self, layout: Sequence[GridCell]) -> RoiPrediction:
+        """The pixel predictions inside each cell of ``layout`` (see :meth:`roi_statistics`)."""
+        from .prediction._rois import layout_roi_prediction
+
+        ws = self.model.project.workspace
+        record = self.model.record
+        return layout_roi_prediction(
+            project_path=self.model.project.path, model_run=record, model_name=self.model.name,
+            target_id=ws.sample_sets[record.sample_set_id].target_id, layout=layout,
+            prediction_map=self.map, dmodx_map=self.dmodx_map, t2_map=self.t2_map,
+            intervals=self.result.intervals)
+
+    def roi_statistics(self, layout: Sequence[GridCell], *,
+                       exclude_dmodx: float | bool | None = None) -> RoiPredictionSummary:
+        """Statistics of the predicted pixels inside each cell of ``layout``, e.g. per tablet.
+
+        The same statistics as :meth:`Model.predict_rois` gives for stored
+        prediction ROIs, computed by the same function, so a tablet has the
+        same value in a script, on a production line and in the viewer.
+        Nothing is predicted again and nothing is written.
+
+        Parameters
+        ----------
+        layout:
+            Cells with a unique ``name`` and inclusive ``frames`` and ``rows``
+            ranges in the scan's pixels (binned pixels for a binned model):
+            :class:`GridCell`, e.g. from :func:`roi_grid`. A cell outside the
+            scan is refused.
+        exclude_dmodx:
+            As for :meth:`Model.predict_rois`: remove pixels above the DModX
+            limit at this level; ``False`` keeps every pixel; ``None``
+            (default) the model's own setting.
+
+        Returns
+        -------
+        RoiPredictionSummary
+            One row per cell, keyed by the cell's name (``roi_id``); no
+            reference values, so no RMSEP. The interval of a cell's mean is
+            NaN (a scan prediction keeps no pixel scores).
+        """
+        prediction = self.roi_prediction(layout)
+        level = prediction.default_exclusion if exclude_dmodx is None else (
+            None if exclude_dmodx is False else float(exclude_dmodx))
+        summary = roi_prediction_statistics(prediction, target_assignments={},
+                                            exclude_dmodx=level)
+        logger.info("Statistics of {} cell(s) of {} with model '{}'; exclusion {}",
+                    len(summary.rois), self.result.dataset.source_path, self.model.name,
+                    "none" if summary.exclusion is None else f"DModX {summary.exclusion}")
+        return summary
+
 
 def _required(values: np.ndarray | None) -> np.ndarray:
     if values is None:
@@ -1677,7 +1823,7 @@ class StoredPrediction:
 # -- helpers -------------------------------------------------------------------
 
 
-def read_header(path: str, binning: int = 1):
+def read_header(path: str | os.PathLike[str], binning: int = 1) -> SpectralData:
     """Return a file's :class:`~enginir.io.SpectralData` without its pixels where possible.
 
     EIFF, HDF5 and ENVI files are read header-only: ``cube_shape``,
@@ -1685,12 +1831,14 @@ def read_header(path: str, binning: int = 1):
     frames. Other formats are read completely. ``binning`` gives the binned
     shape (:func:`enginir.io.bin_blocks`).
     """
+    path = os.fspath(path)
     if file_format(path) in _HEADER_FORMATS:
         return load_spectra(path, header_only=True, binning=binning)
     return load_spectra(path, binning=binning)
 
 
-def read_frames(path: str, first: int, last: int, binning: int = 1) -> np.ndarray:
+def read_frames(path: str | os.PathLike[str], first: int, last: int,
+                binning: int = 1) -> np.ndarray:
     """Return frames ``first..last`` (inclusive) as ``(frames, height, n_bands)``.
 
     EIFF and HDF5 files read only those frames; other formats are read
@@ -1698,6 +1846,7 @@ def read_frames(path: str, first: int, last: int, binning: int = 1) -> np.ndarra
     get a height of 1. With ``binning`` the frames are counted in binned frames
     and the pixels are binned (:func:`enginir.io.bin_blocks`).
     """
+    path = os.fspath(path)
     if file_format(path) in _FRAME_FORMATS:
         X = load_spectra(path, frames=slice(first, last + 1), binning=binning).X
     else:
@@ -1789,10 +1938,15 @@ def file_wavelengths(dataset: DatasetRecord) -> np.ndarray:
     return np.asarray(dataset.wavelengths, dtype=np.float32)
 
 
+def _stores_band_numbers(data: Any) -> bool:
+    """Whether a file's header gives band numbers instead of wavelengths."""
+    return data.meta.get("x_units") == "band_index" or is_band_numbers(data.wavelengths)
+
+
 def _table_for_file(table: Any, data: Any, abs_path: str) -> WavelengthTable:
     """The wavelength table for the file at ``abs_path``: it must store none and fit its bands."""
     table = wavelength_table(table)
-    if data.meta.get("x_units") != "band_index" and not is_band_numbers(data.wavelengths):
+    if not _stores_band_numbers(data):
         log_and_raise("{} has its own wavelengths; a wavelength table is for files that store "
                       "none", abs_path, depth=2)
     n_bands = int(data.cube_shape[-1])

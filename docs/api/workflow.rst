@@ -100,13 +100,13 @@ in the viewer follow the same rules.
 
 .. autofunction:: enginir._workflow.data_file_labels
 
-.. autofunction:: enginir._workflow.read_header
+.. autofunction:: enginir.read_header
 
-.. autofunction:: enginir._workflow.read_frames
+.. autofunction:: enginir.read_frames
 
-.. autofunction:: enginir._workflow.roi_grid
+.. autofunction:: enginir.roi_grid
 
-.. autoclass:: enginir._workflow.GridCell
+.. autoclass:: enginir.GridCell
    :no-members:
 
 Data files across platforms

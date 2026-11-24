@@ -142,6 +142,13 @@ files without wavelengths) and differ by more than
 warning with the largest difference and records it in the result
 (`provenance["wavelength_warning"]`; the viewer shows it in the Predict
 summary). It never refuses or changes the prediction
+- a scan that is not registered and stores band numbers only (e.g. a
+  Kestreleye `stream_hsi.h5`) gets a wavelength table given to the
+  prediction, else the model's own axis (the input contract's) when that is
+  a real axis and the band counts match; logged, recorded as the in-memory
+  dataset's `wavelength_table`, and read without the "no wavelengths" warning.
+  This is metadata only: compatibility (the band count) is checked as for
+  any scan (decided 2026-11-23)
 - `output_signal_unit`, `required_signal_unit`, and related enum strings must be
   compared after canonical normalization
 - if flat spectra are supplied without an explicit `spatial_shape`, the alignment of
@@ -297,6 +304,13 @@ Required behavior:
   not registered gets an in-memory reference correction that is never written
   (§Result handling); content deduplication applies to reference corrections written
   by low-level persistence
+- the reference correction of a prediction is chosen as for adding a dataset
+  (`Model.predict` takes the parameters of `Project.add_dataset`): reference
+  files or arrays, reference frames of the scan (frames as stored), or
+  detector levels, which exclude references; without any, the scan's own
+  levels or the defaults. A registered scan given references or levels is
+  corrected with a new in-memory reference correction instead of its stored
+  one (decided 2026-11-23)
 
 Forbidden behavior:
 
@@ -544,6 +558,30 @@ Per ROI the half-width of the mean interval at 0.95 (Prediction intervals)
 is part of the per-ROI result in the library (NaN where there is none); the
 viewer does not show it.
 
+**Cells of a layout on a scan** (decided 2026-11-23): for scans that are
+never registered, e.g. one layer of a print job on a production line, the
+statistics above are computed for the cells of a layout on a scan prediction
+(`Prediction.roi_statistics`, `Prediction.roi_prediction`). A cell has a
+unique name and inclusive frame and row ranges in the scan's pixels (binned
+pixels for a binned model; `GridCell`, e.g. from `roi_grid`); its pixels are
+the scan prediction's pixels there, with the scan's reference correction. The
+same function gives the statistics, the exclusion and `unusual_rois`, so a
+cell has the numbers an ROI stored with the same pixels and reference
+correction has. Keyed by cell name; no values, so no residuals or RMSEP; the
+interval of a cell's mean is NaN (a scan prediction keeps no pixel scores).
+A cell outside the scan or a repeated name is refused.
+
+**Checking a file before predicting it** (decided 2026-11-24): `Model.check_file`
+takes the parameters of `Model.predict` and returns the refusal `predict`
+would raise (its message), or `None`. It resolves the file and its reference
+correction and runs the same preflight, reading the header and named
+reference frames, never the pixels, and writes nothing; a retired model
+refuses every file. The public reading surface of a model and a scan is
+`Model.id` (the model run id), `Model.input_contract` (a copy of the input
+contract: band count, axis, unit, correction mode, binning),
+`enginir.read_header` and `enginir.read_frames` (with the model's binning, a
+scan's pixels are the prediction map's pixels, so a layout is drawn on them).
+
 A prediction of ROIs writes one log entry: the project file, the models
 (id and name), the ROI ids, the exclusion and its level, and the summary
 (*n*, RMSEP (per ROI) and bias where available). The per-ROI results are in memory
@@ -705,6 +743,18 @@ Runtime tests must cover:
 - a registered scan reuses its stored active reference correction read-only, after
   its header matched the registration; a new scan gets an in-memory reference
   correction
+- reference frames of the scan or detector levels given to a prediction give
+  the correction of a dataset added with them; levels with references are
+  refused; a registered scan given levels is corrected anew
+- a new scan with band numbers only is predicted on the model's axis (same
+  band count) without the "no wavelengths" warning, as with the table given
+- the statistics of a layout's cells on a scan equal those of ROIs stored with
+  the same pixels; a cell outside the scan or a repeated name is refused
+- `check_file` returns `predict`'s refusal for another band count, levels with
+  references, reference frames outside the scan, a missing file and a retired
+  model, and `None` for an accepted file, without predicting; a scan read with
+  the model's binning has the prediction map's shape and the binned pixels;
+  the input contract given out is a copy
 - the data file is streamed chunk by chunk from every entry point (the viewer
   does not load it first); the header of a new EIFF, HDF5 or ENVI file is read
   without its pixels

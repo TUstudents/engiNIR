@@ -307,3 +307,30 @@ def test_add_dataset_bins_the_file_and_the_viewer_shows_the_binned_image(qapp, t
         assert "Binned 2 × 2" in window._status_label.text()
     finally:
         window.close()
+
+
+def test_a_layout_for_a_binned_model_is_drawn_on_the_scan_read_with_its_binning(tmp_path):
+    """A production line draws its tablet layout over a new scan read through the public API
+    with the model's binning: the image has the prediction map's pixels, so a cell drawn
+    over a tablet holds that tablet's predictions. The input contract is a copy."""
+    from enginir import read_frames, read_header
+
+    raw, _ = _tray(tmp_path)
+    _, model = _fitted(tmp_path, "p", raw, binning=2)
+    scan = tmp_path / "layer.h5"
+    save_hdf5(str(scan), np.random.default_rng(5).integers(1500, 2500, (10, 8, 6))
+              .astype(np.uint16), WAVELENGTHS[:1].repeat(6) + np.arange(6.0))
+    before = model.predict(scan).map
+
+    contract = model.input_contract
+    k = contract.binning
+    header = read_header(scan, binning=k)
+    image = read_frames(scan, 0, header.cube_shape[0] - 1, binning=k)
+    assert image.shape[:2] == header.cube_shape[:2] == before.shape == (5, 4)
+    np.testing.assert_allclose(image.astype(np.float32),
+                               bin_blocks(np.asarray(read_frames(scan, 0, 9)), 2), rtol=1e-6)
+
+    axis = contract.wavelengths.copy()
+    contract.wavelengths[:] = 0.0
+    np.testing.assert_array_equal(model.input_contract.wavelengths, axis)
+    np.testing.assert_array_equal(model.predict(scan).map, before)

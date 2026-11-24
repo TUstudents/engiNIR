@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Per-tablet statistics of a scan that is not registered:**
+  `prediction.roi_statistics(layout)` and `prediction.roi_prediction(layout)`
+  apply a layout of cells (`GridCell`, e.g. from `roi_grid`) to a
+  prediction, with the statistics, DModX exclusion and outside-the-model rule
+  of `Model.predict_rois`, computed by the same function. For production
+  lines that predict every new scan (a layer of a print job) per tablet.
+- **`Model.predict` takes the reference choices of `Project.add_dataset`:**
+  `dark_frames`/`white_frames` of the scan and `black_level`/`white_level`,
+  besides `dark`/`white`; levels exclude references. A registered scan given
+  references or levels is corrected anew in memory instead of with its stored
+  correction.
+- **A new scan with band numbers only is predicted on the model's
+  wavelength axis** when the band counts match (or with
+  `wavelength_table=`), without the "no wavelengths" warning for every file.
+- **`Model.check_file(path, ...)`** says why `Model.predict` would refuse a
+  file with the same reference choices (its message), or `None`, reading the
+  header but not the pixels: for checking a setup before scans arrive.
+- **`Model.id`** (the stable model run id) and **`Model.input_contract`** (a
+  copy: band count, wavelength axis, signal unit, reference correction mode,
+  binning).
+- `GridCell`, `roi_grid`, `read_header` and `read_frames` are exported from
+  `enginir`; a layout is drawn on a scan read with the model's binning.
+- The package declares its type hints (`py.typed`).
+
 ## 1.7.8 (2026-11-23)
 
 A fix release: a band selection after a Savitzky-Golay filter used the wrong

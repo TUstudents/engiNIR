@@ -157,6 +157,29 @@ def test_a_model_fitted_on_band_numbers_predicts_the_same_after_set_wavelengths(
     assert contract.wavelengths[0] == pytest.approx(1041.75)
 
 
+def test_a_new_band_number_file_is_predicted_on_the_models_axis(tmp_path):
+    """A production line predicts each new Kestreleye stream with a model fitted in nm: the
+    stream gets the model's axis (same band count), with no "no wavelengths" warning, and
+    predicts as with the table given."""
+    from tests._scans import warnings_during
+
+    (tmp_path / "calibration").mkdir()
+    project = Project.create(tmp_path / "p.h5")
+    labelled(project, stream_file(tmp_path / "calibration" / "stream_hsi.h5"),
+             wavelength_table=KESTRELEYE)
+    model = project.fit("API", n_components=2, cv=3)
+    layer = stream_file(tmp_path / "stream_hsi.h5")
+    prediction, warnings = warnings_during(lambda: model.predict(layer))
+    assert not [w for w in warnings if "band indices" in w], warnings
+    contract = project.workspace.signal_domains[model.record.signal_domain_id]
+    np.testing.assert_array_equal(prediction.result.dataset.wavelengths, contract.wavelengths)
+    assert prediction.result.dataset.wavelength_table == f"axis of model '{model.name}'"
+    np.testing.assert_allclose(prediction.map,
+                               model.predict(layer, wavelength_table=KESTRELEYE).map, atol=1e-6)
+    with pytest.raises(ValueError, match=f"n_bands={N_BANDS - 6}, but the model requires"):
+        model.predict(stream_file(tmp_path / "other.h5", n_bands=N_BANDS - 6))
+
+
 # -- the check -------------------------------------------------------------------
 
 
